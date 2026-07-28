@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreePipeCalc — Piping Friction Loss Calculator</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand" title="FreePipeCalc">FPC <span class="ver" id="app-version"></span></div>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-pane="pane-network" aria-selected="true">PIPING NETWORK</button>
+    <button class="tab" role="tab" data-pane="pane-calculation" aria-selected="false">CALCULATION</button>
+    <button class="tab" role="tab" data-pane="pane-hydraulic" aria-selected="false">HYDRAULIC</button>
+    <button class="tab" role="tab" data-pane="pane-settings" aria-selected="false">SETTINGS</button>
+  </nav>
+  <div class="spacer"></div>
+  <span class="chip" id="status-chip">starting…</span>
+</div>
+
+<!-- ==================================================== PIPING NETWORK -->
+<section class="pane pane-flush" id="pane-network" data-active="true" role="tabpanel">
+  <div class="toolbar">
+    <div class="tool-group">
+      <button class="btn" data-tool="edit">EDIT</button>
+      <button class="btn" data-tool="pipe">DRAW PIPE</button>
+      <button class="btn" data-tool="riser">ADD RISER</button>
+      <button class="btn" data-tool="source">ADD SOURCE</button>
+      <button class="btn" data-tool="demand">ADD DEMAND</button>
+      <button class="btn" data-tool="pump">PUMP</button>
+      <button class="btn" data-tool="equip">EQUIP</button>
+      <button class="btn" data-tool="valve" id="btn-valve">VALVE</button>
+      <select id="valve-type" class="inline-select" title="Valve type to place">
+        <option value="gate">Gate</option>
+        <option value="check">Check</option>
+      </select>
+    </div>
+    <div class="sep"></div>
+    <div class="tool-group">
+      <button class="btn primary" id="btn-calculate">CALCULATE</button>
+      <button class="btn" id="btn-renumber" title="Renumber nodes from source to demand">RENUMBER NODES</button>
+    </div>
+    <div class="sep"></div>
+    <div class="tool-group">
+      <button class="btn" id="btn-new">NEW</button>
+      <button class="btn" id="btn-save">SAVE MODEL</button>
+      <button class="btn" id="btn-load">LOAD MODEL</button>
+      <button class="btn" id="btn-print">PRINT</button>
+    </div>
+    <div class="sep"></div>
+    <div class="tool-group">
+      <button class="btn icon" id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
+      <button class="btn icon" id="btn-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+      <button class="btn icon" id="btn-fit" title="Zoom to fit">⤢</button>
+    </div>
+    <div class="spacer"></div>
+    <span class="hint-inline">
+      Scroll = zoom · middle-drag = pan · during DRAW: scroll = pipe size, Shift = free angle, Esc = finish
+    </span>
+  </div>
+
+  <div class="netlayout">
+    <!-- Both panels sit on the left so the eye and the mouse stay on one side
+         of the screen while drawing (user request). -->
+    <aside class="panel panel-left">
+      <div class="panel-head">
+        <span>LEVELS</span>
+        <span>
+          <button class="btn tiny" id="btn-add-level" title="Add level above">+</button>
+          <button class="btn tiny" id="btn-del-level" title="Remove active level">−</button>
+        </span>
+      </div>
+      <div id="level-list"></div>
+
+      <div class="panel-head panel-head-2"><span>PROPERTIES</span></div>
+      <div id="prop-body"></div>
+    </aside>
+
+    <div class="canvas-host">
+      <canvas id="canvas"></canvas>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================== CALCULATION -->
+<section class="pane" id="pane-calculation" role="tabpanel">
+  <div class="wrap">
+    <div class="calc-actions">
+      <button class="btn" id="btn-csv">SAVE CALCULATION (CSV)</button>
+      <button class="btn" id="btn-save-2">SAVE MODEL</button>
+      <button class="btn" id="btn-print-2">PRINT</button>
+    </div>
+    <div id="calc-body"></div>
+  </div>
+</section>
+
+<!-- ======================================================== HYDRAULIC -->
+<section class="pane" id="pane-hydraulic" role="tabpanel">
+  <div class="wrap">
+    <div id="hydraulic-body"></div>
+  </div>
+</section>
+
+<!-- ========================================================= SETTINGS -->
+<section class="pane" id="pane-settings" role="tabpanel">
+  <div class="wrap">
+    <div id="settings-body"></div>
+    <p class="footer-note">
+      FreePipeCalc is free software under the MIT licence — see LICENSE.txt.<br>
+      For preliminary design assistance only. Results must be verified by a qualified engineer.
+      No warranty; no liability.
+    </p>
+  </div>
+</section>
+
+<input type="file" id="file-input" accept=".json,.pnet.json,application/json" hidden>
+<div id="toasts"></div>
+
+<!-- Printed level plans are built here on demand; hidden on screen. -->
+<div id="print-plans" aria-hidden="true"></div>
+
+<!-- =====================================================================
+     Load order matters and is deliberate. These are CLASSIC scripts, not
+     ES modules: browsers block module loading over file:// (CORS treats a
+     file origin as opaque), which would break the "open it by double-
+     clicking, no build step" requirement in spec §1. Every file attaches
+     to the single global FD namespace. See docs/ENGINE.md §1.
+     ================================================================== -->
+<script src="data/schedules.js"></script>
+<script src="data/fittings.js"></script>
+<script src="data/valves.js"></script>
+<script src="data/ktable.js"></script>
+<script src="src/units.js"></script>
+<script src="src/hydraulics.js"></script>
+<script src="src/solver.js"></script>
+<script src="src/model.js"></script>
+<script src="src/geometry.js"></script>
+<script src="src/network.js"></script>
+<script src="src/dialog.js"></script>
+<script src="src/canvas.js"></script>
+<script src="src/printer.js"></script>
+<script src="src/app.js"></script>
+<script>
+  window.FD.APP_NAME = 'FreePipeCalc';
+  window.FD.APP_SHORT = 'FPC';
+  window.FD.VERSION = '0.3.0-dev';
+  window.FD.FORMAT_VERSION = 1;
+  try {
+    window.FD.initApp();
+  } catch (err) {
+    var chip = document.getElementById('status-chip');
+    chip.textContent = 'Startup error — see console';
+    chip.className = 'chip error';
+    console.error(err);
+  }
+</script>
+</body>
+</html>
