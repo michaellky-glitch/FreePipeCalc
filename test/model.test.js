@@ -173,8 +173,10 @@ section('Network — tee run/branch by flow direction (spec §3.3)');
   const byPipe = {};
   fits.forEach(f => { byPipe[f.pipe] = f.type; });
 
-  ok('East leg (through-flow) gets tee-RUN', byPipe[pE.id] === 'TRUN', JSON.stringify(byPipe));
-  ok('North leg (diverging) gets tee-BRANCH', byPipe[pN.id] === 'TBRANCH', JSON.stringify(byPipe));
+  ok('East leg (through-flow) gets a dividing tee-RUN',
+     byPipe[pE.id] === 'TRUN_DIV', JSON.stringify(byPipe));
+  ok('North leg (diverging) gets a dividing tee-BRANCH',
+     byPipe[pN.id] === 'TBRANCH_DIV', JSON.stringify(byPipe));
   ok('Incoming leg is charged nothing (EL goes downstream)',
      byPipe[pW.id] === undefined, JSON.stringify(byPipe));
 
@@ -210,9 +212,9 @@ section('Network — the second pass actually changes the answer');
   ok('Pass 1 (geometry) calls the straight leg the run',
      pass1[pStraight.id].types.includes('TRUN'), JSON.stringify(pass1[pStraight.id].types));
   ok('Pass 2 (flow) reassigns the run to the leg carrying through-flow',
-     pass2[pSide.id].types.includes('TRUN'), JSON.stringify(pass2[pSide.id].types));
+     pass2[pSide.id].types.includes('TRUN_DIV'), JSON.stringify(pass2[pSide.id].types));
   ok('...and demotes the straight leg to branch',
-     pass2[pStraight.id].types.includes('TBRANCH'), JSON.stringify(pass2[pStraight.id].types));
+     pass2[pStraight.id].types.includes('TBRANCH_DIV'), JSON.stringify(pass2[pStraight.id].types));
   ok('The two passes genuinely differ',
      pass1[pSide.id].el !== pass2[pSide.id].el);
   ok('Solve reports more than one pass', res.passes >= 2, 'passes=' + res.passes);
@@ -652,10 +654,10 @@ section('Symmetric riser tee does not oscillate (regression)');
   NET.fittingsAtNode(m, f2.r.id, res.flow, []).forEach(f => { types[f.pipe] = f.type; });
   const horiz = legs.find(p => p.kind !== 'riser');
   ok('The horizontal floor take-off is the BRANCH',
-     types[horiz.id] === 'TBRANCH', JSON.stringify(types));
+     /^TBRANCH/.test(types[horiz.id] || ''), JSON.stringify(types));
   const risers = legs.filter(p => p.kind === 'riser').map(p => types[p.id]).filter(Boolean);
   ok('The vertical riser legs are the RUN',
-     risers.length > 0 && risers.every(t => t === 'TRUN'), JSON.stringify(types));
+     risers.length > 0 && risers.every(t => /^TRUN/.test(t)), JSON.stringify(types));
 
   // Deterministic: repeated solves of fresh copies must agree exactly
   const sigs = [];

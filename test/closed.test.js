@@ -168,10 +168,22 @@ section('Two pumps share the load');
 
   const q1 = Math.abs(res.flow[ps[0].id]), q2 = Math.abs(res.flow[ps[1].id]);
   near('Both auto pumps are given the same head', ps[0].pump.head, ps[1].pump.head, 1e-9);
-  ok('They split the flow roughly evenly',
-     Math.abs(q1 - q2) / (q1 + q2) < 0.05,
+  /* Not an even split, and it should not be.
+   *
+   * The two pumps discharge into a common header, so one enters it through the
+   * straight run and the other through a branch. A combining tee charges the
+   * branch inflow more than the run inflow, so the branch-side pump meets more
+   * resistance and carries less. Before combining tees charged their inlets at
+   * all, this came out at a suspiciously exact 50/50.
+   *
+   * The expected direction is therefore uneven, with the imbalance bounded by
+   * the extra 60 D the branch leg carries — a few metres of equivalent pipe on
+   * DN100, so single-figure percent, not a landslide. */
+  const share = q1 / (q1 + q2);
+  ok('Neither pump is starved', share > 0.4 && share < 0.6,
      `${(q1 * 1000).toFixed(2)} / ${(q2 * 1000).toFixed(2)} L/s`);
-  ok('Each carries about half', Math.abs(q1 / (q1 + q2) - 0.5) < 0.05);
+  ok('The split is uneven, because one pump enters the header through a branch',
+     Math.abs(share - 0.5) > 0.01, String(share));
 
   const eq = equip(m);
   near('Combined flow still equals the circuit flow',

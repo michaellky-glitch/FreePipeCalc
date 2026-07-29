@@ -83,10 +83,50 @@
 
     var runPair = pickRunPair(m, nodeId, pipes, flows);
 
+    /* Dividing and combining tees are different fittings, and which one this is
+     * depends on the flow, so it is only knowable on the second pass.
+     *
+     * The charging rule differs too, and getting it wrong was a real error:
+     *
+     *   DIVIDING (one in, two out) — charge both OUTLETS. Each leaving stream
+     *   pays for the split it went through.
+     *
+     *   COMBINING (two in, one out) — charge both INLETS. This is the case that
+     *   was wrong: equivalent length went only to the downstream leg, so the
+     *   branch inflow, which suffers most of the loss in a combining tee, was
+     *   charged nothing at all. Combining tees were systematically
+     *   under-resistanced.
+     *
+     * Without a previous pass there are no flow directions, so it falls back to
+     * the old geometric guess and the undifferentiated coefficients. */
+    if (!flows) {
+      pipes.forEach(function (p) {
+        if (!isDownstream(p)) return;
+        var isRun0 = (p.id === runPair[0] || p.id === runPair[1]);
+        out.push({ pipe: p.id, type: isRun0 ? 'TRUN' : 'TBRANCH' });
+      });
+      return out;
+    }
+
+    var ins = [], outs = [];
     pipes.forEach(function (p) {
-      if (!isDownstream(p)) return;            // EL belongs to the downstream leg only
+      (isDownstream(p) ? outs : ins).push(p);
+    });
+
+    /* Everything one way (or all zero) is not a tee doing anything — no flow is
+     * being split or merged, so there is nothing to charge. */
+    if (!ins.length || !outs.length) return out;
+
+    var dividing = outs.length >= ins.length;
+    var charged = dividing ? outs : ins;
+
+    charged.forEach(function (p) {
       var isRun = (p.id === runPair[0] || p.id === runPair[1]);
-      out.push({ pipe: p.id, type: isRun ? 'TRUN' : 'TBRANCH' });
+      out.push({
+        pipe: p.id,
+        type: dividing ? (isRun ? 'TRUN_DIV' : 'TBRANCH_DIV')
+                       : (isRun ? 'TRUN_CONV' : 'TBRANCH_CONV')
+      });
     });
     return out;
   }

@@ -21,8 +21,22 @@
   var LD = {
     E90:    { ld: 30, code: 'E90',  label: '90° elbow' },
     E45:    { ld: 16, code: 'E45',  label: '45° elbow' },
-    TRUN:   { ld: 20, code: 'T-run', label: 'Tee, straight through' },
-    TBRANCH:{ ld: 60, code: 'T-br',  label: 'Tee, branch' },
+    /* Tees, split four ways: a dividing tee and a combining tee are different
+     * fittings hydraulically, and ASHRAE tabulates them separately.
+     *
+     * The L/D values below are all still the ASHRAE straight-through / branch
+     * figures already in use (20 and 60). They are NOT a converging/diverging
+     * data set — that data is a function of the flow ratio Qb/Qc and is not
+     * reproduced here, for the same reason the size correction was removed
+     * (see the note below). Splitting the four cases out makes the model
+     * structurally correct and gives each case its own editable coefficient,
+     * so a sourced set can be entered without touching code. */
+    TRUN:    { ld: 20, code: 'T-run',  label: 'Tee, straight through' },
+    TBRANCH: { ld: 60, code: 'T-br',   label: 'Tee, branch' },
+    TRUN_DIV:    { ld: 20, code: 'T-run-d', label: 'Tee, dividing — through run' },
+    TBRANCH_DIV: { ld: 60, code: 'T-br-d',  label: 'Tee, dividing — to branch' },
+    TRUN_CONV:   { ld: 20, code: 'T-run-c', label: 'Tee, combining — through run' },
+    TBRANCH_CONV:{ ld: 60, code: 'T-br-c',  label: 'Tee, combining — from branch' },
     // Not auto-detected in v1, but the table carries them for future use.
     GATE:   { ld: 8,  code: 'GV',   label: 'Gate valve, open' },
     GLOBE:  { ld: 340,code: 'GLV',  label: 'Globe valve, open' },

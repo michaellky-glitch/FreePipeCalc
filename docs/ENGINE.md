@@ -316,6 +316,23 @@ charged — so the branch stream, which in a combining tee suffers most of the
 loss, contributes nothing. Combining tees are therefore systematically
 under-charged.
 
+**Status.** The STRUCTURE is now correct: dividing and combining tees are
+separate fitting types with their own editable coefficients, and a combining tee
+charges both of its inlets rather than only the downstream leg. What is still
+outstanding is the DATA — the four coefficients all currently hold the same
+ASHRAE straight-through/branch values (L/D 20 and 60) already in use, because a
+converging/diverging set is a function of the flow ratio Qb/Qc and typing one
+from memory would repeat the mistake documented in `data/fittings.js`.
+
+Entering a sourced set needs no code change: `settings.fittingLD` carries
+`TRUN_DIV`, `TBRANCH_DIV`, `TRUN_CONV` and `TBRANCH_CONV` independently.
+
+One visible consequence of the structural fix: two identical pumps discharging
+into a common header no longer split exactly 50/50. One enters through the run
+and the other through a branch, so the branch-side pump meets more resistance
+and carries less. The old exact 50/50 was an artefact of charging the branch
+inflow nothing.
+
 This is not a bug to fix by picking numbers. It needs a sourced coefficient set,
 and the choice of source is an engineering judgement — see
 `docs/ROADMAP.md`. Until then, treat friction through heavily-branched
