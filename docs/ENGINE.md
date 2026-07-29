@@ -316,16 +316,42 @@ charged — so the branch stream, which in a combining tee suffers most of the
 loss, contributes nothing. Combining tees are therefore systematically
 under-charged.
 
-**Status.** The STRUCTURE is now correct: dividing and combining tees are
-separate fitting types with their own editable coefficients, and a combining tee
-charges both of its inlets rather than only the downstream leg. What is still
-outstanding is the DATA — the four coefficients all currently hold the same
-ASHRAE straight-through/branch values (L/D 20 and 60) already in use, because a
-converging/diverging set is a function of the flow ratio Qb/Qc and typing one
-from memory would repeat the mistake documented in `data/fittings.js`.
+**Status.** The STRUCTURE is correct: dividing and combining tees are separate
+fitting types with their own editable coefficients, and a combining tee charges
+both of its inlets rather than only the downstream leg.
 
-Entering a sourced set needs no code change: `settings.fittingLD` carries
-`TRUN_DIV`, `TBRANCH_DIV`, `TRUN_CONV` and `TBRANCH_CONV` independently.
+The DATA is partly placeholder, and the app says which:
+
+| Coefficient | L/D | Provenance |
+|---|---|---|
+| `TRUN_DIV` — dividing, through run | 20 | Spec §3.3 tee-run. This was always implicitly the dividing case. |
+| `TBRANCH_DIV` — dividing, to branch | 60 | Spec §3.3 tee-branch, likewise. |
+| `TRUN_CONV` — combining, through run | 20 | **PLACEHOLDER.** Assumed equal to the dividing run. |
+| `TBRANCH_CONV` — combining, from branch | 90 | **PLACEHOLDER.** Assumed 1.5× the dividing branch. |
+
+For the two placeholders the only thing asserted with any confidence is the
+**ordering** — a stream entering through the branch of a combining tee loses
+more than one leaving through the branch of a dividing tee, because it must turn
+*and* merge with a stream already moving. The magnitudes are guesses.
+
+`FD.fittings.unsourced()` lists them, they are flagged in the HYDRAULIC tab's
+table, and a notice there names them. Entering a sourced set needs no code
+change — `settings.fittingLD` carries all four independently.
+
+**How much does the guess actually cost?** Measured by sweeping
+`TBRANCH_CONV` from 60 to 120 D:
+
+| Model | Total friction | Spread |
+|---|---|---|
+| Data centre ring, DN200 | 13.9 / 14.0 / 14.1 kPa | 1.4% |
+| 3-floor riser, DN100 | 519.6 kPa | 0.00% |
+
+Small — but do not read that as "it does not matter". Both of these are
+generously sized systems in which straight pipe dominates and combining tees are
+few. The exposure rises with the number of combining tees and falls with pipe
+size, because equivalent length scales with diameter while friction scales with
+roughly the fifth power of it. A small-bore, heavily-branched return system is
+where this would bite, and none of the example models is one.
 
 One visible consequence of the structural fix: two identical pumps discharging
 into a common header no longer split exactly 50/50. One enters through the run

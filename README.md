@@ -79,7 +79,7 @@ Usable for simple networks. Implemented so far:
 | Canvas: draw, snap, tee insertion, zoom/pan, select, delete | done |
 | Calculation sheet + CSV export + print stylesheet | done |
 | Settings, theming, autosave, undo/redo | done |
-| Test suite (526 assertions) | done |
+| Test suite (633 assertions) | done |
 | TRACE mode: trace over a pasted drawing | done |
 | Open/closed detection shown on the ribbon | done |
 | DOCUMENTATION tab rendering the project docs | done |
@@ -98,7 +98,7 @@ Usable for simple networks. Implemented so far:
 | Darcy-Weisbach module (experimental, correlation pending) | done |
 | ASHRAE fitting K coefficient tables | done |
 | Riser auto-alignment: inactive floors slide to the active floor | done |
-| Equipment device (§8.3) | model only, no UI |
+
 | Rigid-translation length edits, incl. across risers (§6) | done |
 | Copy level layout up/down, carrying risers (§6) | done |
 | Custom user pipe schedules, paste from a spreadsheet (§9) | done |
@@ -111,6 +111,14 @@ Usable for simple networks. Implemented so far:
 | Closed circuits: pressure datum + flow-based pump sizing | done |
 | Pump off/running modes | done |
 | Pump duty table: head required vs selection margin | done |
+| DESIGN / SIMULATION modes, calculated side locked | done |
+| Pump curves: paste manufacturer data, least-squares fit with quality shown | done |
+| TOOLS tab — Generic Pump Curve (three-point, NFPA 20 preset) | done |
+| SHOW DISCONNECT: coincident nodes, islands, devices with nowhere to discharge | done |
+| Device direction with flip, no reverse flow through pump/equipment/check valve | done |
+| Parallel pumps share flow in DESIGN | done |
+| Combining vs dividing tees (structure done, 2 of 4 coefficients placeholder) | partial |
+| Drag a device body; labels snap to grid; riser select/delete | done |
 
 Previous releases are kept under `Previous Version/`.
 
@@ -146,6 +154,7 @@ Hazen-Williams without touching the solver.
       fittings.js       ASHRAE equivalent lengths
       valves.js         valve Kv/Cv data and opening curves
       ktable.js         ASHRAE fitting resistance coefficients K
+      pumps.js          pump curves: single-point, 3-point quadratic, fitting
     src/
       units.js          SI <-> display conversion and parsing
       hydraulics.js     pipe loss models
@@ -156,6 +165,9 @@ Hazen-Williams without touching the solver.
       canvas.js         drawing surface: render + pointer interaction
       dialog.js         in-app modal dialogs (no browser popups)
       printer.js        printed level plans (SVG, one page per level)
+      trace.js          background drawings to trace over
+      tools.js          TOOLS tab: standalone calculators
+      docs.js           DOCUMENTATION tab: renders docs/ in the app
       app.js            shell: toolbar, panels, sheet, settings, persistence
     docs/
       ENGINE.md         maths, derivation, worked checks

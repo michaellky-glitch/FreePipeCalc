@@ -17,6 +17,8 @@ Pump-driven analysis: the engineer specifies a pump curve and the app derives
 the flow, instead of specifying flows and deriving the pump. Designed and
 agreed; see `docs/SIMULATION-design.md`.
 
+**BUILT** in v0.5.0 — this section is kept as the record of why.
+
 Prototyped before designing — a pump curve patched into the existing solver
 found the operating point to ~1e-13 against analytic answers in 10–13
 iterations, under a millisecond. **No separate system-curve intersection is
@@ -42,22 +44,25 @@ per level.
 
 ### UX
 
-* **Accessory placement should snap to pipe.** Risers, sources, demands, pumps,
-  equipment and valves should use the same snapping the pipe tool does. Risers
-  already have generous snapping; the rest still use the plain 10 px radius.
+* ~~**Accessory placement should snap to pipe.**~~ **Done.** Placement always
+  did snap; what was missing was any sign of it. The radius is now 28 px and the
+  target pipe is highlighted with the insertion point marked.
 * **Pipe intersections should default to 90°.** Snap square unless the user
   "wiggles" away from it, then fall back to the 15° increments. The intent is
   that the common case needs no precision from the user.
 * **Riser placement should ask which way it goes** — a page dialog (not a
   browser popup) offering the floor above or below, with `z` / `x` shortcuts.
   Some users will not read the toast that currently explains it.
-* **Dragging nodes and labels should snap to grid.** Node dragging is currently
-  free-form; label dragging is free-form by design but should probably snap too.
+* ~~**Labels should snap to grid.**~~ **Done** — to the world grid, not to
+  their own offset, so labels on different anchors line up. Shift overrides.
+  Node dragging already snapped.
 
 ### Functionality
 
-* **Drag accessories along their pipe.** In EDIT, a pump/valve/equipment should
-  slide along the run it sits in. The constraint is that the *angle and the
+* **Drag accessories ALONG their pipe.** Partly done: a device body can now be
+  dragged as a unit (both endpoints move together, length and orientation
+  preserved). What is still missing is constraining that drag to slide along the
+  run rather than moving freely. The constraint is that the *angle and the
   total length between the nodes either side must not change* — so it is a
   reposition within a fixed span, not a geometry edit.
 * **Inline metadata editing.** Project, engineer, revision and so on should be
@@ -108,3 +113,35 @@ entirely, and is no harder than what it already does: `dh/dq = b + 2c·q` is a
 cleaner derivative than the power law's. Not done because it changes the stored
 model format and so needs a `formatVersion` bump and a migration for curves
 already saved.
+
+
+## Tee coefficients for converging and diverging flow
+
+**Open, and the one outstanding engineering item.**
+
+The structure is built — dividing and combining tees are separate fitting types
+and a combining tee charges both of its inlets — but two of the four
+coefficients are placeholders:
+
+| Coefficient | L/D | |
+|---|---|---|
+| `TRUN_CONV` | 20 | placeholder — assumed equal to the dividing run |
+| `TBRANCH_CONV` | 90 | placeholder — assumed 1.5× the dividing branch |
+
+Agreed source: **ASHRAE Fundamentals**, for consistency with the K tables
+already in `data/ktable.js`.
+
+The honest difficulty is that real tee losses are a function of the flow ratio
+Qb/Qc and vary by more than an order of magnitude across it, so a flat L/D
+cannot be right everywhere. Two ways forward:
+
+1. **Flat values per case** — enter four numbers from ASHRAE at a representative
+   flow ratio. Cheap, no code change, and no worse in kind than the flat L/D the
+   spec already mandates.
+2. **Flow-ratio dependent** — `fittingsAtNode()` already knows every leg's flow,
+   so Qb/Qc is available at the point the fitting is assigned. This would mean a
+   curve per case rather than a scalar, and a change to how `fittingLD` is
+   stored and edited.
+
+(2) is the right answer eventually. (1) is what unblocks issuing calculations
+through branched pipework.

@@ -76,6 +76,7 @@ Load order matters; this is it.
 | `data/valves.js` | Valve Kv/Cv data, opening curves, resistance. |
 | `data/ktable.js` | ASHRAE fitting resistance coefficients K, by nominal size. |
 | `src/units.js` | SI ↔ display conversion, number parsing. **Display only.** |
+| `data/pumps.js` | Pump curves: single-point, three-point quadratic, least-squares fit, parsing. |
 | `src/hydraulics.js` | Pipe loss models: Hazen-Williams, Darcy, friction factors. |
 | `src/solver.js` | The Global Gradient Algorithm. Knows nothing about drawings. |
 | `src/model.js` | Model state: levels, nodes, pipes, risers, devices, save/load. |
@@ -84,6 +85,8 @@ Load order matters; this is it.
 | `src/dialog.js` | In-app modal dialogs (no browser popups). |
 | `src/canvas.js` | Drawing surface: rendering + pointer interaction. |
 | `src/printer.js` | Printed level plans as SVG. |
+| `src/tools.js` | TOOLS tab: standalone calculators. Reads no model state. |
+| `src/docs.js` | DOCUMENTATION tab: renders these files in the app. |
 | `src/app.js` | Shell: toolbar, panels, calculation sheet, settings, persistence. |
 
 The dependency direction is strictly downward in that table. `solver.js` does
@@ -383,7 +386,7 @@ instead of going stale. Measured cost is 1.3–2.6 ms per solve; it is free.
 Two sizing targets:
 
 * **Open system** — size until the worst demand meets its required pressure.
-* **Closed circuit** — there are no demand nodes, so the *equipment's rated
+* **Closed circuit** — there are no outflow nodes, so the *equipment's rated
   flow* is the design flow. Size until the equipment gets it, iterating
   `H ← H × (q_target/q_actual)^1.9` (the circuit is near-quadratic).
 
@@ -391,7 +394,7 @@ Safeguards, both earned the hard way:
 
 * Sizing converges from **either** side. Only ever adding head meant a model
   saved with an oversized pump kept it forever, which is not what "auto" means.
-  Demands are fixed flows, so lowering the head lowers every pressure by the
+  Outflows are fixed flows, so lowering the head lowers every pressure by the
   same amount and one step lands it.
 * Pumps that can never pass flow are skipped. The test is **topological** (is
   either end a dead end?), not "does it carry flow right now" — a pump starting
@@ -481,7 +484,7 @@ It is not, however, what physically happens: water cannot be drawn from a node
 with no pressure to give. So when any demand is short, a second
 **pressure-driven** pass runs. Each unsatisfiable demand is converted from a
 fixed flow to a fixed head at its required pressure and the network re-solved;
-the flow that then arrives is what the system can really supply. Demands that
+the flow that then arrives is what the system can really supply. Outflows that
 turn out to be satisfiable are handed back, and the two sets iterate until
 stable. Back-flow is clamped — a terminal that would have to push water into
 the network delivers nothing.
@@ -507,15 +510,79 @@ Codes worth knowing:
 | `VELOCITY`, `PDM` | Threshold breaches. Carry value and limit. |
 | `LAMINAR`, `TRANSITIONAL` | Flow regime. Laminar means Hazen-Williams is the *wrong equation*, not merely imprecise. |
 | `NO_SOURCE` | No source anywhere; a temporary datum was pinned. Hydraulic error. |
-| `SUPPLY_INSUFFICIENT` | Demands cannot be met. Hydraulic error; source turns red on the drawing. |
+| `SUPPLY_INSUFFICIENT` | Outflows cannot be met. Hydraulic error; source turns red on the drawing. |
 | `PUMP_DEAD_END`, `PUMP_NO_FLOW` | Pump doing nothing. Hydraulic error. |
 | `VALVE_SHUT`, `CHECK_CLOSED` | Valve state. |
 | `CROSS` | 4+ pipes at a node. |
 | `ISLAND_NO_SOURCE` | Disconnected section carrying demand. |
 | `FITTING_OSCILLATION` | Two-pass loop did not settle. Should be rare. |
+| `COINCIDENT_NODES` | Two nodes in the same place, not joined. **Error.** The drawing looks continuous and the network is not. |
+| `ISLAND` | Pipework with no path to the rest of the network. **Error.** |
+| `ORPHAN_NODE` | A node with no pipe on it. |
+| `NO_RETURN_PATH` | A pump or equipment whose outlet can reach neither its own inlet nor any sink. **Error.** |
+| `NO_PUMP_CURVE` | SIMULATION with a running pump that has no curve. **Error** — a constant-head pump answers a different question. |
+| `PUMP_RUNOUT` | A pump past `settings.warn.pumpRunout` % of its design flow. |
+| `REVERSE_BLOCKED` | Equipment holding against reverse flow — check its direction. |
 
 Hydraulic errors take the status chip to themselves in red, because every
 number on the sheet is conditional on them.
+
+### Disconnection is checked on every solve
+
+`FD.network.disconnections(m)` runs before the results are returned, and the
+fatal codes above clear `converged`. It exists because a real model arrived with
+zero flow everywhere, `converged: true` and no errors: the ring main was not a
+ring, six pairs of nodes sat at exactly the same coordinates without being
+joined, and both chillers ended in dead ends. Zero flow that looks like an
+answer is worse than no answer.
+
+It materialises risers first (`M.riserPipes`), because a riser is stored as
+attachments and only becomes a pipe when the network is built — and the canvas
+calls this on every frame without building. Coincidence is tested in true 3D via
+`worldXY` and `elevation`, so two nodes at the same plan position on different
+floors — every riser — are not mistaken for a break.
+
+**SHOW DISCONNECT** is a view toggle (`view.showDisconnects`), not a tool.
+Finding a break is half the job; you then switch to EDIT to join the pipe, and
+as a tool the markers vanished exactly when they were needed.
+
+---
+
+## 4A. DESIGN and SIMULATION
+
+Two modes, because the same drawing answers two different questions and a
+terminal *is* a different object in each.
+
+| | DESIGN | SIMULATION |
+|---|---|---|
+| Outflow | required flow — an **input** | a resistance derived from its design point |
+| Outflow flow | as stated | an **output** |
+| Pump | duty calculated — an **output** | curve — an **input**, and mandatory |
+| Question | "what pump do I need?" | "what will this pump do?" |
+
+Whichever side is calculated is greyed and locked in the property panel. The
+mode is `settings.calcMode` and the chip on the ribbon toggles it.
+
+Terminal characteristic comes from the design point, `r = ΔP_d / (ρ·g·Q_d²)`,
+which is the same form equipment already uses — so nothing extra is entered.
+That is why an outflow at zero required pressure is refused: `K = Q/√ΔP` is
+undefined there, and guessing would be inventing engineering data.
+
+Full reasoning in `SIMULATION-design.md`.
+
+### Devices have direction
+
+Pumps, equipment and check valves pass flow one way only, `a → b`, flipped by
+swapping the pipe's endpoints (the `‹ ›` button). Reverse flow is held using the
+same head-based test as the check valve — testing *flow* oscillates forever,
+testing the adverse *head difference* is a stable fixed point because the
+adverse head is still there while the device is shut.
+
+An **off** pump or **isolated** equipment is omitted from the network entirely.
+It was previously a very large resistance, which was nearly right; "nearly" cost
+about 0.03% of system flow seeping through every stopped pump, so the reported
+flows did not add up. `net.omitted` carries them and `solveModel` reports their
+flow as zero rather than leaving the key absent.
 
 ---
 

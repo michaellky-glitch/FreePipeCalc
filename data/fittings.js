@@ -22,21 +22,45 @@
     E90:    { ld: 30, code: 'E90',  label: '90° elbow' },
     E45:    { ld: 16, code: 'E45',  label: '45° elbow' },
     /* Tees, split four ways: a dividing tee and a combining tee are different
-     * fittings hydraulically, and ASHRAE tabulates them separately.
+     * fittings hydraulically and ASHRAE tabulates them separately.
      *
-     * The L/D values below are all still the ASHRAE straight-through / branch
-     * figures already in use (20 and 60). They are NOT a converging/diverging
-     * data set — that data is a function of the flow ratio Qb/Qc and is not
-     * reproduced here, for the same reason the size correction was removed
-     * (see the note below). Splitting the four cases out makes the model
-     * structurally correct and gives each case its own editable coefficient,
-     * so a sourced set can be entered without touching code. */
+     * PROVENANCE — the two combining values are PLACEHOLDERS, not data.
+     * `sourced: false` marks them, FD.fittings.unsourced() lists them, and the
+     * HYDRAULIC tab shows the list. See docs/ENGINE.md.
+     *
+     *  - TRUN_DIV / TBRANCH_DIV carry the spec §3.3 values (20 D and 60 D),
+     *    which are the tee-run and tee-branch figures already in use and were
+     *    always implicitly the DIVIDING case: they were applied to the outlets
+     *    of a tee, which is where a dividing tee charges.
+     *
+     *  - TRUN_CONV is assumed EQUAL to the dividing run. A stream passing
+     *    straight through a tee is disturbed similarly either way. Plausible,
+     *    unverified.
+     *
+     *  - TBRANCH_CONV is assumed 1.5x the dividing branch (90 D). The only
+     *    thing asserted here with any confidence is the ORDERING — a stream
+     *    entering through the branch of a combining tee loses more than one
+     *    leaving through the branch of a dividing tee, because it must turn
+     *    AND merge with a stream already moving. The MAGNITUDE is a guess.
+     *
+     * Real tee coefficients are a function of the flow ratio Qb/Qc and vary by
+     * more than an order of magnitude across it. No flat number can be right
+     * everywhere; these are placeholders that keep the model structurally
+     * correct and the ordering sensible until a sourced set is entered. */
     TRUN:    { ld: 20, code: 'T-run',  label: 'Tee, straight through' },
     TBRANCH: { ld: 60, code: 'T-br',   label: 'Tee, branch' },
-    TRUN_DIV:    { ld: 20, code: 'T-run-d', label: 'Tee, dividing — through run' },
-    TBRANCH_DIV: { ld: 60, code: 'T-br-d',  label: 'Tee, dividing — to branch' },
-    TRUN_CONV:   { ld: 20, code: 'T-run-c', label: 'Tee, combining — through run' },
-    TBRANCH_CONV:{ ld: 60, code: 'T-br-c',  label: 'Tee, combining — from branch' },
+    TRUN_DIV:    { ld: 20, code: 'T-run-d', label: 'Tee, dividing — through run',
+                   sourced: true },
+    TBRANCH_DIV: { ld: 60, code: 'T-br-d',  label: 'Tee, dividing — to branch',
+                   sourced: true },
+    TRUN_CONV:   { ld: 20, code: 'T-run-c', label: 'Tee, combining — through run',
+                   sourced: false,
+                   note: 'Placeholder: assumed equal to the dividing run.' },
+    TBRANCH_CONV:{ ld: 90, code: 'T-br-c',  label: 'Tee, combining — from branch',
+                   sourced: false,
+                   note: 'Placeholder: assumed 1.5x the dividing branch. Only the ' +
+                         'ordering (worse than a dividing branch) is asserted; the ' +
+                         'magnitude is a guess.' },
     // Not auto-detected in v1, but the table carries them for future use.
     GATE:   { ld: 8,  code: 'GV',   label: 'Gate valve, open' },
     GLOBE:  { ld: 340,code: 'GLV',  label: 'Globe valve, open' },
@@ -54,8 +78,19 @@
    * To reintroduce a correction later, multiply in one factor inside el() —
    * that is the only place size would enter beyond the diameter itself. */
 
+  /* Every coefficient that is a placeholder rather than sourced data, so the
+   * app can say so out loud instead of the user having to read this file. */
+  function unsourced() {
+    return Object.keys(LD)
+      .filter(function (k) { return LD[k].sourced === false; })
+      .map(function (k) {
+        return { key: k, label: LD[k].label, ld: LD[k].ld, note: LD[k].note || '' };
+      });
+  }
+
   FD.fittings = {
     types: LD,
+    unsourced: unsourced,
 
     /* Equivalent length in metres for one fitting of `type` on a pipe of
      * inner diameter `id_mm`.

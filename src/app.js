@@ -2423,14 +2423,45 @@
     if (!isDW) {
       h2('Fitting equivalent lengths');
       hint('Used by Hazen-Williams. Charged to the downstream pipe as ' +
-           'EL = (L/D) × inner diameter.');
+           'EL = (L/D) × inner diameter. A dividing tee is charged to its ' +
+           'outlets; a combining tee is charged to its inlets.');
+
+      /* The unsourced coefficients, named out loud. These are placeholders and
+       * the engineer has to know which ones before issuing anything. */
+      var unsrc = FD.fittings.unsourced ? FD.fittings.unsourced() : [];
+      if (unsrc.length) {
+        var note = el('div', 'notice warn-notice');
+        note.appendChild(el('p', '',
+          unsrc.length + ' of these coefficients are PLACEHOLDERS, not sourced data:'));
+        var ul = el('ul');
+        unsrc.forEach(function (u) {
+          var li = el('li');
+          li.innerHTML = '<strong>' + u.label + '</strong> (L/D ' + u.ld + ') — ' + u.note;
+          ul.appendChild(li);
+        });
+        note.appendChild(ul);
+        note.appendChild(el('p', '',
+          'Real tee losses depend on the flow ratio Qb/Qc and vary by more than ' +
+          'an order of magnitude across it, so no flat number is right everywhere. ' +
+          'Enter values from ASHRAE Fundamentals for your case before issuing ' +
+          'calculations through heavily-branched pipework.'));
+        host.appendChild(note);
+      }
       var elTable = el('table', 'sheet editable');
       elTable.innerHTML = '<thead><tr><th class="txt">Fitting</th><th>Code</th>' +
                           '<th>L/D</th><th>EL at DN50 (m)</th></tr></thead>';
       var elBody = el('tbody');
       Object.keys(FD.fittings.types).forEach(function (t) {
         var tr = el('tr');
-        tr.appendChild(el('td', 'txt', FD.fittings.label(t)));
+        var nm = el('td', 'txt', FD.fittings.label(t));
+        /* Flag the placeholders in the table itself. A number the user can see
+         * and edit but cannot tell is a guess is worse than no number. */
+        if (FD.fittings.types[t].sourced === false) {
+          nm.appendChild(el('span', 'flag', ' placeholder'));
+          nm.title = FD.fittings.types[t].note || 'Not sourced data.';
+          tr.className = 'warn-row';
+        }
+        tr.appendChild(nm);
         tr.appendChild(el('td', '', FD.fittings.code(t)));
         var tdIn = el('td');
         var inp = el('input', 'cell-input'); inp.type = 'text';
