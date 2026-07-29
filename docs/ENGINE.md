@@ -338,3 +338,54 @@ and the choice of source is an engineering judgement — see
 `docs/ROADMAP.md`. Until then, treat friction through heavily-branched
 networks as approximate, and do not rely on the split between two legs of a
 combining tee.
+
+
+## Parallel pumps in DESIGN
+
+N pumps each holding a fixed head between the same two headers is a **degenerate
+problem**. The link equations are linearly dependent, continuity alone does not
+decide how the pumps share, and the solver returns one arbitrary solution out of
+infinitely many. On the data centre ring main that was a 99.9% skew — one pump
+carrying all 45 L/s while the other three sat at 0.1 L/s — with the total flow
+and the head both perfectly correct.
+
+A real pump is not a fixed head. It has **droop**: taking more flow makes less
+head, which pushes flow back to its neighbours until they balance. That droop is
+what makes the split determinate.
+
+So after auto-sizing has converged, `solveModel()` runs one further pass in which
+every running auto pump is given the same linear characteristic
+
+```
+H(Q) = H_duty + k·(Q_share − Q)        k = H_duty / Q_share
+```
+
+anchored on the share it ought to have, `Q_share = total / N`. Every pump gets an
+identical characteristic passing through exactly that point, so the balanced
+split *is* the solution and the pass barely moves the total or the head.
+
+Three things about this were arrived at by failing first, and are worth keeping:
+
+**It must run after sizing, not during.** Inside the sizing loop the
+characteristic and the head search feed back on each other and it runs away —
+to 262 L/s at 5547 kPa with a quadratic shape, and to a 10³⁸ kPa head once the
+slope was allowed to track the head.
+
+**The shape is linear, not the quadratic single-point form.** A quadratic runs
+out at exactly 2·Q_ref whatever the head, because `a = H/3Q_ref²` scales with the
+head and the zero-crossing never moves. The sizer then cannot reach its target
+however hard it pushes. A line with a frozen slope simply translates upward, so
+flow is unbounded and head→flow stays monotonic. Its constant derivative also
+removes the dH/dQ → 0 singularity a quadratic has at shutoff.
+
+**The result is not forced exactly equal.** The residual spread — 1.7% across
+four pumps, and monotonic along the header — is the real asymmetry of the
+pipework, and flattening it would be inventing a symmetry the drawing does not
+have.
+
+One consequence worth knowing: two pumps entering a common header, one through
+the run and one through a branch, now share to well under 1% rather than the
+several percent seen when they were modelled as fixed-head. That is correct — a
+pump curve is far steeper than the difference between a run and a branch tee, so
+a real pump largely compensates for it. A fixed-head pump has no droop at all
+and so shows the piping asymmetry undamped and exaggerated.

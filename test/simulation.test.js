@@ -365,6 +365,54 @@ section('Round trip: TOOLS table back into the solver');
      String(kpa(P.head(fitAll, 1.0))));
 }
 
+section('Parallel pumps share in DESIGN (the degeneracy fix)');
+{
+  /* N pumps each holding a fixed head between the same two headers is a
+   * degenerate problem: the equations are linearly dependent and continuity
+   * alone does not decide the split. Before the balancing pass this returned a
+   * 99.9% skew — one pump carrying all 45 L/s while the rest sat at 0.1 L/s —
+   * with the TOTAL and the HEAD both perfectly correct.
+   *
+   * The heads below are the values the sizer produced BEFORE any of this work,
+   * so they also guard against the balancing pass disturbing the sizing. */
+  const file = __dirname + '/../examples/data_centre_redundant_ring_main.pnet (fixed).json';
+  const expectHead = { 1: 209.4, 2: 207.0, 3: 205.6, 4: 204.3 };   // kPa
+
+  [1, 2, 3, 4].forEach(n => {
+    const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
+    const ps = m.pipes.filter(p => p.kind === 'pump');
+    ps.forEach((p, i) => { p.pump.mode = i < n ? 'auto' : 'off'; p.pump.head = 0; });
+
+    const res = NET.solveModel(m);
+    const qs = ps.slice(0, n).map(p => Math.abs(res.flow[p.id]));
+    const tot = qs.reduce((a, b) => a + b, 0);
+
+    near(n + ' pump(s): total flow is the circuit flow', tot, 0.045, 0.0015);
+    near(n + ' pump(s): head matches the pre-existing sizer answer',
+         ps[0].pump.head * RHO * G / 1000, expectHead[n], 0.5);
+
+    if (n > 1) {
+      const spread = (Math.max(...qs) - Math.min(...qs)) / Math.max(...qs);
+      ok(n + ' pumps share to within 5% (was 99.9% skewed)', spread < 0.05,
+         qs.map(q => (q * 1000).toFixed(2)).join(' / '));
+      qs.forEach((q, i) => {
+        ok(n + ' pumps: pump ' + (i + 1) + ' carries a real share',
+           q > 0.045 / n * 0.9 && q < 0.045 / n * 1.1, (q * 1000).toFixed(2));
+      });
+    }
+  });
+
+  /* The residual spread must not be zeroed out either — it is the real
+   * asymmetry of the headers, and forcing an exactly equal split would be
+   * inventing a symmetry the drawing does not have. */
+  const m4 = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
+  m4.pipes.filter(p => p.kind === 'pump').forEach(p => { p.pump.mode = 'auto'; p.pump.head = 0; });
+  const r4 = NET.solveModel(m4);
+  const q4 = m4.pipes.filter(p => p.kind === 'pump').map(p => Math.abs(r4.flow[p.id]));
+  ok('The split is not artificially flattened to exactly equal',
+     Math.max(...q4) - Math.min(...q4) > 1e-6, q4.map(q => (q * 1000).toFixed(3)).join(' / '));
+}
+
 section('Equipment is reported as a terminal');
 {
   const file = __dirname + '/../examples/datacentre-ring.pnet.json';

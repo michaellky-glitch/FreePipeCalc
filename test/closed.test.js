@@ -180,10 +180,27 @@ section('Two pumps share the load');
    * the extra 60 D the branch leg carries — a few metres of equivalent pipe on
    * DN100, so single-figure percent, not a landslide. */
   const share = q1 / (q1 + q2);
-  ok('Neither pump is starved', share > 0.4 && share < 0.6,
+  ok('Neither pump is starved', share > 0.45 && share < 0.55,
      `${(q1 * 1000).toFixed(2)} / ${(q2 * 1000).toFixed(2)} L/s`);
-  ok('The split is uneven, because one pump enters the header through a branch',
-     Math.abs(share - 0.5) > 0.01, String(share));
+
+  /* Nearly, but not exactly, even — and the direction is what matters.
+   *
+   * The two pumps discharge into a common header, so one enters through the
+   * straight run and the other through a branch, which is the more lossy path.
+   * The branch-side pump therefore carries slightly LESS.
+   *
+   * The imbalance is small (well under 1%) because a pump has droop: taking
+   * more flow makes less head, which pushes flow back. That is the balancing
+   * characteristic in solveModel() and it is physically representative — a real
+   * pump curve is far steeper than the difference between a run and a branch
+   * tee, so real parallel pumps do share nearly evenly. An earlier version of
+   * this test expected several percent, which was measured when pumps were
+   * modelled as fixed-head. A fixed-head pump has NO droop, so it cannot
+   * compensate at all and the piping asymmetry shows up undamped and
+   * exaggerated. */
+  ok('The branch-side pump carries slightly less', share < 0.5, String(share));
+  ok('...but only slightly, because a pump with droop self-compensates',
+     0.5 - share < 0.02, String(share));
 
   const eq = equip(m);
   near('Combined flow still equals the circuit flow',

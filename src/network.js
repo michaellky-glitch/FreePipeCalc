@@ -233,7 +233,7 @@
    * `prev` is the previous solve result (or null on the first pass). Both the
    * tee run/branch split and check-valve seating depend on the previous
    * answer — flows for the former, heads for the latter. */
-  function build(m, prev) {
+  function build(m, prev, opts) {
     var warnings = [];
     var flows = prev && prev.flow ? prev.flow : null;
     var simulating = (m.settings.calcMode === 'simulation');
@@ -242,6 +242,61 @@
     var method = FD.hydraulics.method(m.settings.frictionMethod);
     var s = m.settings;
     var rho = (s.fluid && s.fluid.density) || 998;
+
+    /* Parallel pumps need a CHARACTERISTIC, not a fixed head.
+     *
+     * N pumps that each hold their outlet at a fixed head above their inlet,
+     * connected between the same two headers, is a degenerate problem: the
+     * equations are linearly dependent, continuity alone does not decide how
+     * they share, and the solver returns one arbitrary answer out of infinitely
+     * many. On the data centre ring that was a 99.9% skew — one pump doing all
+     * 45 L/s and the other three sitting at 0.1 L/s — with the TOTAL and the
+     * head both perfectly correct.
+     *
+     * A falling H(Q) removes the degeneracy: a pump taking more than its share
+     * makes less head, which pushes flow back to the others until they balance.
+     *
+     * The shape used is the EPANET single-point assumption anchored on the duty
+     * point, so H(Q_duty) = H_duty EXACTLY and a single pump is completely
+     * unaffected. The reference flow is COMMON to the whole running set — the
+     * average — because it is the shape being shared, not each pump's own
+     * history; anchoring each pump on its own previous flow would just preserve
+     * whatever skew the first pass happened to produce.
+     *
+     * This is a solver characteristic, not a user-facing generated curve. The
+     * generated-curve feature was removed on purpose (see docs/TOOLS.md); this
+     * is the numerical stand-in that makes a fixed-head pump solvable at all,
+     * and SIMULATION still requires a real curve. */
+    var autoRef = null, autoSlope = 0;
+    if (!simulating) {
+      var running = m.pipes.filter(function (p) {
+        return p.kind === 'pump' && p.pump && p.pump.mode !== 'off' && !p.pump.curve;
+      });
+      if (running.length > 1) {
+        /* The anchor is FROZEN by the caller during auto-sizing, and that is
+         * the whole trick.
+         *
+         * Deriving it from the current flows each pass sets up a positive
+         * feedback: more flow raises the average, which flattens the curve
+         * (a = H/3Qref²), which passes more flow. Sizing three pumps ran away
+         * to 262 L/s at 5547 kPa on the data centre ring.
+         *
+         * Frozen, the head→flow relation is monotonic and the sizer converges;
+         * and because the anchor is the AVERAGE, it is right even when the
+         * pass that produced it was badly skewed — the total is correct even
+         * when the split is not. */
+        /* ONLY when the caller asks. Deriving the anchor from the current
+         * flows sets up a positive feedback with the head search — more flow
+         * raises the anchor, which flattens the characteristic, which passes
+         * more flow — and auto-sizing three pumps ran away to 5547 kPa. The
+         * balancing pass in solveModel() supplies a fixed anchor instead, once
+         * sizing has already converged. */
+        if (opts && opts.autoRef > 0) {
+          autoRef = opts.autoRef;
+          autoSlope = opts.autoSlope > 0 ? opts.autoSlope : 0;
+        }
+      }
+    }
 
     /* Context handed to the loss model: editable coefficients, fluid
      * properties, roughness, and (for Darcy) the previous pass's flow so the
@@ -303,6 +358,27 @@
       } else if (p.kind === 'pump' && p.pump) {
         link.kind = 'pump';
         link.head = p.pump.head || 0;
+        if (autoRef && (p.pump.head || 0) > 0) {
+          /* LINEAR droop, H = Hd + k(Qref - Q), not the quadratic single-point
+           * shape. Two reasons, both found the hard way:
+           *
+           * The quadratic runs out at exactly 2*Qref whatever the head, because
+           * a = Hd/3Qref² scales with Hd and the zero-crossing does not move.
+           * The sizer then cannot reach its target however hard it pushes, and
+           * winds the head up to 1e38 trying.
+           *
+           * A line with a FROZEN slope translates upward as the head rises, so
+           * flow is unbounded and the head->flow relation stays monotonic. Its
+           * derivative is also constant, which removes the dH/dQ -> 0
+           * singularity at shutoff that a quadratic has.
+           *
+           * In H0 - a·Q^b terms that is b = 1, a = k, H0 = Hd + k·Qref, so the
+           * existing curve machinery handles it unchanged. */
+          var k = autoSlope > 0 ? autoSlope : (p.pump.head / autoRef);
+          link.curve = { H0: p.pump.head + k * autoRef, a: k, b: 1,
+                         Qd: autoRef, Hd: p.pump.head, source: 'implicit-droop' };
+          link._implicitCurve = true;
+        }
       } else if (p.kind === 'valve' && p.valve) {
         link.kind = 'valve';
         link.n = 2;                                  // Kv law is square in Q
@@ -487,6 +563,52 @@
      * forever against a shortfall it cannot possibly fix. */
     var sizing = autoSizePumps(m, res);
     if (sizing.resolved) { res = sizing.res; net = res.network || net; }
+
+    /* Redistribute flow between parallel pumps — AFTER sizing, never during.
+     *
+     * Auto-sizing with plain fixed-head pumps converges correctly and gives the
+     * right TOTAL flow and the right head; what it cannot give is the split
+     * between pumps, because N fixed-head links between the same two headers is
+     * a degenerate system with infinitely many solutions. On the data centre
+     * ring it returned a 99.9% skew — one pump carrying all 45 L/s.
+     *
+     * So the split is fixed in one extra pass, with each pump given the same
+     * linear droop anchored on the share it ought to have: total/N at the head
+     * already sized. Because every pump gets an identical characteristic that
+     * passes through exactly that point, the balanced split IS the solution,
+     * and the pass barely disturbs the total or the head.
+     *
+     * Doing this inside the sizing loop was tried and does not work: the
+     * characteristic and the head-scaling feed back on each other and the
+     * search runs away — to 262 L/s at 5547 kPa with a quadratic shape, and to
+     * a 1e18 kPa head with a droop whose slope tracked the head. Keeping it
+     * outside leaves the sizer's own convergence untouched. */
+    var parallel = m.pipes.filter(function (p) {
+      return p.kind === 'pump' && p.pump && p.pump.mode !== 'off' &&
+             !p.pump.curve && (p.pump.head || 0) > 0;
+    });
+    if (parallel.length > 1 && m.settings.calcMode !== 'simulation') {
+      var totQ = 0;
+      parallel.forEach(function (p) { totQ += Math.abs(res.flow[p.id] || 0); });
+      var share = totQ / parallel.length;
+      if (share > FD.hydraulics.Q_MIN) {
+        var bal = build(m, res, {
+          autoRef: share,
+          autoSlope: (parallel[0].pump.head || 0) / share
+        });
+        var balRes = FD.solver.solve(bal);
+        /* Only accept it if it actually converged and did not move the total —
+         * the point is to redistribute, not to re-solve the system. */
+        var newTot = 0;
+        parallel.forEach(function (p) { newTot += Math.abs(balRes.flow[p.id] || 0); });
+        if (balRes.ok && totQ > 0 && Math.abs(newTot - totQ) / totQ < 0.05) {
+          res = balRes;
+          net = bal;
+          res.network = net;
+          res.pumpBalance = { share: share, pumps: parallel.length };
+        }
+      }
+    }
 
     /* An omitted device is out of the circuit, so its flow is exactly zero —
      * report it as such. Leaving the key absent surfaces as `undefined` in the
