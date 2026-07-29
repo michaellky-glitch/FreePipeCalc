@@ -11,6 +11,22 @@ proposed again.
 
 ## Next version
 
+### DESIGN and SIMULATION modes
+
+Pump-driven analysis: the engineer specifies a pump curve and the app derives
+the flow, instead of specifying flows and deriving the pump. Designed and
+agreed; see `docs/SIMULATION-design.md`.
+
+Prototyped before designing — a pump curve patched into the existing solver
+found the operating point to ~1e-13 against analytic answers in 10–13
+iterations, under a millisecond. **No separate system-curve intersection is
+needed; the GGA already is that intersection.** Equipment ΔP needs no new work
+either, being already a quadratic resistance.
+
+The real content is semantic: for a pump curve to determine flow, terminals must
+become resistances. Hence two modes, with the calculated side greyed and locked,
+and DEMAND renamed to OUTFLOW.
+
 ### Heating / cooling power
 
 The headline feature. The groundwork is already in the model:
