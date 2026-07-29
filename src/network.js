@@ -389,7 +389,7 @@
      * second pressure-driven pass works out what the system would actually
      * deliver, for display in brackets. */
     res.actual = actualDelivery(m, net, res);
-    res.index = indexCircuit(m, net, res);
+    res.critical = criticalPath(m, net, res);
     return res;
   }
 
@@ -855,11 +855,11 @@
     };
   }
 
-  // -------------------------------------------------------- index circuit
-  /* The index circuit is the hydraulically most unfavourable path: the route
-   * from the supply to the terminal that is worst off. It is the path that
-   * sets the pump duty, so it is the one an engineer reads first — hence
-   * spec §10 asking for it at the top of the calculation sheet.
+  // --------------------------------------------------------- critical path
+  /* The critical path — "index circuit" in spec §10 — is the hydraulically
+   * most unfavourable route: supply to the terminal that is worst off. It is
+   * the path that sets the pump duty, so it is the one an engineer reads
+   * first, and it goes at the top of the calculation sheet.
    *
    * "Worst off" is the terminal with the smallest residual (available minus
    * required) — NOT simply the most distant one. A long run in big pipe can
@@ -874,7 +874,7 @@
    * follows the real hydraulic route through loops and rings, rather than
    * guessing at a topological shortest path.
    */
-  function indexCircuit(m, net, res) {
+  function criticalPath(m, net, res) {
     if (!net || !res) return null;
 
     var target = null;
@@ -983,6 +983,42 @@
     }).join(',');
   }
 
+  /* Open or closed, worked out from the model rather than asked for.
+   *
+   * A system fed by a fixed-head source — tank, mains, anything inexhaustible —
+   * is OPEN. A sealed circuit driven round by a pump with no such source is
+   * CLOSED; its pressure reference comes from a fill/expansion vessel, which is
+   * exactly the NO_SOURCE case the solver already pins a datum for.
+   *
+   * This is informational only: the solver carries total head, so static lift
+   * falls out of the solution either way and nothing downstream branches on it.
+   * It is worth showing because it tells the engineer whether the thing they
+   * have drawn is the thing they meant to draw.
+   */
+  function detectSystemType(m) {
+    var sources = m.nodes.filter(function (n) {
+      return n.device && n.device.kind === 'source';
+    }).length;
+    var pumps = m.pipes.filter(function (p) {
+      return p.kind === 'pump' && !(p.pump && p.pump.mode === 'off');
+    }).length;
+
+    if (sources > 0) {
+      return { type: 'open', sources: sources, pumps: pumps,
+               reason: sources === 1
+                 ? 'Fed by a source, so static lift is carried by the system.'
+                 : sources + ' sources feed this system.' };
+    }
+    if (pumps > 0) {
+      return { type: 'closed', sources: 0, pumps: pumps,
+               reason: 'No source: a sealed circuit driven by ' + pumps + ' pump' +
+                       (pumps > 1 ? 's' : '') + '. Add a fill/expansion vessel as a ' +
+                       'source to set the pressure reference.' };
+    }
+    return { type: 'none', sources: 0, pumps: 0,
+             reason: 'Nothing drives this system yet — no source and no running pump.' };
+  }
+
   /* Short code describing what a node IS, for drawing annotations:
    *   S source · D demand · P pump · T tee/cross · EL elbow · '' plain end
    * Device role wins over geometry — a source that happens to sit on a corner
@@ -1008,7 +1044,8 @@
     nodeTypeCode: nodeTypeCode,
     flowRegimeWarnings: flowRegimeWarnings,
     supplyWarnings: supplyWarnings,
-    indexCircuit: indexCircuit,
+    criticalPath: criticalPath,
+    detectSystemType: detectSystemType,
     actualDelivery: actualDelivery,
     autoSizePumps: autoSizePumps,
     worstShortfall: worstShortfall,

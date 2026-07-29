@@ -377,10 +377,11 @@
   /* Copy everything drawn on `fromLevelId` onto `toLevelId`, at the same
    * level-local coordinates (spec §6, Copy Up/Down).
    *
-   * Devices come across too, but a SOURCE deliberately does not: duplicating a
-   * source silently creates a second supply into the network, which changes
-   * the hydraulics in a way nobody asked for. Everything else — demands,
-   * pumps, valves, equipment, tags — is copied as-is.
+   * EVERYTHING comes across, sources included. Suppressing the source was
+   * tried and rejected: forgetting to delete a duplicated source is ordinary
+   * user error, and the workflow around it is easy (copy the lowest floor,
+   * delete the source on the copy, copy upward from there). Silently dropping
+   * part of the layout is the worse surprise.
    *
    * Riser columns touching the source floor are extended to the new floor as
    * well, so a stack of identical floors stays connected instead of arriving
@@ -394,9 +395,7 @@
 
     m.nodes.filter(function (n) { return n.level === fromLevelId; }).forEach(function (n) {
       var copy = addNode(m, toLevelId, n.x, n.y, { dz: n.dz || 0 });
-      if (n.device && n.device.kind !== 'source') {
-        copy.device = JSON.parse(JSON.stringify(n.device));
-      }
+      if (n.device) copy.device = JSON.parse(JSON.stringify(n.device));
       if (n.labelOffset) copy.labelOffset = { dx: n.labelOffset.dx, dy: n.labelOffset.dy };
       if (n.show) copy.show = JSON.parse(JSON.stringify(n.show));
       map[n.id] = copy.id;

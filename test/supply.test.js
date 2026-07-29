@@ -234,12 +234,12 @@ section('Safety factor is a reported margin, never part of the solve');
      b.pump.pump.head * 1.10 > b.pump.pump.head);
 }
 
-section('Index circuit — the hydraulically most unfavourable path');
+section('Critical path — the hydraulically most unfavourable route');
 {
   const m = base();
   const res = NET.solveModel(m);
-  const ix = res.index;
-  ok('An index circuit is identified', !!ix);
+  const ix = res.critical;
+  ok('A critical path is identified', !!ix);
 
   /* It must be the WORST-OFF terminal, not simply the most distant. */
   let worst = null;
@@ -248,7 +248,7 @@ section('Index circuit — the hydraulically most unfavourable path');
     const resid = res.pressure[n.id] - (n.device.reqPressure || 0);
     if (!worst || resid < worst.r) worst = { id: n.id, r: resid };
   });
-  ok('Index terminal is the demand with the smallest residual',
+  ok('Critical terminal is the demand with the smallest residual',
      ix.target === worst.id, `${ix.target} vs ${worst.id}`);
 
   /* The path must reach a FIXED-HEAD node, not stop at the pump — otherwise
@@ -261,7 +261,7 @@ section('Index circuit — the hydraulically most unfavourable path');
   const pump = m.pipes.find(p => p.kind === 'pump');
   near('friction + static reconciles with the pump duty',
        ix.frictionHead + ix.staticHead, pump.pump.head, 0.01);
-  near('Residual at the index terminal is zero (that is what makes it the index)',
+  near('Residual at the critical terminal is zero (that is what makes it critical)',
        ix.residual, 0, 50);
 
   // path continuity: each section starts where the previous ended
@@ -270,12 +270,12 @@ section('Index circuit — the hydraulically most unfavourable path');
     if (i && ix.sections[i - 1].to !== sec.from) broken = i;
   });
   ok('Path is continuous end to end', broken === null, 'break at ' + broken);
-  ok('Path ends at the index terminal',
+  ok('Path ends at the critical terminal',
      ix.sections[ix.sections.length - 1].to === ix.target);
   ok('Path starts at the origin', ix.sections[0].from === ix.origin);
 
   // every section must be a real link carrying flow
-  ok('Every index section is a real link',
+  ok('Every critical section is a real link',
      ix.sections.every(sec => res.network.links.some(l => l.id === sec.link)));
 }
 
@@ -297,6 +297,84 @@ section('Auto-sizing converges from ABOVE as well as below');
   pump.pump.head = correct / 4;            // grossly undersized
   NET.solveModel(m);
   near('An undersized auto pump is brought up', pump.pump.head, correct, 0.05);
+}
+
+section('Critical path works for every kind of open loop');
+{
+  // (a) gravity fed, no pump: the HIGHER demand is worse off, not the further one
+  const g = M.create(), lv = g.levels[0].id;
+  const tank = M.addNode(g, lv, 0, 0); tank.dz = 30;
+  const j = M.addNode(g, lv, 20, 0);
+  const low = M.addNode(g, lv, 40, 0);            // far, but low
+  const high = M.addNode(g, lv, 20, 25); high.dz = 12;   // near, but high
+  M.addPipe(g, tank.id, j.id, { size: 'DN100' });
+  M.addPipe(g, j.id, low.id, { size: 'DN80' });
+  M.addPipe(g, j.id, high.id, { size: 'DN50' });
+  M.setSource(g, tank.id);
+  M.setDemand(g, low.id, 0.006, 50000);
+  M.setDemand(g, high.id, 0.006, 50000);
+
+  const rg = NET.solveModel(g);
+  ok('Gravity system with no pump still yields a critical path', !!rg.critical);
+  ok('...ending at the HIGHER demand, not the more distant one',
+     rg.critical.target === high.id,
+     `${rg.critical.target} (high=${high.id}, low=${low.id})`);
+  ok('...starting at the source', rg.critical.origin === tank.id);
+  ok('...with no pump gain', Math.abs(rg.critical.pumpHead) < 1e-12);
+  ok('Static is negative going downhill from the tank', rg.critical.staticHead < 0,
+     rg.critical.staticHead.toFixed(2) + ' m');
+
+  // available = static gain − friction; check it reconciles
+  const RG = 998 * 9.81;
+  const predicted = (-rg.critical.staticHead - rg.critical.frictionHead) * RG;
+  near('Available pressure reconciles with static − friction',
+       rg.pressure[high.id], predicted, 50);
+
+  // (b) two sources
+  const t = M.create(), lv2 = t.levels[0].id;
+  const s1 = M.addNode(t, lv2, 0, 0); s1.dz = 25;
+  const s2 = M.addNode(t, lv2, 60, 0); s2.dz = 25;
+  const d = M.addNode(t, lv2, 30, 0);
+  M.addPipe(t, s1.id, d.id, { size: 'DN80' });
+  M.addPipe(t, s2.id, d.id, { size: 'DN80' });
+  M.setSource(t, s1.id); M.setSource(t, s2.id);
+  M.setDemand(t, d.id, 0.010, 0);
+  const rt = NET.solveModel(t);
+  ok('Two-source open loop yields a critical path', !!rt.critical);
+  ok('...originating at one of the sources',
+     rt.critical.origin === s1.id || rt.critical.origin === s2.id);
+  ok('...and ending at the demand', rt.critical.target === d.id);
+}
+
+section('Open / closed detection');
+{
+  const open = base();
+  ok('Pumped system with a source reads OPEN',
+     NET.detectSystemType(open).type === 'open');
+
+  const closed = M.fromJSON(JSON.parse(
+    require('fs').readFileSync(
+      require('path').join(__dirname, '..', 'examples', 'datacentre-ring.pnet.json'), 'utf8')));
+  ok('Sealed pumped circuit reads CLOSED',
+     NET.detectSystemType(closed).type === 'closed');
+  ok('...and says why', /fill\/expansion/.test(NET.detectSystemType(closed).reason));
+
+  const empty = M.create();
+  ok('Nothing drawn reads as no supply',
+     NET.detectSystemType(empty).type === 'none');
+
+  // adding a source flips it
+  const flip = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(closed))));
+  const pump = flip.pipes.find(p => p.kind === 'pump');
+  M.setSource(flip, pump.a);
+  ok('Adding a source to a closed circuit flips it to OPEN',
+     NET.detectSystemType(flip).type === 'open');
+
+  // switching every pump off removes the drive
+  const allOff = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(closed))));
+  allOff.pipes.forEach(p => { if (p.kind === 'pump') p.pump.mode = 'off'; });
+  ok('All pumps off and no source reads as no supply',
+     NET.detectSystemType(allOff).type === 'none');
 }
 
 report();

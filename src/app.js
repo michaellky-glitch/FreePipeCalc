@@ -69,6 +69,7 @@
     renderProperties();
     applyTheme();
     applyPresentation();
+    updateSystemChip();
     app.view.render();
     scheduleSolve();
     scheduleSave();
@@ -158,6 +159,7 @@
       app.view.results = res;
       app.view.render();
       updateStatusChip(res);
+      updateSystemChip();
       refreshPropertyReadouts();
       return res;
     } catch (e) {
@@ -299,7 +301,7 @@
      * pump duty, so it is what an engineer checks before anything else; the
      * remaining branches are context. Order within the index circuit follows
      * the water, source → terminal. */
-    var ix = res.index;
+    var ix = res.critical;
     var order = {}, ixSet = {};
     if (ix) {
       ix.sections.forEach(function (sec, i) { order[sec.link] = i; ixSet[sec.link] = true; });
@@ -396,7 +398,7 @@
      ['Engineer', meta.engineer || '—'], ['Company', meta.company || '—'],
      ['Date', meta.date || new Date().toISOString().slice(0, 10)],
      ['Revision', meta.revision || '—'],
-     ['System type', m.settings.systemType === 'open' ? 'Open loop' : 'Closed loop'],
+     ['System type', systemTypeLabel()],
      ['Method', 'Hazen-Williams (ASHRAE)'],
      ['Fluid', 'Water ~20 °C'],
      ['App version', FD.VERSION]
@@ -486,15 +488,15 @@
     host.appendChild(table);
 
     // ---- index circuit summary (spec §10) ----
-    if (res && res.index && res.index.sections.length) {
-      var ix2 = res.index;
+    if (res && res.critical && res.critical.sections.length) {
+      var ix2 = res.critical;
       var box = el('div', 'notice index-notice');
-      box.appendChild(el('p', 'notice-head', 'Index circuit'));
+      box.appendChild(el('p', 'notice-head', 'Critical path'));
       var who = ix2.targetKind === 'demand'
         ? 'demand ' + ix2.target
         : 'equipment at ' + ix2.target;
       box.appendChild(el('p', '',
-        'The hydraulically most unfavourable path runs from ' + ix2.origin + ' to ' +
+        'The hydraulically most unfavourable route runs from ' + ix2.origin + ' to ' +
         who + ' — ' + ix2.sections.length + ' sections, highlighted below and listed ' +
         'first. This is the path that sets the pump duty.'));
       var grid = el('div', 'index-grid');
@@ -504,7 +506,7 @@
         d2.appendChild(el('span', 'v', v));
         grid.appendChild(d2);
       }
-      kv('Friction along index', FD.units.fmtPressure(headToPa(ix2.frictionHead), d.pressure, true));
+      kv('Friction along the path', FD.units.fmtPressure(headToPa(ix2.frictionHead), d.pressure, true));
       kv('Static lift', FD.units.fmtPressure(headToPa(ix2.staticHead), d.pressure, true));
       kv('Total', FD.units.fmtPressure(headToPa(ix2.frictionHead + ix2.staticHead),
                                        d.pressure, true));
@@ -633,7 +635,7 @@
     lines.push('# Engineer: ' + (meta.engineer || '—') + '  Company: ' + (meta.company || '—'));
     lines.push('# Date: ' + (meta.date || new Date().toISOString().slice(0, 10)) +
                '  Revision: ' + (meta.revision || '—'));
-    lines.push('# Method: Hazen-Williams (ASHRAE). System: ' + m.settings.systemType + ' loop.');
+    lines.push('# Method: Hazen-Williams (ASHRAE). System: ' + systemTypeLabel() + '.');
     lines.push('# Pressures are gauge; velocity pressure neglected.');
     lines.push('# For preliminary design assistance only. Results must be verified by a ' +
                'qualified engineer. No warranty; no liability.');
@@ -1836,16 +1838,20 @@
       'heating/cooling power calculations to come (Q = ṁ·Cp·ΔT).'));
     host.appendChild(usage);
 
-    // =================================================== 2. SYSTEM (moved)
+    // =================================================== 2. SYSTEM (detected)
     h2('System');
-    var sg = grid();
-    selField(sg, 'System type', [['open', 'Open loop'], ['closed', 'Closed loop']],
-      m.settings.systemType, function (v) {
-        pushUndo(); m.settings.systemType = v; redrawAll();
-      });
-    hint('Open loop systems are fed by a tank or mains and carry static lift. ' +
-         'Closed loop systems are sealed; static cancels around the circuit and the ' +
-         'pressure reference comes from the fill/expansion vessel.');
+    var det = FD.network.detectSystemType(m);
+    var box = el('div', 'notice ' + (det.type === 'closed' ? 'info-notice' : ''));
+    box.appendChild(el('p', 'notice-head',
+      det.type === 'open' ? 'Open loop' : det.type === 'closed' ? 'Closed loop'
+                                                                : 'No supply yet'));
+    box.appendChild(el('p', '', det.reason));
+    box.appendChild(el('p', 'hint',
+      'Detected from the model rather than set by hand — a system fed by a source is ' +
+      'open, a sealed circuit driven by a pump is closed. It is shown on the PIPING ' +
+      'NETWORK ribbon as you draw. The distinction is informational: the solver carries ' +
+      'total head, so static lift falls out of the solution either way.'));
+    host.appendChild(box);
 
     // ======================================= 3. HYDRAULIC PARAMETERS
     h2('Hydraulic Parameters');
@@ -2112,20 +2118,29 @@
     var m = app.model;
     var existing = key ? m.customSchedules[key] : null;
     var seedRows = existing
-      ? existing.sizes.map(function (z) { return z.label + ', ' + z.id_mm; }).join('\n')
-      : 'DN15, 16.0\nDN20, 21.6\nDN25, 27.2\nDN32, 35.9\nDN40, 41.8\nDN50, 53.0';
+      ? existing.sizes.map(function (z) {
+          return z.label + '\t' + z.id_mm +
+                 (z.insulation_mm !== undefined ? '\t' + z.insulation_mm : '');
+        }).join('\n')
+      : '';
 
-    var nameIn, cIn, listIn;
     FD.dialog.form({
       title: existing ? 'Edit schedule' : 'New custom schedule',
       ok: existing ? 'Save' : 'Create',
-      message: 'One size per line: nominal label, inner diameter in mm.',
+      message: 'Paste three columns straight from a spreadsheet:\n' +
+               '    nominal label   ·   inner diameter (mm)   ·   insulation thickness (mm)\n\n' +
+               'ALL DIAMETERS AND THICKNESSES ARE IN MILLIMETRES. Insulation may be left ' +
+               'blank — it is stored for the thermal module and is not used by the ' +
+               'hydraulics. Tabs, commas or spaced columns all work, and a header row is ' +
+               'skipped automatically.',
       fields: [
         { key: 'name', label: 'Schedule name', type: 'text',
           value: existing ? existing.name : 'My schedule' },
         { key: 'C', label: 'Default C factor', type: 'text',
           value: existing ? existing.defaultC : 120 },
-        { key: 'sizes', label: 'Sizes  (label, bore mm)', type: 'textarea', value: seedRows }
+        { key: 'sizes', label: 'Sizes  —  label / bore mm / insulation mm',
+          type: 'textarea', rows: 10, value: seedRows,
+          placeholder: 'DN15\t16.0\t25' }
       ]
     }).then(function (v) {
       if (!v) return;
@@ -2138,37 +2153,37 @@
       var C = FD.units.parse(v.C);
       if (!isFinite(C) || C <= 0) C = 120;
 
-      var sizes = [], bad = [];
-      String(v.sizes || '').split(/\r?\n/).forEach(function (line, i) {
-        var t = line.trim();
-        if (!t) return;
-        var parts = t.split(',');
-        var label = (parts[0] || '').trim();
-        var bore = FD.units.parse(parts[1]);
-        if (!label || !isFinite(bore) || bore <= 0) { bad.push('line ' + (i + 1) + ': ' + t); return; }
-        sizes.push({ label: label, id_mm: bore, od_mm: bore });
-      });
-
-      if (!sizes.length) {
-        FD.dialog.alert({ title: 'No usable sizes',
-                          message: 'Each line needs a label and a positive bore, e.g. "DN50, 53.0".' });
+      var parsed = FD.schedules.parseSizeTable(v.sizes);
+      if (!parsed.sizes.length) {
+        FD.dialog.alert({
+          title: 'No usable sizes',
+          message: 'Every line needs a label and a positive inner diameter in mm, ' +
+                   'for example:\n\n    DN50    53.0    40'
+        });
         return;
       }
-      /* Sorted smallest-first, because size stepping during DRAW walks the list
-       * in order and the sizeForFlow helper assumes ascending bore. */
-      sizes.sort(function (a, b) { return a.id_mm - b.id_mm; });
 
       pushUndo();
       var id = key || ('custom_' + Date.now().toString(36));
-      m.customSchedules[id] = { name: name, defaultC: C, sizes: sizes };
+      m.customSchedules[id] = { name: name, defaultC: C, sizes: parsed.sizes };
       saveCustomSchedules();
       renderHydraulic();
       redrawAll();
-      toast('Schedule "' + name + '" saved with ' + sizes.length + ' sizes' +
-            (bad.length ? ' (' + bad.length + ' line(s) skipped)' : '') + '.');
-      if (bad.length) {
-        FD.dialog.alert({ title: 'Some lines were skipped',
-                          message: bad.join('\n') });
+
+      var insCount = parsed.sizes.filter(function (z) {
+        return z.insulation_mm !== undefined;
+      }).length;
+      toast('Schedule "' + name + '" saved — ' + parsed.sizes.length + ' sizes' +
+            (insCount ? ', ' + insCount + ' with insulation' : '') + '.');
+
+      if (parsed.skipped.length) {
+        FD.dialog.report({
+          title: parsed.skipped.length + ' line(s) could not be read',
+          message: 'These were left out. Everything else was saved.',
+          rows: parsed.skipped.map(function (k) {
+            return 'line ' + k.line + ':  ' + k.text + '   — ' + k.why;
+          })
+        });
       }
     });
   }
@@ -2222,6 +2237,31 @@
     app.view.render();
   }
 
+  /* Detected system type, cached off the last solve. Written back onto
+   * settings.systemType so the saved model and the CSV agree with what is on
+   * screen — the field is now a record of what was detected, not a question
+   * the user has to answer. */
+  function systemTypeLabel() {
+    var d = FD.network.detectSystemType(app.model);
+    app.model.settings.systemType = (d.type === 'none') ? 'open' : d.type;
+    return d.type === 'open' ? 'Open loop'
+         : d.type === 'closed' ? 'Closed loop'
+         : 'Not yet determined';
+  }
+
+  function updateSystemChip() {
+    var chip = $('system-chip');
+    if (!chip) return;
+    var d = FD.network.detectSystemType(app.model);
+    app.model.settings.systemType = (d.type === 'none') ? 'open' : d.type;
+    chip.textContent = d.type === 'open' ? 'OPEN LOOP'
+                     : d.type === 'closed' ? 'CLOSED LOOP'
+                     : 'NO SUPPLY';
+    chip.className = 'chip system-chip ' +
+      (d.type === 'open' ? 'ok' : d.type === 'closed' ? 'info' : 'warn');
+    chip.title = d.reason;
+  }
+
   function applyTheme() {
     document.documentElement.dataset.theme = app.model.settings.theme;
   }
@@ -2234,6 +2274,8 @@
   }
 
   // ---------------------------------------------------------------- init
+  var docsReady = false;
+
   function init() {
     FD.VERSION = FD.VERSION || '0.1.0-dev';
     $('app-version').textContent = 'v' + FD.VERSION;
@@ -2270,6 +2312,9 @@
         if (t.dataset.pane === 'pane-calculation') renderCalculation();
         if (t.dataset.pane === 'pane-settings') renderSettings();
         if (t.dataset.pane === 'pane-hydraulic') renderHydraulic();
+        if (t.dataset.pane === 'pane-docs' && FD.docs && !docsReady) {
+          FD.docs.init(); docsReady = true;
+        }
         if (t.dataset.pane === 'pane-network') { app.view.resize(); }
       });
     });
@@ -2438,6 +2483,7 @@
 
     renderLevels();
     renderProperties();
+    updateSystemChip();
     app.view.resize();
     app.view.zoomToFit();
     solveNow();

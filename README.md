@@ -47,6 +47,7 @@ and readable, which **LOAD MODEL** reads back. Worked examples are in
 * `docs/piping-friction-loss-spec.md` — the specification; §12 logs every
   deviation from it and the reason.
 * `docs/ROADMAP.md` — what is agreed but not yet built, and what was ruled out.
+* `docs/Human-Test.md` — what has been checked by hand, and what has not.
 * `docs/PUBLISHING.md` — notes on releasing this repository.
 
 ## A word on trust
@@ -76,7 +77,9 @@ Usable for simple networks. Implemented so far:
 | Canvas: draw, snap, tee insertion, zoom/pan, select, delete | done |
 | Calculation sheet + CSV export + print stylesheet | done |
 | Settings, theming, autosave, undo/redo | done |
-| Test suite (490 assertions) | done |
+| Test suite (505 assertions) | done |
+| Open/closed detection shown on the ribbon | done |
+| DOCUMENTATION tab rendering the project docs | done |
 | LAYOUT mode: draggable labels, device value boxes | done |
 | Rendered formulas with inline editable coefficients | done |
 | Riser placement UI, column snapping across levels (§7.2) | done |
@@ -95,8 +98,8 @@ Usable for simple networks. Implemented so far:
 | Equipment device (§8.3) | model only, no UI |
 | Rigid-translation length edits, incl. across risers (§6) | done |
 | Copy level layout up/down, carrying risers (§6) | done |
-| Custom user pipe schedules (§9) | done |
-| Index circuit identification, ordering and highlighting (§10) | done |
+| Custom user pipe schedules, paste from a spreadsheet (§9) | done |
+| Critical path identification, ordering and highlighting (§10) | done |
 | Geometry-conflict detection + Repair with change log (§6) | done |
 | Pump auto-sizing on every solve, with safety factor (§8.4) | done |
 | Supply-adequacy checks + pressure-driven actual delivery | done |

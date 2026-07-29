@@ -51,15 +51,17 @@ per level.
   1. *Critical path* — only the sections that set the pump duty.
   2. *All pipes* — the full sheet as it exists now.
 
-  The index circuit is already identified, ordered first and highlighted, so
+  The critical path is already identified, ordered first and highlighted, so
   this is a presentation split rather than new analysis.
-* **Detect open vs closed automatically** instead of asking. A circuit with no
-  source and a pump is closed; one fed by a fixed-head source is open. The
-  detection is essentially already there — `NO_SOURCE` fires exactly when a
-  closed circuit has no fill point. The result must be **shown on the PIPING
-  NETWORK ribbon** so it is visible while drawing, not buried in a tab.
 
 ---
+
+## Delivered since this list was written
+
+* Open/closed detection, shown live on the PIPING NETWORK ribbon.
+* Critical path (index circuit) identification, ordering and highlighting.
+* Copy level layout, custom pipe schedules with spreadsheet paste.
+* DOCUMENTATION tab.
 
 ## Decided against
 

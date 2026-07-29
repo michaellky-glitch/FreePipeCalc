@@ -385,12 +385,16 @@ equipment ratings.
 
 ---
 
-## 11A. The index circuit
+## 11A. The critical path
 
-The hydraulically most unfavourable path — the route from the supply to the
-worst-off terminal. It is what sets the pump duty, so spec §10 puts it at the
-top of the calculation sheet; `res.index` carries it and the sheet orders those
-rows first and tints them.
+The hydraulically most unfavourable route — supply to the worst-off terminal.
+Spec §10 calls it the *index circuit*; the UI says **critical path**, which is
+the term Michael uses. It sets the pump duty, so it goes at the top of the
+calculation sheet: `res.critical` carries it, and the sheet orders those rows
+first and tints them.
+
+It works for every kind of supply — gravity-only open loops (no pump at all),
+multiple sources, pumped open loops, and closed circuits.
 
 Two things about the definition are easy to get wrong.
 
@@ -411,6 +415,25 @@ than guessing at a topological shortest path.
 
 In a closed circuit there are no demands, so the equipment with the largest
 pressure drop stands in as the index terminal.
+
+## 11B. Open or closed is detected, not asked
+
+A system fed by a fixed-head source is **open**. A sealed circuit driven round
+by a pump with no such source is **closed** — its pressure reference comes from
+a fill/expansion vessel, which is exactly the `NO_SOURCE` case the solver
+already pins a datum for. Neither is **no supply**.
+
+`FD.network.detectSystemType(m)` returns the type and a plain-English reason.
+The result is shown on the PIPING NETWORK ribbon and updates live as the
+drawing changes, because the useful moment to learn you have drawn a closed
+circuit is while drawing it, not on a tab you might not open.
+
+It is written back onto `settings.systemType` so the saved model, the CSV and
+the sheet header all agree with the chip. The field is now a *record of what was
+detected* rather than a question the user answers.
+
+This is informational only: the solver carries total head, so static lift falls
+out of the solution either way and nothing downstream branches on it.
 
 ## 12. Demand-driven vs pressure-driven
 
@@ -558,10 +581,11 @@ another at the same level-local coordinates, and extends any riser column
 touching the source floor so the stack stays connected rather than arriving as
 an island.
 
-A **source is deliberately not copied**. Duplicating one silently creates a
-second supply into the network and changes the hydraulics without being asked.
-Everything else — demands, pumps, valves, equipment, tags, label offsets,
-display flags — comes across.
+**Everything** comes across, sources included. Suppressing the source was tried
+and rejected: forgetting to delete a duplicated source is ordinary user error
+with an easy workflow around it (copy the lowest floor, delete the source on the
+copy, copy upward from there), whereas silently dropping part of the layout is
+the worse surprise.
 
 ## 16B. Custom pipe schedules
 
@@ -578,6 +602,21 @@ the list in order and `sizeForFlow` assumes ascending bore.
 
 Deleting one that is in use falls its pipes back to the default schedule, which
 changes their bore and therefore the calculation — so the confirmation says so.
+
+## 16C. The DOCUMENTATION tab
+
+`src/docs.js` renders the project's own markdown inside the app, so the
+reasoning behind the calculations travels with the tool.
+
+The markdown renderer is small and hand-rolled on purpose. A library would mean
+a build step or a CDN, and §2.1 rules out both. It covers exactly what these
+documents use — headings, paragraphs, lists, tables, fenced and indented code,
+blockquotes, rules, inline emphasis/code/links — and is not a general parser.
+
+**It cannot work over `file://`.** A local origin is opaque, so `fetch` of a
+sibling file is blocked by the same rule that rules out ES modules. That is not
+a bug to fix; the tab detects it and says so, pointing at the files on disk.
+Serving the folder over HTTP makes it work.
 
 ## 17. If you are changing something
 

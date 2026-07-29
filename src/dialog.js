@@ -209,6 +209,7 @@
               ctrl = el('textarea');
               ctrl.rows = f.rows || 8;
               ctrl.value = f.value === undefined ? '' : f.value;
+              if (f.placeholder) ctrl.placeholder = f.placeholder;
             } else if (f.type === 'checkbox') {
               ctrl = el('input');
               ctrl.type = 'checkbox';

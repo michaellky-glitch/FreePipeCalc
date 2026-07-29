@@ -127,8 +127,65 @@
     }
   };
 
+  /* Parse a pasted size table.
+   *
+   * Built for copy-and-paste straight out of a spreadsheet, so the separator is
+   * whatever the paste happens to use: Excel gives tabs, a CSV export gives
+   * commas, a Word table gives runs of spaces. All three are accepted rather
+   * than asking the user to reformat.
+   *
+   * Columns: nominal label, inner diameter (mm), insulation thickness (mm,
+   * optional). Insulation is stored but unused — it is for the thermal module.
+   *
+   * A leading header row is skipped automatically: if the second column of the
+   * first line is not a number, it was a heading.
+   *
+   * Returns { sizes, skipped } — bad lines are reported, never silently
+   * dropped, because a quietly missing size is a quietly wrong calculation.
+   */
+  function parseSizeTable(text) {
+    var sizes = [], skipped = [];
+    var lines = String(text || '').split(/\r?\n/);
+
+    lines.forEach(function (raw, i) {
+      var line = raw.trim();
+      if (!line) return;
+
+      // tab / comma / semicolon / 2+ spaces, in that order of preference
+      var cols = (line.indexOf('\t') >= 0) ? line.split('\t')
+               : (line.indexOf(',') >= 0)  ? line.split(',')
+               : (line.indexOf(';') >= 0)  ? line.split(';')
+               : line.split(/\s{2,}|\s+/);
+
+      var label = (cols[0] || '').trim();
+      var bore = FD.units ? FD.units.parse(cols[1]) : parseFloat(cols[1]);
+      var ins = cols.length > 2 && String(cols[2]).trim() !== ''
+        ? (FD.units ? FD.units.parse(cols[2]) : parseFloat(cols[2])) : null;
+
+      if (!label) { skipped.push({ line: i + 1, text: line, why: 'no label' }); return; }
+      if (!isFinite(bore) || bore <= 0) {
+        // a header row on the first non-blank line is expected, not an error
+        if (!sizes.length && !skipped.length) return;
+        skipped.push({ line: i + 1, text: line, why: 'inner diameter is not a positive number' });
+        return;
+      }
+
+      var row = { label: label, id_mm: bore, od_mm: bore };
+      /* `ins !== null` matters: isFinite(null) is TRUE, because null coerces to
+       * 0 — so a blank insulation column would otherwise be stored as a real
+       * value of null and show up as insulated-with-nothing. */
+      if (ins !== null && isFinite(ins) && ins >= 0) row.insulation_mm = ins;
+      sizes.push(row);
+    });
+
+    // ascending bore: size stepping during DRAW walks the list in order
+    sizes.sort(function (a, b) { return a.id_mm - b.id_mm; });
+    return { sizes: sizes, skipped: skipped };
+  }
+
   FD.schedules = {
     builtin: SCHEDULES,
+    parseSizeTable: parseSizeTable,
 
     /* All schedules currently available = built-in + user customs.
      * `customs` is the object kept in localStorage / embedded in a model file. */

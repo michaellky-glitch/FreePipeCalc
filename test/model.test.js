@@ -932,13 +932,15 @@ section('Copy level layout');
   ok('Tags preserved', l2Pipes.some(p => p.tag === 'BR-1'));
   ok('Demand copied', l2Nodes.some(n => n.device && n.device.kind === 'demand'));
 
-  /* A SOURCE must NOT be duplicated — a second supply silently changes the
-   * hydraulics without being asked for. */
-  ok('Source is NOT copied',
-     l2Nodes.every(n => !(n.device && n.device.kind === 'source')),
+  /* Sources ARE copied. Suppressing them was tried and rejected: forgetting to
+   * delete a duplicated source is ordinary user error with an easy workflow
+   * around it, whereas silently dropping part of the layout is the worse
+   * surprise. */
+  ok('Source is copied like everything else',
+     l2Nodes.some(n => n.device && n.device.kind === 'source'),
      JSON.stringify(l2Nodes.map(n => n.device && n.device.kind)));
-  ok('The original source is untouched',
-     m.nodes.filter(n => n.device && n.device.kind === 'source').length === 1);
+  ok('...giving two sources, which is the user\'s to resolve',
+     m.nodes.filter(n => n.device && n.device.kind === 'source').length === 2);
 
   // risers follow the copy so the stack stays connected
   ok('Riser extended to the new level', r.risers === 1);
