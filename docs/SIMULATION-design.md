@@ -162,10 +162,31 @@ singularity that had to be regularised for fixed-head pumps. Needs a floor on
 negative, and a real pump cannot produce negative head. Clamp and warn rather
 than report a nonsense operating point.
 
-**Terminals with no required pressure.** `K = Q_d/√ΔP_d` is undefined when
-`ΔP_d = 0`, and every test model built so far has terminals at 0 kPa required.
-SIMULATION must refuse to guess — flag those terminals and ask for a design
-pressure, rather than inventing a characteristic.
+**Outflows with no required pressure.** `K = Q_d/√ΔP_d` is undefined when
+`ΔP_d = 0`. SIMULATION must refuse to guess — flag those outflows and ask for a
+design pressure rather than inventing a characteristic.
+
+How much this actually bites, checked rather than assumed:
+
+| Model | Terminals | Derivable? |
+|---|---|---|
+| `3-floor-riser-test` | 5 outflows @ 0.0 kPa | no |
+| `irrational-source-on-L3` | 5 outflows @ 0.0 kPa | no |
+| `datacentre-ring` | no outflows; equipment 20 L/s @ 200 kPa | yes |
+| `datacentre-ring-with-source` | as above | yes |
+
+So it affects two of the four example files, and really only one model — the
+irrational case is derived from the 3-floor one. Both carry 0 kPa purely because
+`testrun-3floor.js` was written that way; a one-line change to that script fixes
+both.
+
+Outflows placed by hand default to 100 kPa (`canvas.js`), so a user's own model
+normally has a characteristic already.
+
+**Equipment is the easy case, not the hard one.** It cannot exist without
+`qRated` and `pdRated`, which together *are* a characteristic — so equipment
+always derives cleanly and needs no guard. Only outflow nodes, where required
+pressure is optional, need one.
 
 **"Residual" changes meaning.** In DESIGN it is spare pressure at a terminal
 that is getting its design flow. In SIMULATION the terminal is getting whatever
