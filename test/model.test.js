@@ -956,4 +956,68 @@ section('Copy level layout');
   ok('Copying a level onto itself does nothing', M.copyLevel(m, L1.id, L1.id) === null);
 }
 
+section('TRACE — background drawings');
+{
+  const m = M.create();
+  const L1 = m.levels[0];
+  const L2 = M.addLevel(m, { name: 'L2', altitude: 4 });
+  const img = { src: 'data:image/png;base64,AAAA', aspect: 0.5, width: 2000, height: 1000 };
+
+  ok('A level starts with no trace', L1.trace === null);
+
+  M.setTrace(m, L1.id, img, 0, 0, 40);
+  const t = L1.trace;
+  ok('Trace attached', !!t);
+  near('Width as asked', t.width, 40, 1e-12);
+  near('Aspect carried from the image', t.aspect, 0.5, 1e-12);
+  near('Centred horizontally on the given point', t.x + t.width / 2, 0, 1e-9);
+  near('...and vertically', t.y - (t.width * t.aspect) / 2, 0, 1e-9);
+  ok('Unlocked so it can be positioned', t.locked === false);
+  ok('Inverted by default on the dark theme', t.invert === true);
+
+  // light theme should NOT invert
+  const lightModel = M.create();
+  lightModel.settings.theme = 'light';
+  M.setTrace(lightModel, lightModel.levels[0].id, img, 0, 0, 40);
+  ok('Not inverted on the light theme', lightModel.levels[0].trace.invert === false);
+
+  /* Calibration: two points 10 m apart in model space that are really 25 m
+   * must scale the drawing by 2.5, holding the first point still. */
+  const r = M.calibrateTrace(m, L1.id, 0, 0, 10, 0, 25);
+  near('Scale factor', r.factor, 2.5, 1e-12);
+  near('Width scaled', t.width, 100, 1e-9);
+  near('Aspect unchanged by calibration', t.aspect, 0.5, 1e-12);
+
+  // the anchor point must not move
+  const m2 = M.create();
+  M.setTrace(m2, m2.levels[0].id, img, 0, 0, 40);
+  const t2 = m2.levels[0].trace;
+  const beforeX = t2.x, beforeY = t2.y;
+  M.calibrateTrace(m2, m2.levels[0].id, beforeX, beforeY, beforeX + 5, beforeY, 20);
+  near('The first picked point stays put (x)', t2.x, beforeX, 1e-9);
+  near('...and (y)', t2.y, beforeY, 1e-9);
+
+  ok('Zero measured distance is refused',
+     M.calibrateTrace(m, L1.id, 3, 3, 3, 3, 10) === null);
+  ok('Zero real distance is refused',
+     M.calibrateTrace(m, L1.id, 0, 0, 5, 0, 0) === null);
+
+  /* The trace must NOT ride along on a level copy — it is a picture of the
+   * floor it came from, and duplicating it elsewhere would mislead. */
+  const a = M.addNode(m, L1.id, 0, 0), b = M.addNode(m, L1.id, 10, 0);
+  M.addPipe(m, a.id, b.id, { size: 'DN50' });
+  M.copyLevel(m, L1.id, L2.id);
+  ok('Copying a level does not copy its trace', !L2.trace);
+  ok('...but does copy the pipework', m.nodes.filter(n => n.level === L2.id).length === 2);
+
+  // survives save/load
+  const back = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(m))));
+  const bt = back.levels.find(l => l.name === L1.name).trace;
+  ok('Trace survives save/load', !!bt && bt.src === img.src);
+  near('...with its geometry', bt.width, 100, 1e-9);
+
+  M.clearTrace(m, L1.id);
+  ok('Discarding removes it', L1.trace === null);
+}
+
 report();

@@ -125,7 +125,12 @@
       name: opts.name || ('Level ' + m._seq.level),
       altitude: opts.altitude !== undefined ? opts.altitude : 0,
       dx: 0, dy: 0,
-      lookDir: opts.lookDir || 'down'      // which neighbour renders faded
+      lookDir: opts.lookDir || 'down',     // which neighbour renders faded
+      /* trace: a background drawing to trace over, or absent. Per LEVEL,
+       * because each floor is traced from a different drawing.
+       *   { src, x, y, width, aspect, opacity, invert, locked }
+       * x/y/width are in world metres; height follows from aspect. */
+      trace: null
     };
     m.levels.push(lv);
     sortLevels(m);
@@ -339,6 +344,58 @@
     return best || FD.schedules.defaultSize(m.settings.schedule, m.customSchedules);
   }
 
+  /* Attach a background drawing to a level. Placed centred on the given world
+   * point at a default width, because a freshly pasted image has no meaningful
+   * scale until it is calibrated. */
+  function setTrace(m, levelId, img, centreX, centreY, defaultWidth) {
+    var lv = level(m, levelId);
+    if (!lv) return null;
+    var w = defaultWidth || 40;
+    lv.trace = {
+      src: img.src,
+      aspect: img.aspect,
+      x: (centreX || 0) - w / 2,
+      y: (centreY || 0) + (w * img.aspect) / 2,   // y is the TOP edge (y grows up)
+      width: w,
+      opacity: 0.6,
+      /* The grid is drawn over the trace and at working zoom it obscures a
+       * surprising amount of the drawing — over a third of sampled pixels in
+       * testing. While tracing, the drawing IS the reference, so the grid goes
+       * off by default. */
+      hideGrid: true,
+      /* Inverted by default on the dark theme: a PDF screenshot is black on
+       * white, which on a dark canvas is a glaring slab with the pipework lost
+       * inside it. Inverted, the paper goes dark and the linework goes light. */
+      invert: (m.settings.theme !== 'light'),
+      locked: false
+    };
+    return lv.trace;
+  }
+
+  function clearTrace(m, levelId) {
+    var lv = level(m, levelId);
+    if (lv) lv.trace = null;
+  }
+
+  /* Scale a trace so two points on it sit `realDistance` apart in model space,
+   * holding `anchor` still. This is what makes traced geometry worth keeping —
+   * without it the user is eyeballing scale and every length has to be retyped.
+   */
+  function calibrateTrace(m, levelId, ax, ay, bx, by, realDistance) {
+    var lv = level(m, levelId);
+    if (!lv || !lv.trace) return null;
+    var measured = Math.hypot(bx - ax, by - ay);
+    if (!(measured > 1e-9) || !(realDistance > 0)) return null;
+
+    var k = realDistance / measured;
+    var t = lv.trace;
+    // scale about the first clicked point so it stays under the cursor
+    t.x = ax + (t.x - ax) * k;
+    t.y = ay + (t.y - ay) * k;
+    t.width *= k;
+    return { factor: k, measured: measured, real: realDistance };
+  }
+
   /* LAYOUT mode: manual label placement.
    *
    * Auto-placed annotations collide with pipework on anything busy, and on a
@@ -391,6 +448,9 @@
     var src = level(m, fromLevelId), dst = level(m, toLevelId);
     if (!src || !dst || src.id === dst.id) return null;
 
+    /* The trace is deliberately NOT copied: it is a picture of the floor it
+     * came from, and duplicating it onto another level would be actively
+     * misleading. */
     var map = {}, copiedNodes = [], copiedPipes = [];
 
     m.nodes.filter(function (n) { return n.level === fromLevelId; }).forEach(function (n) {
@@ -536,6 +596,7 @@
 
     addRiser: addRiser, attachRiser: attachRiser, riserPipes: riserPipes,
     copyLevel: copyLevel,
+    setTrace: setTrace, clearTrace: clearTrace, calibrateTrace: calibrateTrace,
 
     labelOffset: labelOffset, setLabelOffset: setLabelOffset,
     clearLabelOffsets: clearLabelOffsets,

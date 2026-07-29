@@ -9,7 +9,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-07-29 (v0.4.0-dev)
+Last updated: 2026-07-29 (v0.5.0-dev)
 
 ---
 
@@ -69,6 +69,23 @@ known project has been done.
 | 4.9 | Dark and light themes | ⬜ | Light theme has had very little use. |
 | 4.10 | DOCUMENTATION tab | ⬜ | **New.** Will not render over `file://` — see the note it shows. |
 
+## 4A. TRACE mode
+
+New in v0.5.0. Internally tested (paste, render, calibration, drag, scale, lock,
+grid suppression, save/load and the autosave fallback all verified in-browser),
+but nothing here has been used against a real drawing yet.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| 4A.1 | Ctrl+V a real screen snip from a PDF | ⬜ | Synthetic images only so far. |
+| 4A.2 | Drag-and-drop an image file | ⬜ | |
+| 4A.3 | Paste works from `file://` | ⬜ | **Most important item here.** The paste event should not be blocked from disk, but it has only been proven over HTTP. |
+| 4A.4 | Two-point scale calibration on a real drawing | ⬜ | Verified numerically; needs a drawing with a known dimension. |
+| 4A.5 | Legibility over a white PDF background | ⬜ | Invert + 0.6 opacity is the default on the dark theme. Judgement call. |
+| 4A.6 | Trace, then check lengths against the real drawing | ⬜ | The whole point of workflow 1. |
+| 4A.7 | Multi-level: a different drawing per floor | ⬜ | |
+| 4A.8 | Model file size with 3+ traces | ⬜ | ~50 KB each in testing. |
+
 ## 5. Output
 
 | # | What | Status | Notes |
@@ -102,7 +119,10 @@ known project has been done.
   consistency plus hand calculations by the author of the code, which is the
   weakest form of check. A comparison against another tool, or against a job
   with known answers, is the single most valuable thing left to do.
-* **Light theme** has barely been looked at.
+* **Light theme** has barely been looked at — including how a trace looks on it,
+  where invert defaults to off.
+* **TRACE has never seen a real drawing.** Everything so far is synthetic line
+  art generated in the test itself.
 * **Printing** has not been done on real paper.
 
 ## How to log a result

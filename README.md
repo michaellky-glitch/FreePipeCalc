@@ -16,6 +16,8 @@ computation is SI internally; imperial is a display conversion.
 ## What it does
 
 * **Draws** multi-level networks — levels, riser columns, loops, rings.
+* **Traces** over a pasted screenshot of an existing drawing, with two-point
+  scale calibration.
 * **Solves** branched *and* looped topologies with multiple sources and pumps,
   using the Global Gradient Algorithm (the method EPANET uses).
 * **Detects fittings automatically** from the drawn geometry — elbows and tees
@@ -77,7 +79,8 @@ Usable for simple networks. Implemented so far:
 | Canvas: draw, snap, tee insertion, zoom/pan, select, delete | done |
 | Calculation sheet + CSV export + print stylesheet | done |
 | Settings, theming, autosave, undo/redo | done |
-| Test suite (505 assertions) | done |
+| Test suite (526 assertions) | done |
+| TRACE mode: trace over a pasted drawing | done |
 | Open/closed detection shown on the ribbon | done |
 | DOCUMENTATION tab rendering the project docs | done |
 | LAYOUT mode: draggable labels, device value boxes | done |

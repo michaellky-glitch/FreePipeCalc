@@ -39,6 +39,8 @@
     this.selection = [];             // [{kind,id}]
     this.marquee = null;
     this.conflict = null;          // pipe ids highlighted red by a geometry conflict
+    this.dragTrace = null;         // in-progress trace move/scale
+    this.calibrating = null;       // {points:[]} while picking two scale points
     this.results = null;             // last solve, for colouring & tooltips
     this.drawSize = null;            // size badge during DRAW
     this.shiftDown = false;
@@ -194,7 +196,14 @@
      * So the grid constrains the LENGTH ALONG THE RAY instead. The bearing is
      * preserved exactly, and lengths still come out in tidy grid multiples —
      * which is what the grid is actually for while drawing. */
-    if (m.settings.grid.snap) {
+    /* With a trace present the user is following the drawing, not the grid, so
+     * grid snapping is dropped — it would pull every vertex off the line being
+     * traced. Angle and connection snapping stay: pipework is mostly
+     * orthogonal, and connecting is still connecting. */
+    var lvT = M.level(m, m.activeLevel);
+    var tracing = !!(lvT && lvT.trace);
+
+    if (m.settings.grid.snap && !tracing) {
       var dx = pt.x - anchor.x, dy = pt.y - anchor.y;
       var len = Math.hypot(dx, dy);
       if (len > 1e-9) {
@@ -310,6 +319,30 @@
       }
       if (e.button !== 0) return;
 
+      if (self.tool === 'trace') {
+        /* Calibration takes precedence: while it is armed, clicks are
+         * measurement points, not manipulation. */
+        if (self.calibrating) {
+          self.calibrating.points.push({ x: w.x, y: w.y });
+          if (self.calibrating.points.length === 2) {
+            var pts = self.calibrating.points;
+            self.calibrating = null;
+            if (self.onCalibrate) self.onCalibrate(pts[0], pts[1]);
+          }
+          self.render();
+          return;
+        }
+        var thit = self.traceHitAt(sx, sy);
+        if (thit) {
+          self.dragTrace = {
+            part: thit.part, trace: thit.trace,
+            sx: sx, sy: sy,
+            x0: thit.trace.x, y0: thit.trace.y, w0: thit.trace.width
+          };
+          c.setPointerCapture(e.pointerId);
+        }
+        return;
+      }
       if (self.tool === 'layout') {
         var lab = self.labelAt(sx, sy);
         if (lab) {
@@ -359,6 +392,31 @@
         self.render();
         return;
       }
+      if (self.dragTrace) {
+        var d0 = self.dragTrace, t0 = d0.trace;
+        var dxm = (sx - d0.sx) / self.scale, dym = -(sy - d0.sy) / self.scale;
+        if (d0.part === 'body') {
+          t0.x = d0.x0 + dxm;
+          t0.y = d0.y0 + dym;
+        } else {
+          /* Corner drag scales about the OPPOSITE corner, aspect always
+           * locked — a background stretched out of proportion is worse than
+           * useless for tracing. */
+          var anchorX = (d0.part === 'nw' || d0.part === 'sw') ? d0.x0 + d0.w0 : d0.x0;
+          var anchorY = (d0.part === 'nw' || d0.part === 'ne')
+            ? d0.y0 - d0.w0 * t0.aspect : d0.y0;
+          var wx = self.toWorld(sx, sy).x;
+          var newW = Math.abs(wx - anchorX);
+          if (newW > 0.05) {
+            t0.width = newW;
+            t0.x = Math.min(anchorX, wx);
+            t0.y = (d0.part === 'nw' || d0.part === 'ne')
+              ? anchorY + newW * t0.aspect : anchorY;
+          }
+        }
+        self.render();
+        return;
+      }
       if (self.dragLabel) {
         var d = self.dragLabel;
         M.setLabelOffset(d.target, d.ox + (sx - d.sx), d.oy + (sy - d.sy));
@@ -387,6 +445,7 @@
 
     window.addEventListener('pointerup', function (e) {
       if (self.panning) { self.panning = null; return; }
+      if (self.dragTrace) { self.dragTrace = null; self.changed(); return; }
       if (self.dragLabel) { self.dragLabel = null; self.changed(); return; }
       if (self.dragNode) { self.dragNode = null; self.changed(); return; }
       if (self.marquee) {
@@ -400,7 +459,8 @@
       if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
       if (e.key === 'Shift') self.shiftDown = true;
       if (e.key === 'Escape') {
-        if (self.draft) self.endDraft();
+        if (self.calibrating) self.cancelCalibration();
+        else if (self.draft) self.endDraft();
         else { self.setTool('edit'); }
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -437,8 +497,10 @@
   View.prototype.setTool = function (tool) {
     if (this.draft) this.endDraft();
     this.tool = tool;
+    this.calibrating = null;
     this.canvas.style.cursor = (tool === 'edit') ? 'default'
-                            : (tool === 'layout') ? 'move' : 'crosshair';
+                            : (tool === 'layout' || tool === 'trace') ? 'move'
+                            : 'crosshair';
     if (this.onToolChange) this.onToolChange();
     this.onChange();
     this.render();
@@ -711,6 +773,7 @@
      * hit-test them without re-deriving the layout. */
     this._labelBoxes = [];
 
+    this.drawTrace();
     this.drawGrid();
     this.drawFadedLevel();
     this.drawRisers();
@@ -718,12 +781,104 @@
     this.drawNodes();
     this.drawDraft();
     this.drawMarquee();
+    this.drawCalibration();
     this.drawScaleBar();
     this.drawTooltip();
   };
 
+  /* Background drawing, under everything else. */
+  View.prototype.drawTrace = function () {
+    var m = this.getModel(), ctx = this.ctx;
+    var lv = M.level(m, m.activeLevel);
+    if (!lv || !lv.trace) return;
+    var t = lv.trace;
+    var self = this;
+    var img = FD.trace.imageFor(lv, function () { self.render(); });
+
+    var tl = this.toScreen(t.x, t.y);
+    var w = t.width * this.scale;
+    var h = t.width * t.aspect * this.scale;
+
+    if (!img) {
+      // still decoding: show the footprint so the canvas does not look empty
+      ctx.save();
+      ctx.strokeStyle = this.theme.mute;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(tl.x, tl.y, w, h);
+      ctx.restore();
+      return;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = (t.opacity === undefined ? 0.6 : t.opacity);
+    /* ctx.filter is how invert is done — cheaper and sharper than reading the
+     * pixels back and flipping them by hand, and it composites on the GPU. */
+    if (t.invert) ctx.filter = 'invert(1)';
+    ctx.drawImage(img, tl.x, tl.y, w, h);
+    ctx.restore();
+
+    // frame + handles, only while the trace tool is active and it is unlocked
+    if (this.tool === 'trace') {
+      ctx.save();
+      ctx.strokeStyle = t.locked ? this.theme.mute : this.theme.select;
+      ctx.lineWidth = 1.5;
+      if (t.locked) ctx.setLineDash([6, 4]);
+      ctx.strokeRect(tl.x, tl.y, w, h);
+      ctx.restore();
+      if (!t.locked) this.drawTraceHandles(tl, w, h);
+    }
+  };
+
+  var HANDLE = 9;
+
+  View.prototype.traceCorners = function (tl, w, h) {
+    return [
+      { id: 'nw', x: tl.x,     y: tl.y },
+      { id: 'ne', x: tl.x + w, y: tl.y },
+      { id: 'se', x: tl.x + w, y: tl.y + h },
+      { id: 'sw', x: tl.x,     y: tl.y + h }
+    ];
+  };
+
+  View.prototype.drawTraceHandles = function (tl, w, h) {
+    var ctx = this.ctx, self = this;
+    this.traceCorners(tl, w, h).forEach(function (c) {
+      ctx.fillStyle = self.theme.select;
+      ctx.strokeStyle = self.theme.bg;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.rect(c.x - HANDLE / 2, c.y - HANDLE / 2, HANDLE, HANDLE);
+      ctx.fill(); ctx.stroke();
+    });
+  };
+
+  /* Which part of the trace is under this screen point: a corner handle, the
+   * body, or nothing. */
+  View.prototype.traceHitAt = function (sx, sy) {
+    var m = this.getModel();
+    var lv = M.level(m, m.activeLevel);
+    if (!lv || !lv.trace || lv.trace.locked) return null;
+    var t = lv.trace;
+    var tl = this.toScreen(t.x, t.y);
+    var w = t.width * this.scale, h = t.width * t.aspect * this.scale;
+
+    var corners = this.traceCorners(tl, w, h);
+    for (var i = 0; i < corners.length; i++) {
+      var c = corners[i];
+      if (Math.abs(sx - c.x) <= HANDLE && Math.abs(sy - c.y) <= HANDLE) {
+        return { part: c.id, trace: t };
+      }
+    }
+    if (sx >= tl.x && sx <= tl.x + w && sy >= tl.y && sy <= tl.y + h) {
+      return { part: 'body', trace: t };
+    }
+    return null;
+  };
+
   View.prototype.drawGrid = function () {
     var m = this.getModel(), ctx = this.ctx;
+    var lvG = M.level(m, m.activeLevel);
+    if (lvG && lvG.trace && lvG.trace.hideGrid !== false) return;
     var g = m.settings.grid;
     var W = this.cssW, H = this.cssH;
     var tl = this.toWorld(0, 0), br = this.toWorld(W, H);
@@ -1387,6 +1542,49 @@
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'left';
     ctx.fillText(text, x + 6, y + 2);
+  };
+
+  /* Rubber band between the two calibration picks. */
+  View.prototype.drawCalibration = function () {
+    if (!this.calibrating) return;
+    var ctx = this.ctx, pts = this.calibrating.points, self = this;
+
+    if (!pts.length) {
+      var c0 = this.cursor ? this.toScreen(this.cursor.x, this.cursor.y) : null;
+      if (c0) this.badge(c0.x + 14, c0.y - 14, 'pick the 1st point of a known distance');
+      return;
+    }
+
+    ctx.save();
+    ctx.strokeStyle = this.theme.select;
+    ctx.fillStyle = this.theme.select;
+    ctx.lineWidth = 2;
+    pts.forEach(function (p) {
+      var s2 = self.toScreen(p.x, p.y);
+      ctx.beginPath(); ctx.arc(s2.x, s2.y, 5, 0, Math.PI * 2); ctx.fill();
+    });
+    if (pts.length === 1 && this.cursor) {
+      var a = this.toScreen(pts[0].x, pts[0].y);
+      var b = this.toScreen(this.cursor.x, this.cursor.y);
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.restore();
+      var span = Math.hypot(this.cursor.x - pts[0].x, this.cursor.y - pts[0].y);
+      this.badge(b.x + 14, b.y - 14,
+        'pick the 2nd point  ·  currently ' + span.toFixed(2) + ' m');
+      return;
+    }
+    ctx.restore();
+  };
+
+  View.prototype.startCalibration = function () {
+    this.calibrating = { points: [] };
+    this.render();
+  };
+
+  View.prototype.cancelCalibration = function () {
+    this.calibrating = null;
+    this.render();
   };
 
   View.prototype.drawMarquee = function () {

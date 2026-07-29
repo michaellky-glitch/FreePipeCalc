@@ -257,6 +257,42 @@ preserved exactly and lengths still come out in tidy grid multiples, which is
 what the grid is for while drawing. Verified: ragged clicks produce bearings on
 exact 15° multiples *and* lengths on exact grid multiples.
 
+## 7B. TRACE — background drawings
+
+`src/trace.js` handles capture and encoding; `canvas.js` renders and
+manipulates. Design rationale is in `TRACE-design.md`; the parts that look
+arbitrary in the code:
+
+**The paste EVENT, never `navigator.clipboard.read()`.** The async Clipboard API
+needs a secure context, and a `file://` origin is not one — it would fail in the
+app's primary deployment. The paste event is a user-gesture DOM event with the
+data already attached and carries no such restriction. Drag-and-drop onto the
+canvas is the fallback.
+
+**Re-encoded as PNG, not JPEG.** Drawings are line art on white: PNG measured
+smaller (105 KB vs 125 KB at 2000 px) *and* lossless, while JPEG puts ringing
+artefacts around exactly the black lines being traced. The opposite of the usual
+photographic advice.
+
+**One trace per LEVEL**, because each floor is traced from a different drawing.
+It is deliberately *not* carried by `copyLevel` — a picture of one floor placed
+behind another would actively mislead.
+
+**Autosave degrades rather than fails.** On `QuotaExceededError` the write is
+retried with the image data stripped but the trace *geometry* kept, so position
+and scale survive; the user is warned once. The model is the valuable part, and
+a background can always be pasted again.
+
+**Two-point calibration** is what makes traced geometry worth keeping. Click two
+points whose real separation is known, type the distance, and the image scales
+about the first point. Without it every traced length has to be retyped.
+
+**Grid snapping is dropped while a trace is present**, because the user is
+following the drawing, not the grid — snapping would pull every vertex off the
+line being traced. Angle and connection snapping stay. The grid is also hidden
+by default: it is drawn over the trace and obscured over a third of sampled
+pixels at working zoom.
+
 ## 8. Levels, risers and geometry editing
 
 Node coordinates are **level-local metres**. Each level carries an `(dx, dy)`

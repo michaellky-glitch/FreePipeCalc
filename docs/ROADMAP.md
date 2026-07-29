@@ -11,16 +11,6 @@ proposed again.
 
 ## Next version
 
-### TRACE mode
-
-Trace pipework over a pasted screenshot of an existing drawing. Designed and
-agreed; see `docs/TRACE-design.md` for the decisions and the reasoning.
-
-In short: paste event (not the async Clipboard API, which `file://` blocks),
-one image per level, downscaled to 2000 px PNG and embedded in the model file,
-two-point scale calibration, opacity and invert for working over white PDF
-backgrounds, locked once calibrated, never printed.
-
 ### Heating / cooling power
 
 The headline feature. The groundwork is already in the model:
@@ -68,6 +58,7 @@ per level.
 
 ## Delivered since this list was written
 
+* **TRACE mode** (v0.5.0) — built as designed in `TRACE-design.md`.
 * Open/closed detection, shown live on the PIPING NETWORK ribbon.
 * Critical path (index circuit) identification, ordering and highlighting.
 * Copy level layout, custom pipe schedules with spreadsheet paste.

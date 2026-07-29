@@ -83,9 +83,26 @@
       try {
         localStorage.setItem(STORAGE_KEY, snapshot());
         localStorage.setItem(SCHEDULE_KEY, JSON.stringify(app.model.customSchedules || {}));
+        app.traceAutosaveDropped = false;
       } catch (e) {
-        // Quota or private mode — autosave is a convenience, not a guarantee.
-        console.warn('Autosave failed:', e.message);
+        /* Almost always quota, and almost always a trace image. Retry without
+         * the image data rather than losing the autosave entirely: the model is
+         * the valuable part, a background drawing can be pasted again. */
+        try {
+          var lean = M.toJSON(app.model);
+          var dropped = 0;
+          (lean.levels || []).forEach(function (lv) {
+            if (lv.trace && lv.trace.src) { delete lv.trace.src; dropped++; }
+          });
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(lean));
+          if (dropped && !app.traceAutosaveDropped) {
+            app.traceAutosaveDropped = true;
+            toast('Autosave is too large for this browser — background traces were ' +
+                  'left out of it. Use SAVE to keep them.', 'error');
+          }
+        } catch (e2) {
+          console.warn('Autosave failed:', e2.message);
+        }
       }
     }, 600);
   }
@@ -849,6 +866,9 @@
     var m = app.model;
     var sel = app.view.selection;
 
+    // TRACE mode shows the background drawing's own controls instead
+    if (app.view.tool === 'trace') { renderTraceProps(host); return; }
+
     if (!sel.length) {
       host.appendChild(el('p', 'hint', 'Nothing selected. Click a pipe or node to edit it.'));
       return;
@@ -866,6 +886,107 @@
     var s = sel[0];
     if (s.kind === 'pipe') renderPipeProps(host, M.pipe(m, s.id));
     else renderNodeProps(host, M.node(m, s.id));
+  }
+
+  /* TRACE panel: everything to do with the background drawing for this level. */
+  function renderTraceProps(host) {
+    var m = app.model;
+    var lv = M.level(m, m.activeLevel);
+    host.appendChild(el('h3', '', 'Trace — ' + lv.name));
+
+    if (!lv.trace) {
+      host.appendChild(el('p', 'hint',
+        'Copy a screen snip of the drawing (Ctrl+V), or drag an image file onto the ' +
+        'canvas. One drawing per level.'));
+      host.appendChild(el('p', 'hint',
+        'Then set the scale from a known distance, lock it, and trace over it in ' +
+        'DRAW PIPE.'));
+      return;
+    }
+    var t = lv.trace;
+
+    // --- scale ---
+    var cal = el('button', 'btn primary', 'Set scale from a known distance');
+    cal.addEventListener('click', function () {
+      app.view.startCalibration();
+      toast('Click two points a known distance apart on the drawing. Esc cancels.');
+    });
+    host.appendChild(cal);
+    host.appendChild(el('p', 'hint',
+      'Click two points whose real separation you know — a gridline spacing, a ' +
+      'dimensioned run, a column grid — then type that distance. Without this the ' +
+      'scale is guesswork and every traced length has to be retyped.'));
+
+    var wIn = el('input'); wIn.type = 'text';
+    wIn.value = FD.units.fmtLength(t.width, m.settings.display.length);
+    field(host, 'Drawing width (' + m.settings.display.length + ')', wIn)
+      .addEventListener('change', function () {
+        var v = FD.units.parse(wIn.value);
+        if (isFinite(v) && v > 0) {
+          pushUndo();
+          t.width = FD.units.toSILength(v, m.settings.display.length);
+          changed();
+        } else { wIn.value = FD.units.fmtLength(t.width, m.settings.display.length); }
+      });
+
+    // --- appearance ---
+    var op = el('input'); op.type = 'range';
+    op.min = '0.05'; op.max = '1'; op.step = '0.05';
+    op.value = String(t.opacity === undefined ? 0.6 : t.opacity);
+    field(host, 'Opacity', op).addEventListener('input', function () {
+      t.opacity = parseFloat(op.value);
+      app.view.render();
+    });
+    op.addEventListener('change', function () { scheduleSave(); });
+
+    function toggle(label, key, note) {
+      var i = el('input'); i.type = 'checkbox'; i.checked = !!t[key];
+      var w = el('label', 'check-inline');
+      w.appendChild(i); w.appendChild(el('span', '', label));
+      host.appendChild(w);
+      i.addEventListener('change', function () {
+        pushUndo(); t[key] = i.checked; changed(); renderProperties();
+      });
+      if (note) host.appendChild(el('p', 'hint', note));
+    }
+    toggle('Hide grid while this trace is shown', 'hideGrid',
+      'The grid is drawn over the trace and obscures a good deal of it at working ' +
+      'zoom. While tracing, the drawing is the reference.');
+    toggle('Invert colours', 'invert',
+      'A PDF screenshot is black on white. Inverted, the paper goes dark and the ' +
+      'linework goes light, so pipes stay readable on the dark theme.');
+    toggle('Lock position', 'locked',
+      'Locked once the scale is right, so drawing over it cannot nudge it.');
+
+    // --- readout ---
+    var info = el('div', 'readout');
+    function ro(k, v) {
+      var r = el('div', 'kv');
+      r.appendChild(el('span', 'k', k));
+      r.appendChild(el('span', 'v', v));
+      info.appendChild(r);
+    }
+    ro('Size in model', FD.units.fmtLength(t.width, m.settings.display.length, true) +
+       ' × ' + FD.units.fmtLength(t.width * t.aspect, m.settings.display.length, true));
+    ro('Stored', FD.trace.sizeKB(t) + ' KB');
+    host.appendChild(info);
+
+    var del = el('button', 'btn danger', 'Discard trace');
+    del.addEventListener('click', function () {
+      FD.dialog.confirm({
+        title: 'Discard the trace on ' + lv.name + '?',
+        message: 'The drawing is removed from this level and from the saved model. ' +
+                 'Anything you have already traced stays.',
+        ok: 'Discard', danger: true
+      }).then(function (yes) {
+        if (!yes) return;
+        pushUndo();
+        M.clearTrace(m, lv.id);
+        FD.trace.forget(lv.id);
+        renderProperties(); renderLevels(); changed();
+      });
+    });
+    host.appendChild(del);
   }
 
   function field(host, label, control) {
@@ -2341,6 +2462,7 @@
       edit:   'Click to select · drag a node to move it · Delete removes the selection',
       pipe:   'Click to place vertices · scroll = pipe size · Shift = free angle · Esc = finish',
       layout: 'Drag any label to reposition it for printing · tick properties in the panel to show them on the drawing',
+      trace:  'Ctrl+V a screen snip, or drag an image in · drag to move, corners to scale · set the scale, then lock it',
       riser:  'Click this floor\u2019s pipework to place or join a riser column',
       source: 'Click to place a source (tank, mains, or expansion vessel)',
       demand: 'Click to place a demand',
@@ -2460,6 +2582,85 @@
         renderLevels(); changed();
       });
     });
+
+    /* Paste and drop capture.
+     *
+     * The paste EVENT is used rather than navigator.clipboard.read(), which
+     * needs a secure context — a file:// origin is not one, and that is the
+     * deployment this app exists for. */
+    function acceptImage(file, how) {
+      if (!file) return;
+      FD.trace.fromBlob(file).then(function (img) {
+        pushUndo();
+        var lv = M.level(app.model, app.model.activeLevel);
+        var c = app.view.toWorld(app.view.cssW / 2, app.view.cssH / 2);
+        // default width: about two thirds of the visible canvas
+        var defW = (app.view.cssW * 0.66) / app.view.scale;
+        M.setTrace(app.model, lv.id, img, c.x, c.y, defW);
+        FD.trace.forget(lv.id);
+        app.view.setTool('trace');
+        renderProperties();
+        renderLevels();
+        changed();
+        toast('Drawing ' + how + ' onto ' + lv.name + ' (' +
+              img.width + '×' + img.height + ', ' +
+              FD.trace.sizeKB(lv.trace) + ' KB)' +
+              (img.scaled ? ', downscaled' : '') +
+              '. Set the scale next.');
+      }).catch(function (err) {
+        toast(err.message || 'That image could not be read.', 'error');
+      });
+    }
+
+    window.addEventListener('paste', function (e) {
+      // never hijack a paste aimed at a text field
+      var t = e.target;
+      if (t && /INPUT|TEXTAREA|SELECT/.test(t.tagName)) return;
+      if (FD.dialog.isOpen()) return;
+      if ($('pane-network').dataset.active !== 'true') return;
+      var file = FD.trace.imageFromEvent(e);
+      if (!file) return;
+      e.preventDefault();
+      acceptImage(file, 'pasted');
+    });
+
+    var canvasEl = $('canvas');
+    ['dragenter', 'dragover'].forEach(function (n) {
+      canvasEl.addEventListener(n, function (e) { e.preventDefault(); });
+    });
+    canvasEl.addEventListener('drop', function (e) {
+      var file = FD.trace.imageFromEvent(e);
+      if (!file) return;
+      e.preventDefault();
+      acceptImage(file, 'dropped');
+    });
+
+    // two-point scale calibration
+    app.view.onCalibrate = function (a, b) {
+      var m = app.model;
+      var measured = Math.hypot(b.x - a.x, b.y - a.y);
+      FD.dialog.prompt({
+        title: 'Set the drawing scale',
+        message: 'Those two points are currently ' + measured.toFixed(2) + ' m apart in ' +
+                 'the model. What is the real distance between them?',
+        label: 'Real distance (' + m.settings.display.length + ')',
+        value: ''
+      }).then(function (v) {
+        if (v === null) return;
+        var real = FD.units.parse(v);
+        if (!isFinite(real) || real <= 0) {
+          toast('That is not a distance.', 'error');
+          return;
+        }
+        pushUndo();
+        var r = M.calibrateTrace(m, m.activeLevel, a.x, a.y, b.x, b.y,
+          FD.units.toSILength(real, m.settings.display.length));
+        if (!r) { toast('Could not set the scale.', 'error'); return; }
+        renderProperties();
+        changed();
+        toast('Scale set — drawing resized ×' + r.factor.toFixed(3) + '.');
+      });
+    };
 
     window.addEventListener('resize', function () { app.view.resize(); });
     window.addEventListener('keydown', function (e) {
