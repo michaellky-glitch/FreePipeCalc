@@ -11,6 +11,16 @@ proposed again.
 
 ## Next version
 
+### TRACE mode
+
+Trace pipework over a pasted screenshot of an existing drawing. Designed and
+agreed; see `docs/TRACE-design.md` for the decisions and the reasoning.
+
+In short: paste event (not the async Clipboard API, which `file://` blocks),
+one image per level, downscaled to 2000 px PNG and embedded in the model file,
+two-point scale calibration, opacity and invert for working over white PDF
+backgrounds, locked once calibrated, never printed.
+
 ### Heating / cooling power
 
 The headline feature. The groundwork is already in the model:
