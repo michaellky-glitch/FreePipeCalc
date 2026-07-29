@@ -388,7 +388,7 @@ section('Annotations — node type codes and size labels');
   M.setSource(m, W.id);
   ok('Source → S (device beats geometry)', NET.nodeTypeCode(m, W.id) === 'S');
   M.setDemand(m, E.id, 0.001, 0);
-  ok('Demand → D', NET.nodeTypeCode(m, E.id) === 'D');
+  ok('Outflow → OF', NET.nodeTypeCode(m, E.id) === 'OF');
   ok('Plain dead end → no code', NET.nodeTypeCode(m, c1.id) === '');
 
   // Collinear pipes are not an elbow

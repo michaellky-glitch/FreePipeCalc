@@ -76,12 +76,25 @@
   // ------------------------------------------------------- link behaviour
   /* Head loss along the link (from → to) and its derivative w.r.t. Q. */
   function linkLoss(link, q) {
-    if (link.kind === 'pump') return -(link.head || 0);
+    if (link.kind === 'pump') {
+      /* A curve makes the pump a real element rather than a constant: the
+       * solver then finds the operating point where the curve meets the
+       * system, for the whole network at once. No separate system-curve
+       * intersection is needed or wanted — with several pumps and rings there
+       * is no single scalar system curve to intersect. */
+      if (link.curve) return -FD.pumps.head(link.curve, q);
+      return -(link.head || 0);
+    }
     return FD.hydraulics.headloss(link.r, q, link.n);
   }
 
   function linkDhdq(link, q) {
-    if (link.kind === 'pump') return PUMP_DHDQ_MIN;
+    if (link.kind === 'pump') {
+      /* dH/dQ vanishes at shutoff for any b > 1, the same singularity a
+       * fixed-head pump has. FD.pumps.slope applies the floor. */
+      if (link.curve) return FD.pumps.slope(link.curve, q, PUMP_DHDQ_MIN);
+      return PUMP_DHDQ_MIN;
+    }
     return Math.max(FD.hydraulics.dhdq(link.r, q, link.n), 1e-9);
   }
 

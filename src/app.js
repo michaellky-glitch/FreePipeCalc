@@ -70,6 +70,7 @@
     applyTheme();
     applyPresentation();
     updateSystemChip();
+    updateModeChip();
     app.view.render();
     scheduleSolve();
     scheduleSave();
@@ -177,6 +178,7 @@
       app.view.render();
       updateStatusChip(res);
       updateSystemChip();
+      updateModeChip();
       refreshPropertyReadouts();
       return res;
     } catch (e) {
@@ -273,13 +275,13 @@
       if (!n.device || n.device.kind !== 'demand' || n.device.include === false) return;
       if (res.pressure[n.id] === undefined) return;
       if (isUnreachable(res.pressure[n.id])) {
-        out.push({ message: 'Demand ' + n.id + ' cannot be reached — it is isolated by a shut ' +
+        out.push({ message: 'Outflow ' + n.id + ' cannot be reached — it is isolated by a shut ' +
                             'valve or not connected to a source.' });
         return;
       }
       var short = res.pressure[n.id] - (n.device.reqPressure || 0);
       if (short < 0) {
-        out.push({ message: 'Demand ' + n.id + ' is ' +
+        out.push({ message: 'Outflow ' + n.id + ' is ' +
           FD.units.fmtPressure(-short, d.pressure, true) + ' short of its required pressure.' });
       }
     });
@@ -330,6 +332,8 @@
     });
 
     ordered.forEach(function (l) {
+      // virtual terminal links are a modelling device, not pipework
+      if (l._virtual) return;
       var q = res.flow[l.id];
       if (q === undefined) return;
       var from = l.from, to = l.to;
@@ -510,7 +514,7 @@
       var box = el('div', 'notice index-notice');
       box.appendChild(el('p', 'notice-head', 'Critical path'));
       var who = ix2.targetKind === 'demand'
-        ? 'demand ' + ix2.target
+        ? 'outflow ' + ix2.target
         : 'equipment at ' + ix2.target;
       box.appendChild(el('p', '',
         'The hydraulically most unfavourable route runs from ' + ix2.origin + ' to ' +
@@ -534,12 +538,78 @@
       host.appendChild(box);
     }
 
+    /* SIMULATION's whole justification: natural flow vs design flow, per
+     * terminal. A terminal over 100% is stealing from the rest of the system
+     * and is where a balancing valve goes.
+     *
+     * This sits OUTSIDE the outflow-node block on purpose: a closed circuit
+     * often has no outflow nodes at all — the data centre models are driven
+     * entirely by equipment — and nesting it there left the headline
+     * simulation output blank on exactly the model it was written for. */
+    if (res.simulation && app.model.settings.calcMode === 'simulation') {
+      var sim = res.simulation;
+      host.appendChild(el('h2', '', 'Simulation \u2014 flow distribution'));
+      var st = el('table', 'sheet');
+      st.innerHTML = '<thead><tr>' +
+        '<th class="txt">Terminal</th>' +
+        '<th>Design flow</th><th>Actual flow</th><th>% of design</th>' +
+        '<th>Design press.</th><th>Actual press.</th>' +
+        '<th>Balancing Kv</th></tr></thead>';
+      var sb = el('tbody');
+      sim.terminals.forEach(function (t) {
+        var tr = el('tr');
+        if (t.ratio > 1.05 || t.ratio < 0.95) tr.className = 'warn-row';
+        function td(v, cls) { var c = el('td', cls || '', v); tr.appendChild(c); }
+        td(t.tag || t.node, 'txt');
+        td(FD.units.fmtFlow(t.designFlow, m.settings.display.flow));
+        td(FD.units.fmtFlow(t.actualFlow, m.settings.display.flow));
+        td((t.ratio * 100).toFixed(1) + '%');
+        td(FD.units.fmtPressure(t.designPressure, m.settings.display.pressure));
+        td(FD.units.fmtPressure(t.actualPressure, m.settings.display.pressure));
+        td(t.balanceKv ? t.balanceKv.toFixed(1) : '\u2014');
+        sb.appendChild(tr);
+      });
+      st.appendChild(sb);
+      host.appendChild(st);
+      host.appendChild(el('p', 'hint',
+        'Total design ' + FD.units.fmtFlow(sim.totalDesign, m.settings.display.flow, true) +
+        ' \u2192 actual ' + FD.units.fmtFlow(sim.totalActual, m.settings.display.flow, true) +
+        '. Balancing Kv is the valve that would throttle a terminal back to its design flow; ' +
+        'terminals at or under design need none.'));
+
+      if (sim.pumps.length) {
+        host.appendChild(el('h2', '', 'Simulation \u2014 pump operating points'));
+        var pt = el('table', 'sheet');
+        pt.innerHTML = '<thead><tr><th class="txt">Pump</th><th class="txt">Mode</th>' +
+          '<th>Flow</th><th>Head</th><th>% of design flow</th>' +
+          '<th>Shutoff</th><th>Max flow</th></tr></thead>';
+        var pb = el('tbody');
+        sim.pumps.forEach(function (pp) {
+          var tr = el('tr');
+          if (pp.beyondCurve) tr.className = 'warn-row';
+          function td(v, cls) { tr.appendChild(el('td', cls || '', v)); }
+          td(pp.tag || pp.pipe, 'txt');
+          td(pp.mode === 'off' ? 'off' : (pp.curve ? 'curve' : 'fixed head'), 'txt');
+          td(FD.units.fmtFlow(Math.abs(pp.flow), m.settings.display.flow));
+          td(FD.units.fmtPressure(headToPa(pp.head), m.settings.display.pressure));
+          td(pp.pctOfDesign === null ? '\u2014' : (pp.pctOfDesign * 100).toFixed(1) + '%');
+          td(pp.shutoff === null ? '\u2014'
+             : FD.units.fmtPressure(headToPa(pp.shutoff), m.settings.display.pressure));
+          td(pp.maxFlow === null || !isFinite(pp.maxFlow) ? '\u2014'
+             : FD.units.fmtFlow(pp.maxFlow, m.settings.display.flow));
+          pb.appendChild(tr);
+        });
+        pt.appendChild(pb);
+        host.appendChild(pt);
+      }
+    }
+
     // demand summary: available vs required (spec §8.2)
     var demands = m.nodes.filter(function (n) {
       return n.device && n.device.kind === 'demand' && n.device.include !== false;
     });
     if (demands.length && res) {
-      host.appendChild(el('h2', '', 'Demands'));
+      host.appendChild(el('h2', '', 'Outflows'));
       var dt = el('table', 'sheet');
       var actual = res.actual;
       dt.innerHTML = '<thead><tr><th class="txt">Node</th>' +
@@ -1294,6 +1364,166 @@
     host.appendChild(del);
   }
 
+
+  /* Pump curve entry. Three ways in, in order of how often they are used:
+   * the EPANET single-point assumption from the design duty (with optional
+   * selection margins), pasted manufacturer Q/H data, or nothing — in which
+   * case SIMULATION falls back to a fixed head, which is not a real pump. */
+  function renderPumpCurve(host, p) {
+    var m = app.model;
+    var pu = m.settings.display.pressure, fu = m.settings.display.flow;
+    host.appendChild(el('h4', '', 'Pump curve'));
+
+    var c = p.pump.curve;
+    if (!c) {
+      host.appendChild(el('p', 'hint',
+        'No curve set. Without one the pump is modelled as a constant head, which no ' +
+        'real pump is — flow will not respond to the system.'));
+    } else {
+      var d = el('div', 'readout');
+      function ro(k, v) {
+        var r = el('div', 'kv'); r.appendChild(el('span', 'k', k));
+        r.appendChild(el('span', 'v', v)); d.appendChild(r);
+      }
+      ro('Shutoff head', FD.units.fmtPressure(headToPa(c.H0), pu, true) +
+                         '  (' + c.H0.toFixed(2) + ' m)');
+      ro('Max flow', FD.units.fmtFlow(FD.pumps.maxFlow(c), fu, true));
+      ro('Form', 'H = ' + c.H0.toFixed(3) + ' \u2212 ' + c.a.toPrecision(4) +
+                '\u00b7Q^' + c.b);
+      ro('Source', c.source === 'fitted'
+                     ? 'fitted to ' + c.fit.n + ' pasted points'
+                     : 'single design point (EPANET assumption)');
+      if (c.fit) {
+        /* A bad fit must be visible. A manufacturer curve that does not take
+         * this form should be the engineer's problem to see, not a silent
+         * error in the answers. */
+        ro('Fit quality', 'r\u00b2 = ' + c.fit.r2.toFixed(5) +
+                          ', max deviation ' + c.fit.maxDev.toFixed(3) + ' m' +
+                          ', RMS ' + c.fit.rms.toFixed(3) + ' m');
+        if (c.fit.r2 < 0.98 || c.fit.maxDev > 1) {
+          d.appendChild(el('p', 'hint warn',
+            'This curve does not fit H = H\u2080 \u2212 a\u00b7Q^b well. Check the pasted data.'));
+        }
+      }
+      host.appendChild(d);
+    }
+
+    var row = el('div', 'btn-row');
+
+    var fromDuty = el('button', 'btn', c ? 'Re-derive from duty\u2026' : 'From design duty\u2026');
+    fromDuty.addEventListener('click', function () {
+      var res = app.results;
+      var q = res && res.flow[p.id] !== undefined ? Math.abs(res.flow[p.id]) : (p.pump.Qd || 0);
+      var h = p.pump.head || 0;
+      if (!(q > 0) || !(h > 0)) {
+        FD.dialog.alert({ title: 'No design duty yet',
+          message: 'Run a DESIGN calculation first so there is a duty point to build ' +
+                   'the curve from, or paste a manufacturer curve instead.' });
+        return;
+      }
+      FD.dialog.form({
+        title: 'Pump curve from design duty',
+        message: 'The curve is generated from the duty point using the EPANET assumption: ' +
+                 'shutoff at 133% of design head, maximum flow at 200% of design flow.\n\n' +
+                 'Margins here are a SELECTION allowance — they enlarge the pump you are ' +
+                 'modelling, they do not change the system.',
+        fields: [
+          { key: 'q', label: 'Design flow (' + fu + ')',
+            value: FD.units.fmtFlow(q, fu) },
+          { key: 'h', label: 'Design head (' + pu + ')',
+            value: FD.units.fmtPressure(headToPa(h), pu) },
+          { key: 'sfq', label: 'Flow margin (%)', value: '0' },
+          { key: 'sfh', label: 'Head margin (%)', value: '0' }
+        ]
+      }).then(function (v) {
+        if (!v) return;
+        var Qd = FD.units.toSIFlow(FD.units.parse(v.q), fu) * (1 + (FD.units.parse(v.sfq) || 0) / 100);
+        var Hd = FD.units.paToHeadWith(FD.units.toSIPressure(FD.units.parse(v.h), pu),
+                                       m.settings.fluid && m.settings.fluid.density) *
+                 (1 + (FD.units.parse(v.sfh) || 0) / 100);
+        var curve = FD.pumps.singlePoint(Hd, Qd);
+        if (!curve) {
+          FD.dialog.alert({ title: 'Cannot build a curve',
+            message: 'Both design flow and design head must be greater than zero.' });
+          return;
+        }
+        pushUndo();
+        p.pump.curve = curve;
+        renderProperties(); changed();
+      });
+    });
+    row.appendChild(fromDuty);
+
+    var paste = el('button', 'btn', 'Paste curve data\u2026');
+    paste.addEventListener('click', function () {
+      FD.dialog.form({
+        title: 'Paste pump curve',
+        message: 'Two columns: flow then head. Tab, comma, semicolon or spaced columns — ' +
+                 'paste straight from a spreadsheet. A header row is skipped.\n\n' +
+                 'Units are taken as ' + fu + ' and ' + pu + '.',
+        fields: [{ key: 'data', label: 'Flow (' + fu + ')   Head (' + pu + ')',
+                   type: 'textarea', rows: 10, value: '' }]
+      }).then(function (v) {
+        if (!v || !v.data || !v.data.trim()) return;
+        var parsed = FD.pumps.parseCurve(v.data, fu, pu);
+        if (parsed.points.length < 3) {
+          FD.dialog.alert({ title: 'Not enough points',
+            message: 'Read ' + parsed.points.length + ' usable point(s). At least three are ' +
+                     'needed to fit a curve — two only ever fit perfectly and tell you nothing.' });
+          return;
+        }
+        var curve = FD.pumps.fit(parsed.points);
+        if (!curve) {
+          FD.dialog.alert({ title: 'Cannot fit a curve',
+            message: 'The points do not describe a head that falls with flow. Check the ' +
+                     'column order — flow first, head second.' });
+          return;
+        }
+        /* Keep the design duty for the 0-150% table: the fit itself has no
+         * opinion about which point on it is the duty. */
+        var res = app.results;
+        curve.Qd = res && res.flow[p.id] !== undefined ? Math.abs(res.flow[p.id]) : undefined;
+        if (!curve.Qd) curve.Qd = FD.pumps.maxFlow(curve) / 2;
+        curve.Hd = FD.pumps.head(curve, curve.Qd);
+        pushUndo();
+        p.pump.curve = curve;
+        renderProperties(); changed();
+        if (parsed.skipped.length) {
+          FD.dialog.alert({ title: 'Curve fitted',
+            message: 'Fitted ' + curve.fit.n + ' points (r\u00b2 = ' + curve.fit.r2.toFixed(5) +
+                     '). ' + parsed.skipped.length + ' line(s) could not be read and were ignored.' });
+        }
+      });
+    });
+    row.appendChild(paste);
+
+    if (c) {
+      var tbl = el('button', 'btn', 'Show table');
+      tbl.addEventListener('click', function () {
+        var rows = FD.pumps.table(c);
+        var lines = ['   %      Flow (' + fu + ')      Head (' + pu + ')'].concat(
+          rows.map(function (r) {
+            return String(r.pct).padStart(4) + '   ' +
+                   FD.units.fmtFlow(r.q, fu).padStart(12) + '   ' +
+                   FD.units.fmtPressure(headToPa(r.h), pu).padStart(14);
+          }));
+        FD.dialog.report({
+          title: 'Pump curve \u2014 ' + (p.tag || p.id),
+          message: 'Generated from H = H\u2080 \u2212 a\u00b7Q^b, 0\u2013150% of design flow.',
+          rows: lines
+        });
+      });
+      row.appendChild(tbl);
+
+      var clr = el('button', 'btn', 'Clear');
+      clr.addEventListener('click', function () {
+        pushUndo(); delete p.pump.curve; renderProperties(); changed();
+      });
+      row.appendChild(clr);
+    }
+    host.appendChild(row);
+  }
+
   /* Spec §8.4. Head is either user-fixed or auto-sized: auto solves, reads the
    * worst shortfall at any demand, and adds that plus the safety factor. */
   function renderPumpProps(host, p) {
@@ -1327,6 +1557,15 @@
                                             m.settings.fluid && m.settings.fluid.density);
         changed();
       });
+
+    /* SIMULATION: the curve is an INPUT and the duty is read off it, so the
+     * head box above is meaningless here — the pump sits wherever the system
+     * pushes it. */
+    if (m.settings.calcMode === 'simulation' && p.pump.mode !== 'off') {
+      hIn.disabled = true;
+      hIn.title = 'Calculated in SIMULATION — the curve decides the operating point.';
+      renderPumpCurve(host, p);
+    }
 
     if (p.pump.mode === 'off') {
       host.appendChild(el('p', 'hint',
@@ -1516,10 +1755,20 @@
     if (!n) return;
     var m = app.model;
     host.appendChild(el('h3', '', 'Node ' + n.id));
+    if (n.device) {
+      var tIn = el('input'); tIn.type = 'text'; tIn.value = n.tag || '';
+      tIn.placeholder = 'e.g. AHU-01';
+      field(host, 'Tag', tIn).addEventListener('change', function () {
+        pushUndo();
+        var v = tIn.value.trim();
+        if (v) n.tag = v; else delete n.tag;
+        changed();
+      });
+    }
 
     var dev = n.device;
     var kindSel = el('select');
-    [['', 'Junction'], ['source', 'Source (reservoir)'], ['demand', 'Demand']]
+    [['', 'Junction'], ['source', 'Source (reservoir)'], ['demand', 'Outflow']]
       .forEach(function (kv) {
         var o = el('option', '', kv[1]); o.value = kv[0];
         if ((dev ? dev.kind : '') === kv[0]) o.selected = true;
@@ -1534,10 +1783,23 @@
     });
 
     if (dev && dev.kind === 'demand') {
+      var simulating = (m.settings.calcMode === 'simulation');
       var fIn = el('input'); fIn.type = 'text';
       fIn.value = FD.units.fmtFlow(dev.flow, m.settings.display.flow);
-      field(host, 'Flow (' + m.settings.display.flow + ')', fIn)
+      if (simulating) {
+        /* In SIMULATION flow is a result, not a requirement. Showing an
+         * editable box that the solver is about to overwrite is a trap. */
+        var act = app.results && app.results.simulation &&
+                  app.results.simulation.terminals.filter(function (t2) {
+                    return t2.node === n.id; })[0];
+        if (act) fIn.value = FD.units.fmtFlow(act.actualFlow, m.settings.display.flow);
+        fIn.disabled = true;
+        fIn.title = 'Calculated in SIMULATION — switch to DESIGN to set it.';
+      }
+      field(host, (simulating ? 'Flow — calculated (' : 'Design flow (') +
+                  m.settings.display.flow + ')', fIn)
         .addEventListener('change', function () {
+          if (fIn.disabled) return;
           var v = FD.units.parse(fIn.value);
           if (isFinite(v) && v >= 0) {
             pushUndo();
@@ -1551,11 +1813,30 @@
       field(host, 'Required pressure (' + m.settings.display.pressure + ')', pIn)
         .addEventListener('change', function () {
           var v = FD.units.parse(pIn.value);
-          if (isFinite(v)) {
-            pushUndo();
-            dev.reqPressure = FD.units.toSIPressure(v, m.settings.display.pressure);
-            changed();
-          } else { pIn.value = FD.units.fmtPressure(dev.reqPressure, m.settings.display.pressure); }
+          if (!isFinite(v)) {
+            pIn.value = FD.units.fmtPressure(dev.reqPressure, m.settings.display.pressure);
+            return;
+          }
+          var pa = FD.units.toSIPressure(v, m.settings.display.pressure);
+          /* Zero is not a low number here, it is a physical impossibility:
+           * water does not leave a pipe against nothing. It also leaves the
+           * terminal characteristic K = Q/sqrt(dP) undefined, which SIMULATION
+           * is built on. */
+          if (pa < M.MIN_OUTFLOW_PRESSURE) {
+            var minTxt = FD.units.fmtPressure(M.MIN_OUTFLOW_PRESSURE,
+                                              m.settings.display.pressure, true);
+            FD.dialog.alert({
+              title: 'Outflow pressure cannot be zero',
+              message: 'Outflow ' + (n.tag || n.id) + ' is set to ' +
+                       FD.units.fmtPressure(pa, m.settings.display.pressure, true) + '. ' +
+                       'If no pressure is required, set it to a minimum of ' + minTxt + '.'
+            });
+            pIn.value = FD.units.fmtPressure(dev.reqPressure, m.settings.display.pressure);
+            return;
+          }
+          pushUndo();
+          dev.reqPressure = pa;
+          changed();
         });
 
       var inc = el('input'); inc.type = 'checkbox'; inc.checked = dev.include !== false;
@@ -2370,6 +2651,58 @@
          : 'Not yet determined';
   }
 
+  /* DESIGN vs SIMULATION changes what every number on screen means, so the
+   * indicator sits on the ribbon next to the loop type and is clickable. */
+  function updateModeChip() {
+    var chip = $('mode-chip');
+    if (!chip) return;
+    var sim = (app.model.settings.calcMode === 'simulation');
+    chip.textContent = sim ? 'SIMULATION' : 'DESIGN';
+    chip.className = 'chip mode-chip ' + (sim ? 'info' : 'ok');
+    chip.title = sim
+      ? 'Pump curves drive the network; outflow FLOW is calculated. Click to switch to DESIGN.'
+      : 'Outflows state the flow they need; pump duty is calculated. Click to switch to SIMULATION.';
+  }
+
+  /* Outflows without a required pressure have no characteristic K = Q/sqrt(dP),
+   * so SIMULATION cannot work out what flow they would take. Refuse to guess. */
+  function outflowsWithoutCharacteristic(m) {
+    return m.nodes.filter(function (n) {
+      return n.device && n.device.kind === 'demand' && n.device.include !== false &&
+             !(n.device.reqPressure >= M.MIN_OUTFLOW_PRESSURE);
+    });
+  }
+
+  function setCalcMode(mode) {
+    var m = app.model;
+    if (m.settings.calcMode === mode) return;
+    if (mode === 'simulation') {
+      var bad = outflowsWithoutCharacteristic(m);
+      if (bad.length) {
+        var minTxt = FD.units.fmtPressure(M.MIN_OUTFLOW_PRESSURE,
+                                          m.settings.display.pressure, true);
+        FD.dialog.alert({
+          title: 'Outflow pressure cannot be zero',
+          message: bad.map(function (n) {
+            return 'Outflow ' + (n.tag || n.id) + ' is set to ' +
+                   FD.units.fmtPressure(n.device.reqPressure || 0,
+                                        m.settings.display.pressure, true) + '.';
+          }).join('\n') +
+          '\n\nIf no pressure is required, set a minimum of ' + minTxt + '.' +
+          '\n\nSIMULATION works out flow from each outflow\u2019s resistance, and that ' +
+          'resistance comes from the design point: K = Q / \u221A\u0394P. With \u0394P = 0 ' +
+          'there is no resistance to derive.'
+        });
+        return;
+      }
+    }
+    pushUndo();
+    m.settings.calcMode = mode;
+    updateModeChip();
+    renderProperties();
+    changed();
+  }
+
   function updateSystemChip() {
     var chip = $('system-chip');
     if (!chip) return;
@@ -2381,6 +2714,15 @@
     chip.className = 'chip system-chip ' +
       (d.type === 'open' ? 'ok' : d.type === 'closed' ? 'info' : 'warn');
     chip.title = d.reason;
+  }
+
+  function initModeChip() {
+    var chip = $('mode-chip');
+    if (!chip) return;
+    chip.style.cursor = 'pointer';
+    chip.addEventListener('click', function () {
+      setCalcMode(app.model.settings.calcMode === 'simulation' ? 'design' : 'simulation');
+    });
   }
 
   function applyTheme() {
@@ -2410,6 +2752,7 @@
 
     applyTheme();
     applyPresentation();
+    initModeChip();
 
     app.view = new FD.View($('canvas'), function () { return app.model; }, function () {
       renderProperties();

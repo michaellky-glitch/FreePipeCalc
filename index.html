@@ -43,7 +43,7 @@
     <div class="tool-group">
       <button class="btn" data-tool="riser">RISER</button>
       <button class="btn" data-tool="source">SOURCE</button>
-      <button class="btn" data-tool="demand">DEMAND</button>
+      <button class="btn" data-tool="demand">OUTFLOW</button>
       <button class="btn" data-tool="pump">PUMP</button>
       <button class="btn" data-tool="equip">EQUIP</button>
       <button class="btn" data-tool="valve" id="btn-valve">VALVE</button>
@@ -63,6 +63,7 @@
       <button class="btn icon" id="btn-fit" title="Zoom to fit">⤢</button>
     </div>
     <div class="spacer"></div>
+    <span class="chip mode-chip" id="mode-chip" title="">DESIGN</span>
     <span class="chip system-chip" id="system-chip" title="">NO SUPPLY</span>
     <span class="hint-inline" id="mode-hint"></span>
   </div>
@@ -146,6 +147,7 @@
 <script src="data/fittings.js"></script>
 <script src="data/valves.js"></script>
 <script src="data/ktable.js"></script>
+<script src="data/pumps.js"></script>
 <script src="src/units.js"></script>
 <script src="src/hydraulics.js"></script>
 <script src="src/solver.js"></script>

@@ -1,6 +1,7 @@
 # DESIGN and SIMULATION modes — design
 
-Agreed plan, not yet built.
+Built in v0.5.0. This document is the reasoning; the sections below record
+what the design said and, where reality differed, what was changed and why.
 
 **The problem.** Until now the pump has been auto-sized: you state the flows you
 need and the app works out the duty. The real workflow is the other way round —
@@ -75,9 +76,10 @@ tell inputs from outputs at a glance without remembering which mode they are in.
 SIMULATION the same node takes whatever the system gives it. **Outflow** is
 neutral — it describes what the node does, not what it insists on.
 
-Rename scope: the toolbar button, the `D` node code, the property panel, the
+Rename scope: the toolbar button, the node code, the property panel, the
 calculation sheet's *Demands* table, every warning message that mentions
-demand, `docs/` throughout. The internal `device.kind === 'demand'` may stay for
+demand, `docs/` throughout. The drawing code became **`OF`**, not `O` — a
+lone `O` next to a node number is too easily read as a zero. The internal `device.kind === 'demand'` may stay for
 file compatibility — a `formatVersion` bump is not worth it for a word — but the
 UI says OUTFLOW everywhere.
 

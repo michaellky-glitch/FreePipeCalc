@@ -103,8 +103,8 @@ section('Supply insufficient — source level with its demands');
      JSON.stringify(w[0].sources));
   ok('...carrying the shortfall in Pa', w[0].worstShortPa > 1e5,
      (w[0].worstShortPa / 1000).toFixed(1) + ' kPa');
-  ok('...and reading "Source is insufficient for demand"',
-     /Source is insufficient for demand/.test(w[0].message), w[0].message);
+  ok('...and reading "Source is insufficient for outflow"',
+     /Source is insufficient for outflow/.test(w[0].message), w[0].message);
   ok('...listing every unmet demand', w[0].nodes.length === 5, JSON.stringify(w[0].nodes));
 }
 

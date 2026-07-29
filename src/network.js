@@ -196,6 +196,7 @@
   function build(m, prev) {
     var warnings = [];
     var flows = prev && prev.flow ? prev.flow : null;
+    var simulating = (m.settings.calcMode === 'simulation');
     M.riserPipes(m);                       // materialise vertical riser links
     var fits = fittingsByPipe(m, flows, warnings);
     var method = FD.hydraulics.method(m.settings.frictionMethod);
@@ -238,7 +239,13 @@
       var nExp = FD.hydraulics.exponent(s.frictionMethod, ctx);
       var link = { id: p.id, from: p.a, to: p.b, kind: 'pipe', n: nExp };
 
-      if (p.kind === 'pump' && p.pump && p.pump.mode === 'off') {
+      if (p.kind === 'pump' && p.pump && p.pump.mode !== 'off' && simulating && p.pump.curve) {
+        /* SIMULATION: the curve is the input. The solver finds where it meets
+         * the system — that IS the operating point, for the whole network. */
+        link.kind = 'pump';
+        link.curve = p.pump.curve;
+        link.head = FD.pumps.head(p.pump.curve, flows ? (flows[p.id] || 0) : 0);
+      } else if (p.kind === 'pump' && p.pump && p.pump.mode === 'off') {
         /* An OFF pump is isolated, not an open pipe.
          *
          * Modelling it as zero head leaves a frictionless path straight through
@@ -322,6 +329,37 @@
      * fixes the datum without injecting or removing any water. The pump
      * suction is chosen because that is where a real expansion vessel is
      * normally connected. */
+    /* SIMULATION: an outflow is no longer a stated flow but a resistance that
+     * takes whatever the system gives it. Each becomes a short link to a
+     * virtual discharge node pinned at its own elevation (0 gauge), carrying
+     * the terminal's characteristic. Flow through that link is what the
+     * terminal actually delivers. */
+    if (simulating) {
+      m.nodes.forEach(function (n) {
+        if (!n.device || n.device.kind !== 'demand' || n.device.include === false) return;
+        var r = M.outflowResistance(m, n);
+        var host = nodes.filter(function (x) { return x.id === n.id; })[0];
+        if (!host) return;
+        host.demand = 0;
+        if (r === null) {
+          warnings.push({
+            code: 'NO_CHARACTERISTIC', node: n.id,
+            message: 'Outflow ' + (n.tag || n.id) + ' has no usable design point, so ' +
+                     'its resistance cannot be derived. Give it a flow and a required ' +
+                     'pressure before simulating.'
+          });
+          return;
+        }
+        var vid = '__out_' + n.id;
+        nodes.push({ id: vid, z: host.z, demand: 0, fixedHead: host.z, _virtual: true });
+        links.push({
+          id: vid, from: n.id, to: vid, kind: 'equip', n: 2, r: r,
+          _virtual: true, _outflow: n.id,
+          _L: 0, _el: 0, _Leff: 0, _d: 0.05, _types: [], _rho: rho
+        });
+      });
+    }
+
     pinClosedCircuitDatum(nodes, links, warnings);
 
     // Zero-length pipes are degenerate and would divide by zero downstream.
@@ -390,6 +428,7 @@
      * deliver, for display in brackets. */
     res.actual = actualDelivery(m, net, res);
     res.critical = criticalPath(m, net, res);
+    res.simulation = simulationReport(m, net, res);
     return res;
   }
 
@@ -409,7 +448,7 @@
     var usingHW = (m.settings.frictionMethod || 'HW') === 'HW';
 
     net.links.forEach(function (l) {
-      if (l.kind !== 'pipe') return;
+      if (l.kind !== 'pipe' || l._virtual) return;
       var q = res.flow[l.id];
       if (q === undefined || Math.abs(q) < FD.hydraulics.Q_MIN) return;  // no flow, no regime
 
@@ -560,6 +599,10 @@
      * sized yet — filtering on flow meant a closed circuit could never bootstrap
      * itself off zero. What actually disqualifies a pump is a dead end on one
      * side, which no amount of head can overcome. */
+    /* In SIMULATION the duty is an input, not something to be solved for. */
+    if (m.settings.calcMode === 'simulation') {
+      return { resolved: false, iterations: 0, skipped: true, mode: 'simulation' };
+    }
     var autos = m.pipes.filter(function (p) {
       return p.kind === 'pump' && p.pump && p.pump.mode === 'auto' && !isDeadEnded(m, p);
     });
@@ -738,10 +781,10 @@
         sources: sources.map(function (s) { return s.id; }),
         worstNode: worst.node,
         worstShortPa: worst.shortPa,
-        message: 'Source is insufficient for demand (' +
+        message: 'Source is insufficient for outflow (' +
                  (worst.available / 1000).toFixed(1) + ' kPa at ' + worst.node + ', short by ' +
                  (worst.shortPa / 1000).toFixed(1) + ' kPa). ' +
-                 deficient.length + ' demand' + (deficient.length > 1 ? 's' : '') +
+                 deficient.length + ' outflow' + (deficient.length > 1 ? 's' : '') +
                  ' cannot be met as drawn.'
       });
     }
@@ -973,6 +1016,131 @@
     };
   }
 
+  /* SIMULATION result: what each outflow actually took, against what it was
+   * designed for. The gap is the point of the whole exercise — a terminal
+   * running over its design flow is stealing from the rest of the system, and
+   * is where a balancing valve goes.
+   *
+   * The throttling needed is reported as the extra resistance that would bring
+   * natural flow back to design, expressed as a valve Kv so it can be selected
+   * against. */
+  function simulationReport(m, net, res) {
+    if (m.settings.calcMode !== 'simulation') return null;
+    var rho = net.rho || 998;
+    var terminals = [];
+
+    m.nodes.forEach(function (n) {
+      if (!n.device || n.device.kind !== 'demand' || n.device.include === false) return;
+      var vid = '__out_' + n.id;
+      var q = Math.abs(res.flow[vid] || 0);
+      var qd = n.device.flow || 0;
+      var avail = res.pressure[n.id];
+      var row = {
+        node: n.id, tag: n.tag || null,
+        designFlow: qd, actualFlow: q,
+        ratio: qd > 0 ? q / qd : null,
+        designPressure: n.device.reqPressure || 0,
+        actualPressure: avail,
+        balanceKv: null
+      };
+
+      /* Extra resistance to trim natural flow back to design, as a Kv.
+       * Total needed: dP_avail across a terminal passing qd.
+       * Terminal alone drops dP_d at qd, so the valve takes the remainder. */
+      if (qd > 0 && q > qd * 1.001 && avail > 0) {
+        var extraPa = avail - (n.device.reqPressure || 0);
+        if (extraPa > 0) {
+          var qm3h = qd * 3600;
+          row.balanceKv = qm3h / Math.sqrt(extraPa / 1e5);
+        }
+      }
+      terminals.push(row);
+    });
+
+    /* Equipment is a terminal too, and in a closed circuit it is usually the
+     * ONLY one — the data centre models have no outflow nodes at all. It
+     * already carries its own characteristic (qRated at pdRated), so it needs
+     * no derivation; it just has to be reported alongside the outflows. */
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'equip' || !p.equip) return;
+      var q = Math.abs(res.flow[p.id] || 0);
+      var qd = p.equip.qRated || 0;
+      var pd = p.equip.pdRated || 0;
+      /* Actual dP across the equipment, from the solved flow, not the rating.
+       * Equipment is r*Q^2, so it follows the square law away from duty. */
+      var link = net.links.filter(function (l) { return l.id === p.id; })[0];
+      var actPa = link ? FD.hydraulics.headloss(link.r, q, link.n) * rho * 9.81 : null;
+      var row = {
+        node: p.id, tag: p.tag || null, equipment: true,
+        designFlow: qd, actualFlow: q,
+        ratio: qd > 0 ? q / qd : null,
+        designPressure: pd, actualPressure: actPa,
+        balanceKv: null
+      };
+      if (qd > 0 && q > qd * 1.001) {
+        /* Throttling equipment back to rated flow: the surplus head the
+         * circuit is delivering has to be burnt in a valve. At rated flow the
+         * equipment takes pd, and the rest is the valve's. */
+        var availPa = actPa !== null ? actPa * Math.pow(qd / Math.max(q, 1e-12), 2) : null;
+        void availPa;
+        var extra = (actPa !== null ? actPa : 0) - pd;
+        if (extra > 0) row.balanceKv = (qd * 3600) / Math.sqrt(extra / 1e5);
+      }
+      terminals.push(row);
+    });
+
+    var pumps = m.pipes.filter(function (p) { return p.kind === 'pump'; }).map(function (p) {
+      var q = Math.abs(res.flow[p.id] || 0);
+      var curve = p.pump && p.pump.curve;
+      var off = !p.pump || p.pump.mode === 'off';
+      var row = { pipe: p.id, tag: p.tag || null, mode: p.pump && p.pump.mode,
+                  flow: off ? 0 : q,
+                  /* A stopped pump develops no head. Reading its curve at
+                   * Q = 0 would report shutoff head, which is what it WOULD
+                   * make if it were running — the opposite of the truth. */
+                  head: off ? 0 : (curve ? FD.pumps.head(curve, q) : (p.pump.head || 0)),
+                  curve: !!curve && !off,
+                  maxFlow: null, shutoff: null, pctOfDesign: null, beyondCurve: false };
+      if (curve && !off) {
+        row.maxFlow = FD.pumps.maxFlow(curve);
+        row.shutoff = FD.pumps.shutoffHead(curve);
+        row.pctOfDesign = curve.Qd > 0 ? q / curve.Qd : null;
+        /* Past the end of the curve the head would go negative, which no real
+         * pump can do — the operating point is outside what this pump can
+         * deliver, not a very small head. */
+        row.beyondCurve = q > row.maxFlow * 0.999;
+      }
+      return row;
+    });
+
+    /* Runout. Losing a pump in a parallel set does NOT split its flow evenly
+     * onto the survivors — they ride out along their own curves to a higher
+     * flow and lower head. That is the point of the redundancy, but it is also
+     * where a pump leaves its selection: motor loading, NPSHr and efficiency
+     * all worsen towards the right of the curve. The threshold is editable
+     * because it is a selection judgement, not a physical limit. */
+    var runoutPct = (m.settings.warn && m.settings.warn.pumpRunout) || 0;
+    if (runoutPct > 0) {
+      pumps.forEach(function (pp) {
+        if (pp.pctOfDesign === null || pp.mode === 'off') return;
+        if (pp.pctOfDesign * 100 <= runoutPct) return;
+        res.warnings.push({
+          code: 'PUMP_RUNOUT', pipe: pp.pipe,
+          pct: pp.pctOfDesign * 100, limit: runoutPct,
+          message: 'Pump ' + (pp.tag || pp.pipe) + ' is running at ' +
+                   (pp.pctOfDesign * 100).toFixed(1) + '% of its design flow, past the ' +
+                   runoutPct + '% limit. Check motor loading and NPSH available at this duty.'
+        });
+      });
+    }
+
+    var totalDesign = terminals.reduce(function (s2, t) { return s2 + t.designFlow; }, 0);
+    var totalActual = terminals.reduce(function (s2, t) { return s2 + t.actualFlow; }, 0);
+
+    return { terminals: terminals, pumps: pumps,
+             totalDesign: totalDesign, totalActual: totalActual };
+  }
+
   /* Fingerprint of the fitting assignment plus flow directions — if this is
    * unchanged between passes, the two-pass loop has converged. */
   function signature(net, res) {
@@ -1027,7 +1195,7 @@
     var n = M.node(m, nodeId);
     if (!n) return '';
     if (n.device && n.device.kind === 'source') return 'S';
-    if (n.device && n.device.kind === 'demand') return 'D';
+    if (n.device && n.device.kind === 'demand') return 'OF';
 
     var pipes = M.pipesAt(m, nodeId);
     if (pipes.some(function (p) { return p.kind === 'pump'; })) return 'P';
@@ -1045,6 +1213,7 @@
     flowRegimeWarnings: flowRegimeWarnings,
     supplyWarnings: supplyWarnings,
     criticalPath: criticalPath,
+    simulationReport: simulationReport,
     detectSystemType: detectSystemType,
     actualDelivery: actualDelivery,
     autoSizePumps: autoSizePumps,

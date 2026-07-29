@@ -50,6 +50,7 @@ known project has been done.
 |---|---|---|---|
 | 3.1 | Source, demand placement | ✅ | |
 | 3.2 | Pump insert, auto / fixed / off | ⚠️ | Auto-sizing reworked twice. Re-check duty figures. |
+| 3.6 | Pump curve: from duty, paste, table | ⬜ | **New.** Driven in-browser during the redundancy battery; not used by hand. |
 | 3.3 | Valve insert, gate/check, 0–100% | ⬜ | |
 | 3.4 | Equipment insert, rated flow and ΔP | ⬜ | |
 | 3.5 | Equipment tags on drawing and sheet | ⬜ | |
@@ -85,6 +86,33 @@ but nothing here has been used against a real drawing yet.
 | 4A.6 | Trace, then check lengths against the real drawing | ⬜ | The whole point of workflow 1. |
 | 4A.7 | Multi-level: a different drawing per floor | ⬜ | |
 | 4A.8 | Model file size with 3+ traces | ⬜ | ~50 KB each in testing. |
+
+## 4B. DESIGN / SIMULATION modes
+
+New in v0.5.0. The redundancy battery below was run in Node and reproduced
+in-browser; the numbers were checked against hand calculations of the parallel
+pump curves, not read back out of the code.
+
+**Battery: `datacentre-ring`, pump selected at +10% on both flow and head.**
+
+| Step | Result | Sensible? |
+|---|---|---|
+| 1 pump, curve at 22.0 L/s @ 285.6 kPa | 21.25 L/s @ 292.1 kPa; CRAH-01 takes 21.24 L/s (106% of design) | Yes — an oversized pump rides out along its curve until the system absorbs it |
+| 4 pumps, each 5.5 L/s @ 285.6 kPa | 21.66 L/s total, 5.40–5.43 L/s each @ ~288.5 kPa | Yes — matches `H₀ − a(Q/4)²` by hand to 0.1%; identical pumps share within 0.6% |
+| 1 of 4 fails | 19.82 L/s total, 6.60 L/s each @ 243.5 kPa, survivors at 120% of design | Yes — losing 25% of the pumps loses only 8.5% of the flow, and the survivors ride out |
+
+The last row is the point of the feature: flow barely moves, but each surviving
+pump is pushed to 120% of its selection, which is where motor loading and NPSH
+need checking. That now raises a `PUMP_RUNOUT` warning against an editable
+threshold (`settings.warn.pumpRunout`, default 120%).
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| 4B.1 | DESIGN/SIMULATION chip toggles and locks the calculated side | ⚠️ | Verified in-browser: pump head and outflow flow both disable with a tooltip. Needs a human eye on discoverability. |
+| 4B.2 | Zero-pressure outflow is refused | ✅ | Both on the field and on entering SIMULATION. |
+| 4B.3 | Parallel pumps and N+1 failure | ⚠️ | Battery above. Not checked against another tool. |
+| 4B.4 | Balancing Kv figures | ⬜ | Computed but never checked against a valve schedule. |
+| 4B.5 | Fitted curve from a real manufacturer datasheet | ⬜ | **Most important item here.** Only synthetic curves so far. |
 
 ## 5. Output
 
@@ -124,6 +152,10 @@ but nothing here has been used against a real drawing yet.
 * **TRACE has never seen a real drawing.** Everything so far is synthetic line
   art generated in the test itself.
 * **Printing** has not been done on real paper.
+* **No pump curve has ever been fitted from a real datasheet.** The fitter is
+  exercised only against curves generated from its own form, which it recovers
+  exactly — that proves the algebra, not that manufacturer curves take this
+  shape. The fit quality is displayed for precisely this reason.
 
 ## How to log a result
 

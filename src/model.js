@@ -13,6 +13,12 @@
 
   var FORMAT_VERSION = 1;
 
+  /* An outflow with zero required pressure is physically meaningless — water
+   * does not leave a pipe against nothing — and it makes the terminal
+   * characteristic K = Q/sqrt(dP) undefined, which SIMULATION depends on.
+   * 0.1 kPa is the smallest value that still carries meaning. */
+  var MIN_OUTFLOW_PRESSURE = 100;   // Pa
+
   function uid(prefix, seq) { return prefix + (seq); }
 
   // ------------------------------------------------------------ defaults
@@ -22,6 +28,10 @@
       display: {
         flow: 'L/s', pressure: 'kPa', pdm: 'Pa/m', length: 'm', size: 'DN'
       },
+      /* DESIGN: outflows state a required flow, pump duty is calculated.
+       * SIMULATION: the pump curve is the input, outflow becomes a resistance
+       * derived from its design point, and flow is the result. */
+      calcMode: 'design',           // 'design' | 'simulation'
       frictionMethod: 'HW',         // 'HW' | 'DW' (Darcy is experimental)
       systemType: 'open',           // 'open' | 'closed' (spec §3.4)
 
@@ -66,7 +76,7 @@
        * so it cannot inflate flow or friction (spec Q12.11, Q12.12). */
       pumpSafetyPct: 0,
       theme: 'dark',
-      warn: { velocity: 2.4, pdm: 400, laminar: true },
+      warn: { velocity: 2.4, pdm: 400, laminar: true, pumpRunout: 120 },
       floorToFloor: 3.5,
       grid: { minor: 0.5, major: 5, snap: true },
 
@@ -176,7 +186,8 @@
       level: levelId,
       x: x, y: y,
       dz: opts.dz || 0,            // offset from level altitude
-      device: opts.device || null  // {kind:'source'} | {kind:'demand',...}
+      device: opts.device || null, // {kind:'source'} | {kind:'demand',...}
+      tag: opts.tag || undefined   // equipment reference, as on in-line devices
     };
     m.nodes.push(n);
     return n;
@@ -500,6 +511,17 @@
     return n;
   }
 
+  /* Terminal characteristic derived from the design point: a terminal passing
+   * Q_d at dP_d has K = Q_d / sqrt(dP_d), which as a solver resistance is
+   * r = dP_d / (rho*g*Q_d^2) — the same quadratic form equipment uses. */
+  function outflowResistance(m, n) {
+    if (!n.device || n.device.kind !== 'demand') return null;
+    var q = n.device.flow, dp = n.device.reqPressure;
+    if (!(q > 0) || !(dp > 0)) return null;
+    var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
+    return dp / (rho * 9.81 * q * q);
+  }
+
   function setDemand(m, nodeId, flow, reqPressure) {
     var n = node(m, nodeId);
     if (n) {
@@ -545,6 +567,7 @@
     m.settings.hw = Object.assign(defaultSettings().hw, (obj.settings || {}).hw || {});
     m.settings.dw = Object.assign(defaultSettings().dw, (obj.settings || {}).dw || {});
     m.settings.fluid = Object.assign(defaultSettings().fluid, (obj.settings || {}).fluid || {});
+    if (!m.settings.calcMode) m.settings.calcMode = 'design';
     m.settings.presentation = Object.assign(defaultSettings().presentation,
                                             (obj.settings || {}).presentation || {});
     m.settings.annotate = Object.assign(defaultSettings().annotate,
@@ -596,6 +619,8 @@
 
     addRiser: addRiser, attachRiser: attachRiser, riserPipes: riserPipes,
     copyLevel: copyLevel,
+    MIN_OUTFLOW_PRESSURE: MIN_OUTFLOW_PRESSURE,
+    outflowResistance: outflowResistance,
     setTrace: setTrace, clearTrace: clearTrace, calibrateTrace: calibrateTrace,
 
     labelOffset: labelOffset, setLabelOffset: setLabelOffset,
