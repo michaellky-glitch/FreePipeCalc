@@ -14,6 +14,10 @@
 
   var SNAP_PX = 10;         // snap to a pipe within this many screen px (§5)
   var ENDPOINT_PX = 15;     // endpoint zone wins inside this radius (§5)
+  /* Placing an in-line device is a coarser gesture than drawing: you are aiming
+   * at a whole pipe run, not a coordinate, and missing costs an error message
+   * and another click. Generous on purpose. */
+  var DEVICE_SNAP_PX = 28;
   var ANGLE_SNAP = 15;      // degrees (§5)
 
   /* Risers use much larger radii than drawing does. A riser belongs on existing
@@ -119,6 +123,24 @@
     m.risers.forEach(function (r) {
       var d = Math.hypot(r.x - wx, r.y - wy);
       if (d < rad && d < bestD) { bestD = d; best = r; }
+    });
+    return best;
+  };
+
+  /* An in-line device — pump, valve, equipment — is drawn as a glyph straddling
+   * the midpoint of its own short pipe. Grabbing that glyph should move the
+   * whole device, not just whichever end node happened to be nearest. */
+  View.prototype.deviceAt = function (wx, wy, radiusPx) {
+    var m = this.getModel(), self = this, best = null, bestD = Infinity;
+    var rad = this.pxToM(radiusPx === undefined ? 13 : radiusPx);
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'pump' && p.kind !== 'valve' && p.kind !== 'equip') return;
+      var a = M.node(m, p.a), b = M.node(m, p.b);
+      if (!a || !b || a.level !== m.activeLevel || b.level !== m.activeLevel) return;
+      var wa = M.worldXY(m, a), wb = M.worldXY(m, b);
+      var mx = (wa.x + wb.x) / 2, my = (wa.y + wb.y) / 2;
+      var d = Math.hypot(mx - wx, my - wy);
+      if (d < rad && d < bestD) { bestD = d; best = p; }
     });
     return best;
   };
@@ -361,9 +383,15 @@
       if (self.tool === 'layout') {
         var lab = self.labelAt(sx, sy);
         if (lab) {
+          /* Anchor = where the label would sit with zero offset. Kept in SCREEN
+           * pixels because that is what labelOffset stores, and recovered by
+           * subtracting the current offset from the label box the renderer just
+           * registered. Needed so the label can be snapped to the world grid
+           * rather than only moved by a pixel delta. */
+          var lo = M.labelOffset(lab.obj);
           self.dragLabel = { target: lab.obj, sx: sx, sy: sy,
-                             ox: M.labelOffset(lab.obj).dx,
-                             oy: M.labelOffset(lab.obj).dy };
+                             ox: lo.dx, oy: lo.dy,
+                             ax: lab.x - lo.dx, ay: lab.y - lo.dy };
           self.selection = [{ kind: lab.kind, id: lab.obj.id }];
           c.setPointerCapture(e.pointerId);
           self.changed();
@@ -382,7 +410,23 @@
 
       // EDIT: select, or start a marquee
       var s = self.snap(w.x, w.y);
-      var n = self.nodeAt(w.x, w.y);
+      /* Device before node: its glyph sits between two nodes only a few hundred
+       * millimetres apart, so a click in the middle would otherwise always grab
+       * an end node and shear the device instead of moving it. */
+      var dev = self.deviceAt(w.x, w.y);
+      var n = dev ? null : self.nodeAt(w.x, w.y);
+      if (dev) {
+        var mSel = self.getModel();
+        var da = M.node(mSel, dev.a), db = M.node(mSel, dev.b);
+        self.selection = [{ kind: 'pipe', id: dev.id }];
+        self.dragDevice = {
+          pipe: dev, startX: w.x, startY: w.y,
+          ax: da.x, ay: da.y, bx: db.x, by: db.y
+        };
+        c.setPointerCapture(e.pointerId);
+        self.changed();
+        return;
+      }
       if (n) {
         self.selection = [{ kind: 'node', id: n.id }];
         self.dragNode = { id: n.id, startX: w.x, startY: w.y };
@@ -441,11 +485,48 @@
       }
       if (self.dragLabel) {
         var d = self.dragLabel;
-        M.setLabelOffset(d.target, d.ox + (sx - d.sx), d.oy + (sy - d.sy));
+        var nox = d.ox + (sx - d.sx), noy = d.oy + (sy - d.sy);
+
+        /* Snap the label's WORLD position to the grid, not its offset. Snapping
+         * the offset would give every label its own lattice hung off its own
+         * anchor, so two labels could look aligned on screen and sit on
+         * different grid lines. Shift overrides, as everywhere else. */
+        var mm = self.getModel();
+        var g = mm.settings.grid;
+        if (g && g.snap && !self.shiftDown) {
+          var wpt = self.toWorld(d.ax + nox, d.ay + noy);
+          var step = g.minor || 0.5;
+          var swx = Math.round(wpt.x / step) * step;
+          var swy = Math.round(wpt.y / step) * step;
+          var spt = self.toScreen(swx, swy);
+          nox = spt.x - d.ax;
+          noy = spt.y - d.ay;
+        }
+        M.setLabelOffset(d.target, nox, noy);
         self.render();
         return;
       }
       if (self.marquee) { self.marquee.x1 = w.x; self.marquee.y1 = w.y; self.render(); return; }
+      if (self.dragDevice) {
+        /* Both endpoints move together by the same delta, so the device keeps
+         * its length and orientation. Snapping is applied to the MIDPOINT and
+         * the same shift is given to both ends — snapping each end separately
+         * would stretch or rotate the device as the two ends landed on
+         * different grid lines. */
+        var dd = self.dragDevice;
+        var mdl = self.getModel();
+        var lvd = M.level(mdl, mdl.activeLevel);
+        var dx = w.x - dd.startX, dy = w.y - dd.startY;
+        var midX = (dd.ax + dd.bx) / 2 + dx, midY = (dd.ay + dd.by) / 2 + dy;
+        var snapped = self.snap(midX + lvd.dx, midY + lvd.dy);
+        dx += (snapped.x - lvd.dx) - midX;
+        dy += (snapped.y - lvd.dy) - midY;
+        var na = M.node(mdl, dd.pipe.a), nb = M.node(mdl, dd.pipe.b);
+        na.x = dd.ax + dx; na.y = dd.ay + dy;
+        nb.x = dd.bx + dx; nb.y = dd.by + dy;
+        self.render();
+        return;
+      }
       if (self.dragNode) {
         var m = self.getModel();
         var n = M.node(m, self.dragNode.id);
@@ -455,6 +536,24 @@
         self.render();
         return;
       }
+
+      /* While a device tool is armed, track the pipe it would land in so the
+       * canvas can show it. Without this the only feedback that you missed is
+       * an error toast after the click. */
+      if (self.tool === 'pump' || self.tool === 'valve' || self.tool === 'equip') {
+        var cand = self.pipeAt(w.x, w.y, DEVICE_SNAP_PX);
+        var candId = cand && cand.pipe.kind === 'pipe' ? cand.pipe.id : null;
+        var candT = cand ? cand.point : null;
+        if (candId !== (self.deviceHover && self.deviceHover.id)) {
+          self.deviceHover = candId ? { id: candId, point: candT } : null;
+          self.render();
+        } else if (self.deviceHover) {
+          self.deviceHover.point = candT;
+          self.render();
+        }
+        return;
+      }
+      self.deviceHover = null;
 
       // hover for the node tooltip (spec §10) and snap preview
       var hn = self.nodeAt(w.x, w.y);
@@ -469,6 +568,7 @@
       if (self.panning) { self.panning = null; return; }
       if (self.dragTrace) { self.dragTrace = null; self.changed(); return; }
       if (self.dragLabel) { self.dragLabel = null; self.changed(); return; }
+      if (self.dragDevice) { self.dragDevice = null; self.changed(); return; }
       if (self.dragNode) { self.dragNode = null; self.changed(); return; }
       if (self.marquee) {
         self.applyMarquee();
@@ -577,7 +677,7 @@
    * null with a message if it could not be placed. */
   View.prototype.insertInline = function (w, kind, extra, label) {
     var m = this.getModel();
-    var hit = this.pipeAt(w.x, w.y, SNAP_PX * 2);
+    var hit = this.pipeAt(w.x, w.y, DEVICE_SNAP_PX);
     if (!hit) {
       this.onMessage && this.onMessage('Click on a pipe to place a ' + label + ' in it.', 'error');
       return null;
@@ -631,7 +731,7 @@
 
   View.prototype.valveClick = function (w) {
     var m = this.getModel();
-    var hit = this.pipeAt(w.x, w.y, SNAP_PX * 2);
+    var hit = this.pipeAt(w.x, w.y, DEVICE_SNAP_PX);
     var bore = hit ? M.pipeBore(m, hit.pipe) * 1000 : 50;
     var type = this.valveType || 'gate';
     this.insertInline(w, 'valve', {
@@ -803,10 +903,42 @@
     this.drawNodes();
     this.drawDraft();
     this.drawMarquee();
+    this.drawDeviceHover();
     this.drawCalibration();
     this.drawDisconnects();
     this.drawScaleBar();
     this.drawTooltip();
+  };
+
+  /* Highlight the pipe an in-line device would be inserted into, and mark the
+   * exact point. Placement always did snap to a pipe; with no preview the snap
+   * was invisible, so a near miss just produced an error and looked like the
+   * snapping was not working. */
+  View.prototype.drawDeviceHover = function () {
+    var h = this.deviceHover;
+    if (!h) return;
+    var m = this.getModel(), ctx = this.ctx;
+    var p = m.pipes.filter(function (x) { return x.id === h.id; })[0];
+    if (!p) return;
+    var a = M.node(m, p.a), b = M.node(m, p.b);
+    if (!a || !b) return;
+    var sa = this.toScreen(M.worldXY(m, a).x, M.worldXY(m, a).y);
+    var sb = this.toScreen(M.worldXY(m, b).x, M.worldXY(m, b).y);
+
+    ctx.save();
+    ctx.strokeStyle = this.theme.select;
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = this.pipeWidth(p) + 6;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
+
+    if (h.point) {
+      var sp = this.toScreen(h.point.x, h.point.y);
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(sp.x, sp.y, 7, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
   };
 
   /* SHOW DISCONNECT — ring the places where the drawing lies.
