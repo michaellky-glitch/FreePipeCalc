@@ -109,6 +109,20 @@
     return best;
   };
 
+  /* Riser columns are drawn as a marker, not as a line on the plan, so they
+   * were unreachable: pipeAt() skips them and their endpoints sit on two
+   * different levels. Hit the marker instead — that is what the user sees and
+   * points at. */
+  View.prototype.riserAt = function (wx, wy, radiusPx) {
+    var m = this.getModel(), best = null, bestD = Infinity;
+    var rad = this.pxToM(radiusPx === undefined ? 11 : radiusPx);
+    m.risers.forEach(function (r) {
+      var d = Math.hypot(r.x - wx, r.y - wy);
+      if (d < rad && d < bestD) { bestD = d; best = r; }
+    });
+    return best;
+  };
+
   View.prototype.pipeAt = function (wx, wy, radiusPx) {
     var m = this.getModel(), self = this, best = null, bestD = Infinity;
     var rad = this.pxToM(radiusPx === undefined ? SNAP_PX : radiusPx);
@@ -269,6 +283,7 @@
     var m = this.getModel();
     this.selection.forEach(function (s) {
       if (s.kind === 'pipe') M.removePipe(m, s.id);
+      else if (s.kind === 'riser') M.removeRiser(m, s.id);
       else M.removeNode(m, s.id);
     });
     this.selection = [];
@@ -373,8 +388,15 @@
         self.dragNode = { id: n.id, startX: w.x, startY: w.y };
       } else {
         var hit = self.pipeAt(w.x, w.y);
-        if (hit) self.selection = [{ kind: 'pipe', id: hit.pipe.id }];
-        else { self.selection = []; self.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y }; }
+        if (hit) {
+          self.selection = [{ kind: 'pipe', id: hit.pipe.id }];
+        } else {
+          /* Riser last: its marker sits on top of the node it attaches to, so
+           * testing it first would make the node underneath unreachable. */
+          var rs = self.riserAt(w.x, w.y);
+          if (rs) self.selection = [{ kind: 'riser', id: rs.id }];
+          else { self.selection = []; self.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y }; }
+        }
       }
       c.setPointerCapture(e.pointerId);
       self.changed();
@@ -795,7 +817,10 @@
    * Nothing short of drawing attention to the spot will find that.
    */
   View.prototype.drawDisconnects = function () {
-    if (this.tool !== 'disconnect') return;
+    /* A VIEW toggle, not a tool. Finding a break is only half the job — you
+     * then have to switch to EDIT and join the pipe, and the markers have to
+     * still be there while you do it, otherwise you are working from memory. */
+    if (!this.showDisconnects) return;
     var m = this.getModel(), ctx = this.ctx, self = this;
     if (!FD.network || !FD.network.disconnections) return;
 
@@ -1086,7 +1111,15 @@
     m.risers.forEach(function (r) {
       var here = r.attachments.some(function (a) { return a.level === m.activeLevel; });
       var s = self.toScreen(r.x, r.y);
+      var sel = self.selection.some(function (x) {
+        return x.kind === 'riser' && x.id === r.id;
+      });
       ctx.save();
+      if (sel) {
+        ctx.strokeStyle = self.theme.select;
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(s.x, s.y, 12, 0, Math.PI * 2); ctx.stroke();
+      }
       if (here) {
         ctx.strokeStyle = self.theme.flow;
         ctx.lineWidth = 2.5;

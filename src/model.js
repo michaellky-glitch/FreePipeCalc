@@ -320,6 +320,20 @@
 
   /* Riser columns contribute vertical links between consecutive attachments.
    * Size defaults to the LARGER connected horizontal pipe (spec §7.2). */
+  /* Delete a riser column: its materialised pipes go with it, and so do the
+   * attachment records. The nodes it attached TO are left alone — they are
+   * ordinary pipework nodes on their own levels and usually still wanted.
+   *
+   * Previously there was no way to remove one at all: the column is drawn as a
+   * marker rather than a line, so it could be neither clicked nor deleted. */
+  function removeRiser(m, riserId) {
+    m.pipes = m.pipes.filter(function (p) {
+      return !(p.kind === 'riser' && p.riser === riserId);
+    });
+    m.risers = m.risers.filter(function (r) { return r.id !== riserId; });
+    return m;
+  }
+
   function riserPipes(m) {
     var out = [];
     m.risers.forEach(function (r) {
@@ -618,6 +632,7 @@
     pipesAt: pipesAt, other: other, pipeLength: pipeLength, pipeBore: pipeBore,
 
     addRiser: addRiser, attachRiser: attachRiser, riserPipes: riserPipes,
+    removeRiser: removeRiser,
     copyLevel: copyLevel,
     MIN_OUTFLOW_PRESSURE: MIN_OUTFLOW_PRESSURE,
     outflowResistance: outflowResistance,

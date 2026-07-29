@@ -1117,6 +1117,14 @@
    */
   function disconnections(m) {
     var issues = [];
+
+    /* Risers are stored as attachments and only become pipes when the network
+     * is built. The canvas calls this on every frame WITHOUT building, so a
+     * riser that had not yet been materialised looked like a missing link —
+     * which reported an island and a pair of coincident nodes at every riser
+     * in the model. Materialise first, exactly as build() does. */
+    M.riserPipes(m);
+
     var deg = {};
     m.nodes.forEach(function (n) { deg[n.id] = 0; });
     var adj = {};
@@ -1135,17 +1143,22 @@
       connected[p.a + '|' + p.b] = true;
       connected[p.b + '|' + p.a] = true;
     });
-    var byLevel = {};
-    m.nodes.forEach(function (n) {
-      (byLevel[n.level] = byLevel[n.level] || []).push(n);
+    /* Compared in true 3D, not per level. Two nodes at the same plan position on
+     * different floors are the normal case at every riser and must not be
+     * confused with two nodes genuinely on top of each other. Using the
+     * position the model actually resolves — level offset and altitude
+     * included — rather than trusting the level field to be comparable. */
+    var pts = m.nodes.map(function (n) {
+      var w = M.worldXY(m, n);
+      return { n: n, x: w.x, y: w.y, z: M.elevation(m, n) };
     });
-    Object.keys(byLevel).forEach(function (lv) {
-      var list = byLevel[lv];
-      for (var i = 0; i < list.length; i++) {
-        for (var j = i + 1; j < list.length; j++) {
-          var a = list[i], b = list[j];
+    (function () {
+      for (var i = 0; i < pts.length; i++) {
+        for (var j = i + 1; j < pts.length; j++) {
+          var a = pts[i].n, b = pts[j].n;
           if (connected[a.id + '|' + b.id]) continue;
-          var d = Math.hypot(a.x - b.x, a.y - b.y);
+          var d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y,
+                             pts[i].z - pts[j].z);
           if (d > TOL) continue;
           issues.push({
             code: 'COINCIDENT_NODES', nodes: [a.id, b.id], distance: d,
@@ -1157,7 +1170,7 @@
           });
         }
       }
-    });
+    })();
 
     /* 2. Nodes with no pipe at all. */
     m.nodes.forEach(function (n) {

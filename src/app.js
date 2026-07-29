@@ -2834,12 +2834,31 @@
 
     // ---- tools ----
     var toolButtons = [].slice.call(document.querySelectorAll('[data-tool]'));
+    function syncToolButtons() {
+      toolButtons.forEach(function (o) {
+        if (o.dataset.tool === 'disconnect') {
+          o.classList.toggle('active', !!app.view.showDisconnects);
+        } else {
+          if (o.dataset.tool !== 'disconnect') {
+          o.classList.toggle('active', o.dataset.tool === app.view.tool);
+        }
+        }
+      });
+    }
     toolButtons.forEach(function (b) {
       b.addEventListener('click', function () {
+        /* SHOW DISCONNECT is a view overlay, not a drawing tool: it toggles and
+         * stays on while you switch to EDIT and actually join the pipe. Making
+         * it a tool meant the markers vanished the moment you went to fix
+         * anything, which is precisely when they are needed. */
+        if (b.dataset.tool === 'disconnect') {
+          app.view.showDisconnects = !app.view.showDisconnects;
+          syncToolButtons();
+          app.view.render();
+          return;
+        }
         app.view.setTool(b.dataset.tool);
-        toolButtons.forEach(function (o) {
-          o.classList.toggle('active', o.dataset.tool === app.view.tool);
-        });
+        syncToolButtons();
       });
     });
     var MODE_HINTS = {
@@ -2856,7 +2875,9 @@
     };
     function refreshToolButtons() {
       toolButtons.forEach(function (o) {
-        o.classList.toggle('active', o.dataset.tool === app.view.tool);
+        if (o.dataset.tool !== 'disconnect') {
+          o.classList.toggle('active', o.dataset.tool === app.view.tool);
+        }
       });
       var hint = MODE_HINTS[app.view.tool] || '';
       $('mode-hint').textContent = hint +
@@ -2898,7 +2919,9 @@
       app.view.valveType = $('valve-type').value;
       app.view.setTool('valve');
       toolButtons.forEach(function (o) {
-        o.classList.toggle('active', o.dataset.tool === app.view.tool);
+        if (o.dataset.tool !== 'disconnect') {
+          o.classList.toggle('active', o.dataset.tool === app.view.tool);
+        }
       });
     });
     app.view.valveType = $('valve-type').value;

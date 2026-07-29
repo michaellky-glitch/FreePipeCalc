@@ -282,3 +282,42 @@ solution is kept and a warning is raised.
 * **PD/m** is computed on the *actual* drawn length excluding fitting
   equivalent length — this is the figure compared against the ~400 Pa/m rule.
   **Section PD** is the total including fittings.
+
+
+## Known limitation: converging and diverging tees
+
+**Validated:** Hazen-Williams for straight pipe.
+**Not validated, and known to be approximate:** tee losses where flow divides
+or combines.
+
+Two separate problems, both in `fittingsAtNode()` (`src/network.js`):
+
+**1. Combining and dividing tees use the same coefficients.** A tee is charged
+`TRUN` (L/D 20) or `TBRANCH` (L/D 60) purely on geometry — whether the leg is
+the straight run or the branch. Real tee losses depend on whether the flow is
+*dividing* or *combining*, and above all on the **flow ratio** Q_branch/Q_combined,
+over which K varies by more than an order of magnitude. A single flat L/D
+cannot represent that. ASHRAE and Idelchik both tabulate the two cases
+separately as functions of the flow and area ratios.
+
+**2. In a combining tee, the branch inflow is charged nothing at all.**
+Equivalent length is charged only to the DOWNSTREAM leg:
+
+```js
+pipes.forEach(function (p) {
+  if (!isDownstream(p)) return;      // EL belongs to the downstream leg only
+  ...
+});
+```
+
+For a dividing tee (one in, two out) that gives both outlets a fitting, which is
+reasonable. For a combining tee (two in, one out) only the single outlet is
+charged — so the branch stream, which in a combining tee suffers most of the
+loss, contributes nothing. Combining tees are therefore systematically
+under-charged.
+
+This is not a bug to fix by picking numbers. It needs a sourced coefficient set,
+and the choice of source is an engineering judgement — see
+`docs/ROADMAP.md`. Until then, treat friction through heavily-branched
+networks as approximate, and do not rely on the split between two legs of a
+combining tee.

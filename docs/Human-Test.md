@@ -25,6 +25,8 @@ known project has been done.
 | 1.2 | Data centre closed circuit, redundant pumps | ⚠️ | Runs; equipment gets exactly its rated flow and ΔP. Numbers not independently verified. |
 | 1.3 | Hazen-Williams against a manual calculation | ⬜ | `docs/ENGINE.md` has worked examples set up for exactly this. |
 | 1.4 | Fitting equivalent lengths vs. a published table | ⬜ | Flat L/D per spec §3.3. Worth a spot check against ASHRAE. |
+| 1.9 | Hazen-Williams, straight pipe | ✅ | **Michael validated this.** Mostly correct. |
+| 1.10 | Hazen-Williams, converging/diverging tees | ❌ | **Michael found this wrong.** Two causes, both confirmed in code — see `ENGINE.md`. Blocked on choosing a coefficient source. |
 | 1.5 | Loop flow split against hand calculation | ⬜ | Rings balance to ~1e-16 internally; not checked externally. |
 | 1.6 | Pump duty vs. a real selection | ⬜ | |
 | 1.7 | Darcy-Weisbach | ❌ | **Blocked** — friction-factor correlation not chosen yet. Do not issue calculations from this method. |
