@@ -1379,6 +1379,10 @@
       host.appendChild(el('p', 'hint',
         'No curve set. Without one the pump is modelled as a constant head, which no ' +
         'real pump is — flow will not respond to the system.'));
+      host.appendChild(el('p', 'hint',
+        'Use a manufacturer curve if you have one. If you do not, build a generic ' +
+        'curve under the TOOLS tab (Generic Pump Curve), copy its table, and paste ' +
+        'it here.'));
     } else {
       var d = el('div', 'readout');
       function ro(k, v) {
@@ -1409,50 +1413,6 @@
     }
 
     var row = el('div', 'btn-row');
-
-    var fromDuty = el('button', 'btn', c ? 'Re-derive from duty\u2026' : 'From design duty\u2026');
-    fromDuty.addEventListener('click', function () {
-      var res = app.results;
-      var q = res && res.flow[p.id] !== undefined ? Math.abs(res.flow[p.id]) : (p.pump.Qd || 0);
-      var h = p.pump.head || 0;
-      if (!(q > 0) || !(h > 0)) {
-        FD.dialog.alert({ title: 'No design duty yet',
-          message: 'Run a DESIGN calculation first so there is a duty point to build ' +
-                   'the curve from, or paste a manufacturer curve instead.' });
-        return;
-      }
-      FD.dialog.form({
-        title: 'Pump curve from design duty',
-        message: 'The curve is generated from the duty point using the EPANET assumption: ' +
-                 'shutoff at 133% of design head, maximum flow at 200% of design flow.\n\n' +
-                 'Margins here are a SELECTION allowance — they enlarge the pump you are ' +
-                 'modelling, they do not change the system.',
-        fields: [
-          { key: 'q', label: 'Design flow (' + fu + ')',
-            value: FD.units.fmtFlow(q, fu) },
-          { key: 'h', label: 'Design head (' + pu + ')',
-            value: FD.units.fmtPressure(headToPa(h), pu) },
-          { key: 'sfq', label: 'Flow margin (%)', value: '0' },
-          { key: 'sfh', label: 'Head margin (%)', value: '0' }
-        ]
-      }).then(function (v) {
-        if (!v) return;
-        var Qd = FD.units.toSIFlow(FD.units.parse(v.q), fu) * (1 + (FD.units.parse(v.sfq) || 0) / 100);
-        var Hd = FD.units.paToHeadWith(FD.units.toSIPressure(FD.units.parse(v.h), pu),
-                                       m.settings.fluid && m.settings.fluid.density) *
-                 (1 + (FD.units.parse(v.sfh) || 0) / 100);
-        var curve = FD.pumps.singlePoint(Hd, Qd);
-        if (!curve) {
-          FD.dialog.alert({ title: 'Cannot build a curve',
-            message: 'Both design flow and design head must be greater than zero.' });
-          return;
-        }
-        pushUndo();
-        p.pump.curve = curve;
-        renderProperties(); changed();
-      });
-    });
-    row.appendChild(fromDuty);
 
     var paste = el('button', 'btn', 'Paste curve data\u2026');
     paste.addEventListener('click', function () {
@@ -2695,6 +2655,24 @@
         });
         return;
       }
+
+      /* Same reasoning as the engine check in network.js: without a curve the
+       * pump is a constant head and flow stops responding to the system, which
+       * is the entire point of the mode. Caught here too so the user is told
+       * before they see a screen of numbers rather than after. */
+      var noCurve = m.pipes.filter(function (p) {
+        return p.kind === 'pump' && p.pump && p.pump.mode !== 'off' && !p.pump.curve;
+      });
+      if (noCurve.length) {
+        FD.dialog.alert({
+          title: 'Pump curve required',
+          message: 'Pump curve is required to simulate. If no manufacturer data is ' +
+                   'available, please see the TOOLS tab.\n\n' +
+                   'Without a curve: ' +
+                   noCurve.map(function (p) { return p.tag || p.id; }).join(', ') + '.'
+        });
+        return;
+      }
     }
     pushUndo();
     m.settings.calcMode = mode;
@@ -2776,6 +2754,7 @@
         if (t.dataset.pane === 'pane-calculation') renderCalculation();
         if (t.dataset.pane === 'pane-settings') renderSettings();
         if (t.dataset.pane === 'pane-hydraulic') renderHydraulic();
+        if (t.dataset.pane === 'pane-tools' && FD.tools) FD.tools.render(app);
         if (t.dataset.pane === 'pane-docs' && FD.docs && !docsReady) {
           FD.docs.init(); docsReady = true;
         }

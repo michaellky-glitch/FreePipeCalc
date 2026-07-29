@@ -72,19 +72,24 @@
     });
     if (pts.length < 2) return null;
 
-    var best = null;
-    for (var b = 1.2; b <= 3.001; b += 0.02) {
+    /* For a FIXED b the problem is linear in H0 and a, so b is swept and each
+     * candidate solved exactly. A coarse sweep locates the basin; a refinement
+     * pass then narrows it, because the residual is shallow near the optimum
+     * and a 0.02 grid was leaving visible error — on an NFPA 20 curve the
+     * analytic answer is b = 1.5504 and the coarse grid returned 1.54, worth
+     * about 0.4 kPa at the design point. */
+    function tryB(b) {
       var n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
       for (var i = 0; i < pts.length; i++) {
         var x = Math.pow(pts[i].q, b), y = pts[i].h;
         n++; sx += x; sy += y; sxx += x * x; sxy += x * y;
       }
       var den = n * sxx - sx * sx;
-      if (Math.abs(den) < 1e-30) continue;
+      if (Math.abs(den) < 1e-30) return null;
       var slopeA = (n * sxy - sx * sy) / den;      // this is −a
       var H0 = (sy - slopeA * sx) / n;
       var a = -slopeA;
-      if (!(a > 0) || !(H0 > 0)) continue;         // must fall with flow
+      if (!(a > 0) || !(H0 > 0)) return null;      // must fall with flow
 
       var sse = 0, maxDev = 0;
       for (var j = 0; j < pts.length; j++) {
@@ -93,11 +98,26 @@
         sse += d * d;
         maxDev = Math.max(maxDev, Math.abs(d));
       }
-      if (!best || sse < best.sse) {
-        best = { H0: H0, a: a, b: b, sse: sse, maxDev: maxDev };
-      }
+      return { H0: H0, a: a, b: b, sse: sse, maxDev: maxDev };
+    }
+
+    var best = null, b;
+    for (b = 1.2; b <= 3.001; b += 0.02) {
+      var cand = tryB(b);
+      if (cand && (!best || cand.sse < best.sse)) best = cand;
     }
     if (!best) return null;
+
+    // Golden-section-free refinement: two bisection passes around the winner.
+    var lo = best.b - 0.02, hi = best.b + 0.02, step;
+    for (var pass = 0; pass < 3; pass++) {
+      step = (hi - lo) / 20;
+      for (b = lo; b <= hi + 1e-12; b += step) {
+        var c2 = tryB(b);
+        if (c2 && c2.sse < best.sse) best = c2;
+      }
+      lo = best.b - step; hi = best.b + step;
+    }
 
     var mean = pts.reduce(function (s, p) { return s + p.h; }, 0) / pts.length;
     var sst = pts.reduce(function (s, p) { return s + (p.h - mean) * (p.h - mean); }, 0);
@@ -106,7 +126,7 @@
     return {
       H0: best.H0,
       a: best.a,
-      b: Math.round(best.b * 1000) / 1000,
+      b: Math.round(best.b * 100000) / 100000,
       source: 'fitted',
       points: pts,
       fit: {
@@ -116,6 +136,98 @@
         n: pts.length
       }
     };
+  }
+
+  /* Exact quadratic through three points, h(q) = a + b·q + c·q².
+   *
+   * Newton's divided differences rather than a 3x3 solve — same answer, but no
+   * matrix and no pivoting to get wrong:
+   *
+   *     m01 = (h1−h0)/(q1−q0)        m12 = (h2−h1)/(q2−q1)
+   *     c   = (m12 − m01)/(q2 − q0)
+   *     b   = m01 − c(q0 + q1)
+   *     a   = h0 − b·q0 − c·q0²
+   *
+   * This is an INTERPOLATION, not a fit: it passes through all three points
+   * exactly, which is the point. A generic curve is defined by three stated
+   * duties (shutoff, design, runout), so there is nothing to average.
+   *
+   * Note the linear term. The solver's own form, H₀ − a·Q^b, has none, so the
+   * two are not interchangeable — see genericTable() and the note in
+   * docs/SIMULATION-design.md §3.4.
+   */
+  function threePoint(p0, p1, p2) {
+    var pts = [p0, p1, p2];
+    for (var i = 0; i < 3; i++) {
+      if (!pts[i] || !isFinite(pts[i].q) || !isFinite(pts[i].h)) return null;
+      if (pts[i].q < 0 || pts[i].h < 0) return null;
+    }
+    pts.sort(function (x, y) { return x.q - y.q; });
+    var q0 = pts[0].q, h0 = pts[0].h;
+    var q1 = pts[1].q, h1 = pts[1].h;
+    var q2 = pts[2].q, h2 = pts[2].h;
+
+    // Two points at the same flow have no single head — the curve is undefined.
+    if (q1 - q0 < 1e-12 || q2 - q1 < 1e-12) return null;
+
+    var m01 = (h1 - h0) / (q1 - q0);
+    var m12 = (h2 - h1) / (q2 - q1);
+    var c = (m12 - m01) / (q2 - q0);
+    var b = m01 - c * (q0 + q1);
+    var a = h0 - b * q0 - c * q0 * q0;
+
+    return { a: a, b: b, c: c, points: pts, source: 'three-point' };
+  }
+
+  function quadHead(qc, q) {
+    if (!qc) return 0;
+    var aq = Math.abs(q);
+    return qc.a + qc.b * aq + qc.c * aq * aq;
+  }
+
+  /* Flow at which a quadratic reaches zero head — solving a + bq + cq² = 0 and
+   * taking the smallest positive root. A pump curve must end somewhere, and
+   * the table should not run past it. */
+  function quadMaxFlow(qc) {
+    if (!qc) return Infinity;
+    var a = qc.a, b = qc.b, c = qc.c;
+    if (Math.abs(c) < 1e-30) return b < 0 ? -a / b : Infinity;
+    var disc = b * b - 4 * c * a;
+    if (disc < 0) return Infinity;
+    var r = Math.sqrt(disc);
+    var roots = [(-b + r) / (2 * c), (-b - r) / (2 * c)].filter(function (x) {
+      return x > 0;
+    });
+    if (!roots.length) return Infinity;
+    return Math.min.apply(null, roots);
+  }
+
+  /* Sanity checks an engineer would apply by eye. These are not arbitrary
+   * limits — each one describes a curve that is not a pump. */
+  function quadWarnings(qc, qDesign) {
+    var out = [];
+    if (!qc) return out;
+    if (qc.a <= 0) out.push('Shutoff head is zero or negative — the curve does not describe a pump.');
+    // Head must fall as flow rises, everywhere in the working range.
+    var qMax = Math.min(quadMaxFlow(qc), qDesign * 1.5);
+    var steps = 30, rising = null;
+    for (var i = 1; i <= steps; i++) {
+      var qa = qMax * (i - 1) / steps, qb2 = qMax * i / steps;
+      if (quadHead(qc, qb2) > quadHead(qc, qa) + 1e-12) {
+        rising = qa;
+        break;
+      }
+    }
+    if (rising !== null) {
+      out.push('Head RISES with flow somewhere below ' +
+               (100 * rising / qDesign).toFixed(0) + '% of design flow. ' +
+               'Check the two fit points — a pump curve must fall throughout.');
+    }
+    if (qc.c > 0) {
+      out.push('The curve is concave up. Most pump curves steepen towards runout, ' +
+               'not flatten — check the 150% point.');
+    }
+    return out;
   }
 
   /* Parse pasted Q,H data. Same tolerant approach as the pipe-schedule parser:
@@ -159,6 +271,10 @@
 
   FD.pumps = {
     singlePoint: singlePoint,
+    threePoint: threePoint,
+    quadHead: quadHead,
+    quadMaxFlow: quadMaxFlow,
+    quadWarnings: quadWarnings,
     head: head,
     slope: slope,
     maxFlow: maxFlow,

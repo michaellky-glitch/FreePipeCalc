@@ -378,6 +378,13 @@ table.sheet td.dim  { color: var(--text-mute); }
 table.sheet tbody tr.index-row td { background: rgba(70, 209, 127, .09); }
 table.sheet tbody tr.index-row td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
 table.sheet tbody tr.index-row:hover td { background: rgba(70, 209, 127, .16); }
+
+/* A row that needs the engineer's attention — a terminal off its design flow,
+ * or a pump past the end of its curve. Amber rather than red: the number is
+ * not wrong, it is telling you something. */
+table.sheet tbody tr.warn-row td { background: rgba(255, 159, 67, .10); }
+table.sheet tbody tr.warn-row td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+table.sheet tbody tr.warn-row:hover td { background: rgba(255, 159, 67, .18); }
 .notice-head { color: var(--error); font-weight: 650; margin-bottom: 8px; }
 table.sheet td span.dim { color: var(--text-mute); }
 table.sheet td span.bad { color: var(--error); font-weight: 600; }
@@ -729,3 +736,27 @@ table.doc-table th { background: var(--bg-raised); color: var(--text-dim); font-
 }
 .stage h3 { margin: 0 0 6px; color: var(--text-dim); font-size: 14px; font-weight: 600; }
 .stage p { margin: 0; font-size: 13px; }
+
+
+/* ------------------------------------------------------------------ TOOLS */
+.tool-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+}
+.tool-card > h2 { margin-top: 0; }
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+  margin: 14px 0;
+}
+.tool-col {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 10px 12px;
+}
+.tool-col h3 { margin: 0 0 8px; font-size: 0.95em; }
+.tool-col .hint { display: block; margin-top: 6px; }

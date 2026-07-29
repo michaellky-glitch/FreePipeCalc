@@ -417,6 +417,29 @@
     res.warnings = (res.warnings || []).concat(net.warnings || []);
     res.warnings = res.warnings.concat(flowRegimeWarnings(m, net, res));
     res.warnings = res.warnings.concat(supplyWarnings(m, net, res));
+
+    /* SIMULATION without a curve is not a simulation. A running pump with no
+     * curve falls back to a constant head, which answers a different question
+     * entirely — the flow stops responding to the system, which is the one
+     * thing this mode exists to show. An ERROR, not a warning, because every
+     * number downstream of it is misleading. Checked here rather than only on
+     * the mode switch, since a curve can be cleared after the switch. */
+    if (m.settings.calcMode === 'simulation') {
+      var noCurve = m.pipes.filter(function (p) {
+        return p.kind === 'pump' && p.pump && p.pump.mode !== 'off' && !p.pump.curve;
+      });
+      if (noCurve.length) {
+        res.errors = (res.errors || []).concat(noCurve.map(function (p) {
+          return {
+            code: 'NO_PUMP_CURVE', pipe: p.id,
+            message: 'Pump curve is required to simulate. If no manufacturer data is ' +
+                     'available, please see the TOOLS tab.' +
+                     ' (' + (p.tag || p.id) + ')'
+          };
+        }));
+        res.converged = false;
+      }
+    }
     res.network = net;
     res.passes = passes;
     res.pumpSizing = sizing;

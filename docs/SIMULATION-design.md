@@ -100,18 +100,32 @@ flagged rather than guessed at — see §6.
 
 ### 3.4 Pump curves
 
-**Default: the EPANET single-point assumption**, from the design duty:
+**Superseded.** The first build generated a curve from the calculated duty on
+the EPANET single-point assumption:
 
 ```
 H = (4/3)·H_d − (1/3)·H_d·(Q/Q_d)²
 ```
 
-giving shutoff at 133% of design head and maximum flow at 200% of design flow.
-Verified: at `Q = Q_d` it returns `H_d` exactly, at `Q = 0` it returns
-`(4/3)H_d`, and `H = 0` at `Q = 2Q_d`.
+shutoff at 133% of design head, runout at 200% of design flow. It is correct
+arithmetic and the wrong feature. It is one manufacturer-agnostic guess handed
+to the engineer as though it were an answer, and it cannot produce the shapes
+that are actually specified — an NFPA 20 fire pump allows shutoff up to 140%
+and requires 65% of rated head at 150% of rated flow, which this form cannot
+reach.
 
-Internally that is `H = H₀ − a·Q²` with `H₀ = (4/3)H_d` and
-`a = (1/3)·H_d/Q_d²`.
+**It was removed.** Curves now come from one of two places: manufacturer data
+pasted in, or the *Generic Pump Curve* tool under TOOLS, where the engineer
+states the three defining duties. See `docs/TOOLS.md`.
+
+`pumps.singlePoint()` survives in `data/pumps.js` as a test fixture and as the
+record of what the prototype in §1 measured. It is not reachable from the UI.
+
+**A curve is now mandatory in SIMULATION.** A running pump without one used to
+fall back silently to a constant head, which answers a different question: flow
+stops responding to the system, which is the one thing the mode exists to show.
+That is an error, not a warning, raised both on the mode switch and on every
+solve — because a curve can be cleared after the switch.
 
 **Pasted data**: Q,H pairs, tab/comma/space separated, header row skipped — the
 same parser approach as custom pipe schedules, and the same insistence on stated

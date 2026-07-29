@@ -38,6 +38,50 @@ section('Single-point curve (EPANET assumption)');
   ok('Rejects zero design flow', P.singlePoint(30, 0) === null);
 }
 
+section('Three-point quadratic (TOOLS ▸ Generic Pump Curve)');
+{
+  /* The worked NFPA 20 example: 1000 L/s at 100 kPa rated, shutoff 140%,
+   * and 65% of rated head at 150% of rated flow. Done here in the tool's own
+   * display units, which is how the tool works.
+   *
+   *   m01 = (100-140)/(1000-0)   = -0.04
+   *   m12 = (65-100)/(1500-1000) = -0.07
+   *   c   = (-0.07 + 0.04)/1500  = -2e-5
+   *   b   = -0.04 - (-2e-5)(0+1000) = -0.02
+   *   a   = 140
+   */
+  const qc = P.threePoint({ q: 0, h: 140 }, { q: 1000, h: 100 }, { q: 1500, h: 65 });
+  near('Constant coefficient a', qc.a, 140, 1e-9);
+  near('Linear coefficient b', qc.b, -0.02, 1e-12);
+  near('Quadratic coefficient c', qc.c, -2e-5, 1e-15);
+
+  // It is an interpolation: all three points must come back exactly.
+  near('Passes through the shutoff point', P.quadHead(qc, 0), 140, 1e-9);
+  near('Passes through the design point', P.quadHead(qc, 1000), 100, 1e-9);
+  near('Passes through the runout point', P.quadHead(qc, 1500), 65, 1e-9);
+
+  // A point nobody specified, checked by hand: 140 - 0.02(500) - 2e-5(500^2)
+  near('Interpolates correctly at 50% flow', P.quadHead(qc, 500), 125, 1e-9);
+
+  // Zero head: 140 - 0.02q - 2e-5 q^2 = 0 -> q = 2192.58...
+  const root = (0.02 - Math.sqrt(0.0004 + 4 * 2e-5 * 140)) / (2 * -2e-5);
+  near('Flow at zero head', P.quadMaxFlow(qc), root, 1e-6);
+
+  ok('Order of the three points does not matter',
+     Math.abs(P.threePoint({ q: 1500, h: 65 }, { q: 0, h: 140 },
+                           { q: 1000, h: 100 }).c - qc.c) < 1e-15);
+
+  ok('Rejects two points at the same flow',
+     P.threePoint({ q: 0, h: 140 }, { q: 1000, h: 100 }, { q: 1000, h: 65 }) === null);
+
+  ok('A well-formed curve raises no warnings', P.quadWarnings(qc, 1000).length === 0);
+
+  // A curve that RISES with flow is not a pump.
+  const bad = P.threePoint({ q: 0, h: 60 }, { q: 1000, h: 100 }, { q: 1500, h: 140 });
+  ok('Warns when head rises with flow',
+     P.quadWarnings(bad, 1000).some(w => /RISES/.test(w)));
+}
+
 section('Curve fitting');
 {
   // Points generated FROM a known curve must fit back to it exactly.
@@ -263,6 +307,62 @@ section('Parallel pumps and pump failure');
   ok('Survivors run past their design flow', live.every(p => p.pctOfDesign > 1));
   ok('Runout is warned about',
      fail.warnings.some(w => w.code === 'PUMP_RUNOUT'));
+}
+
+section('SIMULATION refuses to run without a pump curve');
+{
+  const file = __dirname + '/../examples/datacentre-ring.pnet.json';
+  const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
+  m.settings.calcMode = 'simulation';
+  // the example's running pump has no curve
+  const res = NET.solveModel(m);
+  const err = (res.errors || []).filter(e => e.code === 'NO_PUMP_CURVE');
+  ok('Raises NO_PUMP_CURVE', err.length === 1, JSON.stringify(res.errors));
+  ok('...with the required wording',
+     /Pump curve is required to simulate\. If no manufacturer data is available, please see the TOOLS tab\./
+       .test(err[0].message), err[0].message);
+  ok('...and does not report convergence', res.converged === false);
+
+  // An OFF pump needs no curve — it is isolated.
+  m.pipes.filter(p => p.kind === 'pump').forEach(p => { p.pump.mode = 'off'; });
+  const off = NET.solveModel(m);
+  ok('A stopped pump is not required to have a curve',
+     (off.errors || []).filter(e => e.code === 'NO_PUMP_CURVE').length === 0);
+}
+
+section('Round trip: TOOLS table back into the solver');
+{
+  /* The tool builds a quadratic; the solver stores H0 - a.Q^b, which has no
+   * linear term. Pasting the three defining points is exact (3 parameters,
+   * 3 points); pasting the whole table is a least-squares compromise that
+   * moves all three. Both are asserted because the tool offers both and tells
+   * the user which is which. */
+  const rho = 998, g = 9.81;
+  const toSI = r => ({ q: r.q / 1000, h: r.h * 1000 / (rho * g) });   // L/s, kPa
+  const qc = P.threePoint({ q: 0, h: 140 }, { q: 1000, h: 100 }, { q: 1500, h: 65 });
+
+  const three = [{ q: 0, h: 140 }, { q: 1000, h: 100 }, { q: 1500, h: 65 }].map(toSI);
+  const fit3 = P.fit(three);
+  const kpa = h => h * rho * g / 1000;
+  near('Three points: shutoff exact', kpa(P.head(fit3, 0)), 140, 1e-3);
+  near('Three points: design exact', kpa(P.head(fit3, 1.0)), 100, 1e-3);
+  near('Three points: runout exact', kpa(P.head(fit3, 1.5)), 65, 1e-3);
+
+  const table = [];
+  for (let pct = 0; pct <= 150; pct += 10) {
+    const q = 1000 * pct / 100;
+    table.push(toSI({ q: q, h: P.quadHead(qc, q) }));
+  }
+  const fitAll = P.fit(table);
+  ok('Full table fits the quadratic closely overall', fitAll.fit.r2 > 0.999,
+     String(fitAll.fit.r2));
+  // ...but at the cost of the stated points, which is why the tool warns.
+  ok('Full table moves the stated design point',
+     Math.abs(kpa(P.head(fitAll, 1.0)) - 100) > 0.1,
+     String(kpa(P.head(fitAll, 1.0))));
+  ok('...though by under 2% of design head',
+     Math.abs(kpa(P.head(fitAll, 1.0)) - 100) < 2,
+     String(kpa(P.head(fitAll, 1.0))));
 }
 
 section('Equipment is reported as a terminal');

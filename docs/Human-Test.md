@@ -113,6 +113,17 @@ threshold (`settings.warn.pumpRunout`, default 120%).
 | 4B.3 | Parallel pumps and N+1 failure | ⚠️ | Battery above. Not checked against another tool. |
 | 4B.4 | Balancing Kv figures | ⬜ | Computed but never checked against a valve schedule. |
 | 4B.5 | Fitted curve from a real manufacturer datasheet | ⬜ | **Most important item here.** Only synthetic curves so far. |
+| 4B.6 | SIMULATION without a curve is refused | ✅ | Error on the mode switch and on every solve. |
+
+## 4C. TOOLS tab
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| 4C.1 | Generic Pump Curve: NFPA 20 worked example | ✅ | Reproduces the hand calculation exactly — `h(q) = 140 − 0.02q − 2e-5q²`, 125 kPa at 50% flow. |
+| 4C.2 | Copy 3 points → paste into a pump | ⚠️ | Verified in-browser; the three stated duties come back exact. Not yet done by hand through the clipboard. |
+| 4C.3 | Copy full table → paste into a pump | ⚠️ | Works, but shifts all three stated duties ~1%. The tool says so. |
+| 4C.4 | Clipboard copy over `file://` | ⬜ | Uses the `execCommand` fallback, same as the rest of the app. Proven over HTTP only. |
+| 4C.5 | Rising / concave-up curve warnings | ⬜ | Unit-tested; not seen by a human. |
 
 ## 5. Output
 

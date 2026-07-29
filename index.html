@@ -14,6 +14,7 @@
     <button class="tab" role="tab" data-pane="pane-network" aria-selected="true">PIPING NETWORK</button>
     <button class="tab" role="tab" data-pane="pane-calculation" aria-selected="false">CALCULATION</button>
     <button class="tab" role="tab" data-pane="pane-hydraulic" aria-selected="false">HYDRAULIC</button>
+    <button class="tab" role="tab" data-pane="pane-tools" aria-selected="false">TOOLS</button>
     <button class="tab" role="tab" data-pane="pane-settings" aria-selected="false">SETTINGS</button>
     <button class="tab" role="tab" data-pane="pane-docs" aria-selected="false">DOCUMENTATION</button>
   </nav>
@@ -110,6 +111,13 @@
   </div>
 </section>
 
+<!-- ============================================================ TOOLS -->
+<section class="pane" id="pane-tools" role="tabpanel">
+  <div class="wrap">
+    <div id="tools-body"></div>
+  </div>
+</section>
+
 <!-- ========================================================= SETTINGS -->
 <section class="pane" id="pane-settings" role="tabpanel">
   <div class="wrap">
@@ -158,6 +166,7 @@
 <script src="src/trace.js"></script>
 <script src="src/canvas.js"></script>
 <script src="src/printer.js"></script>
+<script src="src/tools.js"></script>
 <script src="src/docs.js"></script>
 <script src="src/app.js"></script>
 <script>

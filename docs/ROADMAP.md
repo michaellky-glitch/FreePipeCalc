@@ -96,3 +96,15 @@ per level.
   covers every flow regime in one expression.
 * **`LICENSE.txt` carries a placeholder name.** It needs a real name before the
   repository is published.
+
+## Native quadratic pump curves
+
+The TOOLS ▸ Generic Pump Curve builds `h(q) = a + b·q + c·q²`, but the solver
+stores `H₀ − a·Q^b`, which has no linear term. Pasting a generated curve
+therefore refits it and loses about 1% — see `docs/TOOLS.md`.
+
+Teaching the solver to carry the quadratic directly would remove the loss
+entirely, and is no harder than what it already does: `dh/dq = b + 2c·q` is a
+cleaner derivative than the power law's. Not done because it changes the stored
+model format and so needs a `formatVersion` bump and a migration for curves
+already saved.
