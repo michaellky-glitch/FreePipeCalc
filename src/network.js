@@ -389,6 +389,7 @@
      * second pressure-driven pass works out what the system would actually
      * deliver, for display in brackets. */
     res.actual = actualDelivery(m, net, res);
+    res.index = indexCircuit(m, net, res);
     return res;
   }
 
@@ -585,6 +586,23 @@
 
     for (i = 0; i < 15; i++) {
       var w = worstShortfall(m, cur);
+
+      /* Converge on the duty from EITHER side. Only ever adding head meant an
+       * oversized pump stayed oversized — a model saved with a large duty kept
+       * it forever, which is not what 'auto' means. Demands are fixed flows,
+       * so lowering the head lowers every pressure by the same amount and one
+       * step lands it. */
+      if (w.pa < -1) {
+        var cut = (-w.pa) / (rho * 9.81);
+        autos.forEach(function (p) {
+          p.pump.head = Math.max(0, (p.pump.head || 0) - cut);
+        });
+        var down = build(m, cur);
+        cur = FD.solver.solve(down);
+        cur.network = down;
+        prevShort = null;               // direction changed; restart the stall watch
+        continue;
+      }
       if (w.pa <= 1) break;                       // satisfied (within 1 Pa)
 
       /* If a round of extra head barely moved the shortfall, more head will not
@@ -837,6 +855,124 @@
     };
   }
 
+  // -------------------------------------------------------- index circuit
+  /* The index circuit is the hydraulically most unfavourable path: the route
+   * from the supply to the terminal that is worst off. It is the path that
+   * sets the pump duty, so it is the one an engineer reads first — hence
+   * spec §10 asking for it at the top of the calculation sheet.
+   *
+   * "Worst off" is the terminal with the smallest residual (available minus
+   * required) — NOT simply the most distant one. A long run in big pipe can
+   * easily be better off than a short run in small pipe, and sizing against
+   * distance rather than residual is a classic way to undersize a pump.
+   *
+   * In a closed circuit there are no demands, so the equipment with the
+   * largest pressure drop stands in as the index terminal.
+   *
+   * The path is traced backwards from that terminal, always stepping to the
+   * neighbour at HIGHER head — which is where the water came from. That
+   * follows the real hydraulic route through loops and rings, rather than
+   * guessing at a topological shortest path.
+   */
+  function indexCircuit(m, net, res) {
+    if (!net || !res) return null;
+
+    var target = null;
+    m.nodes.forEach(function (n) {
+      if (!n.device || n.device.kind !== 'demand' || n.device.include === false) return;
+      var p = res.pressure[n.id];
+      if (p === undefined) return;
+      var residual = p - (n.device.reqPressure || 0);
+      if (!target || residual < target.residual) {
+        target = { node: n.id, residual: residual, kind: 'demand' };
+      }
+    });
+
+    if (!target) {
+      // closed circuit: the heaviest piece of equipment is the index terminal
+      var worst = null;
+      net.links.forEach(function (l) {
+        if (l.kind !== 'equip') return;
+        var q = res.flow[l.id];
+        if (q === undefined) return;
+        var dp = Math.abs(FD.hydraulics.headloss(l.r, q, l.n));
+        if (!worst || dp > worst.dp) worst = { dp: dp, link: l };
+      });
+      if (worst) {
+        target = { node: worst.link.to, residual: null, kind: 'equipment',
+                   link: worst.link.id };
+      }
+    }
+    if (!target) return null;
+
+    /* The path runs back to a FIXED-HEAD node — a source, or the synthetic
+     * datum of a closed circuit — not merely to the nearest pump.
+     *
+     * Stopping at the pump suction leaves the suction-side friction out of the
+     * tally, and then friction + static no longer reconciles with the pump
+     * duty: on the 3-floor model it came out 38.94 m against a 41.76 m pump,
+     * exactly the 2.82 m of pipe upstream of the pump. The pump is simply a
+     * link along the path, contributing a head gain rather than terminating
+     * it. */
+    var origins = {};
+    net.nodes.forEach(function (n) {
+      if (n.fixedHead !== null && n.fixedHead !== undefined) origins[n.id] = true;
+    });
+    if (!Object.keys(origins).length) {
+      // no fixed head anywhere (shouldn't happen — a datum is pinned) — fall
+      // back to pump suctions so the trace still terminates
+      net.links.forEach(function (l) { if (l.kind === 'pump') origins[l.from] = true; });
+    }
+
+    var adj = {};
+    net.links.forEach(function (l) {
+      (adj[l.from] = adj[l.from] || []).push(l);
+      (adj[l.to] = adj[l.to] || []).push(l);
+    });
+
+    var sections = [], seen = {}, cur = target.node, guard = 0;
+    seen[cur] = true;
+    while (!origins[cur] && guard++ < 500) {
+      var best = null;
+      (adj[cur] || []).forEach(function (l) {
+        var other = (l.from === cur) ? l.to : l.from;
+        if (seen[other]) return;
+        var dh = (res.head[other] === undefined || res.head[cur] === undefined)
+          ? -Infinity : res.head[other] - res.head[cur];
+        if (!best || dh > best.dh) best = { link: l, other: other, dh: dh };
+      });
+      if (!best) break;
+      sections.unshift({ link: best.link.id, from: best.other, to: cur });
+      seen[best.other] = true;
+      cur = best.other;
+    }
+
+    var ids = {};
+    sections.forEach(function (sec) { ids[sec.link] = true; });
+
+    var friction = 0, statik = 0, pumpGain = 0;
+    sections.forEach(function (sec) {
+      var l = net.links.find(function (x) { return x.id === sec.link; });
+      if (!l) return;
+      if (l.kind === 'pump') pumpGain += (l.head || 0);
+      else friction += Math.abs(FD.hydraulics.headloss(l.r, res.flow[l.id], l.n));
+      var a = M.node(m, sec.from), b = M.node(m, sec.to);
+      if (a && b) statik += M.elevation(m, b) - M.elevation(m, a);
+    });
+
+    return {
+      target: target.node,
+      targetKind: target.kind,
+      residual: target.residual,
+      origin: cur,
+      sections: sections,
+      linkIds: ids,
+      frictionHead: friction,
+      staticHead: statik,
+      pumpHead: pumpGain
+    };
+  }
+
   /* Fingerprint of the fitting assignment plus flow directions — if this is
    * unchanged between passes, the two-pass loop has converged. */
   function signature(net, res) {
@@ -872,6 +1008,7 @@
     nodeTypeCode: nodeTypeCode,
     flowRegimeWarnings: flowRegimeWarnings,
     supplyWarnings: supplyWarnings,
+    indexCircuit: indexCircuit,
     actualDelivery: actualDelivery,
     autoSizePumps: autoSizePumps,
     worstShortfall: worstShortfall,

@@ -46,6 +46,7 @@ and readable, which **LOAD MODEL** reads back. Worked examples are in
 * `docs/ENGINE.md` — the hydraulics maths, with hand-checkable worked examples.
 * `docs/piping-friction-loss-spec.md` — the specification; §12 logs every
   deviation from it and the reason.
+* `docs/ROADMAP.md` — what is agreed but not yet built, and what was ruled out.
 * `docs/PUBLISHING.md` — notes on releasing this repository.
 
 ## A word on trust
@@ -75,7 +76,7 @@ Usable for simple networks. Implemented so far:
 | Canvas: draw, snap, tee insertion, zoom/pan, select, delete | done |
 | Calculation sheet + CSV export + print stylesheet | done |
 | Settings, theming, autosave, undo/redo | done |
-| Test suite (464 assertions) | done |
+| Test suite (490 assertions) | done |
 | LAYOUT mode: draggable labels, device value boxes | done |
 | Rendered formulas with inline editable coefficients | done |
 | Riser placement UI, column snapping across levels (§7.2) | done |
@@ -93,6 +94,9 @@ Usable for simple networks. Implemented so far:
 | Riser auto-alignment: inactive floors slide to the active floor | done |
 | Equipment device (§8.3) | model only, no UI |
 | Rigid-translation length edits, incl. across risers (§6) | done |
+| Copy level layout up/down, carrying risers (§6) | done |
+| Custom user pipe schedules (§9) | done |
+| Index circuit identification, ordering and highlighting (§10) | done |
 | Geometry-conflict detection + Repair with change log (§6) | done |
 | Pump auto-sizing on every solve, with safety factor (§8.4) | done |
 | Supply-adequacy checks + pressure-driven actual delivery | done |
@@ -101,10 +105,6 @@ Usable for simple networks. Implemented so far:
 | Closed circuits: pressure datum + flow-based pump sizing | done |
 | Pump off/running modes | done |
 | Pump duty table: head required vs selection margin | done |
-| Copy Up/Down (§6) | not started |
-| Custom user schedules UI (§9) | not started |
-| Index-circuit ordering & highlighting (§10) | not started |
-| PNG plan export (SVG done, §10.1) | not started |
 
 Previous releases are kept under `Previous Version/`.
 

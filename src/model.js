@@ -374,6 +374,66 @@
     if (!Object.keys(obj.show).length) delete obj.show;
   }
 
+  /* Copy everything drawn on `fromLevelId` onto `toLevelId`, at the same
+   * level-local coordinates (spec §6, Copy Up/Down).
+   *
+   * Devices come across too, but a SOURCE deliberately does not: duplicating a
+   * source silently creates a second supply into the network, which changes
+   * the hydraulics in a way nobody asked for. Everything else — demands,
+   * pumps, valves, equipment, tags — is copied as-is.
+   *
+   * Riser columns touching the source floor are extended to the new floor as
+   * well, so a stack of identical floors stays connected instead of arriving
+   * as an island.
+   */
+  function copyLevel(m, fromLevelId, toLevelId) {
+    var src = level(m, fromLevelId), dst = level(m, toLevelId);
+    if (!src || !dst || src.id === dst.id) return null;
+
+    var map = {}, copiedNodes = [], copiedPipes = [];
+
+    m.nodes.filter(function (n) { return n.level === fromLevelId; }).forEach(function (n) {
+      var copy = addNode(m, toLevelId, n.x, n.y, { dz: n.dz || 0 });
+      if (n.device && n.device.kind !== 'source') {
+        copy.device = JSON.parse(JSON.stringify(n.device));
+      }
+      if (n.labelOffset) copy.labelOffset = { dx: n.labelOffset.dx, dy: n.labelOffset.dy };
+      if (n.show) copy.show = JSON.parse(JSON.stringify(n.show));
+      map[n.id] = copy.id;
+      copiedNodes.push(copy);
+    });
+
+    m.pipes.slice().forEach(function (p) {
+      if (p.kind === 'riser') return;                 // risers are rebuilt, not copied
+      if (map[p.a] === undefined || map[p.b] === undefined) return;
+      var opts = { kind: p.kind, schedule: p.schedule, size: p.size, C: p.C };
+      if (p.tag) opts.tag = p.tag;
+      if (p.temperature !== undefined) opts.temperature = p.temperature;
+      if (p.equip) opts.equip = JSON.parse(JSON.stringify(p.equip));
+      if (p.pump) opts.pump = JSON.parse(JSON.stringify(p.pump));
+      if (p.valve) opts.valve = JSON.parse(JSON.stringify(p.valve));
+      var np = addPipe(m, map[p.a], map[p.b], opts);
+      if (p.labelOffset) np.labelOffset = { dx: p.labelOffset.dx, dy: p.labelOffset.dy };
+      if (p.show) np.show = JSON.parse(JSON.stringify(p.show));
+      copiedPipes.push(np);
+    });
+
+    // extend any riser column that touches the source floor
+    var extended = 0;
+    m.risers.forEach(function (r) {
+      if (r.attachments.some(function (a) { return a.level === toLevelId; })) return;
+      var here = r.attachments.filter(function (a) { return a.level === fromLevelId; })[0];
+      if (!here) return;
+      var target = map[here.node];
+      if (target === undefined) return;
+      attachRiser(m, r.id, toLevelId, target);
+      extended++;
+    });
+    riserPipes(m);
+
+    return { nodes: copiedNodes.length, pipes: copiedPipes.length, risers: extended };
+  }
+
   // ----------------------------------------------------------- devices
   function setSource(m, nodeId) {
     var n = node(m, nodeId);
@@ -476,6 +536,7 @@
     pipesAt: pipesAt, other: other, pipeLength: pipeLength, pipeBore: pipeBore,
 
     addRiser: addRiser, attachRiser: attachRiser, riserPipes: riserPipes,
+    copyLevel: copyLevel,
 
     labelOffset: labelOffset, setLabelOffset: setLabelOffset,
     clearLabelOffsets: clearLabelOffsets,

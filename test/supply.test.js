@@ -234,4 +234,69 @@ section('Safety factor is a reported margin, never part of the solve');
      b.pump.pump.head * 1.10 > b.pump.pump.head);
 }
 
+section('Index circuit — the hydraulically most unfavourable path');
+{
+  const m = base();
+  const res = NET.solveModel(m);
+  const ix = res.index;
+  ok('An index circuit is identified', !!ix);
+
+  /* It must be the WORST-OFF terminal, not simply the most distant. */
+  let worst = null;
+  m.nodes.forEach(n => {
+    if (!n.device || n.device.kind !== 'demand') return;
+    const resid = res.pressure[n.id] - (n.device.reqPressure || 0);
+    if (!worst || resid < worst.r) worst = { id: n.id, r: resid };
+  });
+  ok('Index terminal is the demand with the smallest residual',
+     ix.target === worst.id, `${ix.target} vs ${worst.id}`);
+
+  /* The path must reach a FIXED-HEAD node, not stop at the pump — otherwise
+   * the suction-side friction is missing and the tally cannot reconcile with
+   * the pump duty. */
+  const origin = M.node(m, ix.origin);
+  ok('Path terminates at the source', !!(origin.device && origin.device.kind === 'source'),
+     ix.origin);
+
+  const pump = m.pipes.find(p => p.kind === 'pump');
+  near('friction + static reconciles with the pump duty',
+       ix.frictionHead + ix.staticHead, pump.pump.head, 0.01);
+  near('Residual at the index terminal is zero (that is what makes it the index)',
+       ix.residual, 0, 50);
+
+  // path continuity: each section starts where the previous ended
+  let broken = null;
+  ix.sections.forEach((sec, i) => {
+    if (i && ix.sections[i - 1].to !== sec.from) broken = i;
+  });
+  ok('Path is continuous end to end', broken === null, 'break at ' + broken);
+  ok('Path ends at the index terminal',
+     ix.sections[ix.sections.length - 1].to === ix.target);
+  ok('Path starts at the origin', ix.sections[0].from === ix.origin);
+
+  // every section must be a real link carrying flow
+  ok('Every index section is a real link',
+     ix.sections.every(sec => res.network.links.some(l => l.id === sec.link)));
+}
+
+section('Auto-sizing converges from ABOVE as well as below');
+{
+  /* Regression: sizing only ever ADDED head, so a model saved with an oversized
+   * pump kept it forever — which is not what 'auto' means. */
+  const m = base();
+  const pump = m.pipes.find(p => p.kind === 'pump');
+  pump.pump.mode = 'auto';
+  pump.pump.head = 0;
+  NET.solveModel(m);
+  const correct = pump.pump.head;
+
+  pump.pump.head = correct * 3;            // grossly oversized
+  NET.solveModel(m);
+  near('An oversized auto pump is brought back down', pump.pump.head, correct, 0.05);
+
+  pump.pump.head = correct / 4;            // grossly undersized
+  NET.solveModel(m);
+  near('An undersized auto pump is brought up', pump.pump.head, correct, 0.05);
+}
+
 report();

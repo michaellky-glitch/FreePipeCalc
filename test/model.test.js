@@ -899,4 +899,59 @@ section('New fluid and presentation settings');
   ok('...and survives save/load', back.pipes[0].temperature === 60);
 }
 
+section('Copy level layout');
+{
+  const m = M.create();
+  const L1 = m.levels[0];
+  M.setLevelAltitude(m, L1.id, 0);
+  const L2 = M.addLevel(m, { name: 'L2', altitude: 4 });
+
+  const a = M.addNode(m, L1.id, 0, 0), b = M.addNode(m, L1.id, 10, 0),
+        c = M.addNode(m, L1.id, 10, 8);
+  M.addPipe(m, a.id, b.id, { size: 'DN50' });
+  M.addPipe(m, b.id, c.id, { size: 'DN65', tag: 'BR-1' });
+  M.setDemand(m, c.id, 0.004, 50000);
+  M.setSource(m, a.id);
+  const col = M.addRiser(m, 0, 0);
+  M.attachRiser(m, col.id, L1.id, a.id);
+
+  const r = M.copyLevel(m, L1.id, L2.id);
+  ok('Reports what it copied', r.nodes === 3 && r.pipes === 2, JSON.stringify(r));
+
+  const l2Nodes = m.nodes.filter(n => n.level === L2.id);
+  ok('All nodes copied', l2Nodes.length === 3);
+  ok('Coordinates preserved',
+     l2Nodes.some(n => n.x === 10 && n.y === 8));
+
+  const l2Pipes = m.pipes.filter(p => {
+    const x = M.node(m, p.a), y = M.node(m, p.b);
+    return p.kind !== 'riser' && x.level === L2.id && y.level === L2.id;
+  });
+  ok('All pipes copied', l2Pipes.length === 2);
+  ok('Sizes preserved', l2Pipes.some(p => p.size === 'DN65'));
+  ok('Tags preserved', l2Pipes.some(p => p.tag === 'BR-1'));
+  ok('Demand copied', l2Nodes.some(n => n.device && n.device.kind === 'demand'));
+
+  /* A SOURCE must NOT be duplicated — a second supply silently changes the
+   * hydraulics without being asked for. */
+  ok('Source is NOT copied',
+     l2Nodes.every(n => !(n.device && n.device.kind === 'source')),
+     JSON.stringify(l2Nodes.map(n => n.device && n.device.kind)));
+  ok('The original source is untouched',
+     m.nodes.filter(n => n.device && n.device.kind === 'source').length === 1);
+
+  // risers follow the copy so the stack stays connected
+  ok('Riser extended to the new level', r.risers === 1);
+  ok('Column now has two attachments', m.risers[0].attachments.length === 2);
+  ok('A riser link was generated', m.pipes.some(p => p.kind === 'riser'));
+  near('Riser length is the altitude difference',
+       M.pipeLength(m, m.pipes.find(p => p.kind === 'riser')), 4, 1e-9);
+
+  // lengths on the source floor are untouched
+  near('Original geometry unchanged', M.pipeLength(m, m.pipes[0]), 10, 1e-9);
+
+  // copying onto itself is refused
+  ok('Copying a level onto itself does nothing', M.copyLevel(m, L1.id, L1.id) === null);
+}
+
 report();

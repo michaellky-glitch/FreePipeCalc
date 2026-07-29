@@ -353,6 +353,10 @@ Two sizing targets:
 
 Safeguards, both earned the hard way:
 
+* Sizing converges from **either** side. Only ever adding head meant a model
+  saved with an oversized pump kept it forever, which is not what "auto" means.
+  Demands are fixed flows, so lowering the head lowers every pressure by the
+  same amount and one step lands it.
 * Pumps that can never pass flow are skipped. The test is **topological** (is
   either end a dead end?), not "does it carry flow right now" — a pump starting
   at zero head carries no flow precisely because it has not been sized yet, and
@@ -380,6 +384,33 @@ with the margins already sitting in the C factor, fitting allowances and
 equipment ratings.
 
 ---
+
+## 11A. The index circuit
+
+The hydraulically most unfavourable path — the route from the supply to the
+worst-off terminal. It is what sets the pump duty, so spec §10 puts it at the
+top of the calculation sheet; `res.index` carries it and the sheet orders those
+rows first and tints them.
+
+Two things about the definition are easy to get wrong.
+
+**"Worst off" means the smallest residual, not the greatest distance.** A long
+run in large pipe is frequently better off than a short run in small pipe.
+Sizing against distance is a classic way to undersize a pump.
+
+**The path runs back to a fixed-head node, not to the nearest pump.** Stopping
+at the pump suction leaves the suction-side friction out of the tally, and then
+friction + static no longer reconciles with the pump duty — on the 3-floor test
+model it came out 38.94 m against a 41.76 m pump, exactly the 2.82 m of pipe
+upstream. The pump is a link along the path contributing a head gain, not a
+terminus.
+
+The trace steps to the neighbour at **higher head**, which is where the water
+came from. That follows the real hydraulic route through loops and rings rather
+than guessing at a topological shortest path.
+
+In a closed circuit there are no demands, so the equipment with the largest
+pressure drop stands in as the index terminal.
 
 ## 12. Demand-driven vs pressure-driven
 
@@ -519,6 +550,34 @@ bad test would have been worse than useless.
 * **Index circuit is not highlighted** in the calculation sheet yet.
 
 ---
+
+## 16A. Copying a level
+
+`M.copyLevel(m, from, to)` duplicates everything drawn on one level onto
+another at the same level-local coordinates, and extends any riser column
+touching the source floor so the stack stays connected rather than arriving as
+an island.
+
+A **source is deliberately not copied**. Duplicating one silently creates a
+second supply into the network and changes the hydraulics without being asked.
+Everything else — demands, pumps, valves, equipment, tags, label offsets,
+display flags — comes across.
+
+## 16B. Custom pipe schedules
+
+A schedule is a name, a default C factor, and a list of `{label, id_mm}`. The
+label and the bore are the two governing fields (spec §9); everything hydraulic
+derives from the bore.
+
+Custom schedules are stored **twice on purpose**: in `localStorage`, so they
+follow the engineer across projects, and embedded in every saved `.pnet.json`,
+so a model file stays usable on a machine that has never seen the schedule.
+
+They are sorted smallest-first on save, because size stepping during DRAW walks
+the list in order and `sizeForFlow` assumes ascending bore.
+
+Deleting one that is in use falls its pipes back to the default schedule, which
+changes their bore and therefore the calculation — so the confirmation says so.
 
 ## 17. If you are changing something
 

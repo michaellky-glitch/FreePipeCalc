@@ -294,7 +294,23 @@
     if (!res || !res.network) return [];
     var m = app.model;
     var rows = [];
-    res.network.links.forEach(function (l) {
+
+    /* Spec §10: the index circuit comes first. It is the path that sets the
+     * pump duty, so it is what an engineer checks before anything else; the
+     * remaining branches are context. Order within the index circuit follows
+     * the water, source → terminal. */
+    var ix = res.index;
+    var order = {}, ixSet = {};
+    if (ix) {
+      ix.sections.forEach(function (sec, i) { order[sec.link] = i; ixSet[sec.link] = true; });
+    }
+    var ordered = res.network.links.slice().sort(function (a, b) {
+      var ia = (order[a.id] === undefined) ? Infinity : order[a.id];
+      var ib = (order[b.id] === undefined) ? Infinity : order[b.id];
+      return ia - ib;
+    });
+
+    ordered.forEach(function (l) {
       var q = res.flow[l.id];
       if (q === undefined) return;
       var from = l.from, to = l.to;
@@ -319,6 +335,7 @@
       var pipeObj = M.pipe(m, l.id);
       rows.push({
         shut: shut,
+        index: !!ixSet[l.id],
         tag: (pipeObj && pipeObj.tag) || '',
         id: l.id, kind: l.kind,
         section: from + ' → ' + to,
@@ -442,7 +459,7 @@
 
     var tb = el('tbody');
     rows.forEach(function (r) {
-      var tr = el('tr');
+      var tr = el('tr', r.index ? 'index-row' : '');
       function cell(t, cls) { tr.appendChild(el('td', cls, t)); }
       cell(r.section);
       if (anyTag) cell(r.tag || '—', 'txt' + (r.tag ? '' : ' dim'));
@@ -467,6 +484,36 @@
     });
     table.appendChild(tb);
     host.appendChild(table);
+
+    // ---- index circuit summary (spec §10) ----
+    if (res && res.index && res.index.sections.length) {
+      var ix2 = res.index;
+      var box = el('div', 'notice index-notice');
+      box.appendChild(el('p', 'notice-head', 'Index circuit'));
+      var who = ix2.targetKind === 'demand'
+        ? 'demand ' + ix2.target
+        : 'equipment at ' + ix2.target;
+      box.appendChild(el('p', '',
+        'The hydraulically most unfavourable path runs from ' + ix2.origin + ' to ' +
+        who + ' — ' + ix2.sections.length + ' sections, highlighted below and listed ' +
+        'first. This is the path that sets the pump duty.'));
+      var grid = el('div', 'index-grid');
+      function kv(k, v) {
+        var d2 = el('div', 'kv');
+        d2.appendChild(el('span', 'k', k));
+        d2.appendChild(el('span', 'v', v));
+        grid.appendChild(d2);
+      }
+      kv('Friction along index', FD.units.fmtPressure(headToPa(ix2.frictionHead), d.pressure, true));
+      kv('Static lift', FD.units.fmtPressure(headToPa(ix2.staticHead), d.pressure, true));
+      kv('Total', FD.units.fmtPressure(headToPa(ix2.frictionHead + ix2.staticHead),
+                                       d.pressure, true));
+      if (ix2.residual !== null && ix2.residual !== undefined) {
+        kv('Residual at terminal', FD.units.fmtPressure(ix2.residual, d.pressure, true));
+      }
+      box.appendChild(grid);
+      host.appendChild(box);
+    }
 
     // demand summary: available vs required (spec §8.2)
     var demands = m.nodes.filter(function (n) {
@@ -638,6 +685,11 @@
         row.appendChild(lock);
       }
 
+      var copy = el('button', 'btn tiny level-edit', 'C');
+      copy.title = 'Copy this level\u2019s layout to another level';
+      copy.addEventListener('click', function (e) { e.stopPropagation(); copyLevelTo(lv); });
+      row.appendChild(copy);
+
       var edit = el('button', 'btn tiny level-edit', 'E');
       edit.title = 'Edit level properties';
       edit.addEventListener('click', function (e) { e.stopPropagation(); editLevel(lv); });
@@ -706,6 +758,57 @@
     renderLevels();
     changed();
     toast(moving.name + ' moved to ' + moving.altitude.toFixed(2) + ' m');
+  }
+
+  /* Copy this level's layout onto another. Offered as part of level properties
+   * rather than as a toolbar action, because it is a property OF a level. */
+  function copyLevelTo(lv) {
+    var m = app.model;
+    var targets = m.levels.filter(function (o) { return o.id !== lv.id; });
+    if (!targets.length) {
+      FD.dialog.alert({ title: 'Nothing to copy to',
+                        message: 'Add another level first.' });
+      return;
+    }
+    FD.dialog.form({
+      title: 'Copy ' + lv.name + ' layout',
+      ok: 'Copy',
+      message: 'Everything drawn on ' + lv.name + ' is copied to the target level at the ' +
+               'same coordinates. Riser columns touching this floor are extended to the ' +
+               'target so the stack stays connected.\n\n' +
+               'A SOURCE is deliberately not copied — a second supply would change the ' +
+               'hydraulics without being asked for.',
+      fields: [{
+        key: 'to', label: 'Copy to', type: 'select',
+        value: targets[0].id,
+        options: targets.map(function (o) {
+          return [o.id, o.name + '  (' + (o.altitude >= 0 ? '+' : '') +
+                  o.altitude.toFixed(2) + ' m)'];
+        })
+      }]
+    }).then(function (v) {
+      if (!v) return;
+      var dst = M.level(m, v.to);
+      var existing = m.nodes.filter(function (n) { return n.level === v.to; }).length;
+      var go = function () {
+        pushUndo();
+        var r = M.copyLevel(m, lv.id, v.to);
+        renderLevels();
+        changed();
+        toast('Copied ' + r.nodes + ' nodes and ' + r.pipes + ' pipes to ' + dst.name +
+              (r.risers ? ', extended ' + r.risers + ' riser column' +
+                          (r.risers > 1 ? 's' : '') : '') + '.');
+      };
+      if (existing) {
+        FD.dialog.confirm({
+          title: dst.name + ' is not empty',
+          message: dst.name + ' already has ' + existing + ' node' +
+                   (existing > 1 ? 's' : '') + '. The copy is ADDED alongside — ' +
+                   'nothing is removed, so you may end up with overlapping pipework.',
+          ok: 'Copy anyway'
+        }).then(function (yes) { if (yes) go(); });
+      } else { go(); }
+    });
   }
 
   function editLevel(lv) {
@@ -1847,19 +1950,42 @@
 
     var schTable = el('table', 'sheet');
     schTable.innerHTML = '<thead><tr><th class="txt">Schedule</th><th>Sizes</th>' +
-                         '<th class="txt">Bore range (mm)</th><th>Default C</th></tr></thead>';
+                         '<th class="txt">Bore range (mm)</th><th>Default C</th>' +
+                         '<th class="txt">Source</th><th></th></tr></thead>';
     var schBody = el('tbody');
     Object.keys(all).forEach(function (kk) {
       var sc = all[kk], first = sc.sizes[0], last = sc.sizes[sc.sizes.length - 1];
+      var custom = !!(m.customSchedules && m.customSchedules[kk]);
       var tr = el('tr');
       if (kk === m.settings.schedule) tr.className = 'active-row';
       tr.innerHTML = '<td class="txt">' + sc.name + '</td><td>' + sc.sizes.length + '</td>' +
         '<td class="txt dim">' + first.label + ' (' + first.id_mm.toFixed(1) + ') … ' +
-        last.label + ' (' + last.id_mm.toFixed(1) + ')</td><td>' + sc.defaultC + '</td>';
+        last.label + ' (' + last.id_mm.toFixed(1) + ')</td><td>' + sc.defaultC + '</td>' +
+        '<td class="txt dim">' + (custom ? 'custom' : 'built-in') + '</td>';
+      var act = el('td', 'txt');
+      if (custom) {
+        var ed = el('button', 'btn tiny', 'Edit');
+        ed.addEventListener('click', function () { editSchedule(kk); });
+        act.appendChild(ed);
+        var rm = el('button', 'btn tiny', '✕');
+        rm.title = 'Delete this schedule';
+        rm.addEventListener('click', function () { deleteSchedule(kk); });
+        act.appendChild(rm);
+      }
+      tr.appendChild(act);
       schBody.appendChild(tr);
     });
     schTable.appendChild(schBody);
     host.appendChild(schTable);
+
+    var addSch = el('button', 'btn', 'New custom schedule');
+    addSch.addEventListener('click', function () { editSchedule(null); });
+    host.appendChild(addSch);
+    host.appendChild(el('p', 'legend',
+      'Custom schedules are stored in this browser, independent of any one project, AND ' +
+      'embedded in every saved model — so a file stays usable on a machine that has never ' +
+      'seen the schedule. The two governing fields are the nominal label and the inner ' +
+      'diameter; everything else is derived from those.'));
 
     // ------------------------------------------------ fitting data
     /* Only the table the active method actually uses is shown. Displaying both
@@ -1977,6 +2103,111 @@
     hint('Hazen-Williams is an empirical correlation for turbulent water flow. Below ' +
          'Re ≈ 2300 it is not merely imprecise, it is the wrong equation — so a laminar ' +
          'section is a warning about the method, not just the velocity.');
+  }
+
+  /* Create or edit a custom schedule. The editable content is a plain
+   * "label, inner diameter" list — spec §9 calls those the two governing
+   * fields, and everything hydraulic derives from the bore. */
+  function editSchedule(key) {
+    var m = app.model;
+    var existing = key ? m.customSchedules[key] : null;
+    var seedRows = existing
+      ? existing.sizes.map(function (z) { return z.label + ', ' + z.id_mm; }).join('\n')
+      : 'DN15, 16.0\nDN20, 21.6\nDN25, 27.2\nDN32, 35.9\nDN40, 41.8\nDN50, 53.0';
+
+    var nameIn, cIn, listIn;
+    FD.dialog.form({
+      title: existing ? 'Edit schedule' : 'New custom schedule',
+      ok: existing ? 'Save' : 'Create',
+      message: 'One size per line: nominal label, inner diameter in mm.',
+      fields: [
+        { key: 'name', label: 'Schedule name', type: 'text',
+          value: existing ? existing.name : 'My schedule' },
+        { key: 'C', label: 'Default C factor', type: 'text',
+          value: existing ? existing.defaultC : 120 },
+        { key: 'sizes', label: 'Sizes  (label, bore mm)', type: 'textarea', value: seedRows }
+      ]
+    }).then(function (v) {
+      if (!v) return;
+      var name = (v.name || '').trim();
+      if (!name) {
+        FD.dialog.alert({ title: 'Name required',
+                          message: 'Give the schedule a name so it can be told apart.' });
+        return;
+      }
+      var C = FD.units.parse(v.C);
+      if (!isFinite(C) || C <= 0) C = 120;
+
+      var sizes = [], bad = [];
+      String(v.sizes || '').split(/\r?\n/).forEach(function (line, i) {
+        var t = line.trim();
+        if (!t) return;
+        var parts = t.split(',');
+        var label = (parts[0] || '').trim();
+        var bore = FD.units.parse(parts[1]);
+        if (!label || !isFinite(bore) || bore <= 0) { bad.push('line ' + (i + 1) + ': ' + t); return; }
+        sizes.push({ label: label, id_mm: bore, od_mm: bore });
+      });
+
+      if (!sizes.length) {
+        FD.dialog.alert({ title: 'No usable sizes',
+                          message: 'Each line needs a label and a positive bore, e.g. "DN50, 53.0".' });
+        return;
+      }
+      /* Sorted smallest-first, because size stepping during DRAW walks the list
+       * in order and the sizeForFlow helper assumes ascending bore. */
+      sizes.sort(function (a, b) { return a.id_mm - b.id_mm; });
+
+      pushUndo();
+      var id = key || ('custom_' + Date.now().toString(36));
+      m.customSchedules[id] = { name: name, defaultC: C, sizes: sizes };
+      saveCustomSchedules();
+      renderHydraulic();
+      redrawAll();
+      toast('Schedule "' + name + '" saved with ' + sizes.length + ' sizes' +
+            (bad.length ? ' (' + bad.length + ' line(s) skipped)' : '') + '.');
+      if (bad.length) {
+        FD.dialog.alert({ title: 'Some lines were skipped',
+                          message: bad.join('\n') });
+      }
+    });
+  }
+
+  function deleteSchedule(key) {
+    var m = app.model;
+    var sc = m.customSchedules[key];
+    if (!sc) return;
+    var inUse = m.pipes.filter(function (p) { return p.schedule === key; }).length;
+    FD.dialog.confirm({
+      title: 'Delete "' + sc.name + '"?',
+      message: inUse
+        ? inUse + ' pipe' + (inUse > 1 ? 's' : '') + ' currently use this schedule. They ' +
+          'will fall back to the default schedule, which will change their bore and ' +
+          'therefore the calculation.'
+        : 'This schedule is not used by any pipe in this model.',
+      ok: 'Delete', danger: true
+    }).then(function (yes) {
+      if (!yes) return;
+      pushUndo();
+      delete m.customSchedules[key];
+      if (m.settings.schedule === key) m.settings.schedule = 'sch40';
+      m.pipes.forEach(function (p) {
+        if (p.schedule === key) {
+          p.schedule = m.settings.schedule;
+          p.size = FD.schedules.defaultSize(p.schedule, m.customSchedules);
+        }
+      });
+      saveCustomSchedules();
+      renderHydraulic();
+      redrawAll();
+      toast('Schedule deleted.');
+    });
+  }
+
+  function saveCustomSchedules() {
+    try {
+      localStorage.setItem(SCHEDULE_KEY, JSON.stringify(app.model.customSchedules || {}));
+    } catch (e) { console.warn('Could not persist custom schedules:', e.message); }
   }
 
   function redrawAll() {

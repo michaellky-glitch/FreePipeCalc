@@ -1044,15 +1044,31 @@
     ctx.fillText(text, 0, 0);
     ctx.restore();
 
-    /* Registered unrotated: a rotated hit-box would be fiddly for no benefit,
-     * and a slightly generous target is the right trade for dragging. */
+    /* The label is drawn ROTATED along the pipe, so its hit box has to be
+     * rotated too. Registering an unrotated box left a vertical pipe's label
+     * sitting inside a wide, flat rectangle that matched nothing on screen.
+     *
+     * Rather than carry a rotated polygon around, the axis-aligned bounding
+     * box of the rotated text is used: correct for horizontal and vertical
+     * runs (the overwhelming majority), and never wildly wrong on a diagonal. */
     var w = ctx.measureText(text).width;
     var size = this.labelSize();
-    this.registerLabel('pipe', p, mx - w / 2 - 3, my - size - 9, w + 6, size + 8);
-    if (this.tool === 'layout') {
-      this.labelHandle(mx - w / 2 - 3, my - size - 9, w + 6, size + 8);
-    }
+    var cx = mx - Math.sin(ang) * -9;
+    var cy = my + Math.cos(ang) * -9;
+    var box = rotatedBox(cx, cy, w + 6, size + 8, ang);
+    this.registerLabel('pipe', p, box.x, box.y, box.w, box.h);
+    if (this.tool === 'layout') this.labelHandle(box.x, box.y, box.w, box.h);
   };
+
+  /* Axis-aligned bounding box of a w×h rectangle centred on (cx,cy) and
+   * rotated by `ang`. The centre is offset along the rotated axis first, so
+   * the box tracks the text where it is actually drawn. */
+  function rotatedBox(cx, cy, w, h, ang) {
+    var c = Math.abs(Math.cos(ang)), s = Math.abs(Math.sin(ang));
+    var bw = w * c + h * s;
+    var bh = w * s + h * c;
+    return { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
+  }
 
   View.prototype.drawNodes = function () {
     var m = this.getModel(), ctx = this.ctx, self = this;

@@ -205,6 +205,10 @@
                 if (String(o[0]) === String(f.value)) op.selected = true;
                 ctrl.appendChild(op);
               });
+            } else if (f.type === 'textarea') {
+              ctrl = el('textarea');
+              ctrl.rows = f.rows || 8;
+              ctrl.value = f.value === undefined ? '' : f.value;
             } else if (f.type === 'checkbox') {
               ctrl = el('input');
               ctrl.type = 'checkbox';
