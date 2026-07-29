@@ -23,6 +23,7 @@
   --ok:        #46d17f;
   --grid-minor:#1f252d;
   --grid-major:#2b333d;
+  --ui-font: 14px;
 }
 
 [data-theme="light"] {
@@ -55,7 +56,7 @@ html, body {
   background: var(--bg);
   color: var(--text);
   /* System UI stack at >=14px per spec §4 */
-  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font: var(--ui-font)/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 body { display: flex; flex-direction: column; overflow: hidden; }
@@ -433,6 +434,75 @@ table.sheet td span.bad { color: var(--error); font-weight: 600; }
 .plan-page { break-after: page; page-break-after: always; }
 .plan-page:last-child { break-after: auto; page-break-after: auto; }
 .plan { width: 100%; height: auto; display: block; }
+
+/* rendered formula: two-dimensional, with editable coefficients inline */
+.formula-box {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 20px 22px 14px;
+  margin: 8px 0 16px;
+  overflow-x: auto;
+}
+.formula-eq {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: "Cambria Math", Cambria, Georgia, serif;
+  font-size: 20px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.formula-eq .fvar { font-style: italic; }
+.formula-eq .fop  { margin: 0 6px; }
+.formula-eq sub   { font-size: .62em; font-style: italic; }
+.formula-eq sup   { font-size: .62em; }
+
+.frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 4px;
+}
+.frac-n, .frac-d {
+  display: flex;
+  align-items: center;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.frac-n { border-bottom: 1.5px solid var(--text-dim); }
+
+/* coefficient inputs sitting inside the formula */
+input.coef {
+  background: var(--bg-input);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--accent);
+  font: inherit;
+  font-size: .82em;
+  font-style: normal;
+  padding: 1px 4px;
+  margin: 0 2px;
+  text-align: center;
+  width: auto;
+  min-width: 3.2em;
+  field-sizing: content;
+}
+input.coef:hover  { border-color: var(--text-mute); }
+input.coef:focus  { outline: none; border-color: var(--accent); background: var(--bg-panel); }
+.formula-eq sup input.coef { min-width: 3.6em; padding: 0 3px; }
+
+.formula-legend {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 12px;
+  color: var(--text-mute);
+  font-family: system-ui, sans-serif;
+  white-space: normal;
+}
 
 /* hydraulic tab */
 .formula {

@@ -832,4 +832,71 @@ section('Print plans — one shared transform for every level');
   ok('Empty model yields a finite scale', isFinite(FD.printer.fitTransform(empty).scale));
 }
 
+section('LAYOUT: label offsets and display flags');
+{
+  const m = M.create(), lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 10, 0);
+  const p = M.addPipe(m, a.id, b.id, { size: 'DN50' });
+
+  near('Default offset is zero', M.labelOffset(a).dx, 0, 1e-12);
+  M.setLabelOffset(a, 12.34, -8.7);
+  near('Offset stored (rounded to 0.1 px)', M.labelOffset(a).dx, 12.3, 1e-9);
+  near('...both axes', M.labelOffset(a).dy, -8.7, 1e-9);
+
+  /* Offsets are screen pixels, not metres, so a label keeps its distance from
+   * its owner at every zoom. Nothing about them may touch geometry. */
+  near('Moving a label does not move the node', a.x, 0, 1e-12);
+  near('...nor change any pipe length', M.pipeLength(m, p), 10, 1e-9);
+
+  M.setLabelOffset(a, 0, 0);
+  ok('Zeroing an offset removes the property entirely', a.labelOffset === undefined);
+
+  M.setLabelOffset(p, 5, 5);
+  M.clearLabelOffsets(m);
+  ok('clearLabelOffsets wipes nodes and pipes',
+     a.labelOffset === undefined && p.labelOffset === undefined);
+
+  // display flags
+  ok('No flags by default', Object.keys(M.displayFlags(p)).length === 0);
+  M.setDisplayFlag(p, 'flow', true);
+  M.setDisplayFlag(p, 'tag', true);
+  ok('Flags accumulate', M.displayFlags(p).flow && M.displayFlags(p).tag);
+  M.setDisplayFlag(p, 'flow', false);
+  ok('Unticking removes just that flag',
+     !M.displayFlags(p).flow && M.displayFlags(p).tag);
+  M.setDisplayFlag(p, 'tag', false);
+  ok('Emptying removes the property entirely', p.show === undefined);
+
+  // both survive save/load
+  M.setLabelOffset(a, 7, -3);
+  M.setDisplayFlag(p, 'flow', true);
+  const back = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(m))));
+  near('Offsets survive save/load', M.labelOffset(back.nodes[0]).dx, 7, 1e-9);
+  ok('Display flags survive save/load', M.displayFlags(back.pipes[0]).flow === true);
+}
+
+section('New fluid and presentation settings');
+{
+  const d = M.defaultSettings();
+  ok('Fluid has an editable name', d.fluid.name === 'Water');
+  near('Specific heat defaults to water', d.fluid.specificHeat, 4187, 1);
+  near('UI font default', d.presentation.uiFontSize, 14, 1e-12);
+  near('Label size default', d.presentation.labelSize, 11, 1e-12);
+  near('Arrow size default', d.presentation.arrowSize, 1, 1e-12);
+
+  // per-pipe temperature is optional and does not affect hydraulics yet
+  const m = M.create(), lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 20, 0);
+  a.dz = 30;
+  const p1 = M.addPipe(m, a.id, b.id, { size: 'DN100' });
+  M.setSource(m, a.id); M.setDemand(m, b.id, 0.01, 0);
+  const before = NET.solveModel(m).flow[p1.id];
+  p1.temperature = 60;
+  const after = NET.solveModel(m).flow[p1.id];
+  near('Per-pipe temperature does not yet change the hydraulics', after, before, 1e-12);
+  ok('...but is stored on the pipe', p1.temperature === 60);
+  const back = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(m))));
+  ok('...and survives save/load', back.pipes[0].temperature === 60);
+}
+
 report();

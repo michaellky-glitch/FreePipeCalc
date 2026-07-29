@@ -68,6 +68,7 @@
     renderLevels();
     renderProperties();
     applyTheme();
+    applyPresentation();
     app.view.render();
     scheduleSolve();
     scheduleSave();
@@ -863,6 +864,29 @@
     host.appendChild(del);
   }
 
+  /* LAYOUT mode: which of this entity's values are echoed on the drawing.
+   * Only offered in LAYOUT, because that is the mode for arranging a drawing
+   * for print — in EDIT they would be noise. */
+  function displayChecks(host, obj, opts) {
+    if (app.view.tool !== 'layout') return;
+    host.appendChild(el('h3', 'sub', 'Show on drawing'));
+    opts.forEach(function (o) {
+      var i = el('input'); i.type = 'checkbox';
+      i.checked = !!M.displayFlags(obj)[o.key];
+      var w = el('label', 'check-inline');
+      w.appendChild(i);
+      w.appendChild(el('span', '', o.label));
+      host.appendChild(w);
+      i.addEventListener('change', function () {
+        pushUndo();
+        M.setDisplayFlag(obj, o.key, i.checked);
+        changed();
+      });
+    });
+    host.appendChild(el('p', 'hint',
+      'Ticked values appear in a box beside the entity. Drag the box to place it.'));
+  }
+
   /* Equipment tag. Shared by every in-line device — it is the reference the
    * engineer works from on site, so it belongs on all of them, not just
    * equipment. */
@@ -921,6 +945,10 @@
     }
     host.appendChild(el('p', 'hint',
       'Pressure drop scales with the square of flow: ΔP = ΔP_rated × (Q / Q_rated)².'));
+    displayChecks(host, p, [
+      { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
+      { key: 'pd', label: 'Pressure drop' }
+    ]);
 
     var del = el('button', 'btn danger', 'Remove equipment');
     del.addEventListener('click', function () {
@@ -1027,6 +1055,11 @@
       'Default Kv values are derived from typical resistance coefficients, not ' +
       'manufacturer data. Replace with published Kv for real design work.'));
 
+    displayChecks(host, p, [
+      { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
+      { key: 'pd', label: 'Pressure drop' }
+    ]);
+
     var del = el('button', 'btn danger', 'Remove valve');
     del.addEventListener('click', function () {
       pushUndo(); p.kind = 'pipe'; delete p.valve;
@@ -1106,6 +1139,11 @@
       }
       host.appendChild(info);
     }
+
+    displayChecks(host, p, [
+      { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
+      { key: 'head', label: 'Head' }
+    ]);
 
     var del = el('button', 'btn danger', 'Remove pump');
     del.addEventListener('click', function () {
@@ -1328,6 +1366,19 @@
       host.appendChild(info);
     }
 
+    if (dev && dev.kind === 'demand') {
+      displayChecks(host, n, [
+        { key: 'flow', label: 'Flow' },
+        { key: 'required', label: 'Required pressure' },
+        { key: 'available', label: 'Available pressure' }
+      ]);
+    } else if (dev && dev.kind === 'source') {
+      displayChecks(host, n, [
+        { key: 'elevation', label: 'Elevation' },
+        { key: 'available', label: 'Pressure' }
+      ]);
+    }
+
     var del = el('button', 'btn danger', 'Delete node');
     del.addEventListener('click', function () {
       pushUndo(); M.removeNode(m, n.id);
@@ -1423,6 +1474,9 @@
 
     function group(title) {
       host.appendChild(el('h2', '', title));
+      return group2();
+    }
+    function group2() {
       var g = el('div', 'settings-grid');
       host.appendChild(g);
       return g;
@@ -1471,9 +1525,7 @@
     /* Friction method, fluid, warning thresholds, fitting tables and pipe
      * schedules all live on the HYDRAULIC tab now — this tab is for how the
      * app behaves, not for how the hydraulics are calculated. */
-    var g2 = group('System');
-    sel(g2, 'System type', [['open', 'Open loop'], ['closed', 'Closed loop']],
-        m.settings.systemType, function (v) { m.settings.systemType = v; redrawAll(); });
+    var g2 = group('Pump');
     num(g2, 'Pump safety factor %', m.settings.pumpSafetyPct,
         function (v) { m.settings.pumpSafetyPct = v; redrawAll(); });
     host.appendChild(el('p', 'hint',
@@ -1481,6 +1533,32 @@
       'enters the calculation, so it cannot compound with the margins already in the ' +
       'C factor, fitting allowances or equipment ratings. Defaults to 0 so you can apply ' +
       'your own margin after the calculation.'));
+
+    // ---- presentation ----
+    host.appendChild(el('h2', '', 'Presentation'));
+    host.appendChild(el('p', 'hint',
+      'Drawing sizes are separate from the interface font so a drawing can be tuned for ' +
+      'print without changing the app chrome.'));
+    var gp = group2();
+    num(gp, 'UI font size (px)', m.settings.presentation.uiFontSize, function (v) {
+      m.settings.presentation.uiFontSize = Math.max(10, Math.min(22, v));
+      applyPresentation(); redrawAll();
+    }, '1');
+    num(gp, 'Drawing label size (px)', m.settings.presentation.labelSize, function (v) {
+      m.settings.presentation.labelSize = Math.max(6, Math.min(24, v));
+      redrawAll();
+    }, '1');
+    num(gp, 'Flow arrow size (×)', m.settings.presentation.arrowSize, function (v) {
+      m.settings.presentation.arrowSize = Math.max(0.3, Math.min(4, v));
+      redrawAll();
+    }, '0.1');
+
+    var clr = el('button', 'btn', 'Reset all label positions');
+    clr.addEventListener('click', function () {
+      pushUndo(); M.clearLabelOffsets(m); redrawAll();
+      toast('Label positions reset.');
+    });
+    host.appendChild(clr);
 
     var hydNote = el('p', 'hint',
       'Calculation method, fluid properties, warning thresholds, fitting data and pipe ' +
@@ -1546,15 +1624,51 @@
   }
 
   // ----------------------------------------------------- HYDRAULIC tab
+  /* Builds an editable coefficient input sized to its content, for dropping
+   * directly into a rendered formula. */
+  function coefInput(value, onChange, title) {
+    var i = el('input', 'coef');
+    i.type = 'text';
+    i.value = value;
+    if (title) i.title = title;
+    i.size = Math.max(3, String(value).length);
+    i.addEventListener('change', function () {
+      var v = FD.units.parse(i.value);
+      if (isFinite(v)) onChange(v); else i.value = value;
+    });
+    return i;
+  }
+
+  /* A fraction rendered as a real two-line stack: numerator, rule, denominator.
+   * Plain text can only manage "a / (b · c)", which is exactly the form an
+   * engineer has to decode rather than read. */
+  function fraction(numParts, denParts) {
+    var f = el('span', 'frac');
+    var n = el('span', 'frac-n');
+    numParts.forEach(function (x) { n.appendChild(typeof x === 'string' ? document.createTextNode(x) : x); });
+    var d = el('span', 'frac-d');
+    denParts.forEach(function (x) { d.appendChild(typeof x === 'string' ? document.createTextNode(x) : x); });
+    f.appendChild(n);
+    f.appendChild(d);
+    return f;
+  }
+
+  function sup(x) {
+    var e = el('sup');
+    e.appendChild(typeof x === 'string' ? document.createTextNode(x) : x);
+    return e;
+  }
+
   function renderHydraulic() {
     var m = app.model, host = $('hydraulic-body');
     host.innerHTML = '';
 
-    function h2(t) { host.appendChild(el('h2', '', t)); return host.lastChild; }
+    function h2(t) { host.appendChild(el('h2', '', t)); }
+    function h3(t) { host.appendChild(el('h3', 'sub', t)); }
     function hint(t) { host.appendChild(el('p', 'hint', t)); }
     function grid() { var g = el('div', 'settings-grid'); host.appendChild(g); return g; }
 
-    function numField(g, label, value, onChange, step, suffix) {
+    function numField(g, label, value, onChange, suffix) {
       var i = el('input'); i.type = 'text'; i.value = value;
       i.addEventListener('change', function () {
         var v = FD.units.parse(i.value);
@@ -1566,77 +1680,112 @@
       g.appendChild(f);
       return i;
     }
+    function textField(g, label, value, onChange) {
+      var i = el('input'); i.type = 'text'; i.value = value || '';
+      i.addEventListener('change', function () { onChange(i.value); });
+      var f = el('div', 'field');
+      f.appendChild(el('label', '', label));
+      f.appendChild(i);
+      g.appendChild(f);
+      return i;
+    }
+    function selField(g, label, options, current, onChange) {
+      var sel = el('select');
+      options.forEach(function (o) {
+        var opt = el('option', '', o[1]); opt.value = o[0];
+        if (o[0] === current) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener('change', function () { onChange(sel.value); });
+      var f = el('div', 'field');
+      f.appendChild(el('label', '', label));
+      f.appendChild(sel);
+      g.appendChild(f);
+      return sel;
+    }
 
-    // ---------------------------------------------- calculation method
-    h2('Calculation method');
-    var methodSel = el('select');
-    [['HW', 'Hazen-Williams'], ['DW', 'Darcy-Weisbach (Experimental)']].forEach(function (kv) {
-      var o = el('option', '', kv[1]); o.value = kv[0];
-      if (m.settings.frictionMethod === kv[0]) o.selected = true;
-      methodSel.appendChild(o);
-    });
-    var mg = grid();
-    var mf = el('div', 'field');
-    mf.appendChild(el('label', '', 'Friction method'));
-    mf.appendChild(methodSel);
-    mg.appendChild(mf);
-    methodSel.addEventListener('change', function () {
-      pushUndo();
-      m.settings.frictionMethod = methodSel.value;
-      renderHydraulic(); redrawAll();
-    });
+    // ============================================ 1. FLUID PROPERTIES (top)
+    h2('Fluid Properties');
+    hint('The fluid being calculated. Defaults are water at 20 °C.');
+    var fg = grid();
+    textField(fg, 'Fluid name', m.settings.fluid.name,
+      function (v) { pushUndo(); m.settings.fluid.name = v; redrawAll(); });
+    numField(fg, 'Density ρ', m.settings.fluid.density,
+      function (v) { pushUndo(); m.settings.fluid.density = v; redrawAll(); }, '(kg/m³)');
+    numField(fg, 'Kinematic viscosity ν', m.settings.fluid.kinematicViscosity,
+      function (v) { pushUndo(); m.settings.fluid.kinematicViscosity = v; redrawAll(); }, '(m²/s)');
+    numField(fg, 'Temperature', m.settings.fluid.temperature,
+      function (v) { pushUndo(); m.settings.fluid.temperature = v; redrawAll(); }, '(°C)');
+    numField(fg, 'Specific heat capacity Cp', m.settings.fluid.specificHeat,
+      function (v) { pushUndo(); m.settings.fluid.specificHeat = v; redrawAll(); }, '(J/kg·K)');
 
     var isDW = m.settings.frictionMethod === 'DW';
+    var usage = el('ul', 'usage-list');
+    usage.appendChild(el('li', '', 'Density — used: converts head to pressure everywhere.'));
+    usage.appendChild(el('li', '', 'Kinematic viscosity — ' + (isDW
+      ? 'used: sets Reynolds number and the friction factor.'
+      : 'used for the laminar-flow check; fully live under Darcy-Weisbach.')));
+    usage.appendChild(el('li', 'unused',
+      'Temperature — not implemented in this version. It does not drive density ' +
+      'or viscosity; those are entered independently.'));
+    usage.appendChild(el('li', 'unused',
+      'Specific heat capacity — not implemented in this version. Stored for the ' +
+      'heating/cooling power calculations to come (Q = ṁ·Cp·ΔT).'));
+    host.appendChild(usage);
 
-    // formula, live
-    var ctx = { hw: m.settings.hw, frictionFactor: m.settings.dw.frictionFactor };
-    var formula = el('div', 'formula');
-    formula.textContent = FD.hydraulics.method(m.settings.frictionMethod).formula(ctx);
-    host.appendChild(formula);
-
-    if (isDW) {
-      host.appendChild(el('div', 'notice warn-notice',
-        'Darcy-Weisbach is experimental and the friction-factor correlation has not been ' +
-        'settled yet. All four correlations below are implemented so they can be compared ' +
-        'against each other and against Hazen-Williams on a real model. Do not issue ' +
-        'calculations from this method until the correlation is confirmed.'));
-
-      var ffSel = el('select');
-      Object.keys(FD.hydraulics.frictionFactors).forEach(function (k) {
-        var ff = FD.hydraulics.frictionFactors[k];
-        var o = el('option', '', ff.name); o.value = k;
-        if (m.settings.dw.frictionFactor === k) o.selected = true;
-        ffSel.appendChild(o);
+    // =================================================== 2. SYSTEM (moved)
+    h2('System');
+    var sg = grid();
+    selField(sg, 'System type', [['open', 'Open loop'], ['closed', 'Closed loop']],
+      m.settings.systemType, function (v) {
+        pushUndo(); m.settings.systemType = v; redrawAll();
       });
-      var dg = grid();
-      var df = el('div', 'field');
-      df.appendChild(el('label', '', 'Friction factor correlation'));
-      df.appendChild(ffSel);
-      dg.appendChild(df);
-      ffSel.addEventListener('change', function () {
-        pushUndo(); m.settings.dw.frictionFactor = ffSel.value;
-        renderHydraulic(); redrawAll();
+    hint('Open loop systems are fed by a tank or mains and carry static lift. ' +
+         'Closed loop systems are sealed; static cancels around the circuit and the ' +
+         'pressure reference comes from the fill/expansion vessel.');
+
+    // ======================================= 3. HYDRAULIC PARAMETERS
+    h2('Hydraulic Parameters');
+    var mg = grid();
+    selField(mg, 'Calculation method',
+      [['HW', 'Hazen-Williams'], ['DW', 'Darcy-Weisbach (Experimental)']],
+      m.settings.frictionMethod, function (v) {
+        pushUndo(); m.settings.frictionMethod = v; renderHydraulic(); redrawAll();
       });
-      numField(dg, 'Absolute roughness ε', m.settings.dw.roughness_mm,
-        function (v) { pushUndo(); m.settings.dw.roughness_mm = v; redrawAll(); }, null, '(mm)');
 
-      hint(FD.hydraulics.frictionFactors[m.settings.dw.frictionFactor].note +
-           '  Laminar (Re < 2300) uses f = 64/Re; the transitional band is blended so the ' +
-           'solver sees a continuous curve.');
-    } else {
-      hint('Hazen-Williams coefficients. Defaults are the ASHRAE SI values; some ' +
-           'jurisdictions specify different constants, so all four are editable rather than ' +
-           'the app carrying a list of codes.');
-      var hg = grid();
-      numField(hg, 'Leading coefficient A', m.settings.hw.A,
-        function (v) { pushUndo(); m.settings.hw.A = v; renderHydraulic(); redrawAll(); });
-      numField(hg, 'Flow exponent a', m.settings.hw.a,
-        function (v) { pushUndo(); m.settings.hw.a = v; renderHydraulic(); redrawAll(); });
-      numField(hg, 'C exponent b', m.settings.hw.b,
-        function (v) { pushUndo(); m.settings.hw.b = v; renderHydraulic(); redrawAll(); });
-      numField(hg, 'Diameter exponent e', m.settings.hw.e,
-        function (v) { pushUndo(); m.settings.hw.e = v; renderHydraulic(); redrawAll(); });
+    // ---- the formula, with the coefficients editable in place ----
+    var fbox = el('div', 'formula-box');
+    var eq = el('div', 'formula-eq');
 
+    if (!isDW) {
+      var k = m.settings.hw;
+      eq.appendChild(el('span', 'fvar', 'h'));
+      eq.appendChild(el('sub', '', 'f'));
+      eq.appendChild(el('span', 'fop', '='));
+      eq.appendChild(fraction(
+        [coefInput(k.A, function (v) { pushUndo(); m.settings.hw.A = v; renderHydraulic(); redrawAll(); },
+                   'Leading coefficient'),
+         document.createTextNode(' · '), el('span', 'fvar', 'L'),
+         document.createTextNode(' · '), el('span', 'fvar', 'Q'),
+         sup(coefInput(k.a, function (v) { pushUndo(); m.settings.hw.a = v; renderHydraulic(); redrawAll(); },
+                       'Flow exponent'))],
+        [el('span', 'fvar', 'C'),
+         sup(coefInput(k.b, function (v) { pushUndo(); m.settings.hw.b = v; renderHydraulic(); redrawAll(); },
+                       'C-factor exponent')),
+         document.createTextNode(' · '), el('span', 'fvar', 'd'),
+         sup(coefInput(k.e, function (v) { pushUndo(); m.settings.hw.e = v; renderHydraulic(); redrawAll(); },
+                       'Diameter exponent'))]
+      ));
+      fbox.appendChild(eq);
+      var leg = el('div', 'formula-legend');
+      leg.innerHTML = '<b>h<sub>f</sub></b> head loss (m) &nbsp;·&nbsp; ' +
+        '<b>L</b> effective length (m) &nbsp;·&nbsp; <b>Q</b> flow (m³/s) &nbsp;·&nbsp; ' +
+        '<b>C</b> roughness coefficient &nbsp;·&nbsp; <b>d</b> inner diameter (m)';
+      fbox.appendChild(leg);
+      host.appendChild(fbox);
+
+      hint('Defaults are the ASHRAE SI values. Some jurisdictions specify different ' +
+           'constants, so all four are editable rather than the app carrying a list of codes.');
       var reset = el('button', 'btn', 'Reset to ASHRAE SI defaults');
       reset.addEventListener('click', function () {
         pushUndo();
@@ -1645,44 +1794,179 @@
         toast('Hazen-Williams coefficients reset to ASHRAE SI.');
       });
       host.appendChild(reset);
+
+    } else {
+      eq.appendChild(el('span', 'fvar', 'h'));
+      eq.appendChild(el('sub', '', 'f'));
+      eq.appendChild(el('span', 'fop', '='));
+      eq.appendChild(el('span', 'fvar', 'f'));
+      eq.appendChild(el('span', 'fop', '·'));
+      eq.appendChild(fraction([el('span', 'fvar', 'L')], [el('span', 'fvar', 'd')]));
+      eq.appendChild(el('span', 'fop', '·'));
+      eq.appendChild(fraction(
+        [el('span', 'fvar', 'V'), sup('2')],
+        [document.createTextNode('2 '), el('span', 'fvar', 'g')]));
+      fbox.appendChild(eq);
+      var leg2 = el('div', 'formula-legend');
+      leg2.innerHTML = '<b>f</b> friction factor &nbsp;·&nbsp; <b>L</b> effective length (m) ' +
+        '&nbsp;·&nbsp; <b>d</b> inner diameter (m) &nbsp;·&nbsp; <b>V</b> velocity (m/s) ' +
+        '&nbsp;·&nbsp; <b>g</b> 9.81 m/s²';
+      fbox.appendChild(leg2);
+      host.appendChild(fbox);
+
+      host.appendChild(el('div', 'notice warn-notice',
+        'Darcy-Weisbach is experimental and the friction-factor correlation has not been ' +
+        'settled. All four correlations are implemented so they can be compared on a real ' +
+        'model. Do not issue calculations from this method until the correlation is confirmed.'));
+
+      var dg = grid();
+      selField(dg, 'Friction factor correlation',
+        Object.keys(FD.hydraulics.frictionFactors).map(function (kk) {
+          return [kk, FD.hydraulics.frictionFactors[kk].name];
+        }), m.settings.dw.frictionFactor, function (v) {
+          pushUndo(); m.settings.dw.frictionFactor = v; renderHydraulic(); redrawAll();
+        });
+      numField(dg, 'Absolute roughness ε', m.settings.dw.roughness_mm,
+        function (v) { pushUndo(); m.settings.dw.roughness_mm = v; redrawAll(); }, '(mm)');
+      hint(FD.hydraulics.frictionFactors[m.settings.dw.frictionFactor].note +
+           '  Laminar (Re < 2300) uses f = 64/Re; the transitional band is blended so the ' +
+           'solver sees a continuous curve.');
     }
 
-    // ------------------------------------------------------------ fluid
-    h2('Fluid');
-    hint('Properties of the fluid being calculated. Defaults are water at 20 °C.');
-    var fg = grid();
-    numField(fg, 'Density ρ', m.settings.fluid.density,
-      function (v) { pushUndo(); m.settings.fluid.density = v; redrawAll(); }, null, '(kg/m³)');
-    numField(fg, 'Kinematic viscosity ν', m.settings.fluid.kinematicViscosity,
-      function (v) { pushUndo(); m.settings.fluid.kinematicViscosity = v; redrawAll(); },
-      null, '(m²/s)');
-    numField(fg, 'Temperature', m.settings.fluid.temperature,
-      function (v) { pushUndo(); m.settings.fluid.temperature = v; redrawAll(); }, null, '(°C)');
+    // -------------------------------------------------- pipe schedules
+    h2('Pipe schedules');
+    var schGrid = grid();
+    var all = FD.schedules.all(m.customSchedules);
+    selField(schGrid, 'Default schedule for new pipes',
+      Object.keys(all).map(function (kk) { return [kk, all[kk].name]; }),
+      m.settings.schedule, function (v) {
+        pushUndo(); m.settings.schedule = v; renderHydraulic(); redrawAll();
+      });
+    numField(schGrid, 'Default C factor', m.settings.C,
+      function (v) { pushUndo(); m.settings.C = v; redrawAll(); });
 
-    var usage = el('ul', 'usage-list');
-    usage.appendChild(el('li', '', 'Density — used: converts head to pressure everywhere.'));
-    usage.appendChild(el('li', isDW ? '' : 'unused',
-      'Kinematic viscosity — ' + (isDW
-        ? 'used: sets Reynolds number and the friction factor.'
-        : 'used only for the laminar-flow check while on Hazen-Williams; ' +
-          'becomes fully live under Darcy-Weisbach.')));
-    usage.appendChild(el('li', 'unused',
-      'Temperature — not implemented in this version. Stored with the model but not ' +
-      'used; it does not adjust density or viscosity automatically.'));
-    host.appendChild(usage);
+    var schTable = el('table', 'sheet');
+    schTable.innerHTML = '<thead><tr><th class="txt">Schedule</th><th>Sizes</th>' +
+                         '<th class="txt">Bore range (mm)</th><th>Default C</th></tr></thead>';
+    var schBody = el('tbody');
+    Object.keys(all).forEach(function (kk) {
+      var sc = all[kk], first = sc.sizes[0], last = sc.sizes[sc.sizes.length - 1];
+      var tr = el('tr');
+      if (kk === m.settings.schedule) tr.className = 'active-row';
+      tr.innerHTML = '<td class="txt">' + sc.name + '</td><td>' + sc.sizes.length + '</td>' +
+        '<td class="txt dim">' + first.label + ' (' + first.id_mm.toFixed(1) + ') … ' +
+        last.label + ' (' + last.id_mm.toFixed(1) + ')</td><td>' + sc.defaultC + '</td>';
+      schBody.appendChild(tr);
+    });
+    schTable.appendChild(schBody);
+    host.appendChild(schTable);
 
-    // --------------------------------------------------------- warnings
+    // ------------------------------------------------ fitting data
+    /* Only the table the active method actually uses is shown. Displaying both
+     * invites entering numbers into the one that is being ignored. */
+    if (!isDW) {
+      h2('Fitting equivalent lengths');
+      hint('Used by Hazen-Williams. Charged to the downstream pipe as ' +
+           'EL = (L/D) × inner diameter.');
+      var elTable = el('table', 'sheet editable');
+      elTable.innerHTML = '<thead><tr><th class="txt">Fitting</th><th>Code</th>' +
+                          '<th>L/D</th><th>EL at DN50 (m)</th></tr></thead>';
+      var elBody = el('tbody');
+      Object.keys(FD.fittings.types).forEach(function (t) {
+        var tr = el('tr');
+        tr.appendChild(el('td', 'txt', FD.fittings.label(t)));
+        tr.appendChild(el('td', '', FD.fittings.code(t)));
+        var tdIn = el('td');
+        var inp = el('input', 'cell-input'); inp.type = 'text';
+        inp.value = (m.settings.fittingLD[t] !== undefined)
+          ? m.settings.fittingLD[t] : FD.fittings.types[t].ld;
+        inp.addEventListener('change', function () {
+          var v = FD.units.parse(inp.value);
+          if (isFinite(v) && v >= 0) {
+            pushUndo(); m.settings.fittingLD[t] = v; renderHydraulic(); redrawAll();
+          } else { inp.value = m.settings.fittingLD[t]; }
+        });
+        tdIn.appendChild(inp);
+        tr.appendChild(tdIn);
+        tr.appendChild(el('td', 'dim', FD.fittings.el(t, 52.48, m.settings.fittingLD).toFixed(3)));
+        elBody.appendChild(tr);
+      });
+      elTable.appendChild(elBody);
+      host.appendChild(elTable);
+      var resetLD = el('button', 'btn', 'Reset equivalent lengths');
+      resetLD.addEventListener('click', function () {
+        pushUndo(); m.settings.fittingLD = FD.fittings.defaultLD();
+        renderHydraulic(); redrawAll();
+      });
+      host.appendChild(resetLD);
+
+    } else {
+      h2('Fitting resistance coefficients K');
+      hint('Used by Darcy-Weisbach: h = K · V²/2g. Values are ASHRAE Fundamentals ' +
+           'Pipe Sizing Tables 1 and 2, interpolated by size. Leave a cell blank to use ' +
+           'the size curve, or type a number to pin it flat.');
+      var kg = grid();
+      selField(kg, 'Connection type',
+        Object.keys(FD.ktable.sets).map(function (kk) { return [kk, FD.ktable.sets[kk].name]; }),
+        m.settings.dw.kSet, function (v) {
+          pushUndo(); m.settings.dw.kSet = v; renderHydraulic(); redrawAll();
+        });
+
+      var kTable = el('table', 'sheet editable');
+      kTable.innerHTML = '<thead><tr><th class="txt">Fitting</th><th>K at DN25</th>' +
+                         '<th>K at DN50</th><th>K at DN100</th><th>Override K</th></tr></thead>';
+      var kBody = el('tbody');
+      ['E90', 'E45', 'TRUN', 'TBRANCH', 'GATE', 'GLOBE', 'CHECK'].forEach(function (t) {
+        var tr = el('tr');
+        var nameCell = el('td', 'txt', FD.fittings.label(t));
+        if (FD.ktable.isDerived(t, m.settings.dw.kSet)) {
+          nameCell.appendChild(el('span', 'flag', ' derived'));
+          nameCell.title = 'Not transcribed from the table — derived from the 90° elbow. ' +
+                           'See the provenance note in data/ktable.js.';
+        }
+        tr.appendChild(nameCell);
+        [25, 50, 100].forEach(function (dn) {
+          tr.appendChild(el('td', 'dim', FD.ktable.k(t, dn, m.settings.dw.kSet, null).toFixed(3)));
+        });
+        var tdIn = el('td');
+        var inp = el('input', 'cell-input'); inp.type = 'text'; inp.placeholder = 'curve';
+        inp.value = (m.settings.fittingK[t] !== undefined) ? m.settings.fittingK[t] : '';
+        inp.addEventListener('change', function () {
+          pushUndo();
+          if (inp.value.trim() === '') delete m.settings.fittingK[t];
+          else {
+            var v = FD.units.parse(inp.value);
+            if (isFinite(v) && v >= 0) m.settings.fittingK[t] = v;
+          }
+          renderHydraulic(); redrawAll();
+        });
+        tdIn.appendChild(inp);
+        tr.appendChild(tdIn);
+        kBody.appendChild(tr);
+      });
+      kTable.appendChild(kBody);
+      host.appendChild(kTable);
+      host.appendChild(el('p', 'legend',
+        'K source: ASHRAE Handbook — Fundamentals, Pipe Sizing, Table 1 (threaded) and ' +
+        'Table 2 (flanged/welded), transcribed from two independent copies. The threaded ' +
+        '45° elbow row is DERIVED from the 90° value — both copies returned a column ' +
+        'identical to the 90° elbow, which is physically wrong. ASHRAE notes threaded 90° ' +
+        'elbows vary ±20% above 2 in and ±40% below, so treat all of this as indicative.'));
+    }
+
+    // ------------------------------------------------------- warnings
     h2('Warning thresholds');
-    hint('Sections breaching a limit are flagged red on the calculation sheet and listed as ' +
-         'warnings. Typical practice: 1.2–2.4 m/s in occupied areas (up to ~3 m/s in plant ' +
-         'rooms and risers), 100–400 Pa/m friction rate.');
+    hint('Sections breaching a limit are flagged red on the calculation sheet and listed ' +
+         'as warnings. Typical practice: 1.2–2.4 m/s in occupied areas (up to ~3 m/s in ' +
+         'plant rooms and risers), 100–400 Pa/m friction rate.');
     var wg = grid();
     numField(wg, 'Max velocity', m.settings.warn.velocity,
-      function (v) { pushUndo(); m.settings.warn.velocity = v; redrawAll(); }, null, '(m/s)');
+      function (v) { pushUndo(); m.settings.warn.velocity = v; redrawAll(); }, '(m/s)');
     numField(wg, 'Max friction rate', m.settings.warn.pdm,
-      function (v) { pushUndo(); m.settings.warn.pdm = v; redrawAll(); }, null, '(Pa/m)');
+      function (v) { pushUndo(); m.settings.warn.pdm = v; redrawAll(); }, '(Pa/m)');
 
-    var lam = el('input'); lam.type = 'checkbox'; lam.checked = m.settings.warn.laminar !== false;
+    var lam = el('input'); lam.type = 'checkbox';
+    lam.checked = m.settings.warn.laminar !== false;
     var lamWrap = el('label', 'check-inline');
     lamWrap.appendChild(lam);
     lamWrap.appendChild(el('span', '', 'Warn on laminar / transitional flow'));
@@ -1693,153 +1977,6 @@
     hint('Hazen-Williams is an empirical correlation for turbulent water flow. Below ' +
          'Re ≈ 2300 it is not merely imprecise, it is the wrong equation — so a laminar ' +
          'section is a warning about the method, not just the velocity.');
-
-    // ------------------------------------------------- fitting EL table
-    h2('Fitting equivalent lengths (Hazen-Williams)');
-    hint('Charged to the downstream pipe as EL = (L/D) × inner diameter. Editable — these ' +
-         'are the spec §3.3 values, not gospel.');
-    var elTable = el('table', 'sheet editable');
-    elTable.innerHTML = '<thead><tr><th class="txt">Fitting</th><th>Code</th>' +
-                        '<th>L/D</th><th>EL at DN50 (m)</th></tr></thead>';
-    var elBody = el('tbody');
-    Object.keys(FD.fittings.types).forEach(function (t) {
-      var tr = el('tr');
-      tr.appendChild(el('td', 'txt', FD.fittings.label(t)));
-      tr.appendChild(el('td', '', FD.fittings.code(t)));
-
-      var tdIn = el('td');
-      var inp = el('input', 'cell-input');
-      inp.type = 'text';
-      inp.value = (m.settings.fittingLD[t] !== undefined)
-        ? m.settings.fittingLD[t] : FD.fittings.types[t].ld;
-      inp.addEventListener('change', function () {
-        var v = FD.units.parse(inp.value);
-        if (isFinite(v) && v >= 0) {
-          pushUndo(); m.settings.fittingLD[t] = v; renderHydraulic(); redrawAll();
-        } else { inp.value = m.settings.fittingLD[t]; }
-      });
-      tdIn.appendChild(inp);
-      tr.appendChild(tdIn);
-      tr.appendChild(el('td', 'dim',
-        FD.fittings.el(t, 52.48, m.settings.fittingLD).toFixed(3)));
-      elBody.appendChild(tr);
-    });
-    elTable.appendChild(elBody);
-    host.appendChild(elTable);
-
-    var resetLD = el('button', 'btn', 'Reset equivalent lengths');
-    resetLD.addEventListener('click', function () {
-      pushUndo(); m.settings.fittingLD = FD.fittings.defaultLD();
-      renderHydraulic(); redrawAll();
-    });
-    host.appendChild(resetLD);
-
-    // --------------------------------------------- fitting K table (DW)
-    h2('Fitting resistance coefficients K (Darcy-Weisbach)');
-    hint('Darcy charges fittings as velocity heads: h = K · V²/2g. Values are ASHRAE ' +
-         'Fundamentals Pipe Sizing, Tables 1 and 2, interpolated by size. Leave a cell blank ' +
-         'to use the size curve, or type a number to pin it flat.');
-
-    var kSel = el('select');
-    Object.keys(FD.ktable.sets).forEach(function (k) {
-      var o = el('option', '', FD.ktable.sets[k].name); o.value = k;
-      if (m.settings.dw.kSet === k) o.selected = true;
-      kSel.appendChild(o);
-    });
-    var kg = grid();
-    var kf = el('div', 'field');
-    kf.appendChild(el('label', '', 'Connection type'));
-    kf.appendChild(kSel);
-    kg.appendChild(kf);
-    kSel.addEventListener('change', function () {
-      pushUndo(); m.settings.dw.kSet = kSel.value; renderHydraulic(); redrawAll();
-    });
-
-    var kTable = el('table', 'sheet editable');
-    kTable.innerHTML = '<thead><tr><th class="txt">Fitting</th><th>K at DN25</th>' +
-                       '<th>K at DN50</th><th>K at DN100</th><th>Override K</th></tr></thead>';
-    var kBody = el('tbody');
-    ['E90', 'E45', 'TRUN', 'TBRANCH', 'GATE', 'GLOBE', 'CHECK'].forEach(function (t) {
-      var tr = el('tr');
-      var nameCell = el('td', 'txt', FD.fittings.label(t));
-      if (FD.ktable.isDerived(t, m.settings.dw.kSet)) {
-        nameCell.appendChild(el('span', 'flag', ' derived'));
-        nameCell.title = 'Not transcribed from the table — derived from the 90° elbow. ' +
-                         'See the provenance note in data/ktable.js.';
-      }
-      tr.appendChild(nameCell);
-      [25, 50, 100].forEach(function (dn) {
-        tr.appendChild(el('td', 'dim',
-          FD.ktable.k(t, dn, m.settings.dw.kSet, null).toFixed(3)));
-      });
-      var tdIn = el('td');
-      var inp = el('input', 'cell-input');
-      inp.type = 'text';
-      inp.placeholder = 'curve';
-      inp.value = (m.settings.fittingK[t] !== undefined) ? m.settings.fittingK[t] : '';
-      inp.addEventListener('change', function () {
-        pushUndo();
-        if (inp.value.trim() === '') delete m.settings.fittingK[t];
-        else {
-          var v = FD.units.parse(inp.value);
-          if (isFinite(v) && v >= 0) m.settings.fittingK[t] = v;
-        }
-        renderHydraulic(); redrawAll();
-      });
-      tdIn.appendChild(inp);
-      tr.appendChild(tdIn);
-      kBody.appendChild(tr);
-    });
-    kTable.appendChild(kBody);
-    host.appendChild(kTable);
-
-    host.appendChild(el('p', 'legend',
-      'K source: ASHRAE Handbook — Fundamentals, Pipe Sizing chapter, Table 1 (threaded) and ' +
-      'Table 2 (flanged/welded), transcribed from two independent copies and cross-checked. ' +
-      'The threaded 45° elbow row is DERIVED from the 90° value, because both copies returned ' +
-      'a column identical to the 90° elbow — physically wrong, and almost certainly an ' +
-      'extraction artifact. ASHRAE notes threaded 90° elbows vary ±20% above 2 in and ±40% ' +
-      'below 2 in with fitting pattern, so treat all of this as indicative.'));
-
-    // -------------------------------------------------- pipe schedules
-    h2('Pipe schedules');
-    hint('Built-in schedules available when sizing pipe. The default schedule for new pipes ' +
-         'is set here.');
-    var schGrid = grid();
-    var schSel = el('select');
-    var all = FD.schedules.all(m.customSchedules);
-    Object.keys(all).forEach(function (k) {
-      var o = el('option', '', all[k].name); o.value = k;
-      if (k === m.settings.schedule) o.selected = true;
-      schSel.appendChild(o);
-    });
-    var sf = el('div', 'field');
-    sf.appendChild(el('label', '', 'Default schedule for new pipes'));
-    sf.appendChild(schSel);
-    schGrid.appendChild(sf);
-    schSel.addEventListener('change', function () {
-      pushUndo(); m.settings.schedule = schSel.value; renderHydraulic(); redrawAll();
-    });
-    numField(schGrid, 'Default C factor', m.settings.C,
-      function (v) { pushUndo(); m.settings.C = v; redrawAll(); });
-
-    var schTable = el('table', 'sheet');
-    schTable.innerHTML = '<thead><tr><th class="txt">Schedule</th><th>Sizes</th>' +
-                         '<th class="txt">Bore range (mm)</th><th>Default C</th></tr></thead>';
-    var schBody = el('tbody');
-    Object.keys(all).forEach(function (k) {
-      var s = all[k], first = s.sizes[0], last = s.sizes[s.sizes.length - 1];
-      var tr = el('tr');
-      if (k === m.settings.schedule) tr.className = 'active-row';
-      tr.innerHTML = '<td class="txt">' + s.name + '</td>' +
-                     '<td>' + s.sizes.length + '</td>' +
-                     '<td class="txt dim">' + first.label + ' (' + first.id_mm.toFixed(1) +
-                        ') … ' + last.label + ' (' + last.id_mm.toFixed(1) + ')</td>' +
-                     '<td>' + s.defaultC + '</td>';
-      schBody.appendChild(tr);
-    });
-    schTable.appendChild(schBody);
-    host.appendChild(schTable);
   }
 
   function redrawAll() {
@@ -1858,6 +1995,13 @@
     document.documentElement.dataset.theme = app.model.settings.theme;
   }
 
+  /* UI font size drives a CSS custom property rather than a stylesheet rewrite,
+   * so every rule that uses it scales together. */
+  function applyPresentation() {
+    var p = (app.model.settings && app.model.settings.presentation) || {};
+    document.documentElement.style.setProperty('--ui-font', (p.uiFontSize || 14) + 'px');
+  }
+
   // ---------------------------------------------------------------- init
   function init() {
     FD.VERSION = FD.VERSION || '0.1.0-dev';
@@ -1871,6 +2015,7 @@
     } catch (e) { /* ignore */ }
 
     applyTheme();
+    applyPresentation();
 
     app.view = new FD.View($('canvas'), function () { return app.model; }, function () {
       renderProperties();
@@ -1916,19 +2061,37 @@
         });
       });
     });
-    app.view.onToolChange = function () {
+    var MODE_HINTS = {
+      edit:   'Click to select · drag a node to move it · Delete removes the selection',
+      pipe:   'Click to place vertices · scroll = pipe size · Shift = free angle · Esc = finish',
+      layout: 'Drag any label to reposition it for printing · tick properties in the panel to show them on the drawing',
+      riser:  'Click this floor\u2019s pipework to place or join a riser column',
+      source: 'Click to place a source (tank, mains, or expansion vessel)',
+      demand: 'Click to place a demand',
+      pump:   'Click a pipe to insert a pump into it',
+      equip:  'Click a pipe to insert equipment into it',
+      valve:  'Click a pipe to insert a valve into it'
+    };
+    function refreshToolButtons() {
       toolButtons.forEach(function (o) {
         o.classList.toggle('active', o.dataset.tool === app.view.tool);
       });
-    };
+      var hint = MODE_HINTS[app.view.tool] || '';
+      $('mode-hint').textContent = hint +
+        '  \u00b7  scroll = zoom, middle-drag = pan';
+    }
+    app.view.onToolChange = refreshToolButtons;
+    toolButtons.forEach(function (b) {
+      b.addEventListener('click', refreshToolButtons);
+    });
+    refreshToolButtons();
 
     // ---- toolbar actions ----
-    $('btn-calculate').addEventListener('click', function () {
-      var res = solveNow();
-      renderCalculation();
-      showTab('pane-calculation');
-      if (res && res.errors && res.errors.length) toast(res.errors[0].message, 'error');
-    });
+    /* There is no CALCULATE button. Every edit already triggers a debounced
+     * solve, so the button only forced something that was going to happen
+     * 250 ms later anyway — and switching tabs on top of that took the user
+     * away from the drawing they were working on. The CALCULATION tab renders
+     * from the latest solve whenever it is opened. */
 
     $('btn-new').addEventListener('click', function () {
       if (!app.model.pipes.length) { doNew(); return; }

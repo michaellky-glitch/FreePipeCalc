@@ -75,7 +75,9 @@ Usable for simple networks. Implemented so far:
 | Canvas: draw, snap, tee insertion, zoom/pan, select, delete | done |
 | Calculation sheet + CSV export + print stylesheet | done |
 | Settings, theming, autosave, undo/redo | done |
-| Test suite (443 assertions) | done |
+| Test suite (464 assertions) | done |
+| LAYOUT mode: draggable labels, device value boxes | done |
+| Rendered formulas with inline editable coefficients | done |
 | Riser placement UI, column snapping across levels (§7.2) | done |
 | Pump device: place, auto-size or fix head (§8.4) | done |
 | In-app dialogs (no browser popups) | done |

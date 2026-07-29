@@ -39,9 +39,13 @@
        * as unused in the UI. Kinematic viscosity becomes live with Darcy. */
       fluid: {
         name: 'Water',
-        density: 998,                  // kg/m³   — used
-        kinematicViscosity: 1.004e-6,  // m²/s    — used by Darcy only
-        temperature: 20                // °C      — not implemented
+        density: 998,                  // kg/m³    — used
+        kinematicViscosity: 1.004e-6,  // m²/s     — used by Darcy only
+        temperature: 20,               // °C       — not implemented
+        /* Specific heat capacity. Not used by the hydraulics at all — it is
+         * here for the heating/cooling power work coming next, where
+         * Q = ṁ·Cp·ΔT. Stored and shown, clearly marked as unused. */
+        specificHeat: 4187             // J/(kg·K) — not implemented
       },
 
       /* Fitting equivalent lengths on an L/D basis (spec §3.3), editable.
@@ -78,6 +82,13 @@
         fitType: true,
         fitPD: false,
         nodeNumbers: true
+      },
+      /* Presentation. Arrow and label sizes are separated from the UI font so a
+       * drawing can be tuned for print without changing the app chrome. */
+      presentation: {
+        arrowSize: 1.0,        // multiplier on the flow-direction arrows
+        labelSize: 11,         // px, drawing annotations (screen and print)
+        uiFontSize: 14         // px, application chrome
       },
       csv: { delimiter: ',', decimal: '.' },
       exportImage: 'svg',           // 'svg' | 'png'
@@ -208,6 +219,11 @@
     /* Equipment tag — the plant reference an engineer actually works from
      * ("CHW-P-01"). Shown on the drawing and in the calculation sheet. */
     if (opts.tag) p.tag = opts.tag;
+    /* Per-section fluid temperature. Not used hydraulically yet; it is the
+     * hook for the heating/cooling power calculations, where flow and ΔT
+     * across a section give the duty. Undefined means "use the system fluid
+     * temperature". */
+    if (opts.temperature !== undefined) p.temperature = opts.temperature;
     /* Size resolution order (spec §5: "new segments inherit size (last used)"):
      * explicit → last used on this schedule → the schedule's sane default. */
     if (!p.size) {
@@ -323,6 +339,41 @@
     return best || FD.schedules.defaultSize(m.settings.schedule, m.customSchedules);
   }
 
+  /* LAYOUT mode: manual label placement.
+   *
+   * Auto-placed annotations collide with pipework on anything busy, and on a
+   * printed drawing that is the difference between readable and not. Offsets
+   * are stored in SCREEN PIXELS rather than metres so a label stays the same
+   * distance from its owner at every zoom level — which is what "tidy" means
+   * on a drawing, and what carries over to print. */
+  function labelOffset(obj) {
+    return (obj && obj.labelOffset) || { dx: 0, dy: 0 };
+  }
+
+  function setLabelOffset(obj, dx, dy) {
+    if (!obj) return;
+    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) delete obj.labelOffset;
+    else obj.labelOffset = { dx: Math.round(dx * 10) / 10, dy: Math.round(dy * 10) / 10 };
+  }
+
+  function clearLabelOffsets(m) {
+    m.nodes.forEach(function (n) { delete n.labelOffset; });
+    m.pipes.forEach(function (p) { delete p.labelOffset; });
+  }
+
+  /* Which of a device's properties are echoed on the drawing, in a box beside
+   * it. Off by default — a drawing covered in every value is unreadable. */
+  function displayFlags(obj) {
+    return (obj && obj.show) || {};
+  }
+
+  function setDisplayFlag(obj, key, on) {
+    if (!obj) return;
+    if (!obj.show) obj.show = {};
+    if (on) obj.show[key] = true; else delete obj.show[key];
+    if (!Object.keys(obj.show).length) delete obj.show;
+  }
+
   // ----------------------------------------------------------- devices
   function setSource(m, nodeId) {
     var n = node(m, nodeId);
@@ -375,6 +426,8 @@
     m.settings.hw = Object.assign(defaultSettings().hw, (obj.settings || {}).hw || {});
     m.settings.dw = Object.assign(defaultSettings().dw, (obj.settings || {}).dw || {});
     m.settings.fluid = Object.assign(defaultSettings().fluid, (obj.settings || {}).fluid || {});
+    m.settings.presentation = Object.assign(defaultSettings().presentation,
+                                            (obj.settings || {}).presentation || {});
     m.settings.annotate = Object.assign(defaultSettings().annotate,
                                         (obj.settings || {}).annotate || {});
     m.settings.fittingLD = Object.assign(defaultSettings().fittingLD,
@@ -423,6 +476,10 @@
     pipesAt: pipesAt, other: other, pipeLength: pipeLength, pipeBore: pipeBore,
 
     addRiser: addRiser, attachRiser: attachRiser, riserPipes: riserPipes,
+
+    labelOffset: labelOffset, setLabelOffset: setLabelOffset,
+    clearLabelOffsets: clearLabelOffsets,
+    displayFlags: displayFlags, setDisplayFlag: setDisplayFlag,
 
     setSource: setSource, setDemand: setDemand, clearDevice: clearDevice,
 

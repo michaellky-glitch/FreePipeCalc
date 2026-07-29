@@ -173,9 +173,40 @@
    * Shared by drawClick and drawDraft so the preview cannot disagree with
    * what the click commits. */
   View.prototype.drawTarget = function (w) {
+    var m = this.getModel();
     var anchor = this.draft ? this.draft.last : null;
-    var pt = anchor ? this.angleSnap(anchor.x, anchor.y, w.x, w.y) : w;
-    return this.snap(pt.x, pt.y, !anchor);
+
+    // First click of a run: no bearing to preserve, so ordinary snapping.
+    if (!anchor) return this.snap(w.x, w.y, true);
+
+    var pt = this.angleSnap(anchor.x, anchor.y, w.x, w.y);
+
+    /* Priority is node > pipe > grid. Node and pipe are resolved on the
+     * angle-constrained point, so connecting always wins over the bearing. */
+    var s = this.snap(pt.x, pt.y, false);
+    if (s.kind === 'node' || s.kind === 'pipe') return s;
+
+    /* Grid comes third — but it CANNOT be applied as an absolute position, or
+     * it rounds the angle-constrained point onto the nearest intersection and
+     * throws the bearing away. That was the original tee bug: a "horizontal"
+     * run drawn at 15° landed centimetres off and later runs never met it.
+     *
+     * So the grid constrains the LENGTH ALONG THE RAY instead. The bearing is
+     * preserved exactly, and lengths still come out in tidy grid multiples —
+     * which is what the grid is actually for while drawing. */
+    if (m.settings.grid.snap) {
+      var dx = pt.x - anchor.x, dy = pt.y - anchor.y;
+      var len = Math.hypot(dx, dy);
+      if (len > 1e-9) {
+        var g = m.settings.grid.minor;
+        var snapped = Math.round(len / g) * g;
+        if (snapped > 1e-9) {
+          return { kind: 'grid', x: anchor.x + dx / len * snapped,
+                   y: anchor.y + dy / len * snapped };
+        }
+      }
+    }
+    return s;
   };
 
   /* Constrain a point to 15° increments from an anchor (Shift disables). */
@@ -279,6 +310,21 @@
       }
       if (e.button !== 0) return;
 
+      if (self.tool === 'layout') {
+        var lab = self.labelAt(sx, sy);
+        if (lab) {
+          self.dragLabel = { target: lab.obj, sx: sx, sy: sy,
+                             ox: M.labelOffset(lab.obj).dx,
+                             oy: M.labelOffset(lab.obj).dy };
+          self.selection = [{ kind: lab.kind, id: lab.obj.id }];
+          c.setPointerCapture(e.pointerId);
+          self.changed();
+        } else {
+          self.selection = [];
+          self.changed();
+        }
+        return;
+      }
       if (self.tool === 'pipe') { self.drawClick(w); return; }
       if (self.tool === 'source' || self.tool === 'demand') { self.deviceClick(w); return; }
       if (self.tool === 'pump') { self.pumpClick(w); return; }
@@ -313,6 +359,12 @@
         self.render();
         return;
       }
+      if (self.dragLabel) {
+        var d = self.dragLabel;
+        M.setLabelOffset(d.target, d.ox + (sx - d.sx), d.oy + (sy - d.sy));
+        self.render();
+        return;
+      }
       if (self.marquee) { self.marquee.x1 = w.x; self.marquee.y1 = w.y; self.render(); return; }
       if (self.dragNode) {
         var m = self.getModel();
@@ -335,6 +387,7 @@
 
     window.addEventListener('pointerup', function (e) {
       if (self.panning) { self.panning = null; return; }
+      if (self.dragLabel) { self.dragLabel = null; self.changed(); return; }
       if (self.dragNode) { self.dragNode = null; self.changed(); return; }
       if (self.marquee) {
         self.applyMarquee();
@@ -384,7 +437,9 @@
   View.prototype.setTool = function (tool) {
     if (this.draft) this.endDraft();
     this.tool = tool;
-    this.canvas.style.cursor = (tool === 'edit') ? 'default' : 'crosshair';
+    this.canvas.style.cursor = (tool === 'edit') ? 'default'
+                            : (tool === 'layout') ? 'move' : 'crosshair';
+    if (this.onToolChange) this.onToolChange();
     this.onChange();
     this.render();
   };
@@ -652,6 +707,10 @@
     ctx.fillStyle = this.theme.bg;
     ctx.fillRect(0, 0, W, H);
 
+    /* Every label drawn this frame records its screen box, so LAYOUT mode can
+     * hit-test them without re-deriving the layout. */
+    this._labelBoxes = [];
+
     this.drawGrid();
     this.drawFadedLevel();
     this.drawRisers();
@@ -891,12 +950,20 @@
    * engineer actually works from, so it takes priority over the geometry
    * annotations and is always shown when set. */
   View.prototype.drawTag = function (p, x, y) {
-    if (!p.tag) return;
-    var ctx = this.ctx;
-    ctx.font = '600 11px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = this.theme.text;
-    ctx.fillText(p.tag, x, y - 16);
+    var off = M.labelOffset(p);
+    var size = this.labelSize();
+    if (p.tag) {
+      var ctx = this.ctx;
+      ctx.font = '600 ' + size + 'px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = this.theme.text;
+      var tx = x + off.dx, ty = y - 16 + off.dy;
+      ctx.fillText(p.tag, tx, ty);
+      var w = ctx.measureText(p.tag).width;
+      this.registerLabel('pipe', p, tx - w / 2 - 3, ty - size, w + 6, size + 5);
+      if (this.tool === 'layout') this.labelHandle(tx - w / 2 - 3, ty - size, w + 6, size + 5);
+    }
+    this.drawDeviceBox(p, { x: x, y: y }, off);
   };
 
   /* Pump glyph: a circle with a chevron pointing along the flow. */
@@ -921,10 +988,11 @@
 
   View.prototype.drawArrow = function (sa, sb, q, colour) {
     var ctx = this.ctx;
+    var k = (this.getModel().settings.presentation || {}).arrowSize || 1;
     var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
     var ang = Math.atan2(sb.y - sa.y, sb.x - sa.x) + (q < 0 ? Math.PI : 0);
     ctx.save();
-    ctx.translate(mx, my); ctx.rotate(ang);
+    ctx.translate(mx, my); ctx.rotate(ang); ctx.scale(k, k);
     ctx.fillStyle = colour;
     ctx.beginPath();
     ctx.moveTo(7, 0); ctx.lineTo(-4, 4.5); ctx.lineTo(-4, -4.5);
@@ -962,10 +1030,11 @@
     if (!text) return;
     var len = Math.hypot(sb.x - sa.x, sb.y - sa.y);
 
-    ctx.font = '11px system-ui, sans-serif';
+    ctx.font = this.labelSize() + 'px system-ui, sans-serif';
     if (ctx.measureText(text).width + 8 > len) return;   // would overflow the pipe
 
-    var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
+    var off = M.labelOffset(p);
+    var mx = (sa.x + sb.x) / 2 + off.dx, my = (sa.y + sb.y) / 2 + off.dy;
     var ang = Math.atan2(sb.y - sa.y, sb.x - sa.x);
     if (Math.abs(ang) > Math.PI / 2) ang += Math.PI;     // keep text upright
     ctx.save();
@@ -974,6 +1043,15 @@
     ctx.fillStyle = this.theme.dim;
     ctx.fillText(text, 0, 0);
     ctx.restore();
+
+    /* Registered unrotated: a rotated hit-box would be fiddly for no benefit,
+     * and a slightly generous target is the right trade for dragging. */
+    var w = ctx.measureText(text).width;
+    var size = this.labelSize();
+    this.registerLabel('pipe', p, mx - w / 2 - 3, my - size - 9, w + 6, size + 8);
+    if (this.tool === 'layout') {
+      this.labelHandle(mx - w / 2 - 3, my - size - 9, w + 6, size + 8);
+    }
   };
 
   View.prototype.drawNodes = function () {
@@ -1052,10 +1130,101 @@
     }
     if (!parts.length) return;
 
-    ctx.font = '10px system-ui, sans-serif';
+    var off = M.labelOffset(n);
+    var size = this.labelSize();
+    var x = s.x + off.dx, y = s.y + 17 + off.dy;
+    var text = parts.join(' ');
+
+    ctx.font = (size - 1) + 'px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = this.theme.mute;
-    ctx.fillText(parts.join(' '), s.x, s.y + 17);
+    ctx.fillText(text, x, y);
+
+    var w = ctx.measureText(text).width;
+    this.registerLabel('node', n, x - w / 2 - 3, y - size, w + 6, size + 6);
+    if (this.tool === 'layout') this.labelHandle(x - w / 2 - 3, y - size, w + 6, size + 6);
+
+    this.drawDeviceBox(n, s, off);
+  };
+
+  View.prototype.labelSize = function () {
+    var p = this.getModel().settings.presentation || {};
+    return p.labelSize || 11;
+  };
+
+  /* Faint outline round a draggable label, so LAYOUT mode shows what can be
+   * grabbed without cluttering the drawing in every other mode. */
+  View.prototype.labelHandle = function (x, y, w, h) {
+    var ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = this.theme.select;
+    ctx.globalAlpha = 0.5;
+    ctx.setLineDash([3, 2]);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  };
+
+  /* Device values echoed beside the entity in a box, one line per property the
+   * user ticked in LAYOUT mode. */
+  View.prototype.drawDeviceBox = function (obj, s, off) {
+    var flags = M.displayFlags(obj);
+    var keys = Object.keys(flags);
+    if (!keys.length) return;
+
+    var m = this.getModel(), d = m.settings.display, res = this.results, ctx = this.ctx;
+    var lines = [];
+    var dev = obj.device;
+
+    if (dev && dev.kind === 'demand') {
+      if (flags.flow) lines.push('Q ' + FD.units.fmtFlow(dev.flow, d.flow, true));
+      if (flags.required) lines.push('Req ' + FD.units.fmtPressure(dev.reqPressure, d.pressure, true));
+      if (flags.available && res && res.pressure[obj.id] !== undefined) {
+        lines.push('Avail ' + FD.units.fmtPressure(res.pressure[obj.id], d.pressure, true));
+      }
+    } else if (dev && dev.kind === 'source') {
+      if (flags.elevation) lines.push('El ' + FD.units.fmtLength(M.elevation(m, obj), d.length, true));
+      if (flags.available && res && res.pressure[obj.id] !== undefined) {
+        lines.push('P ' + FD.units.fmtPressure(res.pressure[obj.id], d.pressure, true));
+      }
+    } else {
+      // in-line device (pump / equipment / valve)
+      if (flags.tag && obj.tag) lines.push(obj.tag);
+      if (res && res.flow[obj.id] !== undefined) {
+        if (flags.flow) lines.push('Q ' + FD.units.fmtFlow(Math.abs(res.flow[obj.id]), d.flow, true));
+        if (flags.head && obj.pump) {
+          lines.push('H ' + FD.units.fmtPressure(
+            FD.units.headToPaWith(obj.pump.head || 0, m.settings.fluid.density), d.pressure, true));
+        }
+        if (flags.pd) {
+          var link = res.network && res.network.links.find(function (l) { return l.id === obj.id; });
+          if (link && link.r !== undefined) {
+            lines.push('ΔP ' + FD.units.fmtPressure(FD.units.headToPaWith(
+              Math.abs(FD.hydraulics.headloss(link.r, res.flow[obj.id], link.n)),
+              m.settings.fluid.density), d.pressure, true));
+          }
+        }
+      }
+    }
+    if (!lines.length) return;
+
+    var size = this.labelSize();
+    ctx.font = size + 'px system-ui, sans-serif';
+    var w = Math.max.apply(null, lines.map(function (l) { return ctx.measureText(l).width; })) + 12;
+    var h = lines.length * (size + 3) + 8;
+    var x = s.x + 14 + (off ? off.dx : 0), y = s.y + 22 + (off ? off.dy : 0);
+
+    ctx.save();
+    ctx.fillStyle = this.theme.bg;
+    ctx.strokeStyle = this.theme.dim;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, 3); else ctx.rect(x, y, w, h);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = this.theme.text;
+    ctx.textAlign = 'left';
+    lines.forEach(function (l, i) { ctx.fillText(l, x + 6, y + size + 2 + i * (size + 3)); });
+    ctx.restore();
   };
 
   /* Pressure drop attributable to the fittings charged at this node. Each
@@ -1105,6 +1274,21 @@
     ctx.fillStyle = this.theme.error;
     ctx.textAlign = 'left';
     ctx.fillText(text, x + 7, y + 2);
+  };
+
+  /* Register a label's screen box so it can be picked up in LAYOUT mode. */
+  View.prototype.registerLabel = function (kind, obj, x, y, w, h) {
+    if (!this._labelBoxes) this._labelBoxes = [];
+    this._labelBoxes.push({ kind: kind, obj: obj, x: x, y: y, w: w, h: h });
+  };
+
+  View.prototype.labelAt = function (sx, sy) {
+    var boxes = this._labelBoxes || [];
+    for (var i = boxes.length - 1; i >= 0; i--) {
+      var b = boxes[i];
+      if (sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h) return b;
+    }
+    return null;
   };
 
   View.prototype.label = function (s, text, colour, dy) {

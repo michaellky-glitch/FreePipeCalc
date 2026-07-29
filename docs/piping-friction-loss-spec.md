@@ -291,6 +291,16 @@ Two safeguards: pumps carrying no flow are skipped entirely (a disconnected pump
 
 Sized head includes the §8.4 safety factor: on the 3-floor model, 41.76 m index duty × 1.10 = 45.93 m.
 
+### Q12.13 — Grid snapping restored, as a length constraint *(resolved in code)*
+
+Q12 previously recorded that grid snapping had to be disabled after the first click of a run, because rounding an angle-constrained point to the nearest intersection destroyed the bearing and stopped tees forming. That left the stated priority (node > pipe > grid) only half true — the grid was simply absent mid-run.
+
+The grid now constrains the **length along the ray** rather than the absolute position. Bearing is preserved exactly, lengths land on grid multiples, and the full node > pipe > grid priority holds. Verified: deliberately ragged clicks give bearings on exact 15° multiples *and* lengths on exact 0.5 m multiples.
+
+### Q12.14 — CALCULATE button removed *(Michael's decision)*
+
+Every edit already triggers a debounced solve, so the button only forced something due 250 ms later, and it switched tabs away from the drawing being worked on. Removed. The CALCULATION tab renders from the latest solve when opened.
+
 ### Q12.12 — Safety factor defaults to 0 *(Michael's decision)*
 
 The default was 10%. Michael: *"set the default safety factor to 0, as most Engineers including myself would usually set it manually after the calculation"* — and a built-in default silently compounds with the margin the engineer adds afterwards, on top of the margins already sitting in the C factor, fitting allowances and equipment ratings.

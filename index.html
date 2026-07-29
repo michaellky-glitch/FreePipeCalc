@@ -24,11 +24,24 @@
 <section class="pane pane-flush" id="pane-network" data-active="true" role="tabpanel">
   <div class="toolbar">
     <div class="tool-group">
+      <button class="btn" id="btn-new">NEW</button>
+      <button class="btn" id="btn-save">SAVE</button>
+      <button class="btn" id="btn-load">LOAD</button>
+      <button class="btn" id="btn-print">PRINT</button>
+    </div>
+    <div class="sep"></div>
+    <!-- modes -->
+    <div class="tool-group">
       <button class="btn" data-tool="edit">EDIT</button>
       <button class="btn" data-tool="pipe">DRAW PIPE</button>
-      <button class="btn" data-tool="riser">ADD RISER</button>
-      <button class="btn" data-tool="source">ADD SOURCE</button>
-      <button class="btn" data-tool="demand">ADD DEMAND</button>
+      <button class="btn" data-tool="layout">LAYOUT</button>
+    </div>
+    <div class="sep"></div>
+    <!-- things to place -->
+    <div class="tool-group">
+      <button class="btn" data-tool="riser">RISER</button>
+      <button class="btn" data-tool="source">SOURCE</button>
+      <button class="btn" data-tool="demand">DEMAND</button>
       <button class="btn" data-tool="pump">PUMP</button>
       <button class="btn" data-tool="equip">EQUIP</button>
       <button class="btn" data-tool="valve" id="btn-valve">VALVE</button>
@@ -39,15 +52,7 @@
     </div>
     <div class="sep"></div>
     <div class="tool-group">
-      <button class="btn primary" id="btn-calculate">CALCULATE</button>
-      <button class="btn" id="btn-renumber" title="Renumber nodes from source to demand">RENUMBER NODES</button>
-    </div>
-    <div class="sep"></div>
-    <div class="tool-group">
-      <button class="btn" id="btn-new">NEW</button>
-      <button class="btn" id="btn-save">SAVE MODEL</button>
-      <button class="btn" id="btn-load">LOAD MODEL</button>
-      <button class="btn" id="btn-print">PRINT</button>
+      <button class="btn" id="btn-renumber" title="Renumber nodes from source to demand">RENUMBER</button>
     </div>
     <div class="sep"></div>
     <div class="tool-group">
@@ -56,9 +61,7 @@
       <button class="btn icon" id="btn-fit" title="Zoom to fit">⤢</button>
     </div>
     <div class="spacer"></div>
-    <span class="hint-inline">
-      Scroll = zoom · middle-drag = pan · during DRAW: scroll = pipe size, Shift = free angle, Esc = finish
-    </span>
+    <span class="hint-inline" id="mode-hint"></span>
   </div>
 
   <div class="netlayout">
@@ -145,7 +148,7 @@
 <script>
   window.FD.APP_NAME = 'FreePipeCalc';
   window.FD.APP_SHORT = 'FPC';
-  window.FD.VERSION = '0.3.0-dev';
+  window.FD.VERSION = '0.4.0-dev';
   window.FD.FORMAT_VERSION = 1;
   try {
     window.FD.initApp();

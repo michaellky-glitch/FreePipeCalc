@@ -219,6 +219,44 @@ that comment before trusting them.
 
 ---
 
+## 7A. Modes: EDIT, DRAW PIPE, LAYOUT
+
+The canvas has three modes, plus a set of placement tools.
+
+* **EDIT** — select, drag nodes, change properties.
+* **DRAW PIPE** — click-to-click routing.
+* **LAYOUT** — arrange the drawing for print. Every annotation is draggable,
+  and device properties can be echoed beside their entity in a box.
+
+LAYOUT exists because auto-placed labels collide with pipework on anything
+busy, and on a printed drawing that is the difference between readable and not.
+Label offsets are stored in **screen pixels**, not metres, so a label stays the
+same distance from its owner at every zoom — which is what "tidy" means on a
+drawing and what carries to print.
+
+Display flags (`obj.show`) are only offered in LAYOUT. Off by default: a drawing
+carrying every value is unreadable.
+
+**There is no CALCULATE button.** Every edit already triggers a debounced solve,
+so the button forced something that was going to happen 250 ms later anyway, and
+switching tabs took the user away from the drawing. The CALCULATION tab renders
+from the latest solve whenever it is opened.
+
+### Draw snapping priority: node > pipe > grid
+
+Node and pipe are resolved on the angle-constrained point, so connecting always
+beats preserving the bearing.
+
+The grid comes third, and it **cannot** be applied as an absolute position. Doing
+so rounds the angle-constrained point onto the nearest intersection and throws
+the bearing away — a "horizontal" run drawn at 15° lands centimetres off, and
+later runs never meet it, so tees stop forming. That was a real bug.
+
+So the grid constrains the **length along the ray** instead. The bearing is
+preserved exactly and lengths still come out in tidy grid multiples, which is
+what the grid is for while drawing. Verified: ragged clicks produce bearings on
+exact 15° multiples *and* lengths on exact grid multiples.
+
 ## 8. Levels, risers and geometry editing
 
 Node coordinates are **level-local metres**. Each level carries an `(dx, dy)`
@@ -408,6 +446,25 @@ coordinates.
 
 ---
 
+## 14A. The HYDRAULIC tab
+
+Everything that defines *how* the calculation is done, in the order an engineer
+reaches for it:
+
+1. **Fluid Properties** — name, density, viscosity, temperature, Cp.
+2. **System** — open or closed loop.
+3. **Hydraulic Parameters** — calculation method and its coefficients.
+4. **Pipe schedules**, **fitting data**, **warning thresholds**.
+
+The formula is rendered two-dimensionally — a real fraction with a rule line —
+with the coefficients as **inputs inside the formula itself**. Editing
+`10.67` in place is the same gesture as reading it. A single-line
+`a / (b · c)` is something an engineer has to decode rather than read.
+
+Only the fitting table the active method actually uses is shown: equivalent
+lengths under Hazen-Williams, K coefficients under Darcy-Weisbach. Showing both
+invites entering numbers into the one being ignored.
+
 ## 15. Testing
 
 Five suites, ~440 assertions, no dependencies:
@@ -452,8 +509,11 @@ bad test would have been worse than useless.
   realistic cases is ≤1.4%, so the choice matters far less than the ε-vs-C
   equivalence between methods.
 * **Repair cannot fix every geometry.** It refuses rather than guessing.
-* **Temperature is stored but not implemented** — it does not drive density or
-  viscosity, which are entered independently.
+* **Temperature and specific heat are stored but not implemented.** Temperature
+  does not drive density or viscosity, which are entered independently. Cp is
+  present for the heating/cooling power work coming next (`Q = ṁ·Cp·ΔT`), as is
+  the per-pipe `temperature` field — a section carrying flow and a ΔT is what
+  gives a duty.
 * **No balancing valve sizing**, no pump curves, no EPANET export, no
   Copy Up/Down, no custom schedule editor UI. See spec §13.
 * **Index circuit is not highlighted** in the calculation sheet yet.
