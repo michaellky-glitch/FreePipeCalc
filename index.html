@@ -25,23 +25,26 @@
 <!-- ==================================================== PIPING NETWORK -->
 <section class="pane pane-flush" id="pane-network" data-active="true" role="tabpanel">
   <div class="toolbar">
-    <div class="tool-group">
+    <!-- Grouped by what the button DOES, not by when it was added:
+         file actions, then the mode you are in, then the thing you draw. -->
+    <div class="tool-group" data-group="FILE">
       <button class="btn" id="btn-new">NEW</button>
       <button class="btn" id="btn-save">SAVE</button>
       <button class="btn" id="btn-load">LOAD</button>
       <button class="btn" id="btn-print">PRINT</button>
+      <button class="btn icon" id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
+      <button class="btn icon" id="btn-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
     </div>
     <div class="sep"></div>
-    <!-- modes -->
-    <div class="tool-group">
+    <div class="tool-group" data-group="MODES">
       <button class="btn" data-tool="edit">EDIT</button>
-      <button class="btn" data-tool="pipe">DRAW PIPE</button>
       <button class="btn" data-tool="layout">LAYOUT</button>
       <button class="btn" data-tool="trace">TRACE</button>
+      <button class="btn" data-tool="disconnect" title="Highlight breaks: coincident unjoined nodes, islands, and devices with nowhere to discharge">SHOW DISCONNECT</button>
     </div>
     <div class="sep"></div>
-    <!-- things to place -->
-    <div class="tool-group">
+    <div class="tool-group" data-group="DRAW">
+      <button class="btn" data-tool="pipe">PIPE</button>
       <button class="btn" data-tool="riser">RISER</button>
       <button class="btn" data-tool="source">SOURCE</button>
       <button class="btn" data-tool="demand">OUTFLOW</button>
@@ -54,13 +57,8 @@
       </select>
     </div>
     <div class="sep"></div>
-    <div class="tool-group">
-      <button class="btn" id="btn-renumber" title="Renumber nodes from source to demand">RENUMBER</button>
-    </div>
-    <div class="sep"></div>
-    <div class="tool-group">
-      <button class="btn icon" id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
-      <button class="btn icon" id="btn-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+    <div class="tool-group" data-group="MISC">
+      <button class="btn" id="btn-renumber" title="Renumber nodes in flow order">RENUMBER</button>
       <button class="btn icon" id="btn-fit" title="Zoom to fit">⤢</button>
     </div>
     <div class="spacer"></div>

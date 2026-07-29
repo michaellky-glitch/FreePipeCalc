@@ -42,7 +42,7 @@
     },
     "fittingK": {},
     "schedule": "sch40",
-    "lastSize": "DN300",
+    "lastSize": "DN100",
     "C": 120,
     "defaultC": {},
     "pumpSafetyPct": 10,
@@ -625,6 +625,38 @@
         "dx": -17.1,
         "dy": 28.8
       }
+    },
+    {
+      "id": "N70",
+      "level": "L0",
+      "x": 38.25392384666538,
+      "y": 17.00156945769815,
+      "dz": 0,
+      "device": null
+    },
+    {
+      "id": "N71",
+      "level": "L0",
+      "x": 37.75392384666538,
+      "y": 17.004758425172,
+      "dz": 0,
+      "device": null
+    },
+    {
+      "id": "N72",
+      "level": "L0",
+      "x": 7.5,
+      "y": -0.17052481036514566,
+      "dz": 0,
+      "device": null
+    },
+    {
+      "id": "N73",
+      "level": "L0",
+      "x": 7.5,
+      "y": -0.17052481036514566,
+      "dz": 0,
+      "device": null
     }
   ],
   "pipes": [
@@ -1018,16 +1050,6 @@
       "riser": null
     },
     {
-      "id": "P62",
-      "a": "N45",
-      "b": "N46",
-      "kind": "pipe",
-      "schedule": "sch40",
-      "size": "DN25",
-      "C": 120,
-      "riser": null
-    },
-    {
       "id": "P65",
       "a": "N48",
       "b": "N26",
@@ -1043,7 +1065,7 @@
       "b": "N48",
       "kind": "pipe",
       "schedule": "sch40",
-      "size": "DN25",
+      "size": "DN100",
       "C": 120,
       "riser": null
     },
@@ -1148,19 +1170,9 @@
       "riser": null,
       "pump": {
         "mode": "off",
-        "head": 35.60881155021909,
+        "head": 30.64232440416,
         "flow": 0
       }
-    },
-    {
-      "id": "P86",
-      "a": "N60",
-      "b": "N14",
-      "kind": "pipe",
-      "schedule": "sch40",
-      "size": "DN100",
-      "C": 120,
-      "riser": null
     },
     {
       "id": "P91",
@@ -1221,6 +1233,61 @@
       "id": "P100",
       "a": "N28",
       "b": "N48",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN100",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P102",
+      "a": "N45",
+      "b": "N70",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN25",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P103",
+      "a": "N70",
+      "b": "N71",
+      "kind": "equip",
+      "schedule": "sch40",
+      "size": "DN25",
+      "C": 120,
+      "riser": null,
+      "equip": {
+        "qRated": 0.02,
+        "pdRated": 200000,
+        "qOut": 0.02
+      }
+    },
+    {
+      "id": "P104",
+      "a": "N71",
+      "b": "N46",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN25",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P105",
+      "a": "N60",
+      "b": "N72",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN100",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P107",
+      "a": "N73",
+      "b": "N14",
       "kind": "pipe",
       "schedule": "sch40",
       "size": "DN100",
@@ -1309,10 +1376,10 @@
   ],
   "_seq": {
     "level": 2,
-    "node": 70,
-    "pipe": 102,
+    "node": 74,
+    "pipe": 108,
     "riser": 6
   },
-  "activeLevel": "L1",
-  "savedAt": "2026-07-29T12:33:37.228Z"
+  "activeLevel": "L0",
+  "savedAt": "2026-07-29T12:41:31.118Z"
 }

@@ -782,8 +782,87 @@
     this.drawDraft();
     this.drawMarquee();
     this.drawCalibration();
+    this.drawDisconnects();
     this.drawScaleBar();
     this.drawTooltip();
+  };
+
+  /* SHOW DISCONNECT — ring the places where the drawing lies.
+   *
+   * The failure this exists for: two nodes at exactly the same coordinates,
+   * not joined. On screen it is one continuous run; hydraulically it is two
+   * separate networks, and the solve returns zero flow with no error at all.
+   * Nothing short of drawing attention to the spot will find that.
+   */
+  View.prototype.drawDisconnects = function () {
+    if (this.tool !== 'disconnect') return;
+    var m = this.getModel(), ctx = this.ctx, self = this;
+    if (!FD.network || !FD.network.disconnections) return;
+
+    var issues = FD.network.disconnections(m);
+    var lv = m.activeLevel;
+    var t = performance.now() / 1000;
+    var pulse = 0.55 + 0.45 * Math.sin(t * 3);      // makes a 0 mm gap findable
+
+    var shown = 0;
+    issues.forEach(function (iss) {
+      (iss.nodes || []).forEach(function (id) {
+        var n = M.node(m, id);
+        if (!n || n.level !== lv) return;
+        var w = M.worldXY(m, n);
+        var p = self.toScreen(w.x, w.y);
+        var col = iss.severity === 'error' ? self.theme.error : self.theme.warn;
+        shown++;
+
+        ctx.save();
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
+        ctx.stroke();
+        /* A cross as well as a ring: two coincident nodes draw two identical
+         * rings on top of each other, and the ring alone would look like one. */
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(p.x - 22, p.y - 22); ctx.lineTo(p.x - 12, p.y - 12);
+        ctx.moveTo(p.x + 22, p.y - 22); ctx.lineTo(p.x + 12, p.y - 12);
+        ctx.moveTo(p.x - 22, p.y + 22); ctx.lineTo(p.x - 12, p.y + 12);
+        ctx.moveTo(p.x + 22, p.y + 22); ctx.lineTo(p.x + 12, p.y + 12);
+        ctx.stroke();
+        ctx.restore();
+      });
+    });
+
+    // Legend, so the mode explains itself rather than needing to be remembered.
+    ctx.save();
+    ctx.font = '12px ' + (this.fontFamily || 'sans-serif');
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    var errs = issues.filter(function (i) { return i.severity === 'error'; }).length;
+    var msg = issues.length
+      ? errs + ' break' + (errs === 1 ? '' : 's') + ' found' +
+        (shown ? '' : ' — none on this level')
+      : 'No breaks found';
+    ctx.fillStyle = issues.length ? this.theme.error : this.theme.ok || this.theme.text;
+    ctx.fillText('SHOW DISCONNECT: ' + msg, 12, 12);
+    ctx.fillStyle = this.theme.mute;
+    ctx.fillText('Details are listed in the CALCULATION tab.', 12, 30);
+    ctx.restore();
+
+    if (issues.length) this.requestAnimation();
+  };
+
+  /* The pulse needs repainting; one frame at a time so an idle canvas is
+   * still idle. */
+  View.prototype.requestAnimation = function () {
+    var self = this;
+    if (this._anim) return;
+    this._anim = requestAnimationFrame(function () {
+      self._anim = null;
+      self.render();
+    });
   };
 
   /* Background drawing, under everything else. */
@@ -979,7 +1058,7 @@
       ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
 
       if (p.kind === 'pump') {
-        self.drawPumpGlyph(sa, sb, selIds[p.id], q || 1);
+        self.drawPumpGlyph(p, sa, sb, selIds[p.id], q || 1);
       } else if (p.kind === 'valve') {
         self.drawValveGlyph(p, sa, sb, selIds[p.id]);
       } else if (p.kind === 'equip') {
@@ -1122,7 +1201,7 @@
   };
 
   /* Pump glyph: a circle with a chevron pointing along the flow. */
-  View.prototype.drawPumpGlyph = function (sa, sb, selected, q) {
+  View.prototype.drawPumpGlyph = function (p, sa, sb, selected, q) {
     var ctx = this.ctx;
     var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
     var ang = Math.atan2(sb.y - sa.y, sb.x - sa.x) + (q < 0 ? Math.PI : 0);
@@ -1139,6 +1218,10 @@
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.restore();
+    /* Pumps carry a tag exactly as equipment does — CHW-P-01 is the reference
+     * the engineer works from. This call was simply missing, so the tag was
+     * stored, editable, and never drawn. */
+    this.drawTag(p, mx, my);
   };
 
   View.prototype.drawArrow = function (sa, sb, q, colour) {

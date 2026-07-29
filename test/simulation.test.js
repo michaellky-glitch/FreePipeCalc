@@ -286,19 +286,19 @@ section('Parallel pumps and pump failure');
     near('Surviving pump ' + (i + 1) + ' sits on its curve',
          pp.head, P.head(each, pp.flow), 1e-9);
   });
-  /* Flow is conserved, but only to about 0.03% — and the shortfall is
-   * accounted for, not hand-waved. An isolated pump is modelled as a closed
-   * valve with a large-but-finite resistance (valves.CLOSED_R = 1e12, square
-   * law), so under h metres of circuit head it passes sqrt(h/1e12). At the
-   * ~25 m this circuit runs at, that is ~5e-6 m3/s per stopped pump, which is
-   * exactly the discrepancy below. The report shows a stopped pump as zero
-   * because its isolation is real and the seepage is numerical. */
+  /* Flow is conserved exactly.
+   *
+   * A stopped pump used to be modelled as a closed valve with a large but
+   * FINITE resistance (valves.CLOSED_R = 1e12, square law), which passed
+   * sqrt(h/1e12) — about 5e-6 m3/s per stopped pump at this circuit's head,
+   * or 0.03% of system flow. Small, but it meant the reported flows did not
+   * add up, which is the sort of discrepancy that costs an hour to chase.
+   *
+   * A stopped pump is now omitted from the network entirely, so there is no
+   * seepage to account for and this closes to solver tolerance. */
   const delivered = live.reduce((s2, p) => s2 + p.flow, 0);
-  const seep = Math.sqrt(live[0].head / FD.valves.CLOSED_R);
-  near('Pump flows sum to the terminal flow, bar the closed-valve seepage',
-       delivered - q3, seep, seep * 0.2);
-  ok('Seepage past a stopped pump is under 0.05% of system flow',
-     seep / q3 < 5e-4, String(seep / q3));
+  near('Pump flows sum to the terminal flow exactly', delivered, q3, q3 * 1e-9);
+  ok('A stopped pump passes no flow at all', sim.pumps[3].flow === 0);
 
   ok('Total flow falls', q3 < q4);
   // Losing 25% of the pumps must NOT lose 25% of the flow: the system curve is

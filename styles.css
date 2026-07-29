@@ -760,3 +760,18 @@ table.doc-table th { background: var(--bg-raised); color: var(--text-dim); font-
 }
 .tool-col h3 { margin: 0 0 8px; font-size: 0.95em; }
 .tool-col .hint { display: block; margin-top: 6px; }
+
+
+/* Ribbon group labels. The toolbar had grown to twenty-odd buttons in four
+ * unlabelled clusters; naming the clusters is what makes it scannable. */
+.tool-group[data-group] { position: relative; }
+.tool-group[data-group]::before {
+  content: attr(data-group);
+  position: absolute;
+  top: -9px; left: 2px;
+  font-size: 8.5px;
+  letter-spacing: .09em;
+  color: var(--text-mute);
+  pointer-events: none;
+}
+.toolbar { padding-top: 14px; }

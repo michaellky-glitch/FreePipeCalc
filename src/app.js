@@ -1203,6 +1203,22 @@
     var m = app.model, d = m.settings.display;
     host.appendChild(el('h3', '', 'Equipment ' + p.id));
     tagField(host, p);
+    flipField(host, p);
+
+    /* Isolating equipment is a break in the circuit, not a bypass — same as a
+     * stopped pump. Without this the only way to take a chiller out of a model
+     * was to delete it and redraw it later. */
+    var onSel = el('select');
+    [['on', 'In service'], ['off', 'Isolated (no flow)']].forEach(function (kv) {
+      var o = el('option', '', kv[1]); o.value = kv[0];
+      if ((p.equip.off ? 'off' : 'on') === kv[0]) o.selected = true;
+      onSel.appendChild(o);
+    });
+    field(host, 'Status', onSel).addEventListener('change', function () {
+      pushUndo();
+      if (onSel.value === 'off') p.equip.off = true; else delete p.equip.off;
+      renderProperties(); changed();
+    });
 
     var qIn = el('input'); qIn.type = 'text';
     qIn.value = FD.units.fmtFlow(p.equip.qRated || 0, d.flow);
@@ -1263,6 +1279,7 @@
     var t = FD.valves.type(v.type);
     host.appendChild(el('h3', '', 'Valve ' + p.id));
     tagField(host, p);
+    if (t && t.checkValve) flipField(host, p);
 
     var typeSel = el('select');
     Object.keys(FD.valves.types).forEach(function (k) {
@@ -1484,30 +1501,60 @@
     host.appendChild(row);
   }
 
+  /* Devices have a direction and none of them pass flow backwards, so there has
+   * to be a way to turn one round without redrawing it. Swapping the pipe's own
+   * endpoints is the whole operation — every direction-sensitive rule in the
+   * engine reads a→b. */
+  function flipField(host, p) {
+    var kindName = p.kind === 'pump' ? 'Pump'
+                 : p.kind === 'equip' ? 'Equipment' : 'Valve';
+    var wrap = el('div', 'field');
+    wrap.appendChild(el('label', '', 'Direction'));
+    var box = el('div', 'btn-row');
+    var lbl = el('span', 'hint', p.a + ' \u2192 ' + p.b);
+    var btn = el('button', 'btn tiny', '\u2039 \u203a');
+    btn.title = 'Flip ' + kindName.toLowerCase() + ' direction (no flow is allowed ' +
+                'against it)';
+    btn.addEventListener('click', function () {
+      pushUndo();
+      var t = p.a; p.a = p.b; p.b = t;
+      renderProperties(); changed();
+    });
+    box.appendChild(btn);
+    box.appendChild(lbl);
+    wrap.appendChild(box);
+    host.appendChild(wrap);
+  }
+
   /* Spec §8.4. Head is either user-fixed or auto-sized: auto solves, reads the
    * worst shortfall at any demand, and adds that plus the safety factor. */
   function renderPumpProps(host, p) {
     var m = app.model;
     host.appendChild(el('h3', '', 'Pump ' + p.id));
     tagField(host, p);
+    flipField(host, p);
 
-    var modeSel = el('select');
-    [['auto', 'Running — head calculated'],
-     ['fixed', 'Running — head user-fixed'],
+    /* Just running or not. There is no longer a sizing choice to make: DESIGN
+     * always auto-sizes, and SIMULATION always reads the curve. A 'fixed head'
+     * option only ever meant 'a pump that ignores its own curve', which is not
+     * a thing worth being able to model. */
+    var runSel = el('select');
+    [['auto', 'Running'],
      ['off', 'Off (isolated, no flow)']].forEach(function (kv) {
       var o = el('option', '', kv[1]); o.value = kv[0];
-      if (p.pump.mode === kv[0]) o.selected = true;
-      modeSel.appendChild(o);
+      if ((p.pump.mode === 'off' ? 'off' : 'auto') === kv[0]) o.selected = true;
+      runSel.appendChild(o);
     });
-    field(host, 'Sizing', modeSel).addEventListener('change', function () {
-      pushUndo(); p.pump.mode = modeSel.value;
+    field(host, 'Status', runSel).addEventListener('change', function () {
+      pushUndo();
+      p.pump.mode = runSel.value;
       if (p.pump.mode === 'auto') autoSizePump(p);
       renderProperties(); changed();
     });
 
     var hIn = el('input'); hIn.type = 'text';
     hIn.value = FD.units.fmtPressure(headToPa(p.pump.head || 0), m.settings.display.pressure);
-    hIn.disabled = (p.pump.mode === 'auto' || p.pump.mode === 'off');
+    hIn.disabled = true;      // always calculated: auto-sized in DESIGN, curve in SIMULATION
     field(host, 'Head (' + m.settings.display.pressure + ')', hIn)
       .addEventListener('change', function () {
         var v = FD.units.parse(hIn.value);
@@ -1518,12 +1565,15 @@
         changed();
       });
 
-    /* SIMULATION: the curve is an INPUT and the duty is read off it, so the
-     * head box above is meaningless here — the pump sits wherever the system
-     * pushes it. */
-    if (m.settings.calcMode === 'simulation' && p.pump.mode !== 'off') {
-      hIn.disabled = true;
-      hIn.title = 'Calculated in SIMULATION — the curve decides the operating point.';
+    /* The curve is the INPUT to SIMULATION, so it has to be enterable in
+     * DESIGN. Gating it behind SIMULATION created a deadlock: you could not
+     * reach SIMULATION without a curve, and could not add a curve without
+     * being in SIMULATION. */
+    if (p.pump.mode !== 'off') {
+      if (m.settings.calcMode === 'simulation') {
+        hIn.disabled = true;
+        hIn.title = 'Calculated in SIMULATION — the curve decides the operating point.';
+      }
       renderPumpCurve(host, p);
     }
 
@@ -1870,19 +1920,31 @@
   function renumberNodes() {
     var m = app.model;
     var sources = m.nodes.filter(function (n) { return n.device && n.device.kind === 'source'; });
-    var demands = m.nodes.filter(function (n) { return n.device && n.device.kind === 'demand'; });
 
-    if (!sources.length || !demands.length) {
+    /* A closed circuit legitimately has neither a source nor an outflow — the
+     * data centre models are pump-and-equipment only — so requiring both made
+     * renumbering impossible on exactly the systems that most need it.
+     *
+     * All that is actually needed is somewhere to start walking from. Prefer a
+     * source; failing that a pump inlet, which is where an engineer reads a
+     * closed circuit from anyway; failing that any node at all. */
+    var roots = sources.map(function (n) { return n.id; });
+    if (!roots.length) {
+      var pumps = m.pipes.filter(function (p) { return p.kind === 'pump'; });
+      roots = pumps.map(function (p) { return p.a; });
+    }
+    if (!roots.length && m.nodes.length) roots = [m.nodes[0].id];
+    if (!roots.length) {
       FD.dialog.alert({
         title: 'Cannot renumber',
-        message: 'Renumbering nodes requires a SOURCE and DEMAND.'
+        message: 'There is nothing to renumber — the model has no nodes yet.'
       });
       return;
     }
 
-    // Breadth-first from every source at once.
+    // Breadth-first from every root at once.
     var order = [], seen = {};
-    var queue = sources.map(function (n) { return n.id; });
+    var queue = roots.slice();
     queue.forEach(function (id) { seen[id] = true; });
     while (queue.length) {
       var cur = queue.shift();

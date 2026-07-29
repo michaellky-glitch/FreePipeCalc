@@ -252,11 +252,13 @@
          * the casing, and in a parallel pump set the running pump then
          * short-circuits backwards through its idle neighbours — the test model
          * pushed 392 L/s round the pump hall to deliver 21 L/s to the load.
-         * A standby pump in reality sits behind a closed isolating valve or a
-         * check valve, so it is modelled as blocked. */
-        link.kind = 'valve';
-        link.n = 2;
-        link.r = FD.valves.CLOSED_R;
+         *
+         * It was previously a very large resistance, which was nearly right:
+         * "nearly" cost a real 0.03% of system flow seeping through every
+         * stopped pump, and made the reported flows not quite add up. A
+         * standby pump sits behind closed isolating valves, so it is now
+         * omitted from the network entirely — a genuine break. */
+        link._omit = true;
         link._pumpOff = true;
       } else if (p.kind === 'pump' && p.pump) {
         link.kind = 'pump';
@@ -298,6 +300,11 @@
             pipe: p.id
           });
         }
+      } else if (p.kind === 'equip' && p.equip && p.equip.off) {
+        /* Isolated equipment, same reasoning as a stopped pump: a chiller
+         * valved out of the circuit is a break, not a bypass. */
+        link._omit = true;
+        link._equipOff = true;
       } else if (p.kind === 'equip' && p.equip) {
         link.kind = 'equip';
         link.n = 2;
@@ -314,8 +321,35 @@
       link._rActual = (link.kind === 'pipe') ? method.r(L, d, p.C, ctx) : 0;
       link._types = fits[p.id] ? fits[p.id].types : [];
       link._rho = rho;
+      /* Devices have a direction, and none of them pass flow backwards: a pump
+       * cannot be driven in reverse as a turbine, and a chiller has an inlet
+       * and an outlet. Same head-based test as the check valve above, and for
+       * the same reason — testing FLOW oscillates, testing the adverse head
+       * difference is a stable fixed point because the adverse head is still
+       * there while the device is held shut. */
+      if (!link._omit && prev && prev.head &&
+          (link.kind === 'pump' || link.kind === 'equip')) {
+        var hA = prev.head[p.a], hB = prev.head[p.b];
+        if (hA !== undefined && hB !== undefined && hB > hA && link.kind === 'equip') {
+          link.r = FD.valves.CLOSED_R;
+          link._reverseHeld = true;
+          warnings.push({
+            code: 'REVERSE_BLOCKED',
+            message: 'Equipment ' + (p.tag || p.id) + ' is holding against reverse flow. ' +
+                     'Check its direction — use the ‹ › button to flip it.',
+            pipe: p.id
+          });
+        }
+      }
+
       return link;
     });
+
+    /* Omitted links are a genuine break, not a big number. Anything isolated
+     * by one is reported by the disconnection check rather than silently
+     * solving to zero. */
+    var omitted = links.filter(function (l) { return l._omit; });
+    links = links.filter(function (l) { return !l._omit; });
 
     /* A CLOSED circuit has no reservoir anywhere — a chilled-water loop is
      * sealed, and its absolute pressure is set by a fill/expansion vessel, not
@@ -369,7 +403,7 @@
       }
     });
 
-    return { nodes: nodes, links: links, warnings: warnings, rho: rho };
+    return { nodes: nodes, links: links, omitted: omitted, warnings: warnings, rho: rho };
   }
 
   // --------------------------------------------------------------- solve
@@ -414,9 +448,33 @@
     var sizing = autoSizePumps(m, res);
     if (sizing.resolved) { res = sizing.res; net = res.network || net; }
 
+    /* An omitted device is out of the circuit, so its flow is exactly zero —
+     * report it as such. Leaving the key absent surfaces as `undefined` in the
+     * sheet and the property panel, which reads as a bug rather than as "this
+     * pump is off". */
+    (net.omitted || []).forEach(function (l) {
+      if (res.flow[l.id] === undefined) res.flow[l.id] = 0;
+    });
+
     res.warnings = (res.warnings || []).concat(net.warnings || []);
     res.warnings = res.warnings.concat(flowRegimeWarnings(m, net, res));
     res.warnings = res.warnings.concat(supplyWarnings(m, net, res));
+
+    /* Disconnection is checked on every solve, not just on demand. The model
+     * that prompted this returned zero flow with converged:true and no errors —
+     * the worst possible failure, because it looks like an answer. */
+    var dis = disconnections(m);
+    res.disconnections = dis;
+    var fatal = dis.filter(function (d) { return d.severity === 'error'; });
+    if (fatal.length) {
+      res.errors = (res.errors || []).concat(fatal.map(function (d) {
+        return { code: d.code, message: d.message, nodes: d.nodes, pipe: d.pipe };
+      }));
+      res.converged = false;
+    }
+    res.warnings = res.warnings.concat(dis.filter(function (d) {
+      return d.severity !== 'error';
+    }));
 
     /* SIMULATION without a curve is not a simulation. A running pump with no
      * curve falls back to a constant head, which answers a different question
@@ -1047,6 +1105,143 @@
    * The throttling needed is reported as the extra resistance that would bring
    * natural flow back to design, expressed as a valve Kv so it can be selected
    * against. */
+  /* ---------------------------------------------------------- disconnection
+   *
+   * Written after a real model came in with zero flow everywhere, converged,
+   * and no errors. Nothing was wrong with the hydraulics: the ring main simply
+   * was not a ring. Two nodes sat at EXACTLY the same coordinates without being
+   * joined, so the drawing looked continuous and the network was not.
+   *
+   * That failure is invisible on screen and silent in the results, which is the
+   * worst combination. This finds it before the solve rather than after.
+   */
+  function disconnections(m) {
+    var issues = [];
+    var deg = {};
+    m.nodes.forEach(function (n) { deg[n.id] = 0; });
+    var adj = {};
+    m.pipes.forEach(function (p) {
+      if (deg[p.a] === undefined || deg[p.b] === undefined) return;
+      deg[p.a]++; deg[p.b]++;
+      (adj[p.a] = adj[p.a] || []).push({ to: p.b, pipe: p.id });
+      (adj[p.b] = adj[p.b] || []).push({ to: p.a, pipe: p.id });
+    });
+
+    /* 1. Coincident but unjoined nodes. The one that actually bites: the
+     * drawing shows a continuous run and the model has a gap. */
+    var TOL = 0.05;                       // 50 mm — closer than anyone draws
+    var connected = {};
+    m.pipes.forEach(function (p) {
+      connected[p.a + '|' + p.b] = true;
+      connected[p.b + '|' + p.a] = true;
+    });
+    var byLevel = {};
+    m.nodes.forEach(function (n) {
+      (byLevel[n.level] = byLevel[n.level] || []).push(n);
+    });
+    Object.keys(byLevel).forEach(function (lv) {
+      var list = byLevel[lv];
+      for (var i = 0; i < list.length; i++) {
+        for (var j = i + 1; j < list.length; j++) {
+          var a = list[i], b = list[j];
+          if (connected[a.id + '|' + b.id]) continue;
+          var d = Math.hypot(a.x - b.x, a.y - b.y);
+          if (d > TOL) continue;
+          issues.push({
+            code: 'COINCIDENT_NODES', nodes: [a.id, b.id], distance: d,
+            severity: 'error',
+            message: 'Nodes ' + a.id + ' and ' + b.id + ' are ' +
+                     (d < 1e-9 ? 'in exactly the same place' :
+                      (d * 1000).toFixed(0) + ' mm apart') +
+                     ' but are not joined. The drawing looks continuous; the network is not.'
+          });
+        }
+      }
+    });
+
+    /* 2. Nodes with no pipe at all. */
+    m.nodes.forEach(function (n) {
+      if (deg[n.id] === 0) {
+        issues.push({
+          code: 'ORPHAN_NODE', nodes: [n.id], severity: 'warn',
+          message: 'Node ' + n.id + ' has no pipe connected to it.'
+        });
+      }
+    });
+
+    /* 3. Islands — groups of pipework with no path to the rest. */
+    var seen = {}, components = [];
+    m.nodes.forEach(function (n) {
+      if (seen[n.id] || deg[n.id] === 0) return;
+      var stack = [n.id], comp = [];
+      seen[n.id] = true;
+      while (stack.length) {
+        var cur = stack.pop();
+        comp.push(cur);
+        (adj[cur] || []).forEach(function (e) {
+          if (!seen[e.to]) { seen[e.to] = true; stack.push(e.to); }
+        });
+      }
+      components.push(comp);
+    });
+    if (components.length > 1) {
+      components.sort(function (x, y) { return y.length - x.length; });
+      components.slice(1).forEach(function (c) {
+        issues.push({
+          code: 'ISLAND', nodes: c, severity: 'error',
+          message: c.length + ' node(s) form a separate island with no pipe ' +
+                   'connecting them to the main network.'
+        });
+      });
+    }
+
+    /* 4. Devices with nowhere for their flow to go.
+     *
+     * A pump or a chiller only passes flow if what leaves its outlet can get
+     * somewhere. In a CLOSED circuit that somewhere is its own inlet, round the
+     * loop. In an OPEN system it is a sink — an outflow, or a source acting as
+     * a reservoir the water can return to.
+     *
+     * Checking only for the loop was wrong: it condemned every open system,
+     * where a pump legitimately has no return path because the water leaves at
+     * the terminal. So the test is reachability to ANY of those, without going
+     * back through the device itself. */
+    var isSink = {};
+    m.nodes.forEach(function (n) {
+      if (n.device && (n.device.kind === 'demand' || n.device.kind === 'source')) {
+        isSink[n.id] = true;
+      }
+    });
+
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'pump' && p.kind !== 'equip') return;
+      var seen2 = {}, stack = [p.b];
+      seen2[p.b] = true;
+      var ok2 = isSink[p.b] || false;
+      while (stack.length && !ok2) {
+        var cur = stack.pop();
+        var edges = adj[cur] || [];
+        for (var k = 0; k < edges.length; k++) {
+          if (edges[k].pipe === p.id) continue;      // not back through itself
+          var to = edges[k].to;
+          if (to === p.a || isSink[to]) { ok2 = true; break; }
+          if (!seen2[to]) { seen2[to] = true; stack.push(to); }
+        }
+      }
+      if (!ok2) {
+        issues.push({
+          code: 'NO_RETURN_PATH', pipe: p.id, nodes: [p.a, p.b], severity: 'error',
+          message: (p.kind === 'pump' ? 'Pump ' : 'Equipment ') + (p.tag || p.id) +
+                   ' has nowhere to discharge: from its outlet (' + p.b + ') there is ' +
+                   'no route back to its inlet (' + p.a + '), and no outflow or source ' +
+                   'to reach. Nothing can flow through it.'
+        });
+      }
+    });
+
+    return issues;
+  }
+
   function simulationReport(m, net, res) {
     if (m.settings.calcMode !== 'simulation') return null;
     var rho = net.rho || 998;
@@ -1237,6 +1432,7 @@
     supplyWarnings: supplyWarnings,
     criticalPath: criticalPath,
     simulationReport: simulationReport,
+    disconnections: disconnections,
     detectSystemType: detectSystemType,
     actualDelivery: actualDelivery,
     autoSizePumps: autoSizePumps,
