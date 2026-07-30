@@ -34,6 +34,13 @@ and nothing here has been looked at.
 | 8.12 | Only Kv **or** Cv shown, switchable in Display units | ⬜ | Default Kv. |
 | 8.13 | Dragging a node onto another joins them; straight run goes continuous | ⬜ | Refuses to dissolve a size change, a corner, or a node with a device. |
 | 8.14 | "4 pipes meet at one node" warning gone | ✅ | **Michael asked for this.** Node is still fitted. |
+| 8.15 | Pump/equipment stop bar is perpendicular to the pipe | ⬜ | **Michael reported this.** |
+| 8.16 | Check valve symbol is larger and its direction readable | ⬜ | **Michael reported this.** 1.6× the bowtie valves. |
+| 8.17 | ANNOTATIONS closes when leaving VIEW | ⬜ | **Michael reported this.** Verified the panel and the flag both clear. |
+| 8.18 | Pipe properties show Pressure drop and PD/m | ⬜ | Verified against the engine (5.69 kPa, 699.8 Pa/m). Note they are on different lengths and say so. |
+| 8.19 | ANNOTATIONS: "Node" group, with a Pressure toggle | ⬜ | Negative pressures are shown deliberately. |
+| 8.20 | Visualisers: FLOW, VELOCITY, PRESSURE | ⬜ | **Judgement call for Michael:** velocity is pinned to the warning limit (absolute meaning); flow and pressure scale to the model. Colour ramp blue→red. |
+| 8.21 | Side panel resizable by dragging the divider | ⬜ | Double-click resets to 210 px; width kept in localStorage, not in the model file. |
 
 ---
 
