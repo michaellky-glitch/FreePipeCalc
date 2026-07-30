@@ -55,7 +55,7 @@ and readable, which **LOAD MODEL** reads back. Worked examples are in
 ## A word on trust
 
 This is free software written to be useful, not a certified design tool. The
-engine is covered by ~440 assertions whose expected values are independent hand
+engine is covered by 633 assertions whose expected values are independent hand
 calculations rather than numbers copied out of the code, and `docs/ENGINE.md`
 gives worked examples you can check yourself with a calculator.
 

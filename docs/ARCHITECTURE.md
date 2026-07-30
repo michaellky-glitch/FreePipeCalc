@@ -38,9 +38,13 @@ opaque, so `<script type="module">` fails outright when the folder is opened by
 double-clicking. There is no workaround that also keeps "no build step".
 
 **Therefore:** every source file is a classic script wrapped in an IIFE that
-attaches to one global namespace, `FD`. Load order is fixed in `index.html` and
-mirrored in `test/harness.js`. There are no imports anywhere. If you add a file,
-add it to both places.
+attaches to one global namespace, `FD`. Load order is fixed in `index.html`.
+There are no imports anywhere. If you add a file, add it to `index.html`; and if
+the engine tests need it, add it to the load list too — `test/harness.js` always
+loads the data + engine layer (`schedules`→`solver`), and each test file appends
+the higher-level modules it exercises via `load([...])` (e.g. `model.js`,
+`network.js`). The pure-UI files (`canvas`, `app`, `dialog`, `printer`, `trace`,
+`tools`, `docs`) are not loaded by any test and need no harness entry.
 
 Anything that fetches — web fonts, CDN libraries, `import()` — is out.
 
@@ -624,7 +628,7 @@ invites entering numbers into the one being ignored.
 
 ## 15. Testing
 
-Five suites, ~440 assertions, no dependencies:
+Six suites, 633 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -632,7 +636,14 @@ node test/model.test.js      model, levels, network building, annotations
 node test/geometry.test.js   rigid edits, conflicts, repair
 node test/supply.test.js     pump sizing, supply adequacy, pressure-driven
 node test/closed.test.js     closed circuits, off pumps, equipment, tags
+node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
+
+All 633 pass. The "Parallel pumps share in DESIGN" section of
+`simulation.test.js` regression-locks the total flow and pump heads of
+`data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
+regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change
+there when the model changes is expected, not a regression.
 
 `test/harness.js` is a Node shim that evaluates the same browser sources, in
 the same order, against a fabricated `window`. There is no separate build of
@@ -723,7 +734,9 @@ Serving the folder over HTTP makes it work.
 
 ## 17. If you are changing something
 
-* Adding a source file? Add it to `index.html` **and** `test/harness.js`.
+* Adding a source file? Add it to `index.html`. If an engine test needs it, add
+  it to that test's `load([...])` list (or to `test/harness.js` if every suite
+  needs it). Pure-UI files need no harness entry — see §2.1.
 * Reporting a pressure derived from a head? Use `headToPaWith(h, rho)`.
 * Adding a warning? Detect it in the engine, format it in the UI.
 * Touching the two-pass loop? Anything flow-direction-dependent must have a

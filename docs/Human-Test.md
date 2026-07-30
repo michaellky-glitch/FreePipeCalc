@@ -2,8 +2,9 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover ~490
-assertions of engine behaviour, but they cannot tell you whether a button is
+This is deliberately separate from the automated suites. Those cover 633
+assertions of engine behaviour (all passing), but they
+cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
 right to someone who sizes pipes for a living. Only Michael can sign those off.
 
@@ -23,7 +24,7 @@ known project has been done.
 |---|---|---|---|
 | 1.1 | 3-floor riser + ring main solves sensibly | ⚠️ | Built and reviewed; energy balance closes exactly. Not checked against another tool. |
 | 1.2 | Data centre closed circuit, redundant pumps | ⚠️ | Runs; equipment gets exactly its rated flow and ΔP. Numbers not independently verified. |
-| 1.11 | `...ring_main.pnet (fixed).json` redrawn example | ❌ | **Michael: "completely incoherent."** Every pump and CRAH is a 20 m link, so ~120 m of pipework carries no friction. See `HANDOVER.md` §2. Do not use its numbers. |
+| 1.11 | `...ring_main.pnet (fixed).json` redrawn example | ⚠️ | **Rebuilt by hand 2026-07-30 and now coherent** — devices are short links (pumps 0.7 m, equip 0.49 m), ~377 m of real pipe carries friction, solves cleanly as a 20 L/s circuit. Numbers not yet independently verified against another tool. |
 | 1.3 | Hazen-Williams against a manual calculation | ⬜ | `docs/ENGINE.md` has worked examples set up for exactly this. |
 | 1.4 | Fitting equivalent lengths vs. a published table | ⬜ | Flat L/D per spec §3.3. Worth a spot check against ASHRAE. |
 | 1.9 | Hazen-Williams, straight pipe | ✅ | **Michael validated this.** Mostly correct. |

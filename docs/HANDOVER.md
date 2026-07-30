@@ -22,18 +22,27 @@ whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
 Tests: `node test/<name>.test.js` — six files, **633 assertions, all passing**.
+(The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
+2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. BROKEN — fix this first
+## 2. ~~BROKEN — fix this first~~ RESOLVED 2026-07-30
+
+**Update (2026-07-30):** Michael rebuilt the model by hand. Devices are now
+short links (pumps 0.7 m, equipment 0.49 m) with ~377 m of real pipe carrying
+friction, and it solves cleanly. It is now a 20 L/s single-equipment circuit.
+The `simulation.test.js` parallel-pump baseline was regenerated to match. The
+numbers have **not** been independently verified against another tool. The
+original defect writeup is kept below for the record.
 
 ### `examples/data_centre_redundant_ring_main.pnet (fixed).json` is incoherent
 
-Michael's verdict: *"completely incoherent."* He is right. I generated it
+~~Michael's verdict: *"completely incoherent."* He is right. I generated it
 programmatically last session via `examples/build-datacentre-ring.js` and only
-ever checked that it *solved*, never that it read as a drawing.
+ever checked that it *solved*, never that it read as a drawing.~~
 
-**The defect:** every pump and both CRAH units are **20 m long links**.
+~~**The defect:** every pump and both CRAH units are **20 m long links**.~~
 
 ```
   pump  CHW-P-01   20.0 m
@@ -42,9 +51,11 @@ ever checked that it *solved*, never that it read as a drawing.
   equip CRAH-01    20.0 m
 ```
 
-I placed the suction header at y=20 and the discharge header at y=0 and let each
+~~I placed the suction header at y=20 and the discharge header at y=0 and let each
 pump bridge straight between them, so the *pump* is the 20 m connecting pipe.
-Same for the CRAHs bridging supply ring to return ring.
+Same for the CRAHs bridging supply ring to return ring.~~
+
+Michael fixed the model manually as a UX test.
 
 **Why it matters beyond looking wrong:** a pump link is a head source and an
 equipment link is a fixed `r·Q²`. Neither carries pipe friction. So roughly 120 m

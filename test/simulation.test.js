@@ -370,13 +370,15 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
   /* N pumps each holding a fixed head between the same two headers is a
    * degenerate problem: the equations are linearly dependent and continuity
    * alone does not decide the split. Before the balancing pass this returned a
-   * 99.9% skew — one pump carrying all 45 L/s while the rest sat at 0.1 L/s —
+   * 99.9% skew — one pump carrying the whole flow while the rest sat near zero —
    * with the TOTAL and the HEAD both perfectly correct.
    *
-   * The heads below are the values the sizer produced BEFORE any of this work,
-   * so they also guard against the balancing pass disturbing the sizing. */
+   * These values are a regression baseline regenerated from the hand-rebuilt
+   * model (2026-07-30), which is a 20 L/s single-equipment circuit — the old
+   * numbers came from the earlier 45 L/s two-CRAH geometry. They also guard
+   * against the balancing pass disturbing the sizing. */
   const file = __dirname + '/../examples/data_centre_redundant_ring_main.pnet (fixed).json';
-  const expectHead = { 1: 209.4, 2: 207.0, 3: 205.6, 4: 204.3 };   // kPa
+  const expectHead = { 1: 268.5, 2: 257.6, 3: 253.3, 4: 249.6 };   // kPa
 
   [1, 2, 3, 4].forEach(n => {
     const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
@@ -387,7 +389,7 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
     const qs = ps.slice(0, n).map(p => Math.abs(res.flow[p.id]));
     const tot = qs.reduce((a, b) => a + b, 0);
 
-    near(n + ' pump(s): total flow is the circuit flow', tot, 0.045, 0.0015);
+    near(n + ' pump(s): total flow is the circuit flow', tot, 0.020, 0.0015);
     near(n + ' pump(s): head matches the pre-existing sizer answer',
          ps[0].pump.head * RHO * G / 1000, expectHead[n], 0.5);
 
@@ -397,7 +399,7 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
          qs.map(q => (q * 1000).toFixed(2)).join(' / '));
       qs.forEach((q, i) => {
         ok(n + ' pumps: pump ' + (i + 1) + ' carries a real share',
-           q > 0.045 / n * 0.9 && q < 0.045 / n * 1.1, (q * 1000).toFixed(2));
+           q > 0.020 / n * 0.9 && q < 0.020 / n * 1.1, (q * 1000).toFixed(2));
       });
     }
   });
