@@ -10,6 +10,7 @@
       "length": "m",
       "size": "DN"
     },
+    "calcMode": "design",
     "frictionMethod": "HW",
     "systemType": "closed",
     "hw": {
@@ -27,13 +28,18 @@
       "name": "Water",
       "density": 998,
       "kinematicViscosity": 0.000001004,
-      "temperature": 20
+      "temperature": 20,
+      "specificHeat": 4187
     },
     "fittingLD": {
       "E90": 30,
       "E45": 16,
       "TRUN": 20,
       "TBRANCH": 60,
+      "TRUN_DIV": 20,
+      "TBRANCH_DIV": 60,
+      "TRUN_CONV": 20,
+      "TBRANCH_CONV": 90,
       "GATE": 8,
       "GLOBE": 340,
       "CHECK": 100
@@ -43,12 +49,13 @@
     "lastSize": "DN100",
     "C": 120,
     "defaultC": {},
-    "pumpSafetyPct": 10,
+    "pumpSafetyPct": 0,
     "theme": "dark",
     "warn": {
       "velocity": 2.4,
       "pdm": 400,
-      "laminar": true
+      "laminar": true,
+      "pumpRunout": 120
     },
     "floorToFloor": 3.5,
     "grid": {
@@ -62,9 +69,15 @@
       "pipeFlow": true,
       "pipeVelocity": false,
       "pipePD": false,
+      "pipePDM": false,
       "fitType": true,
       "fitPD": false,
       "nodeNumbers": true
+    },
+    "presentation": {
+      "arrowSize": 1,
+      "labelSize": 11,
+      "uiFontSize": 14
     },
     "csv": {
       "delimiter": ",",
@@ -88,7 +101,8 @@
       "altitude": 10.5,
       "dx": 0,
       "dy": 0,
-      "lookDir": "down"
+      "lookDir": "down",
+      "trace": null
     },
     {
       "id": "L0",
@@ -96,7 +110,8 @@
       "altitude": 10,
       "dx": 0,
       "dy": 0,
-      "lookDir": "down"
+      "lookDir": "down",
+      "trace": null
     }
   ],
   "nodes": [
@@ -401,7 +416,7 @@
       "riser": null,
       "pump": {
         "mode": "auto",
-        "head": 26.517843847330127,
+        "head": 26.398315022260196,
         "flow": 0
       },
       "tag": "CHW-P-01"
@@ -955,5 +970,5 @@
     "riser": 5
   },
   "activeLevel": "L0",
-  "savedAt": "2026-07-28T08:42:12.352Z"
+  "savedAt": "2026-07-30T05:33:52.812Z"
 }

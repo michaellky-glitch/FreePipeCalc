@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 633
+This is deliberately separate from the automated suites. Those cover 651
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,29 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-07-29 (v0.5.0-dev)
+Last updated: 2026-07-30 (v0.6.0-dev)
+
+## Awaiting Michael's eye — new in v0.6.0-dev
+
+Built and internally verified (logic node-tested, behaviour driven through the
+live DOM), but **nothing below has been looked at by a person**. The preview
+browser in the build environment has a 0×0 viewport, so no pixels were ever
+rendered — anything about how these LOOK is unverified.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| 7.1 | Riser select handle (triangle) + riser size/schedule/C | ⬜ | Click the triangle beside a riser marker. Verified: handle selects the column, panel appears, size change reaches the bore. |
+| 7.2 | New riser runs to the View Direction level automatically | ⬜ | Verified both directions materialise a real vertical pipe on the first click, reusing any node already there. |
+| 7.3 | "View Direction" rename, Look Up / Look Down | ⬜ | |
+| 7.4 | Devices drawn as point symbols on a thin connector | ⬜ | **The one to judge.** Agreed in principle only. At high zoom a 0.7 m pump link is still 0.7 m of drawing with a fixed-size symbol on it. |
+| 7.5 | Type a length while drawing + Enter | ⬜ | Verified exact: 12.5 m east, 4 m north, 10 m at 45°. Preview follows the typed number. |
+| 7.6 | Multi-select → bulk size / schedule / C | ⬜ | Blank = leave alone. Verified bores follow. |
+| 7.7 | VIEW replaces LAYOUT; TRACE inside VIEW; DRAW hidden in VIEW | ⬜ | |
+| 7.8 | Ribbon group labels centred | ⬜ | CSS only, never seen. |
+| 7.9 | PD/m pipe annotation | ⬜ | Verified to agree with the PDM warning to the rounded digit (699.7 → "700Pa/m"). |
+| 7.10 | Reverse-direction button beside a selected device | ⬜ | Only on pumps/equipment/check valves, only while selected. |
+| 7.11 | Warnings chip: hover preview, click to highlight | ⬜ | Verified 12 pipes + 3 nodes highlighted, all genuinely warned; toggles off. |
+| 7.12 | CLOSED LOOP with an expansion tank and no outflow | ✅ | **Michael reported this.** Now reads CLOSED; all five examples classify correctly. |
 
 ---
 
@@ -64,10 +86,10 @@ known project has been done.
 | # | What | Status | Notes |
 |---|---|---|---|
 | 4.1 | Toolbar grouping and mode hints | ⬜ | Reorganised in v0.4.0. |
-| 4.2 | LAYOUT: drag labels | ⬜ | |
-| 4.3 | LAYOUT: "Show on drawing" checkboxes | ❌ | **Michael could not find these.** They appear only in LAYOUT mode, in the properties panel, under a *Show on drawing* heading, after selecting a device. If they are still not findable, the placement is wrong — treat this as a UI defect, not user error. |
+| 4.2 | VIEW: drag labels | ⬜ | |
+| 4.3 | VIEW: "Show on drawing" checkboxes | ❌ | **Michael could not find these.** They appear only in VIEW mode, in the properties panel, under a *Show on drawing* heading, after selecting a DEVICE or a source/outflow node — a plain pipe has none at all, which is likely why they seemed absent. If they are still not findable, the placement is wrong — treat this as a UI defect, not user error. |
 | 4.4 | Vertical pipe label drag box | ⚠️ | Was a horizontal box on a vertical pipe (Michael's screenshot). Fixed; needs confirming. |
-| 4.5 | Open/closed loop indicator on the ribbon | ⬜ | **New.** Should read OPEN LOOP with a source, CLOSED LOOP with a pump and no source, NO SUPPLY with neither — and change as you draw. |
+| 4.5 | Open/closed loop indicator on the ribbon | ⬜ | **New.** Should read OPEN LOOP when an outflow draws water off, CLOSED LOOP for a sealed pumped circuit (even with an expansion tank), NO SUPPLY with neither — and change as you draw. |
 | 4.6 | HYDRAULIC tab: editable coefficients inside the formula | ⬜ | |
 | 4.7 | Custom pipe schedule: paste from a spreadsheet | ⬜ | **New.** Three columns, all in mm. |
 | 4.8 | UI font / label size / arrow size | ⬜ | |

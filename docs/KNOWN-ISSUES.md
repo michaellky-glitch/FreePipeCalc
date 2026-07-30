@@ -42,7 +42,7 @@ piecemeal.
 hand into a coherent 20 L/s single-equipment circuit, so the old 45 L/s
 expectations failed. The baseline was regenerated from the final model
 (total 0.020 m³/s; heads 268.5 / 257.6 / 253.3 / 249.6 kPa for 1–4 running
-pumps) and all 633 assertions pass again. Not an independent check — a
+pumps) and all assertions pass again. Not an independent check — a
 regression lock, as the originals were.
 
 ---

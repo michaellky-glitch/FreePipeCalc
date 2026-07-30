@@ -226,22 +226,33 @@ that comment before trusting them.
 
 ---
 
-## 7A. Modes: EDIT, DRAW PIPE, LAYOUT
+## 7A. Modes: EDIT, DRAW PIPE, VIEW
 
 The canvas has three modes, plus a set of placement tools.
 
-* **EDIT** — select, drag nodes, change properties.
-* **DRAW PIPE** — click-to-click routing.
-* **LAYOUT** — arrange the drawing for print. Every annotation is draggable,
-  and device properties can be echoed beside their entity in a box.
+* **EDIT** — select, drag nodes, change properties. Multi-selecting offers
+  size / schedule / C across the whole selection.
+* **DRAW PIPE** — click-to-click routing. Typing digits mid-run and pressing
+  Enter draws exactly that length along the current preview bearing: the
+  bearing stays a mouse gesture (with its 15° snapping) and only the magnitude
+  is typed.
+* **VIEW** — arrange the drawing for print. Every annotation is draggable,
+  and device properties can be echoed beside their entity in a box. **TRACE is
+  a tool within VIEW**, because tracing is arranging the background you then
+  draw over. The DRAW placement tools are hidden in VIEW and vice versa: they
+  are alternatives, and the ribbon was offering PIPE in a mode where a click
+  drags a label. (VIEW was called LAYOUT until v0.6.0-dev.)
 
-LAYOUT exists because auto-placed labels collide with pipework on anything
+VIEW exists because auto-placed labels collide with pipework on anything
 busy, and on a printed drawing that is the difference between readable and not.
 Label offsets are stored in **screen pixels**, not metres, so a label stays the
 same distance from its owner at every zoom — which is what "tidy" means on a
 drawing and what carries to print.
 
-Display flags (`obj.show`) are only offered in LAYOUT. Off by default: a drawing
+Display flags (`obj.show`) are only offered in VIEW, and only on devices and
+device nodes — a plain pipe has none, which is worth knowing because it is
+probably why the checkboxes were reported as unfindable (`Human-Test.md` 4.3).
+Off by default: a drawing
 carrying every value is unreadable.
 
 **There is no CALCULATE button.** Every edit already triggers a debounced solve,
@@ -638,7 +649,7 @@ invites entering numbers into the one being ignored.
 
 ## 15. Testing
 
-Six suites, 633 assertions, no dependencies:
+Six suites, 651 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -649,7 +660,7 @@ node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
 
-All 633 pass. The "Parallel pumps share in DESIGN" section of
+All 651 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change
