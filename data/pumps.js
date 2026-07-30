@@ -232,7 +232,7 @@
 
   /* Parse pasted Q,H data. Same tolerant approach as the pipe-schedule parser:
    * tabs, commas, semicolons or spaced columns, header row skipped. */
-  function parseCurve(text, flowUnit, headUnit) {
+  function parseCurve(text, flowUnit, headUnit, rho) {
     var out = [], skipped = [];
     String(text || '').split(/\r?\n/).forEach(function (raw, i) {
       var line = raw.trim();
@@ -250,7 +250,12 @@
       }
       out.push({
         q: FD.units.toSIFlow(q, flowUnit || 'L/s'),
-        h: FD.units.toSIPressure(h, headUnit || 'kPa') / (998 * 9.81)
+        /* Pressure → head via the ACTUAL fluid density, matching the manual
+         * pump-head field (app.js paToHeadWith). Using a hard-coded 998 here
+         * meant a pasted curve and a typed duty disagreed for glycol. A head
+         * unit ('m'/'ft') round-trips as before, since it is defined as
+         * metres-of-water pressure in units.js. */
+        h: FD.units.paToHeadWith(FD.units.toSIPressure(h, headUnit || 'kPa'), rho)
       });
     });
     out.sort(function (a, b) { return a.q - b.q; });

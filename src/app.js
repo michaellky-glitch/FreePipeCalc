@@ -955,7 +955,79 @@
 
     var s = sel[0];
     if (s.kind === 'pipe') renderPipeProps(host, M.pipe(m, s.id));
+    else if (s.kind === 'riser') renderRiserProps(host, m.risers.find(function (r) { return r.id === s.id; }));
     else renderNodeProps(host, M.node(m, s.id));
+  }
+
+  /* Riser column properties. A column materialises one or more vertical pipes
+   * between the floors it joins; by default they inherit the size of the
+   * largest horizontal pipe they connect to. This panel lets the size, schedule
+   * and C be pinned explicitly — the reason a riser needs to be selectable at
+   * all. */
+  function renderRiserProps(host, r) {
+    if (!r) return;
+    var m = app.model;
+    host.appendChild(el('h3', '', 'Riser ' + r.id));
+
+    var segs = m.pipes.filter(function (p) { return p.kind === 'riser' && p.riser === r.id; });
+    var sample = segs[0];
+    // Current resolved values: the override if set, else what a segment shows.
+    var curSchedule = r.schedule || (sample && sample.schedule) || m.settings.schedule;
+    var curSize = r.size || (sample && sample.size) ||
+                  FD.schedules.defaultSize(curSchedule, m.customSchedules);
+    var curC = (r.C !== undefined && r.C !== null) ? r.C
+             : (sample ? sample.C : m.settings.C);
+
+    host.appendChild(el('p', 'hint',
+      'Connects ' + r.attachments.length + ' level' + (r.attachments.length === 1 ? '' : 's') +
+      (r.size ? '. Size pinned.' : '. Size inherited from the largest connected pipe.')));
+
+    // schedule
+    var schSel = el('select');
+    var all = FD.schedules.all(m.customSchedules);
+    Object.keys(all).forEach(function (k) {
+      var o = el('option', '', all[k].name); o.value = k;
+      if (k === curSchedule) o.selected = true;
+      schSel.appendChild(o);
+    });
+    field(host, 'Schedule', schSel).addEventListener('change', function () {
+      pushUndo();
+      var sched = schSel.value;
+      var size = curSize;
+      if (!FD.schedules.get(sched, m.customSchedules).sizes
+            .some(function (x) { return x.label === size; })) {
+        size = FD.schedules.defaultSize(sched, m.customSchedules);
+      }
+      M.setRiserProps(m, r.id, { schedule: sched, size: size });
+      renderProperties(); changed();
+    });
+
+    // size
+    var sizeSel = el('select');
+    FD.schedules.get(curSchedule, m.customSchedules).sizes.forEach(function (sz) {
+      var o = el('option', '', sz.label + '  (' + sz.id_mm.toFixed(1) + ' mm)');
+      o.value = sz.label;
+      if (sz.label === curSize) o.selected = true;
+      sizeSel.appendChild(o);
+    });
+    field(host, 'Size', sizeSel).addEventListener('change', function () {
+      pushUndo(); M.setRiserProps(m, r.id, { size: sizeSel.value }); changed();
+    });
+
+    // C factor
+    var cIn = el('input'); cIn.type = 'number'; cIn.value = curC; cIn.step = '1';
+    field(host, 'C factor', cIn).addEventListener('change', function () {
+      var v = FD.units.parse(cIn.value);
+      if (isFinite(v) && v > 0) { pushUndo(); M.setRiserProps(m, r.id, { C: v }); changed(); }
+      else { cIn.value = curC; toast('C factor must be a positive number.', 'error'); }
+    });
+
+    var del = el('button', 'btn danger', 'Delete riser column');
+    del.addEventListener('click', function () {
+      pushUndo(); M.removeRiser(m, r.id);
+      app.view.selection = []; changed(); renderProperties();
+    });
+    host.appendChild(del);
   }
 
   /* TRACE panel: everything to do with the background drawing for this level. */
@@ -1442,7 +1514,7 @@
                    type: 'textarea', rows: 10, value: '' }]
       }).then(function (v) {
         if (!v || !v.data || !v.data.trim()) return;
-        var parsed = FD.pumps.parseCurve(v.data, fu, pu);
+        var parsed = FD.pumps.parseCurve(v.data, fu, pu, m.settings.fluid && m.settings.fluid.density);
         if (parsed.points.length < 3) {
           FD.dialog.alert({ title: 'Not enough points',
             message: 'Read ' + parsed.points.length + ' usable point(s). At least three are ' +

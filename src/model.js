@@ -348,14 +348,41 @@
                  ((p.a === top.node && p.b === bot.node) ||
                   (p.a === bot.node && p.b === top.node));
         });
-        if (existing) { out.push(existing); continue; }
+        if (existing) {
+          /* Propagate an explicit column override onto pipes already
+           * materialised. With no override the first-resolved inherited size
+           * is left untouched, so auto-sized risers keep behaving as before. */
+          if (r.size) existing.size = r.size;
+          if (r.schedule) existing.schedule = r.schedule;
+          if (r.C !== undefined && r.C !== null) existing.C = r.C;
+          out.push(existing); continue;
+        }
         var p = addPipe(m, top.node, bot.node, {
-          kind: 'riser', riser: r.id, size: inheritRiserSize(m, top.node, bot.node)
+          kind: 'riser', riser: r.id,
+          size: r.size || inheritRiserSize(m, top.node, bot.node),
+          schedule: r.schedule, C: r.C
         });
         out.push(p);
       }
     });
     return out;
+  }
+
+  /* Set an explicit size / schedule / C override on a riser column, and push it
+   * onto every pipe already materialised for that column. An empty size or
+   * schedule clears the override (back to inherit / the settings default). */
+  function setRiserProps(m, riserId, props) {
+    var r = m.risers.find(function (x) { return x.id === riserId; });
+    if (!r) return;
+    if (props.size !== undefined) r.size = props.size || undefined;
+    if (props.schedule !== undefined) r.schedule = props.schedule || undefined;
+    if (props.C !== undefined) r.C = props.C;
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'riser' || p.riser !== riserId) return;
+      if (r.size) p.size = r.size;
+      if (r.schedule) p.schedule = r.schedule;
+      if (r.C !== undefined && r.C !== null) p.C = r.C;
+    });
   }
 
   function inheritRiserSize(m, aId, bId) {
@@ -636,7 +663,7 @@
     pipesAt: pipesAt, other: other, pipeLength: pipeLength, pipeBore: pipeBore,
 
     addRiser: addRiser, attachRiser: attachRiser, riserPipes: riserPipes,
-    removeRiser: removeRiser,
+    removeRiser: removeRiser, setRiserProps: setRiserProps,
     copyLevel: copyLevel,
     MIN_OUTFLOW_PRESSURE: MIN_OUTFLOW_PRESSURE,
     outflowResistance: outflowResistance,

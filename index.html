@@ -149,28 +149,34 @@
      clicking, no build step" requirement in spec §1. Every file attaches
      to the single global FD namespace. See docs/ENGINE.md §1.
      ================================================================== -->
-<script src="data/schedules.js"></script>
-<script src="data/fittings.js"></script>
-<script src="data/valves.js"></script>
-<script src="data/ktable.js"></script>
-<script src="data/pumps.js"></script>
-<script src="src/units.js"></script>
-<script src="src/hydraulics.js"></script>
-<script src="src/solver.js"></script>
-<script src="src/model.js"></script>
-<script src="src/geometry.js"></script>
-<script src="src/network.js"></script>
-<script src="src/dialog.js"></script>
-<script src="src/trace.js"></script>
-<script src="src/canvas.js"></script>
-<script src="src/printer.js"></script>
-<script src="src/tools.js"></script>
-<script src="src/docs.js"></script>
-<script src="src/app.js"></script>
+<!-- The ?v= query is a cache-buster. It is NOT a build step and NOT a fetch:
+     these are still ordinary classic <script src> tags, so the file:// rule
+     (no ES modules, no fetch of siblings — §2.1) is untouched. Browsers ignore
+     the query when resolving a file:// path, so double-clicking still works;
+     over HTTP, changing the token forces a reload instead of a stale copy.
+     Bump the token on release, or during development after editing a module. -->
+<script src="data/schedules.js?v=0.6.0-dev"></script>
+<script src="data/fittings.js?v=0.6.0-dev"></script>
+<script src="data/valves.js?v=0.6.0-dev"></script>
+<script src="data/ktable.js?v=0.6.0-dev"></script>
+<script src="data/pumps.js?v=0.6.0-dev"></script>
+<script src="src/units.js?v=0.6.0-dev"></script>
+<script src="src/hydraulics.js?v=0.6.0-dev"></script>
+<script src="src/solver.js?v=0.6.0-dev"></script>
+<script src="src/model.js?v=0.6.0-dev"></script>
+<script src="src/geometry.js?v=0.6.0-dev"></script>
+<script src="src/network.js?v=0.6.0-dev"></script>
+<script src="src/dialog.js?v=0.6.0-dev"></script>
+<script src="src/trace.js?v=0.6.0-dev"></script>
+<script src="src/canvas.js?v=0.6.0-dev"></script>
+<script src="src/printer.js?v=0.6.0-dev"></script>
+<script src="src/tools.js?v=0.6.0-dev"></script>
+<script src="src/docs.js?v=0.6.0-dev"></script>
+<script src="src/app.js?v=0.6.0-dev"></script>
 <script>
   window.FD.APP_NAME = 'FreePipeCalc';
   window.FD.APP_SHORT = 'FPC';
-  window.FD.VERSION = '0.5.0-dev';
+  window.FD.VERSION = '0.6.0-dev';
   window.FD.FORMAT_VERSION = 1;
   try {
     window.FD.initApp();

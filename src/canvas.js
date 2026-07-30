@@ -113,20 +113,6 @@
     return best;
   };
 
-  /* Riser columns are drawn as a marker, not as a line on the plan, so they
-   * were unreachable: pipeAt() skips them and their endpoints sit on two
-   * different levels. Hit the marker instead — that is what the user sees and
-   * points at. */
-  View.prototype.riserAt = function (wx, wy, radiusPx) {
-    var m = this.getModel(), best = null, bestD = Infinity;
-    var rad = this.pxToM(radiusPx === undefined ? 11 : radiusPx);
-    m.risers.forEach(function (r) {
-      var d = Math.hypot(r.x - wx, r.y - wy);
-      if (d < rad && d < bestD) { bestD = d; best = r; }
-    });
-    return best;
-  };
-
   /* An in-line device — pump, valve, equipment — is drawn as a glyph straddling
    * the midpoint of its own short pipe. Grabbing that glyph should move the
    * whole device, not just whichever end node happened to be nearest. */
@@ -167,6 +153,21 @@
     m.risers.forEach(function (r) {
       var d = Math.hypot(r.x - wx, r.y - wy);
       if (d < rad && d < bestD) { bestD = d; best = r; }
+    });
+    return best;
+  };
+
+  /* A riser marker sits directly on top of the node it attaches to, so a click
+   * on the marker selects that NODE and the riser column is unreachable. The
+   * fix is a dedicated select handle — a small triangle drawn beside the marker
+   * — hit-tested in SCREEN space and given priority over the node underneath. */
+  var RISER_HANDLE_DX = 16;      // screen px, right of the marker centre
+  View.prototype.riserHandleAt = function (sx, sy) {
+    var m = this.getModel(), self = this, best = null, bestD = Infinity;
+    m.risers.forEach(function (r) {
+      var s = self.toScreen(r.x, r.y);
+      var d = Math.hypot(sx - (s.x + RISER_HANDLE_DX), sy - s.y);
+      if (d < 10 && d < bestD) { bestD = d; best = r; }
     });
     return best;
   };
@@ -409,6 +410,18 @@
       if (self.tool === 'riser') { self.riserClick(w); return; }
 
       // EDIT: select, or start a marquee
+
+      /* Riser select handle first: the marker sits on top of a node, so without
+       * a dedicated handle the node always wins and the column cannot be
+       * selected to size it. */
+      var rh = self.riserHandleAt(sx, sy);
+      if (rh) {
+        self.selection = [{ kind: 'riser', id: rh.id }];
+        c.setPointerCapture(e.pointerId);
+        self.changed();
+        return;
+      }
+
       var s = self.snap(w.x, w.y);
       /* Device before node: its glyph sits between two nodes only a few hundred
        * millimetres apart, so a click in the middle would otherwise always grab
@@ -1262,6 +1275,20 @@
         ctx.setLineDash([3, 3]);
         ctx.beginPath(); ctx.arc(s.x, s.y, 9, 0, Math.PI * 2); ctx.stroke();
       }
+      ctx.restore();
+
+      /* Select handle: a small triangle beside the marker. The marker sits on
+       * the attached node, so this gives a spot to click that selects the
+       * COLUMN (to size it) rather than the node underneath. */
+      ctx.save();
+      var hx = s.x + RISER_HANDLE_DX, hy = s.y;
+      ctx.fillStyle = sel ? self.theme.select : (here ? self.theme.flow : self.theme.mute);
+      ctx.beginPath();
+      ctx.moveTo(hx - 4, hy - 5);
+      ctx.lineTo(hx + 4, hy);
+      ctx.lineTo(hx - 4, hy + 5);
+      ctx.closePath();
+      ctx.fill();
       ctx.restore();
 
       if (m.settings.annotate.fitType) {
