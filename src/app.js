@@ -228,14 +228,60 @@
     }
     chip.title = '';
 
-    var warn = countWarnings(res);
+    var list = computeWarnings(res);
+    var warn = list.length;
     if (warn) {
       chip.textContent = warn + ' warning' + (warn > 1 ? 's' : '');
       chip.className = 'chip warn';
+      /* Hovering previews WHAT is wrong, so the count does not have to be taken
+       * on trust or chased into the CALCULATION tab. Capped, because a badly
+       * oversized model can raise dozens and a tooltip that fills the screen
+       * gets dismissed unread. */
+      var PREVIEW = 8;
+      var lines = list.slice(0, PREVIEW).map(function (w) {
+        return '• ' + (w.message || w.code);
+      });
+      if (warn > PREVIEW) lines.push('… and ' + (warn - PREVIEW) + ' more');
+      lines.push('', 'Click to highlight the affected pipes on the drawing.');
+      chip.title = lines.join('\n');
+      chip.style.cursor = 'pointer';
     } else {
       chip.textContent = 'Solved · ' + res.iterations + ' iterations';
       chip.className = 'chip ok';
+      chip.title = '';
+      chip.style.cursor = '';
+      app.view.warnHighlight = null;
     }
+  }
+
+  /* Clicking the status chip highlights whatever the warnings name. A toggle,
+   * not a one-shot: the point is to keep the marks visible while the drawing is
+   * being fixed, the same reasoning as SHOW DISCONNECT. */
+  function initStatusChip() {
+    var chip = $('status-chip');
+    if (!chip) return;
+    chip.addEventListener('click', function () {
+      if (app.view.warnHighlight) {
+        app.view.warnHighlight = null;
+        app.view.render();
+        toast('Warning highlight off.');
+        return;
+      }
+      var list = computeWarnings(app.results);
+      if (!list.length) { toast('No warnings to highlight.'); return; }
+      var pipes = {}, nodes = {}, nP = 0, nN = 0;
+      list.forEach(function (w) {
+        if (w.pipe && !pipes[w.pipe]) { pipes[w.pipe] = true; nP++; }
+        (w.nodes || []).forEach(function (id) { if (!nodes[id]) { nodes[id] = true; nN++; } });
+        if (w.node && !nodes[w.node]) { nodes[w.node] = true; nN++; }
+      });
+      if (!nP && !nN) { toast('These warnings do not point at a particular pipe.'); return; }
+      app.view.warnHighlight = { pipes: pipes, nodes: nodes };
+      app.view.render();
+      toast('Highlighted ' + nP + ' pipe' + (nP === 1 ? '' : 's') +
+            (nN ? ' and ' + nN + ' node' + (nN === 1 ? '' : 's') : '') +
+            '. Click the chip again to clear.');
+    });
   }
 
   /* The property panel shows solved values (flow, velocity, pressure), so it
@@ -262,26 +308,35 @@
      * are only reformatted into the user's display units. Do NOT re-derive
      * them from the sheet rows: that made solveModel() report "no warnings"
      * for a network running at 12 m/s. */
+    /* The WHERE is carried through, not just the message. Reformatting used to
+     * drop `pipe`/`node`, which left the warning list unable to point at
+     * anything on the drawing — so the chip could count problems it could not
+     * show you. */
     var out = (res.warnings || []).map(function (w) {
+      var where = { code: w.code, pipe: w.pipe, node: w.node, nodes: w.nodes };
       if (w.code === 'PDM' && w.pdm !== undefined) {
-        return { message: 'Section ' + w.section + ': friction rate ' +
+        where.message = 'Section ' + w.section + ': friction rate ' +
           FD.units.fmtPdm(w.pdm, d.pdm, true) + ' exceeds the ' +
-          FD.units.fmtPdm(w.limit, d.pdm, true) + ' limit.' };
+          FD.units.fmtPdm(w.limit, d.pdm, true) + ' limit.';
+        return where;
       }
-      return { message: w.message };
+      where.message = w.message;
+      return where;
     });
 
     m.nodes.forEach(function (n) {
       if (!n.device || n.device.kind !== 'demand' || n.device.include === false) return;
       if (res.pressure[n.id] === undefined) return;
       if (isUnreachable(res.pressure[n.id])) {
-        out.push({ message: 'Outflow ' + n.id + ' cannot be reached — it is isolated by a shut ' +
+        out.push({ code: 'UNREACHABLE', node: n.id,
+                   message: 'Outflow ' + n.id + ' cannot be reached — it is isolated by a shut ' +
                             'valve or not connected to a source.' });
         return;
       }
       var short = res.pressure[n.id] - (n.device.reqPressure || 0);
       if (short < 0) {
-        out.push({ message: 'Outflow ' + n.id + ' is ' +
+        out.push({ code: 'OUTFLOW_SHORT', node: n.id,
+          message: 'Outflow ' + n.id + ' is ' +
           FD.units.fmtPressure(-short, d.pressure, true) + ' short of its required pressure.' });
       }
     });
@@ -3013,6 +3068,7 @@
     applyTheme();
     applyPresentation();
     initModeChip();
+    initStatusChip();
 
     app.view = new FD.View($('canvas'), function () { return app.model; }, function () {
       renderProperties();

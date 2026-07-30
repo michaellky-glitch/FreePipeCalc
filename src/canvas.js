@@ -43,6 +43,10 @@
     this.selection = [];             // [{kind,id}]
     this.marquee = null;
     this.conflict = null;          // pipe ids highlighted red by a geometry conflict
+    /* Pipes/nodes the warning chip is pointing at. Kept separate from
+     * `conflict`: a geometry conflict is an error that blocks an edit, a
+     * warning is advisory, and they are drawn in different colours. */
+    this.warnHighlight = null;     // {pipes:{id:true}, nodes:{id:true}}
     this.dragTrace = null;         // in-progress trace move/scale
     this.calibrating = null;       // {points:[]} while picking two scale points
     this.results = null;             // last solve, for colouring & tooltips
@@ -1110,6 +1114,7 @@
     this.drawMarquee();
     this.drawDeviceHover();
     this.drawCalibration();
+    this.drawWarnHighlight();
     this.drawDisconnects();
     this.drawFlipButton();
     this.drawScaleBar();
@@ -1215,6 +1220,42 @@
     ctx.restore();
 
     if (issues.length) this.requestAnimation();
+  };
+
+  /* Halo the pipes and nodes the warning chip is reporting.
+   *
+   * A count of warnings tells you there is a problem but not WHERE, and finding
+   * "section N12 → N13" by eye on a busy drawing is the slow part. Drawn as a
+   * wide translucent amber stroke under the pipe so the pipe's own colour and
+   * annotation stay readable on top. */
+  View.prototype.drawWarnHighlight = function () {
+    var h = this.warnHighlight;
+    if (!h) return;
+    var m = this.getModel(), ctx = this.ctx, self = this;
+
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = this.theme.warn;
+    ctx.lineCap = 'round';
+    m.pipes.forEach(function (p) {
+      if (!h.pipes || !h.pipes[p.id]) return;
+      var a = M.node(m, p.a), b = M.node(m, p.b);
+      if (!a || !b) return;
+      if (a.level !== m.activeLevel && b.level !== m.activeLevel) return;
+      var wa = M.worldXY(m, a), wb = M.worldXY(m, b);
+      var sa = self.toScreen(wa.x, wa.y), sb = self.toScreen(wb.x, wb.y);
+      ctx.lineWidth = self.pipeWidth(p) + 8;
+      ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 2.5;
+    m.nodes.forEach(function (n) {
+      if (!h.nodes || !h.nodes[n.id] || n.level !== m.activeLevel) return;
+      var w = M.worldXY(m, n);
+      var s = self.toScreen(w.x, w.y);
+      ctx.beginPath(); ctx.arc(s.x, s.y, 13, 0, Math.PI * 2); ctx.stroke();
+    });
+    ctx.restore();
   };
 
   /* The reverse-direction button beside the selected device: a rounded box

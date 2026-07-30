@@ -1563,9 +1563,32 @@
     var pumps = m.pipes.filter(function (p) {
       return p.kind === 'pump' && !(p.pump && p.pump.mode === 'off');
     }).length;
+    var outflows = m.nodes.filter(function (n) {
+      return n.device && n.device.kind === 'demand' && n.device.include !== false;
+    }).length;
+
+    /* A source alone does not make a system OPEN.
+     *
+     * What distinguishes an open system is that mass actually LEAVES it — there
+     * is a terminal drawing water off. A sealed circuit fed by a fill/expansion
+     * tank has a source too, but nothing leaves: the tank sets the pressure
+     * reference and the pump circulates the same water round. Reporting that as
+     * OPEN LOOP was simply wrong, and it is the normal arrangement for a
+     * chilled-water circuit with an expansion vessel drawn in.
+     *
+     * So a pumped system with a source but NO outflow is closed. Without a pump
+     * nothing is circulating, so the old reading stands rather than guessing —
+     * that is a system still being drawn. */
+    if (sources > 0 && outflows === 0 && pumps > 0) {
+      return { type: 'closed', sources: sources, pumps: pumps, outflows: 0,
+               reason: 'Sealed circuit: ' + pumps + ' pump' + (pumps > 1 ? 's' : '') +
+                       ' circulating with no outflow drawing water off. The source ' +
+                       'acts as the fill/expansion connection and sets the pressure ' +
+                       'reference.' };
+    }
 
     if (sources > 0) {
-      return { type: 'open', sources: sources, pumps: pumps,
+      return { type: 'open', sources: sources, pumps: pumps, outflows: outflows,
                reason: sources === 1
                  ? 'Fed by a source, so static lift is carried by the system.'
                  : sources + ' sources feed this system.' };

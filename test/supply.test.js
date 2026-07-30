@@ -363,12 +363,39 @@ section('Open / closed detection');
   ok('Nothing drawn reads as no supply',
      NET.detectSystemType(empty).type === 'none');
 
-  // adding a source flips it
+  /* Adding a source to a sealed circuit does NOT make it open.
+   *
+   * This assertion used to expect OPEN, on the rule "any source ⇒ open". That
+   * is wrong, and Michael reported it against the datacentre model: bolting an
+   * expansion vessel onto a chilled-water circuit is the NORMAL arrangement,
+   * and the circuit is still closed — the tank sets the pressure reference and
+   * nothing draws water off. What makes a system open is mass LEAVING it, so
+   * the discriminator is an outflow, not a source. Changed 2026-07-30. */
   const flip = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(closed))));
   const pump = flip.pipes.find(p => p.kind === 'pump');
   M.setSource(flip, pump.a);
-  ok('Adding a source to a closed circuit flips it to OPEN',
-     NET.detectSystemType(flip).type === 'open');
+  ok('A source on a circuit with no outflow stays CLOSED',
+     NET.detectSystemType(flip).type === 'closed',
+     NET.detectSystemType(flip).type);
+  ok('...and says the source is the fill/expansion connection',
+     /fill\/expansion/.test(NET.detectSystemType(flip).reason));
+
+  // An OUTFLOW is what actually makes it open: mass now leaves the system.
+  const withOutflow = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(flip))));
+  const far = withOutflow.nodes.find(n => !n.device);
+  M.setDemand(withOutflow, far.id, 0.001, 100000);
+  ok('Adding an outflow flips it to OPEN',
+     NET.detectSystemType(withOutflow).type === 'open',
+     NET.detectSystemType(withOutflow).type);
+
+  /* An excluded outflow must not count — it is not drawing anything. */
+  const excluded = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(withOutflow))));
+  excluded.nodes.forEach(n => {
+    if (n.device && n.device.kind === 'demand') n.device.include = false;
+  });
+  ok('An excluded outflow does not make it open',
+     NET.detectSystemType(excluded).type === 'closed',
+     NET.detectSystemType(excluded).type);
 
   // switching every pump off removes the drive
   const allOff = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(closed))));

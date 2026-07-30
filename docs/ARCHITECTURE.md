@@ -461,10 +461,20 @@ pressure drop stands in as the index terminal.
 
 ## 11B. Open or closed is detected, not asked
 
-A system fed by a fixed-head source is **open**. A sealed circuit driven round
-by a pump with no such source is **closed** — its pressure reference comes from
-a fill/expansion vessel, which is exactly the `NO_SOURCE` case the solver
-already pins a datum for. Neither is **no supply**.
+A system fed by a fixed-head source **that something draws water off** is
+**open**. A sealed circuit driven round by a pump is **closed** — its pressure
+reference comes from a fill/expansion vessel, which is exactly the `NO_SOURCE`
+case the solver pins a datum for. Neither is **no supply**.
+
+**A source alone does not make a system open.** What distinguishes open is that
+mass actually *leaves*: there is an outflow drawing water off. A chilled-water
+circuit with an expansion vessel drawn in has a source and is still closed —
+the tank sets the pressure reference and the pump circulates the same water.
+Reporting that as OPEN LOOP was a real defect (found by Michael on the
+datacentre model, fixed 2026-07-30). So the discriminator is an **outflow**, not
+a source: a pumped system with a source but no included outflow reads CLOSED.
+Without a pump the old reading stands rather than guessing, because that is a
+system still being drawn.
 
 `FD.network.detectSystemType(m)` returns the type and a plain-English reason.
 The result is shown on the PIPING NETWORK ribbon and updates live as the
