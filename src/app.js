@@ -1030,6 +1030,18 @@
 
     // TRACE mode shows the background drawing's own controls instead
     if (app.view.tool === 'trace') { renderTraceProps(host); return; }
+    if (app.showAnnotations) { renderAnnotationProps(host); return; }
+    if (app.view.tool === 'align') {
+      host.appendChild(el('h3', '', 'Align model'));
+      host.appendChild(el('p', 'hint',
+        'Drag any node: the whole model moves with it and the grabbed point ' +
+        'snaps to the grid. Use it to put a known node back on the grid after ' +
+        'the drawing has drifted. Hold Shift for free placement.'));
+      host.appendChild(el('p', 'hint',
+        'Only level offsets change, so no geometry and no pipe length is ' +
+        'touched — the calculation is unaffected.'));
+      return;
+    }
 
     if (!sel.length) {
       host.appendChild(el('p', 'hint', 'Nothing selected. Click a pipe or node to edit it.'));
@@ -1041,6 +1053,49 @@
     if (s.kind === 'pipe') renderPipeProps(host, M.pipe(m, s.id));
     else if (s.kind === 'riser') renderRiserProps(host, m.risers.find(function (r) { return r.id === s.id; }));
     else renderNodeProps(host, M.node(m, s.id));
+  }
+
+  /* Drawing annotations, offered from the VIEW ribbon.
+   *
+   * These decide what is written on the drawing and on printed level plans, so
+   * they belong with the drawing rather than on the SETTINGS tab where they
+   * used to be — you could not see what you were turning on. Rendered into the
+   * properties panel, which is already the place VIEW puts its controls. */
+  function renderAnnotationProps(host) {
+    var m = app.model;
+    var a = m.settings.annotate;
+    host.appendChild(el('h3', '', 'Drawing annotations'));
+    host.appendChild(el('p', 'hint',
+      'What is labelled on the drawing and on printed level plans. Pipe labels ' +
+      'read like "50⌀/12.50m/2.40L/s"; node labels read like "N3 T".'));
+
+    function toggle(label, key) {
+      var i = el('input'); i.type = 'checkbox'; i.checked = !!a[key];
+      i.addEventListener('change', function () { a[key] = i.checked; redrawAll(); });
+      var w = el('label', 'check-inline');
+      w.appendChild(i); w.appendChild(el('span', '', label));
+      host.appendChild(w);
+    }
+
+    host.appendChild(el('h3', 'sub', 'Pipes'));
+    toggle('Lengths', 'pipeLength');
+    toggle('Nom. diameter', 'pipeDiameter');
+    toggle('Flow', 'pipeFlow');
+    toggle('Velocity', 'pipeVelocity');
+    toggle('PD', 'pipePD');
+    toggle('PD/m', 'pipePDM');
+
+    host.appendChild(el('h3', 'sub', 'Pipe fittings'));
+    toggle('Type (EL, T, S, P, OF)', 'fitType');
+    toggle('PD', 'fitPD');
+    toggle('Node numbers', 'nodeNumbers');
+
+    var done = el('button', 'btn', 'Done');
+    done.addEventListener('click', function () {
+      app.showAnnotations = false;
+      renderProperties();
+    });
+    host.appendChild(done);
   }
 
   /* Multi-selection: change size / schedule / C on every selected pipe at once.
@@ -2372,35 +2427,15 @@
       'schedules are on the HYDRAULIC tab.');
     host.appendChild(hydNote);
 
-    // ---- print / annotation toggles ----
+    /* The annotation toggles now live on the VIEW ribbon (ANNOTATIONS), where
+     * the drawing they affect is actually in front of you — changing them on a
+     * different tab meant toggling blind. Kept here as a pointer rather than
+     * duplicated, so there is one set of controls, not two that can disagree. */
     host.appendChild(el('h2', '', 'Print & drawing annotations'));
     host.appendChild(el('p', 'hint',
-      'Controls what is labelled on the drawing and on printed level plans. ' +
-      'Pipe labels read like "50⌀/12.50m/2.40L/s"; node labels read like "N3 T".'));
-
-    var a = m.settings.annotate;
-    function toggle(g, label, key) {
-      var i = el('input'); i.type = 'checkbox'; i.checked = !!a[key];
-      i.addEventListener('change', function () { a[key] = i.checked; redrawAll(); });
-      var w = el('label', 'check-inline');
-      w.appendChild(i); w.appendChild(el('span', '', label));
-      g.appendChild(w);
-    }
-
-    host.appendChild(el('h3', 'sub', 'Pipes'));
-    var gp = el('div', 'settings-grid'); host.appendChild(gp);
-    toggle(gp, 'Lengths', 'pipeLength');
-    toggle(gp, 'Nom. diameter', 'pipeDiameter');
-    toggle(gp, 'Flow', 'pipeFlow');
-    toggle(gp, 'Velocity', 'pipeVelocity');
-    toggle(gp, 'PD', 'pipePD');
-    toggle(gp, 'PD/m', 'pipePDM');
-
-    host.appendChild(el('h3', 'sub', 'Pipe fittings'));
-    var gf = el('div', 'settings-grid'); host.appendChild(gf);
-    toggle(gf, 'Type (EL, T, S, P, D)', 'fitType');
-    toggle(gf, 'PD', 'fitPD');
-    toggle(gf, 'Node numbers', 'nodeNumbers');
+      'Moved to the PIPING NETWORK tab: switch to VIEW mode and click ' +
+      'ANNOTATIONS. They control what is labelled on the drawing and on printed ' +
+      'level plans, so they are easier to judge with the drawing on screen.'));
 
     var g4 = group('Drawing');
     num(g4, 'Floor-to-floor default (m)', m.settings.floorToFloor,
@@ -3179,6 +3214,7 @@
       edit:   'Click to select · drag a node to move it · Delete removes the selection',
       pipe:   'Click to place vertices · type a length + Enter · scroll = pipe size · Shift = free angle · Esc = finish',
       view:   'Drag any label to reposition it for printing · tick properties in the panel to show them on the drawing · TRACE adds a background drawing',
+      align:  'Drag any node to move the WHOLE model · grid-snaps · Shift for free placement',
       trace:  'Ctrl+V a screen snip, or drag an image in · drag to move, corners to scale · set the scale, then lock it',
       riser:  'Click this floor\u2019s pipework to place or join a riser column',
       source: 'Click to place a source (tank, mains, or expansion vessel)',
@@ -3193,10 +3229,13 @@
      * click drags a label instead. TRACE lives in VIEW because tracing IS
      * arranging the background you then draw over. */
     function syncToolGroups() {
-      var inView = (app.view.tool === 'view' || app.view.tool === 'trace');
-      var gv = $('group-view'), gd = $('group-draw');
-      if (gv) gv.hidden = !inView;
-      if (gd) gd.hidden = inView;
+      var inView = (app.view.tool === 'view' || app.view.tool === 'trace' ||
+                    app.view.tool === 'align');
+      var setDraw = $('set-draw'), setView = $('set-view'), group = $('group-tools');
+      if (setDraw) setDraw.hidden = inView;
+      if (setView) setView.hidden = !inView;
+      // The section LABEL follows its contents, so the ribbon keeps its shape.
+      if (group) group.dataset.group = inView ? 'VIEW' : 'DRAW';
     }
 
     function refreshToolButtons() {
@@ -3238,6 +3277,11 @@
       afterModelSwap();
       app.view.zoomToFit();
     }
+
+    $('btn-annotations').addEventListener('click', function () {
+      app.showAnnotations = !app.showAnnotations;
+      renderProperties();
+    });
 
     $('btn-renumber').addEventListener('click', renumberNodes);
 

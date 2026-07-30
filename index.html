@@ -42,23 +42,30 @@
       <button class="btn" data-tool="disconnect" title="Highlight breaks: coincident unjoined nodes, islands, and devices with nowhere to discharge">SHOW DISCONNECT</button>
     </div>
     <div class="sep"></div>
-    <!-- VIEW's own tools. Shown only in VIEW, where they apply. -->
-    <div class="tool-group" data-group="VIEW" id="group-view" hidden>
-      <button class="btn" data-tool="trace" title="Paste or drag in a background drawing and trace over it">TRACE</button>
-    </div>
-    <div class="tool-group" data-group="DRAW" id="group-draw">
-      <button class="btn" data-tool="pipe">PIPE</button>
-      <button class="btn" data-tool="riser">RISER</button>
-      <button class="btn" data-tool="source">SOURCE</button>
-      <button class="btn" data-tool="demand">OUTFLOW</button>
-      <button class="btn" data-tool="pump">PUMP</button>
-      <button class="btn" data-tool="equip">EQUIP</button>
-      <button class="btn" data-tool="valve" id="btn-valve">VALVE</button>
-      <select id="valve-type" class="inline-select" title="Valve type to place">
-        <option value="gate">Gate</option>
-        <option value="globe">Globe</option>
-        <option value="check">Check</option>
-      </select>
+    <!-- ONE section that swaps contents with the mode: the placement tools in
+         EDIT/DRAW, the drawing-arrangement tools in VIEW. The group label
+         changes with it, so the ribbon keeps its shape and the tools you
+         cannot use are simply not there. -->
+    <div class="tool-group" data-group="DRAW" id="group-tools">
+      <span class="tool-set" id="set-draw">
+        <button class="btn" data-tool="pipe">PIPE</button>
+        <button class="btn" data-tool="riser">RISER</button>
+        <button class="btn" data-tool="source">SOURCE</button>
+        <button class="btn" data-tool="demand">OUTFLOW</button>
+        <button class="btn" data-tool="pump">PUMP</button>
+        <button class="btn" data-tool="equip">EQUIP</button>
+        <button class="btn" data-tool="valve" id="btn-valve">VALVE</button>
+        <select id="valve-type" class="inline-select" title="Valve type to place">
+          <option value="gate">Gate</option>
+          <option value="globe">Globe</option>
+          <option value="check">Check</option>
+        </select>
+      </span>
+      <span class="tool-set" id="set-view" hidden>
+        <button class="btn" data-tool="trace" title="Paste or drag in a background drawing and trace over it">TRACE</button>
+        <button class="btn" data-tool="align" title="Drag any node to move the WHOLE model — for putting a key node back on the grid">ALIGN</button>
+        <button class="btn" id="btn-annotations" title="What is labelled on the drawing and on printed plans">ANNOTATIONS</button>
+      </span>
     </div>
     <div class="sep"></div>
     <div class="tool-group" data-group="MISC">
@@ -159,24 +166,24 @@
      the query when resolving a file:// path, so double-clicking still works;
      over HTTP, changing the token forces a reload instead of a stale copy.
      Bump the token on release, or during development after editing a module. -->
-<script src="data/schedules.js?v=0.7.0-dev.1"></script>
-<script src="data/fittings.js?v=0.7.0-dev.1"></script>
-<script src="data/valves.js?v=0.7.0-dev.1"></script>
-<script src="data/ktable.js?v=0.7.0-dev.1"></script>
-<script src="data/pumps.js?v=0.7.0-dev.1"></script>
-<script src="src/units.js?v=0.7.0-dev.1"></script>
-<script src="src/hydraulics.js?v=0.7.0-dev.1"></script>
-<script src="src/solver.js?v=0.7.0-dev.1"></script>
-<script src="src/model.js?v=0.7.0-dev.1"></script>
-<script src="src/geometry.js?v=0.7.0-dev.1"></script>
-<script src="src/network.js?v=0.7.0-dev.1"></script>
-<script src="src/dialog.js?v=0.7.0-dev.1"></script>
-<script src="src/trace.js?v=0.7.0-dev.1"></script>
-<script src="src/canvas.js?v=0.7.0-dev.1"></script>
-<script src="src/printer.js?v=0.7.0-dev.1"></script>
-<script src="src/tools.js?v=0.7.0-dev.1"></script>
-<script src="src/docs.js?v=0.7.0-dev.1"></script>
-<script src="src/app.js?v=0.7.0-dev.1"></script>
+<script src="data/schedules.js?v=0.7.0-dev.2"></script>
+<script src="data/fittings.js?v=0.7.0-dev.2"></script>
+<script src="data/valves.js?v=0.7.0-dev.2"></script>
+<script src="data/ktable.js?v=0.7.0-dev.2"></script>
+<script src="data/pumps.js?v=0.7.0-dev.2"></script>
+<script src="src/units.js?v=0.7.0-dev.2"></script>
+<script src="src/hydraulics.js?v=0.7.0-dev.2"></script>
+<script src="src/solver.js?v=0.7.0-dev.2"></script>
+<script src="src/model.js?v=0.7.0-dev.2"></script>
+<script src="src/geometry.js?v=0.7.0-dev.2"></script>
+<script src="src/network.js?v=0.7.0-dev.2"></script>
+<script src="src/dialog.js?v=0.7.0-dev.2"></script>
+<script src="src/trace.js?v=0.7.0-dev.2"></script>
+<script src="src/canvas.js?v=0.7.0-dev.2"></script>
+<script src="src/printer.js?v=0.7.0-dev.2"></script>
+<script src="src/tools.js?v=0.7.0-dev.2"></script>
+<script src="src/docs.js?v=0.7.0-dev.2"></script>
+<script src="src/app.js?v=0.7.0-dev.2"></script>
 <script>
   window.FD.APP_NAME = 'FreePipeCalc';
   window.FD.APP_SHORT = 'FPC';

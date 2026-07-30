@@ -458,6 +458,39 @@
       if (self.tool === 'equip') { self.equipClick(w); return; }
       if (self.tool === 'riser') { self.riserClick(w); return; }
 
+      /* ALIGN: grab any node and the WHOLE model follows.
+       *
+       * Drawn geometry drifts off the grid — a run gets nudged, a riser
+       * alignment slides a floor — and after that every new vertex snaps to a
+       * lattice the drawing no longer sits on. Rather than move everything by
+       * hand, grab a node you know the true position of and drag; the model
+       * moves under it and the grab point lands on the grid.
+       *
+       * Implemented as a LEVEL OFFSET change on every level, not a coordinate
+       * rewrite: offsets are exactly the field that exists for moving a floor
+       * in world space without touching geometry or lengths (spec §7.1), so
+       * nothing about the hydraulics can change. */
+      if (self.tool === 'align') {
+        var an = self.nodeAt(w.x, w.y, ENDPOINT_PX * 1.6);
+        if (an) {
+          var wn0 = M.worldXY(self.getModel(), an);
+          self.dragAlign = {
+            node: an.id,
+            grabX: w.x, grabY: w.y,
+            offX: wn0.x - w.x, offY: wn0.y - w.y,
+            base: self.getModel().levels.map(function (l) {
+              return { id: l.id, dx: l.dx || 0, dy: l.dy || 0 };
+            })
+          };
+          c.setPointerCapture(e.pointerId);
+          self.render();
+        } else {
+          self.onMessage && self.onMessage(
+            'Grab a node to move the whole model with it.', 'error');
+        }
+        return;
+      }
+
       // EDIT: select, or start a marquee
 
       /* The selected device's reverse button takes precedence over everything:
@@ -581,6 +614,26 @@
         self.render();
         return;
       }
+      if (self.dragAlign) {
+        /* The grabbed node follows the pointer, snapped to the grid, and every
+         * level shifts by the same delta so the model moves rigidly. */
+        var da = self.dragAlign, mA = self.getModel();
+        var tx = w.x + da.offX, ty = w.y + da.offY;
+        var gA = mA.settings.grid;
+        if (gA && gA.snap && !self.shiftDown) {
+          var step = gA.minor || 0.5;
+          tx = Math.round(tx / step) * step;
+          ty = Math.round(ty / step) * step;
+        }
+        var startW = { x: da.grabX + da.offX, y: da.grabY + da.offY };
+        var ddx = tx - startW.x, ddy = ty - startW.y;
+        da.base.forEach(function (b) {
+          var lv2 = M.level(mA, b.id);
+          if (lv2) { lv2.dx = b.dx + ddx; lv2.dy = b.dy + ddy; }
+        });
+        self.render();
+        return;
+      }
       if (self.marquee) { self.marquee.x1 = w.x; self.marquee.y1 = w.y; self.render(); return; }
       if (self.dragDevice) {
         /* Both endpoints move together by the same delta, so the device keeps
@@ -643,6 +696,7 @@
       if (self.panning) { self.panning = null; return; }
       if (self.dragTrace) { self.dragTrace = null; self.changed(); return; }
       if (self.dragLabel) { self.dragLabel = null; self.changed(); return; }
+      if (self.dragAlign) { self.dragAlign = null; self.changed(); return; }
       if (self.dragDevice) { self.dragDevice = null; self.changed(); return; }
       if (self.dragNode) { self.dragNode = null; self.changed(); return; }
       if (self.marquee) {
@@ -720,7 +774,7 @@
     this.tool = tool;
     this.calibrating = null;
     this.canvas.style.cursor = (tool === 'edit') ? 'default'
-                            : (tool === 'view' || tool === 'trace') ? 'move'
+                            : (tool === 'view' || tool === 'trace' || tool === 'align') ? 'move'
                             : 'crosshair';
     if (this.onToolChange) this.onToolChange();
     this.onChange();
