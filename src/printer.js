@@ -78,6 +78,12 @@
                                      m.settings.fluid && m.settings.fluid.density);
       parts.push(FD.units.fmtPressure(pd, d.pressure) + d.pressure);
     }
+    // Friction rate, same basis as the canvas label and the PDM warning.
+    if (a.pipePDM && link && q !== undefined && link._L > 1e-9) {
+      var pdm = FD.hydraulics.pdPerMetre(link._rActual, q, link.n, link._L,
+                                         m.settings.fluid && m.settings.fluid.density);
+      parts.push(FD.units.fmtPdm(pdm, d.pdm) + d.pdm);
+    }
     return parts.join('/');
   }
 

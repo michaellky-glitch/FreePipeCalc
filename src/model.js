@@ -93,6 +93,10 @@
         pipeFlow: true,
         pipeVelocity: false,
         pipePD: false,
+        /* Friction RATE (Pa/m) as distinct from pipePD, the whole section's
+         * drop. This is the figure checked against the ~400 Pa/m rule, so it
+         * is the one an engineer sizes against. */
+        pipePDM: false,
         fitType: true,
         fitPD: false,
         nodeNumbers: true
@@ -366,6 +370,25 @@
       }
     });
     return out;
+  }
+
+  /* Turn a directional device round. Swapping the pipe's own endpoints IS the
+   * whole operation — every direction-sensitive rule in the engine reads a→b —
+   * so both the properties panel and the on-drawing button call this rather
+   * than each swapping the fields themselves. */
+  function flipPipe(m, id) {
+    var p = pipe(m, id);
+    if (!p) return null;
+    var t = p.a; p.a = p.b; p.b = t;
+    return p;
+  }
+
+  /* Is this device one that only passes flow one way? A gate valve is not
+   * directional; a pump, a piece of equipment and a check valve are. */
+  function isDirectional(p) {
+    if (!p) return false;
+    if (p.kind === 'pump' || p.kind === 'equip') return true;
+    return p.kind === 'valve' && !!(p.valve && p.valve.type === 'check');
   }
 
   /* Set an explicit size / schedule / C override on a riser column, and push it
@@ -660,6 +683,7 @@
     worldXY: worldXY, elevation: elevation,
 
     addPipe: addPipe, pipe: pipe, removePipe: removePipe,
+    flipPipe: flipPipe, isDirectional: isDirectional,
     pipesAt: pipesAt, other: other, pipeLength: pipeLength, pipeBore: pipeBore,
 
     addRiser: addRiser, attachRiser: attachRiser, riserPipes: riserPipes,

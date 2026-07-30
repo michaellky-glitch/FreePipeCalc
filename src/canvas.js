@@ -158,6 +158,50 @@
     return best;
   };
 
+  /* Reverse-direction button for the SELECTED directional device.
+   *
+   * Flipping was only reachable through the properties panel, which means
+   * looking away from the drawing to fix something you are looking AT. The
+   * button sits just off the device, offset along the perpendicular so it never
+   * lands on the pipe itself — beside a vertical riser-mounted pump it appears
+   * to one side, which is where the space is.
+   *
+   * Offered only when the device is selected: one on every pump at all times
+   * would clutter a pump hall. */
+  var FLIP_BTN = { w: 18, h: 26, off: 24 };
+  View.prototype.flipButtonBox = function (p) {
+    var m = this.getModel();
+    if (!M.isDirectional(p)) return null;
+    var a = M.node(m, p.a), b = M.node(m, p.b);
+    if (!a || !b || a.level !== m.activeLevel || b.level !== m.activeLevel) return null;
+    var wa = M.worldXY(m, a), wb = M.worldXY(m, b);
+    var sa = this.toScreen(wa.x, wa.y), sb = this.toScreen(wb.x, wb.y);
+    var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
+    var dx = sb.x - sa.x, dy = sb.y - sa.y;
+    var len = Math.hypot(dx, dy) || 1;
+    // unit normal to the device axis
+    var nx = -dy / len, ny = dx / len;
+    var cx = mx + nx * FLIP_BTN.off, cy = my + ny * FLIP_BTN.off;
+    return { x: cx - FLIP_BTN.w / 2, y: cy - FLIP_BTN.h / 2,
+             w: FLIP_BTN.w, h: FLIP_BTN.h, cx: cx, cy: cy,
+             ang: Math.atan2(dy, dx) };
+  };
+
+  /* The selected device's flip button under this screen point, if any. */
+  View.prototype.flipButtonAt = function (sx, sy) {
+    var m = this.getModel(), self = this, found = null;
+    this.selection.forEach(function (s) {
+      if (s.kind !== 'pipe' || found) return;
+      var p = M.pipe(m, s.id);
+      var box = p && self.flipButtonBox(p);
+      if (!box) return;
+      if (sx >= box.x && sx <= box.x + box.w && sy >= box.y && sy <= box.y + box.h) {
+        found = p;
+      }
+    });
+    return found;
+  };
+
   /* A riser marker sits directly on top of the node it attaches to, so a click
    * on the marker selects that NODE and the riser column is unreachable. The
    * fix is a dedicated select handle — a small triangle drawn beside the marker
@@ -411,6 +455,19 @@
       if (self.tool === 'riser') { self.riserClick(w); return; }
 
       // EDIT: select, or start a marquee
+
+      /* The selected device's reverse button takes precedence over everything:
+       * it deliberately sits close to the device it belongs to, so any other
+       * test would swallow the click. */
+      var fb = self.flipButtonAt(sx, sy);
+      if (fb) {
+        if (self.onBeforeEdit) self.onBeforeEdit();
+        M.flipPipe(self.getModel(), fb.id);
+        self.onMessage && self.onMessage(
+          'Reversed ' + (fb.tag || fb.id) + ' — now ' + fb.a + ' → ' + fb.b + '.');
+        self.changed();
+        return;
+      }
 
       /* Riser select handle first: the marker sits on top of a node, so without
        * a dedicated handle the node always wins and the column cannot be
@@ -1054,6 +1111,7 @@
     this.drawDeviceHover();
     this.drawCalibration();
     this.drawDisconnects();
+    this.drawFlipButton();
     this.drawScaleBar();
     this.drawTooltip();
   };
@@ -1157,6 +1215,41 @@
     ctx.restore();
 
     if (issues.length) this.requestAnimation();
+  };
+
+  /* The reverse-direction button beside the selected device: a rounded box
+   * carrying two opposed chevrons, drawn along the device's own axis so the
+   * arrows point the two ways flow could go. */
+  View.prototype.drawFlipButton = function () {
+    var m = this.getModel(), ctx = this.ctx, self = this;
+    this.selection.forEach(function (s) {
+      if (s.kind !== 'pipe') return;
+      var p = M.pipe(m, s.id);
+      var box = p && self.flipButtonBox(p);
+      if (!box) return;
+
+      ctx.save();
+      ctx.translate(box.cx, box.cy);
+      ctx.fillStyle = self.theme.bg;
+      ctx.strokeStyle = self.theme.select;
+      ctx.lineWidth = 2;
+      var w = box.w / 2, h = box.h / 2, r = 3;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(-w, -h, box.w, box.h, r);
+      else ctx.rect(-w, -h, box.w, box.h);
+      ctx.fill(); ctx.stroke();
+
+      /* Chevrons along the device axis: one each way, so the button reads as
+       * "reverse" rather than as a direction in its own right. */
+      ctx.rotate(box.ang + Math.PI / 2);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-4, -3); ctx.lineTo(0, -8); ctx.lineTo(4, -3);
+      ctx.moveTo(-4, 3);  ctx.lineTo(0, 8);  ctx.lineTo(4, 3);
+      ctx.stroke();
+      ctx.restore();
+    });
   };
 
   /* The pulse needs repainting; one frame at a time so an idle canvas is
@@ -1609,6 +1702,14 @@
       var pd = FD.units.headToPaWith(Math.abs(FD.hydraulics.headloss(link.r, q, link.n)),
                                      m.settings.fluid && m.settings.fluid.density);
       parts.push(FD.units.fmtPressure(pd, d.pressure) + d.pressure);
+    }
+    /* Friction RATE, on the actual length and excluding fitting equivalent
+     * length — the same basis as the PDM warning, so the drawing and the
+     * warning cannot quote different numbers for the same pipe. */
+    if (a.pipePDM && link && q !== undefined && link._L > 1e-9) {
+      var pdm = FD.hydraulics.pdPerMetre(link._rActual, q, link.n, link._L,
+                                         m.settings.fluid && m.settings.fluid.density);
+      parts.push(FD.units.fmtPdm(pdm, d.pdm) + d.pdm);
     }
     return parts.join('/');
   };

@@ -375,6 +375,39 @@ section('Model — riser size inheritance (spec §7.2)');
   ok('A level in two risers has a locked offset', M.isLevelLocked(m, top.id) === true);
 }
 
+section('Model — device direction (flip, and which devices have one)');
+{
+  /* Flipping is a swap of the pipe's own endpoints, because every
+   * direction-sensitive rule in the engine reads a→b. Both the properties
+   * panel and the on-drawing button go through flipPipe so they cannot
+   * diverge. */
+  const m = M.create();
+  const lv = m.levels[0];
+  const n1 = M.addNode(m, lv.id, 0, 0), n2 = M.addNode(m, lv.id, 1, 0);
+  const pump = M.addPipe(m, n1.id, n2.id, { kind: 'pump', pump: { mode: 'auto', head: 10 } });
+
+  ok('Pump starts a→b as drawn', pump.a === n1.id && pump.b === n2.id);
+  M.flipPipe(m, pump.id);
+  ok('flipPipe swaps the endpoints', pump.a === n2.id && pump.b === n1.id);
+  M.flipPipe(m, pump.id);
+  ok('Flipping twice returns to the original', pump.a === n1.id && pump.b === n2.id);
+  ok('flipPipe on an unknown id is harmless', M.flipPipe(m, 'nope') === null);
+
+  // Only devices that actually hold against reverse flow are directional.
+  const plain = M.addPipe(m, n2.id, M.addNode(m, lv.id, 2, 0).id, {});
+  const equip = M.addPipe(m, n1.id, M.addNode(m, lv.id, 0, 1).id,
+                          { kind: 'equip', equip: { qRated: 0.02, pdRated: 1e5 } });
+  const gate = M.addPipe(m, n1.id, M.addNode(m, lv.id, 0, 2).id,
+                         { kind: 'valve', valve: { type: 'gate', kv: 100, opening: 100 } });
+  const check = M.addPipe(m, n1.id, M.addNode(m, lv.id, 0, 3).id,
+                          { kind: 'valve', valve: { type: 'check', kv: 100, opening: 100 } });
+  ok('A pump is directional', M.isDirectional(pump) === true);
+  ok('Equipment is directional', M.isDirectional(equip) === true);
+  ok('A check valve is directional', M.isDirectional(check) === true);
+  ok('A gate valve is NOT directional', M.isDirectional(gate) === false);
+  ok('A plain pipe is NOT directional', M.isDirectional(plain) === false);
+}
+
 section('Model — riser size override (a riser must be sizeable by hand)');
 {
   /* Inheritance is only a default. A riser is frequently sized differently from

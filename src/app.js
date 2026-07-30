@@ -1705,7 +1705,7 @@
                 'against it)';
     btn.addEventListener('click', function () {
       pushUndo();
-      var t = p.a; p.a = p.b; p.b = t;
+      M.flipPipe(app.model, p.id);
       renderProperties(); changed();
     });
     box.appendChild(btn);
@@ -2304,6 +2304,7 @@
     toggle(gp, 'Flow', 'pipeFlow');
     toggle(gp, 'Velocity', 'pipeVelocity');
     toggle(gp, 'PD', 'pipePD');
+    toggle(gp, 'PD/m', 'pipePDM');
 
     host.appendChild(el('h3', 'sub', 'Pipe fittings'));
     var gf = el('div', 'settings-grid'); host.appendChild(gf);
@@ -3022,6 +3023,9 @@
     // Canvas tools report back through the app's toast system rather than
     // reaching into the DOM themselves.
     app.view.onMessage = function (msg, kind) { toast(msg, kind); };
+    /* Lets a canvas gesture snapshot the model for undo without the canvas
+     * knowing the undo stack exists. */
+    app.view.onBeforeEdit = function () { pushUndo(); };
 
     // ---- tabs ----
     var tabs = [].slice.call(document.querySelectorAll('.tab[data-pane]'));
