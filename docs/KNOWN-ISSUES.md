@@ -18,7 +18,18 @@ In practice the TOOLS ▸ Generic Pump Curve caller only passes a positive desig
 flow, so it does not surface today. Deferred by decision (2026-07-30): log now,
 add a one-line guard at the top of `quadWarnings` if a zero ever reaches it.
 
-*(none)*
+### Printed plans draw devices as plain pipe, with no symbol
+
+`src/printer.js` strokes every pipe at full bore width (line ~126) and never
+draws a pump, valve or equipment symbol. On a printed level plan an in-line
+device is therefore indistinguishable from a short piece of pipe.
+
+This was always true, but it is now *inconsistent* with the canvas, which draws
+devices as point symbols on a thin connector (2026-07-30). The fix is to mirror
+that in the SVG: a thin connector for the device link plus a symbol at the
+midpoint. Deferred because printing has never been checked on real paper
+(`Human-Test.md` §5.5), so the print path is better reviewed in one pass than
+piecemeal.
 
 ---
 

@@ -1263,6 +1263,36 @@
         ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
         ctx.globalAlpha = 1;
       }
+      /* An in-line device reads as a POINT, not as a length of pipe.
+       *
+       * Hydraulically it IS a short link with its own two nodes (that is what
+       * lets the runs either side keep their own lengths), but stroking that
+       * link at full pipe width drew a fat stub with a symbol on top, so a
+       * pump looked like a piece of pipe — and at high zoom it looked like a
+       * long one. Drawing a thin connector instead, with a fixed-size symbol
+       * at the midpoint, is how an engineer expects a valve or a pump to
+       * appear on a plan: a symbol sitting on continuous pipework.
+       *
+       * The symbol is sized in SCREEN pixels, so it stays a point at every
+       * zoom rather than growing with the link. */
+      if (p.kind === 'pump' || p.kind === 'valve' || p.kind === 'equip') {
+        if (selIds[p.id]) {
+          var msx = (sa.x + sb.x) / 2, msy = (sa.y + sb.y) / 2;
+          ctx.strokeStyle = self.theme.select;
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(msx, msy, 15, 0, Math.PI * 2); ctx.stroke();
+        }
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = Math.min(2, self.pipeWidth(p));
+        ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
+
+        if (p.kind === 'pump') self.drawPumpGlyph(p, sa, sb, selIds[p.id], q || 1);
+        else if (p.kind === 'valve') self.drawValveGlyph(p, sa, sb, selIds[p.id]);
+        else self.drawEquipGlyph(p, sa, sb, selIds[p.id]);
+        return;
+      }
+
       if (selIds[p.id]) {
         ctx.strokeStyle = self.theme.select;
         ctx.lineWidth = self.pipeWidth(p) + 4;
@@ -1273,13 +1303,7 @@
       ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
 
-      if (p.kind === 'pump') {
-        self.drawPumpGlyph(p, sa, sb, selIds[p.id], q || 1);
-      } else if (p.kind === 'valve') {
-        self.drawValveGlyph(p, sa, sb, selIds[p.id]);
-      } else if (p.kind === 'equip') {
-        self.drawEquipGlyph(p, sa, sb, selIds[p.id]);
-      } else {
+      {
         if (q !== undefined && Math.abs(q) > 1e-9) self.drawArrow(sa, sb, q, colour);
         if (self.scale > 12) self.drawPipeLabel(p, sa, sb);
       }
