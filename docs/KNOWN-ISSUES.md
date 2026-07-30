@@ -8,6 +8,20 @@ is, why it is deferred, and where the fix would go.
 
 ## Open
 
+### The `testrun-*.js` walkthroughs OVERWRITE files in `examples/`
+
+`test/testrun-3floor.js` and `test/testrun-datacentre.js` regenerate the
+`.pnet.json` they walk through (`ARCHITECTURE.md` §15 says so, but it is easy to
+miss). They write today's *defaults*, so running one as a smoke check silently
+rewrote `3-floor-riser-test.pnet.json` and `datacentre-ring.pnet.json`, dropping
+`pumpSafetyPct` from 10 to 0 — which broke the "Selection duty applies the
+margin on top" assertion in `supply.test.js`, because that margin comes from the
+example file. Caught and reverted 2026-07-31.
+
+**So:** they are generators, not tests. Do not run them as a "does it still
+work" check, and `git diff examples/` before committing if you have. Worth
+making them write to a scratch path, or take an explicit `--write` flag.
+
 ### `quadWarnings` has no guard for a zero design flow
 
 `data/pumps.js` — `quadWarnings(qc, qDesign)` divides by `qDesign`
