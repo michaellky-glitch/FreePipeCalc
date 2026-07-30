@@ -75,6 +75,17 @@
 
   // ------------------------------------------------------- link behaviour
   /* Head loss along the link (from → to) and its derivative w.r.t. Q. */
+  /* A link may carry TWO loss terms with different exponents.
+   *
+   * Under the ASHRAE method the pipe is Hazen-Williams (exponent 1.852) but its
+   * fittings are velocity heads (exponent 2), and the two cannot be folded into
+   * one resistance. `link.rK` is the optional quadratic fitting term; when it
+   * is absent — equivalent-length methods, pumps, valves, equipment — nothing
+   * about the old single-term behaviour changes.
+   *
+   * Both terms are monotonic in |q| and share the same sign convention, so the
+   * sum is still a well-behaved, strictly increasing loss curve and the GGA's
+   * Newton step is unaffected. */
   function linkLoss(link, q) {
     if (link.kind === 'pump') {
       /* A curve makes the pump a real element rather than a constant: the
@@ -85,7 +96,7 @@
       if (link.curve) return -FD.pumps.head(link.curve, q);
       return -(link.head || 0);
     }
-    return FD.hydraulics.headloss(link.r, q, link.n);
+    return FD.hydraulics.linkLoss(link, q);
   }
 
   function linkDhdq(link, q) {
@@ -95,7 +106,9 @@
       if (link.curve) return FD.pumps.slope(link.curve, q, PUMP_DHDQ_MIN);
       return PUMP_DHDQ_MIN;
     }
-    return Math.max(FD.hydraulics.dhdq(link.r, q, link.n), 1e-9);
+    var d = FD.hydraulics.dhdq(link.r, q, link.n);
+    if (link.rK) d += FD.hydraulics.dhdq(link.rK, q, 2);
+    return Math.max(d, 1e-9);
   }
 
   // ------------------------------------------------------------ islands

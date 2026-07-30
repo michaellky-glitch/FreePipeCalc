@@ -110,13 +110,63 @@
   }
 
   // -------------------------------------------------------------- methods
+  /* How a method charges fitting losses:
+   *   'EL' — equivalent length of straight pipe, folded into the pipe's own
+   *          resistance (spec §3.3). One exponent for the whole link.
+   *   'K'  — velocity heads, h = K·V²/2g, as a SEPARATE quadratic term. This is
+   *          what ASHRAE Ch 22 Eq (7) does, and it means a link carries two
+   *          loss terms with different exponents — see solver.js linkLoss.
+   */
   var methods = {
-    HW: {
-      key: 'HW',
-      name: 'Hazen-Williams',
+    /* The 2021 ASHRAE Handbook — Fundamentals, Ch 22 "Pipe Design" method, and
+     * the default.
+     *
+     * PIPE FRICTION is Hazen-Williams, Eq (6):
+     *     Δh = 6.819·L·(V/C)^1.852·(1/D)^1.167
+     * Substituting V = 4Q/πD² gives Δh = 10.6663·L·Q^1.852 / (C^1.852·D^4.8710),
+     * i.e. exactly the coefficients this app already used (10.67 and 4.8704, to
+     * 0.035 % and 0.012 %). Verified against ASHRAE 2026-07-31, so the HW entry
+     * below and this one compute pipe loss identically.
+     *
+     * FITTINGS are charged as velocity heads from the Ch 22 K tables, Eq (7),
+     * which is what separates this from the plain HW entry. ASHRAE presents the
+     * K method as its primary formulation and equivalent length as the
+     * alternative; the K tables also cover far more fittings than the
+     * equivalent-length tables do (Table 27 is 90° elbows only).
+     */
+    ASHRAE: {
+      key: 'ASHRAE',
+      name: 'ASHRAE (2021) — Hazen-Williams, K fittings',
       n: 1.852,
       available: true,
       experimental: false,
+      fittingMode: 'K',
+      defaults: HW_DEFAULTS,
+      source: '2021 ASHRAE Handbook — Fundamentals (SI), Ch 22, Eq (6) and (7)',
+
+      r: function (L_eff, d, C, ctx) {
+        var k = (ctx && ctx.hw) || HW_DEFAULTS;
+        if (!(d > 0) || !(C > 0)) return 0;
+        return k.A * L_eff / (Math.pow(C, k.b) * Math.pow(d, k.e));
+      },
+      exponent: function (ctx) {
+        var k = (ctx && ctx.hw) || HW_DEFAULTS;
+        return k.a;
+      },
+      formula: function (ctx) {
+        var k = (ctx && ctx.hw) || HW_DEFAULTS;
+        return 'hf = ' + k.A + ' · L · Q^' + k.a +
+               ' / ( C^' + k.b + ' · d^' + k.e + ' )   +   Σ K · V²/2g';
+      }
+    },
+
+    HW: {
+      key: 'HW',
+      name: 'Hazen-Williams (equivalent-length fittings)',
+      n: 1.852,
+      available: true,
+      experimental: false,
+      fittingMode: 'EL',
       defaults: HW_DEFAULTS,
 
       /* ctx.hw carries the (possibly user-edited) coefficients. */
@@ -202,6 +252,21 @@
     isLaminar: function (Re) { return Re > 0 && Re < RE_LAMINAR; },
     isTransitional: function (Re) { return Re >= RE_LAMINAR && Re < RE_TURBULENT; },
 
+    /* Total head loss for a LINK, in metres, signed with the flow.
+     *
+     * Anything reconstructing a loss from a link must come through here.
+     * Reading `link.r` on its own silently omits the separate velocity-head
+     * fitting term that the ASHRAE method adds, and the omission is invisible:
+     * the number still looks like a pressure drop, it is just too small. That
+     * caught the energy-balance and critical-path reconciliations when the
+     * method was introduced. */
+    linkLoss: function (link, q) {
+      if (!link) return 0;
+      var h = FD.hydraulics.headloss(link.r, q, link.n);
+      if (link.rK) h += FD.hydraulics.headloss(link.rK, q, 2);
+      return h;
+    },
+
     /* Head loss [m], signed with the flow and linearised below Q_MIN. */
     headloss: function (r, q, n) {
       var aq = Math.abs(q);
@@ -232,6 +297,20 @@
     equipmentR: function (pd_rated_Pa, q_rated, rho) {
       if (!(q_rated > 0)) return 0;
       return (pd_rated_Pa / ((rho || 998) * G)) / (q_rated * q_rated);
+    },
+
+    /* Fitting resistance on the VELOCITY-HEAD basis (ASHRAE Ch 22 Eq 7).
+     *
+     *   h = ΣK · V²/2g,  V = Q/A,  A = πd²/4
+     *     = [ ΣK / (2g·A²) ] · Q²
+     *
+     * so it is a quadratic resistance, exponent 2 — which is why it cannot
+     * simply be added to a Hazen-Williams pipe resistance (exponent 1.852) and
+     * has to ride alongside it as a separate term. */
+    fittingR: function (sumK, d) {
+      if (!(d > 0) || !(sumK > 0)) return 0;
+      var area = Math.PI * d * d / 4;
+      return sumK / (2 * G * area * area);
     }
   };
 })(window.FD = window.FD || {});

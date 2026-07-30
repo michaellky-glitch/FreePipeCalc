@@ -529,4 +529,58 @@ section('Linear algebra');
      FD.solver.solveLinear([[1, 2], [2, 4]], [1, 2]) === null);
 }
 
+section('ASHRAE (2021) method — Hazen-Williams pipe + K fittings');
+{
+  /* 2021 ASHRAE Fundamentals Ch 22. Pipe friction is Eq (6), algebraically the
+   * same Hazen-Williams already in use; fittings are Eq (7), K velocity heads,
+   * carried as a SEPARATE quadratic term. */
+  const A = FD.hydraulics.methods.ASHRAE;
+  const HWm = FD.hydraulics.methods.HW;
+  ok('ASHRAE method exists and is not experimental', !!A && A.experimental === false);
+  ok('...and charges fittings by K', A.fittingMode === 'K');
+  ok('...where plain Hazen-Williams charges equivalent length', HWm.fittingMode === 'EL');
+
+  const d = 0.0525, C = 120, L = 100;
+  near('ASHRAE pipe friction == Hazen-Williams pipe friction',
+       A.r(L, d, C), HWm.r(L, d, C), 1e-12);
+  near('ASHRAE exponent is the HW exponent', A.exponent(), 1.852, 1e-12);
+
+  /* Fitting term against Eq (7) by hand: h = K·V²/2g, so K=1 at V=1 m/s
+   * costs 1/(2·9.81) = 0.050968 m. */
+  const area = Math.PI * d * d / 4;
+  const q1 = 1.0 * area;
+  const rK = FD.hydraulics.fittingR(1.0, d);
+  near('K=1 at 1 m/s costs V^2/2g by hand',
+       FD.hydraulics.headloss(rK, q1, 2), 1 / (2 * 9.81), 1e-9);
+  near('K=2.5 scales linearly with K',
+       FD.hydraulics.headloss(FD.hydraulics.fittingR(2.5, d), q1, 2), 2.5 / (2 * 9.81), 1e-9);
+  near('doubling the flow quadruples the fitting loss',
+       FD.hydraulics.headloss(rK, 2 * q1, 2),
+       4 * FD.hydraulics.headloss(rK, q1, 2), 1e-12);
+  ok('No fittings means no K term', FD.hydraulics.fittingR(0, d) === 0);
+
+  /* The composite. Its derivative must match a numerical one: the GGA's Newton
+   * step depends on that agreement, and a wrong derivative shows up as poor
+   * convergence rather than as an obviously wrong number. */
+  const link = { r: A.r(L, d, C), n: 1.852, rK: rK };
+  const q = 0.004;
+  near('linkLoss sums the pipe and fitting terms',
+       FD.hydraulics.linkLoss(link, q),
+       FD.hydraulics.headloss(link.r, q, 1.852) + FD.hydraulics.headloss(rK, q, 2), 1e-15);
+  ok('...and exceeds the pipe term alone',
+     FD.hydraulics.linkLoss(link, q) > FD.hydraulics.headloss(link.r, q, 1.852));
+
+  const hh = 1e-7;
+  const numeric = (FD.hydraulics.linkLoss(link, q + hh) - FD.hydraulics.linkLoss(link, q - hh)) / (2 * hh);
+  const analytic = FD.hydraulics.dhdq(link.r, q, 1.852) + FD.hydraulics.dhdq(rK, q, 2);
+  near('composite dh/dq matches a numerical derivative', analytic, numeric, Math.abs(numeric) * 1e-4);
+
+  ok('composite loss is odd in q',
+     Math.abs(FD.hydraulics.linkLoss(link, -q) + FD.hydraulics.linkLoss(link, q)) < 1e-15);
+
+  const plain = { r: A.r(L, d, C), n: 1.852 };
+  near('a link without fittings is unchanged',
+       FD.hydraulics.linkLoss(plain, q), FD.hydraulics.headloss(plain.r, q, 1.852), 1e-15);
+}
+
 report();

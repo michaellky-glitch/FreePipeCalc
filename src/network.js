@@ -213,7 +213,8 @@
    * codes for the calculation sheet. */
   function fittingsByPipe(m, flows, warnings) {
     var byPipe = {};
-    m.pipes.forEach(function (p) { byPipe[p.id] = { el: 0, types: [] }; });
+    m.pipes.forEach(function (p) { byPipe[p.id] = { el: 0, sumK: 0, types: [] }; });
+    var kSet = (m.settings.dw && m.settings.dw.kSet) || 'threaded';
 
     m.nodes.forEach(function (n) {
       fittingsAtNode(m, n.id, flows, warnings).forEach(function (f) {
@@ -221,6 +222,19 @@
         if (!p || !byPipe[p.id]) return;
         var bore_mm = M.pipeBore(m, p) * 1000;
         byPipe[p.id].el += FD.fittings.el(f.type, bore_mm, m.settings.fittingLD);
+
+        /* Both bases are accumulated on every build, because the calculation
+         * sheet reports whichever the active method did not use, and switching
+         * method must not need a rebuild of anything else.
+         *
+         * The K lookup is keyed on NOMINAL size, not bore. They are different
+         * numbers and confusing them is a real hazard: HDPE "110 mm" is an
+         * OUTSIDE diameter with a 90 mm bore, so keying on bore lands two rows
+         * off in the table (ARCHITECTURE §7). */
+        var nominal_mm = FD.schedules.nominalMm
+          ? FD.schedules.nominalMm(p.size) : bore_mm;
+        byPipe[p.id].sumK += FD.ktable.k(FD.fittings.ktableType(f.type),
+                                         nominal_mm, kSet, m.settings.fittingK);
         byPipe[p.id].types.push(f.type);
       });
     });
@@ -425,6 +439,13 @@
         link.kind = 'equip';
         link.n = 2;
         link.r = FD.hydraulics.equipmentR(p.equip.pdRated || 0, p.equip.qRated || 0, rho);
+      } else if (method.fittingMode === 'K') {
+        /* ASHRAE: the pipe carries its own friction over the DRAWN length only,
+         * and the fittings ride alongside as a separate velocity-head term.
+         * Adding the two into one resistance is not available here — they have
+         * different exponents (1.852 against 2). */
+        link.r = method.r(L, d, p.C, ctx);
+        link.rK = FD.hydraulics.fittingR(fits[p.id] ? fits[p.id].sumK : 0, d);
       } else {
         link.r = method.r(L + el, d, p.C, ctx);
       }
@@ -432,7 +453,11 @@
       // Cached for the calculation sheet — not read by the solver.
       link._L = L;
       link._el = el;
-      link._Leff = L + el;
+      /* Under the K method the fittings are NOT in the pipe's length, so the
+       * effective length is the drawn length — otherwise the sheet would show a
+       * length that was never used in the calculation. */
+      link._Leff = (method.fittingMode === 'K') ? L : L + el;
+      link._sumK = fits[p.id] ? fits[p.id].sumK : 0;
       link._d = d;
       link._rActual = (link.kind === 'pipe') ? method.r(L, d, p.C, ctx) : 0;
       link._types = fits[p.id] ? fits[p.id].types : [];
@@ -688,7 +713,12 @@
     var warn = m.settings.warn || {};
     var nu = (m.settings.fluid && m.settings.fluid.kinematicViscosity) || 1.004e-6;
     var rho = net.rho || 998;
-    var usingHW = (m.settings.frictionMethod || 'HW') === 'HW';
+    /* The ASHRAE method IS Hazen-Williams for pipe friction, so the "this is
+     * the wrong equation in laminar flow" warning applies to it too. Testing
+     * for 'HW' alone silently dropped the warning the moment ASHRAE became the
+     * default — the flow regime does not care which fitting basis is used. */
+    var meth = m.settings.frictionMethod || 'ASHRAE';
+    var usingHW = (meth === 'HW' || meth === 'ASHRAE');
 
     net.links.forEach(function (l) {
       if (l.kind !== 'pipe' || l._virtual) return;
@@ -1181,7 +1211,7 @@
         if (l.kind !== 'equip') return;
         var q = res.flow[l.id];
         if (q === undefined) return;
-        var dp = Math.abs(FD.hydraulics.headloss(l.r, q, l.n));
+        var dp = Math.abs(FD.hydraulics.linkLoss(l, q));
         if (!worst || dp > worst.dp) worst = { dp: dp, link: l };
       });
       if (worst) {
@@ -1241,7 +1271,7 @@
       var l = net.links.find(function (x) { return x.id === sec.link; });
       if (!l) return;
       if (l.kind === 'pump') pumpGain += (l.head || 0);
-      else friction += Math.abs(FD.hydraulics.headloss(l.r, res.flow[l.id], l.n));
+      else friction += Math.abs(FD.hydraulics.linkLoss(l, res.flow[l.id]));
       var a = M.node(m, sec.from), b = M.node(m, sec.to);
       if (a && b) statik += M.elevation(m, b) - M.elevation(m, a);
     });
@@ -1462,7 +1492,7 @@
       /* Actual dP across the equipment, from the solved flow, not the rating.
        * Equipment is r*Q^2, so it follows the square law away from duty. */
       var link = net.links.filter(function (l) { return l.id === p.id; })[0];
-      var actPa = link ? FD.hydraulics.headloss(link.r, q, link.n) * rho * 9.81 : null;
+      var actPa = link ? FD.hydraulics.linkLoss(link, q) * rho * 9.81 : null;
       var row = {
         node: p.id, tag: p.tag || null, equipment: true,
         designFlow: qd, actualFlow: q,

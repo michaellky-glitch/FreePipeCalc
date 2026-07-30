@@ -2199,7 +2199,7 @@
       parts.push(FD.hydraulics.velocity(q, link._d).toFixed(2) + 'm/s');
     }
     if (a.pipePD && link && q !== undefined) {
-      var pd = FD.units.headToPaWith(Math.abs(FD.hydraulics.headloss(link.r, q, link.n)),
+      var pd = FD.units.headToPaWith(Math.abs(FD.hydraulics.linkLoss(link, q)),
                                      m.settings.fluid && m.settings.fluid.density);
       parts.push(FD.units.fmtPressure(pd, d.pressure) + d.pressure);
     }
@@ -2416,7 +2416,7 @@
           var link = res.network && res.network.links.find(function (l) { return l.id === obj.id; });
           if (link && link.r !== undefined) {
             lines.push('ΔP ' + FD.units.fmtPressure(FD.units.headToPaWith(
-              Math.abs(FD.hydraulics.headloss(link.r, res.flow[obj.id], link.n)),
+              Math.abs(FD.hydraulics.linkLoss(link, res.flow[obj.id])),
               m.settings.fluid.density), d.pressure, true));
           }
         }
@@ -2459,7 +2459,7 @@
       var pipe = M.pipe(m, f.pipe);
       if (!pipe) return;
       var el = FD.fittings.el(f.type, M.pipeBore(m, pipe) * 1000);
-      var loss = FD.units.headToPaWith(Math.abs(FD.hydraulics.headloss(link.r, q, link.n)),
+      var loss = FD.units.headToPaWith(Math.abs(FD.hydraulics.linkLoss(link, q)),
                                        m.settings.fluid && m.settings.fluid.density);
       total += loss * (el / link._Leff);
     });

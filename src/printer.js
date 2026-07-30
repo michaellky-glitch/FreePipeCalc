@@ -74,7 +74,7 @@
       parts.push(FD.hydraulics.velocity(q, link._d).toFixed(2) + 'm/s');
     }
     if (a.pipePD && link && q !== undefined) {
-      var pd = FD.units.headToPaWith(Math.abs(FD.hydraulics.headloss(link.r, q, link.n)),
+      var pd = FD.units.headToPaWith(Math.abs(FD.hydraulics.linkLoss(link, q)),
                                      m.settings.fluid && m.settings.fluid.density);
       parts.push(FD.units.fmtPressure(pd, d.pressure) + d.pressure);
     }

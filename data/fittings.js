@@ -131,6 +131,27 @@
       return K * v * v / (2 * 9.81);
     },
 
+    /* Which row of the ASHRAE K tables (Ch 22 Tables 3/4) a fitting type reads.
+     *
+     * Those tables give ONE tee-line and ONE tee-branch figure — they do not
+     * split diverting from combining flow — so all four of the app's tee types
+     * collapse onto two rows here. That is a faithful reading of the source,
+     * not a simplification we invented.
+     *
+     * Table 7 DOES separate diverting from mixing, and is transcribed in
+     * data/ktable.js. It is not used here yet: it reports a single "100% mix"
+     * coefficient and the app charges a combining tee's two inlets separately,
+     * so mapping it needs an engineering decision rather than a transcription.
+     * Until that is settled, a combining tee is charged the same as a dividing
+     * one, which is what Tables 3/4 support. */
+    ktableType: function (type) {
+      switch (type) {
+        case 'TRUN': case 'TRUN_DIV': case 'TRUN_CONV': return 'TRUN';
+        case 'TBRANCH': case 'TBRANCH_DIV': case 'TBRANCH_CONV': return 'TBRANCH';
+        default: return type;       // E90, E45, GATE, GLOBE, CHECK map straight
+      }
+    },
+
     code: function (type) {
       return LD[type] ? LD[type].code : type;
     },

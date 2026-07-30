@@ -36,7 +36,11 @@
        * SIMULATION: the pump curve is the input, outflow becomes a resistance
        * derived from its design point, and flow is the result. */
       calcMode: 'design',           // 'design' | 'simulation'
-      frictionMethod: 'HW',         // 'HW' | 'DW' (Darcy is experimental)
+      /* Default is the 2021 ASHRAE Ch 22 method: Hazen-Williams pipe friction
+       * with velocity-head (K) fitting losses, both sourced from the Handbook.
+       * 'HW' keeps the older equivalent-length fitting basis (spec §3.3);
+       * 'DW' is Darcy, still experimental. */
+      frictionMethod: 'ASHRAE',     // 'ASHRAE' | 'HW' | 'DW'
       systemType: 'open',           // 'open' | 'closed' (spec §3.4)
 
       /* Hazen-Williams coefficients, user-editable. Jurisdictions differ on

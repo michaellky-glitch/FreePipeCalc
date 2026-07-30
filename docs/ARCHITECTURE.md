@@ -63,9 +63,21 @@ already (spec Q12 notes).
 
 ### 2.3 The friction method is swappable
 
-The solver only ever asks a link for a resistance `r` and an exponent `n` such
-that `h = r·|Q|^(n−1)·Q`. That is the whole interface. Hazen-Williams and
-Darcy-Weisbach both satisfy it, and a third method would too.
+The solver asks a link for a resistance `r` and an exponent `n` such that
+`h = r·|Q|^(n−1)·Q`. Hazen-Williams and Darcy-Weisbach both satisfy it.
+
+A link may also carry an **optional second term** `rK` at exponent 2, because
+the ASHRAE method pairs Hazen-Williams pipe friction (n = 1.852) with
+velocity-head fitting losses (n = 2) and the two cannot be folded into one
+resistance. Both terms are monotonic in |Q| and share the sign convention, so
+the sum is still a strictly increasing loss curve and the Newton step is
+unaffected.
+
+**Anything reconstructing a loss from a link must call
+`FD.hydraulics.linkLoss(link, q)`.** Reading `link.r` alone silently omits the
+fitting term — the number still looks like a pressure drop, it is just too
+small. That is exactly how it was caught: the energy-balance and critical-path
+reconciliations stopped adding up.
 
 ---
 
@@ -210,8 +222,15 @@ corner give an elbow, three give a tee, four or more raise a warning and are
 modelled as two tee branches. Equivalent length is charged to the **downstream**
 pipe.
 
-Under Darcy the same fittings are charged as velocity heads (`h = K·V²/2g`)
-using ASHRAE K tables instead.
+**How fittings are charged depends on the method.** Under **ASHRAE (2021)** —
+the default — they are velocity heads, `h = K·V²/2g`, from the Ch 22 K tables
+(Eq 7), carried as a *separate quadratic term* on the link. Under **HW** and
+**DW** they are equivalent length, folded into the pipe's own resistance.
+
+Note that until 2026-07-31 the K tables were **dead data**: this document
+claimed Darcy charged velocity heads, but `headlossK` was never called and both
+methods used equivalent length. The ASHRAE method is what finally wires the K
+tables into the calculation.
 
 **The K lookup is keyed on NOMINAL size, not bore.** These are different
 numbers and confusing them is a real hazard: HDPE "110 mm" is an *outside*

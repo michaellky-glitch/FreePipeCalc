@@ -435,7 +435,7 @@
       var pdm = (l.kind === 'pipe' && l._L > 1e-9)
         ? headToPa(Math.abs(FD.hydraulics.headloss(l._rActual, q, l.n)) / l._L) : 0;
       var pd = headToPa(Math.abs(
-        l.kind === 'pump' ? -l.head : FD.hydraulics.headloss(l.r, q, l.n)));
+        l.kind === 'pump' ? -l.head : FD.hydraulics.linkLoss(l, q)));
       var dz = M.elevation(m, nTo) - M.elevation(m, nFrom);
 
       /* A shut valve has a deliberately enormous resistance, so ΔP = R·Q² comes
@@ -1495,7 +1495,7 @@
          * different lengths, so they are labelled to say so. */
         var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
         var pdPa = FD.units.headToPaWith(
-          Math.abs(FD.hydraulics.headloss(link.r, q, link.n)), rho);
+          Math.abs(FD.hydraulics.linkLoss(link, q)), rho);
         ro('Pressure drop', FD.units.fmtPressure(pdPa, m.settings.display.pressure, true) +
                             '  (incl. fittings)');
         if (link._L > 1e-9) {
@@ -1601,7 +1601,7 @@
       ro('Flow', FD.units.fmtFlow(Math.abs(q), d.flow, true));
       if (link) {
         ro('Pressure drop', FD.units.fmtPressure(
-          headToPa(Math.abs(FD.hydraulics.headloss(link.r, q, link.n))), d.pressure, true));
+          headToPa(Math.abs(FD.hydraulics.linkLoss(link, q))), d.pressure, true));
       }
       host.appendChild(info);
     }
@@ -1723,7 +1723,7 @@
         if (link.r >= FD.valves.CLOSED_R) {
           ro('Pressure drop', 'Shut — no flow path');
         } else {
-          var pd = headToPa(Math.abs(FD.hydraulics.headloss(link.r, q, link.n)));
+          var pd = headToPa(Math.abs(FD.hydraulics.linkLoss(link, q)));
           ro('Pressure drop', FD.units.fmtPressure(pd, m.settings.display.pressure, true));
         }
         if (link._checkShut) ro('State', 'Seated (holding back-flow)');
