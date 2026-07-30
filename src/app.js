@@ -1085,9 +1085,12 @@
     toggle('PD', 'pipePD');
     toggle('PD/m', 'pipePDM');
 
-    host.appendChild(el('h3', 'sub', 'Pipe fittings'));
+    /* "Node", not "Pipe fittings": everything here is drawn at a NODE, and one
+     * of them (pressure) is not a fitting property at all. */
+    host.appendChild(el('h3', 'sub', 'Node'));
     toggle('Type (EL, T, S, P, OF)', 'fitType');
-    toggle('PD', 'fitPD');
+    toggle('Fitting PD', 'fitPD');
+    toggle('Pressure', 'nodePressure');
     toggle('Node numbers', 'nodeNumbers');
 
     var done = el('button', 'btn', 'Done');
@@ -1481,6 +1484,25 @@
         ro('L effective', FD.units.fmtLength(link._Leff, m.settings.display.length, true));
         ro('Flow', FD.units.fmtFlow(Math.abs(q), m.settings.display.flow, true));
         ro('Velocity', FD.hydraulics.velocity(q, link._d).toFixed(2) + ' m/s');
+
+        /* Pressure drop and friction rate — the two numbers a pipe is sized
+         * against, and they were the only ones missing from this panel.
+         *
+         * PD is over the EFFECTIVE length (fittings included), because that is
+         * the loss the section actually contributes. PD/m is over the ACTUAL
+         * drawn length excluding fittings, which is the basis of the ~400 Pa/m
+         * rule and of the PDM warning — the two figures are deliberately on
+         * different lengths, so they are labelled to say so. */
+        var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
+        var pdPa = FD.units.headToPaWith(
+          Math.abs(FD.hydraulics.headloss(link.r, q, link.n)), rho);
+        ro('Pressure drop', FD.units.fmtPressure(pdPa, m.settings.display.pressure, true) +
+                            '  (incl. fittings)');
+        if (link._L > 1e-9) {
+          var pdmVal = FD.hydraulics.pdPerMetre(link._rActual, q, link.n, link._L, rho);
+          ro('PD/m', FD.units.fmtPdm(pdmVal, m.settings.display.pdm, true) +
+                     '  (pipe only)');
+        }
         host.appendChild(info);
       }
     }
@@ -3276,6 +3298,11 @@
           o.classList.toggle('active', o.dataset.tool === app.view.tool);
         }
       });
+      /* ANNOTATIONS is a panel belonging to VIEW, not a sticky mode. Leaving it
+       * up after switching to EDIT meant the properties panel showed annotation
+       * checkboxes while you were selecting pipework — the panel has to follow
+       * the mode you are actually in. */
+      app.showAnnotations = false;
       syncToolGroups();
       var hint = MODE_HINTS[app.view.tool] || '';
       $('mode-hint').textContent = hint +
@@ -3314,6 +3341,82 @@
       app.showAnnotations = !app.showAnnotations;
       renderProperties();
     });
+
+    /* Visualisers colour the drawing by a solved quantity. They are overlays,
+     * not modes: clicking the active one switches it off, and only one can be
+     * on at a time because they compete for the same colour. */
+    var vizButtons = [].slice.call(document.querySelectorAll('[data-viz]'));
+    function syncVizButtons() {
+      vizButtons.forEach(function (b) {
+        b.classList.toggle('active', app.view.viz === b.dataset.viz);
+      });
+    }
+    vizButtons.forEach(function (b) {
+      b.addEventListener('click', function () {
+        app.view.viz = (app.view.viz === b.dataset.viz) ? null : b.dataset.viz;
+        syncVizButtons();
+        if (app.view.viz && !app.results) {
+          toast('Nothing solved yet — draw a network first.');
+        }
+        app.view.render();
+      });
+    });
+    syncVizButtons();
+
+    /* Resizable side panel. The width is a UI preference, not model data, so it
+     * lives in localStorage rather than in the .pnet.json — a model file should
+     * not carry someone else's panel width. The canvas must be told to resize
+     * afterwards or it keeps its old backing-store size and the drawing
+     * stretches. */
+    (function () {
+      var panel = document.querySelector('.panel-left');
+      var split = $('panel-splitter');
+      if (!panel || !split) return;
+      var MIN = 170, MAX = 640, DEFAULT = 210;
+
+      function setWidth(px, remember) {
+        var w = Math.max(MIN, Math.min(MAX, px));
+        panel.style.width = w + 'px';
+        if (remember) {
+          try { localStorage.setItem('fpc.panelWidth', String(w)); } catch (e) {}
+        }
+        app.view.resize();
+      }
+
+      try {
+        var saved = parseFloat(localStorage.getItem('fpc.panelWidth'));
+        if (isFinite(saved)) setWidth(saved, false);
+      } catch (e) {}
+
+      var drag = null;
+      split.addEventListener('pointerdown', function (e) {
+        drag = { x: e.clientX, w: panel.getBoundingClientRect().width };
+        split.setPointerCapture(e.pointerId);
+        split.classList.add('dragging');
+        document.body.classList.add('resizing-panel');
+        e.preventDefault();
+      });
+      split.addEventListener('pointermove', function (e) {
+        if (!drag) return;
+        setWidth(drag.w + (e.clientX - drag.x), false);
+      });
+      function end() {
+        if (!drag) return;
+        drag = null;
+        split.classList.remove('dragging');
+        document.body.classList.remove('resizing-panel');
+        setWidth(panel.getBoundingClientRect().width, true);
+      }
+      split.addEventListener('pointerup', end);
+      split.addEventListener('pointercancel', end);
+      split.addEventListener('dblclick', function () { setWidth(DEFAULT, true); });
+      // Keyboard, so the divider is not mouse-only.
+      split.addEventListener('keydown', function (e) {
+        var w = panel.getBoundingClientRect().width;
+        if (e.key === 'ArrowLeft') { setWidth(w - 16, true); e.preventDefault(); }
+        else if (e.key === 'ArrowRight') { setWidth(w + 16, true); e.preventDefault(); }
+      });
+    })();
 
     $('btn-renumber').addEventListener('click', renumberNodes);
 

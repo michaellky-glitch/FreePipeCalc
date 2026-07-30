@@ -47,6 +47,9 @@
      * `conflict`: a geometry conflict is an error that blocks an edit, a
      * warning is advisory, and they are drawn in different colours. */
     this.warnHighlight = null;     // {pipes:{id:true}, nodes:{id:true}}
+    /* Which quantity, if any, is being colour-mapped over the drawing:
+     * null | 'flow' | 'velocity' | 'pressure'. A VIEW overlay. */
+    this.viz = null;
     this.dragTrace = null;         // in-progress trace move/scale
     this.calibrating = null;       // {points:[]} while picking two scale points
     this.results = null;             // last solve, for colouring & tooltips
@@ -1296,6 +1299,9 @@
     this.drawMarquee();
     this.drawDeviceHover();
     this.drawCalibration();
+    var vs = this.vizScale();
+    this.drawVizNodes(vs);
+    this.drawVizLegend(vs);
     this.drawWarnHighlight();
     this.drawDisconnects();
     this.drawFlipButton();
@@ -1402,6 +1408,182 @@
     ctx.restore();
 
     if (issues.length) this.requestAnimation();
+  };
+
+  /* ------------------------------------------------------------ visualisers
+   *
+   * Colour the drawing by a solved quantity, so the shape of the answer can be
+   * read at a glance instead of section by section off the sheet: where the
+   * flow concentrates, which runs are fast, where the pressure has gone.
+   *
+   * A VIEW overlay rather than a mode — it changes nothing and blocks nothing,
+   * and it is switched off by clicking the same button again.
+   *
+   * Blue → green → amber → red across the range. For VELOCITY the scale is
+   * pinned to the WARNING LIMIT rather than to the range present, so the colour
+   * means "fast" in absolute terms and does not rescale as the model changes;
+   * for flow and pressure there is no such limit, so the range in the model is
+   * used and the legend states it.
+   */
+  var VIZ_STOPS = [
+    { t: 0.00, c: [77, 163, 255] },   // blue
+    { t: 0.45, c: [70, 209, 127] },   // green
+    { t: 0.75, c: [255, 159, 67] },   // amber
+    { t: 1.00, c: [255, 95, 86] }     // red
+  ];
+
+  function vizColour(t) {
+    if (!isFinite(t)) return 'rgb(107,119,133)';
+    t = Math.max(0, Math.min(1, t));
+    for (var i = 1; i < VIZ_STOPS.length; i++) {
+      if (t <= VIZ_STOPS[i].t) {
+        var a = VIZ_STOPS[i - 1], b = VIZ_STOPS[i];
+        var f = (t - a.t) / (b.t - a.t);
+        return 'rgb(' + Math.round(a.c[0] + f * (b.c[0] - a.c[0])) + ',' +
+                        Math.round(a.c[1] + f * (b.c[1] - a.c[1])) + ',' +
+                        Math.round(a.c[2] + f * (b.c[2] - a.c[2])) + ')';
+      }
+    }
+    return 'rgb(255,95,86)';
+  }
+
+  /* Range and formatting for the active visualiser. Returns null when there is
+   * nothing to show, so the caller can fall back to ordinary rendering rather
+   * than painting a scale with no data behind it. */
+  View.prototype.vizScale = function () {
+    var m = this.getModel(), res = this.results;
+    if (!this.viz || !res) return null;
+    var d = m.settings.display;
+    var vals = [];
+
+    if (this.viz === 'pressure') {
+      m.nodes.forEach(function (n) {
+        var pa = res.pressure && res.pressure[n.id];
+        if (pa !== undefined && isFinite(pa)) vals.push(pa);
+      });
+      if (!vals.length) return null;
+      return {
+        kind: 'node', min: Math.min.apply(null, vals), max: Math.max.apply(null, vals),
+        label: 'PRESSURE',
+        fmt: function (v) { return FD.units.fmtPressure(v, d.pressure, true); }
+      };
+    }
+
+    var self = this;
+    (res.network ? res.network.links : []).forEach(function (l) {
+      if (l._virtual) return;
+      var q = res.flow[l.id];
+      if (q === undefined) return;
+      if (self.viz === 'flow') vals.push(Math.abs(q));
+      else if (l.kind === 'pipe' && l._d > 0) {
+        vals.push(FD.hydraulics.velocity(q, l._d));
+      }
+    });
+    if (!vals.length) return null;
+
+    if (this.viz === 'velocity') {
+      /* Pinned to the warning limit so the colour has an absolute meaning. If
+       * the model exceeds it, the top of the scale follows the worst section so
+       * nothing is clipped off the end. */
+      var lim = (m.settings.warn && m.settings.warn.velocity) || 2.4;
+      var worst = Math.max.apply(null, vals);
+      return {
+        kind: 'pipe', min: 0, max: Math.max(lim, worst), limit: lim,
+        label: 'VELOCITY',
+        fmt: function (v) { return v.toFixed(2) + ' m/s'; }
+      };
+    }
+    return {
+      kind: 'pipe', min: 0, max: Math.max.apply(null, vals),
+      label: 'FLOW',
+      fmt: function (v) { return FD.units.fmtFlow(v, d.flow, true); }
+    };
+  };
+
+  /* The colour a link should take under the active visualiser, or null. */
+  View.prototype.vizPipeColour = function (p, scale) {
+    if (!scale || scale.kind !== 'pipe') return null;
+    var res = this.results;
+    var q = res && res.flow ? res.flow[p.id] : undefined;
+    if (q === undefined) return null;
+    var link = res.network &&
+      res.network.links.filter(function (l) { return l.id === p.id; })[0];
+    var v;
+    if (this.viz === 'flow') v = Math.abs(q);
+    else {
+      if (!link || !(link._d > 0) || link.kind !== 'pipe') return null;
+      v = FD.hydraulics.velocity(q, link._d);
+    }
+    var span = scale.max - scale.min;
+    return vizColour(span > 1e-12 ? (v - scale.min) / span : 0);
+  };
+
+  /* Pressure visualiser: a filled disc at each node. Drawn over the pipework
+   * because pressure is a nodal quantity — colouring the pipes for it would
+   * imply a value along the run that the solve does not produce. */
+  View.prototype.drawVizNodes = function (scale) {
+    if (!scale || scale.kind !== 'node') return;
+    var m = this.getModel(), ctx = this.ctx, self = this, res = this.results;
+    var span = scale.max - scale.min;
+    ctx.save();
+    m.nodes.forEach(function (n) {
+      if (n.level !== m.activeLevel) return;
+      var pa = res.pressure && res.pressure[n.id];
+      if (pa === undefined || !isFinite(pa)) return;
+      var w = M.worldXY(m, n);
+      var s = self.toScreen(w.x, w.y);
+      ctx.fillStyle = vizColour(span > 1e-12 ? (pa - scale.min) / span : 0);
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath(); ctx.arc(s.x, s.y, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = self.theme.bg;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    });
+    ctx.restore();
+  };
+
+  /* Legend for the active visualiser: the gradient, the two ends of the range,
+   * and for velocity a tick where the warning limit sits. Without the numbers a
+   * colour map is decorative. */
+  View.prototype.drawVizLegend = function (scale) {
+    if (!scale) return;
+    var ctx = this.ctx;
+    var W = 150, H = 9;
+    var x = 14, y = this.cssH - 54;
+
+    ctx.save();
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = this.theme.text;
+    ctx.fillText(scale.label, x, y - 6);
+
+    for (var i = 0; i <= W; i++) {
+      ctx.fillStyle = vizColour(i / W);
+      ctx.fillRect(x + i, y, 1, H);
+    }
+    ctx.strokeStyle = this.theme.line || this.theme.mute;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, W, H);
+
+    ctx.fillStyle = this.theme.dim;
+    ctx.fillText(scale.fmt(scale.min), x, y + H + 12);
+    ctx.textAlign = 'right';
+    ctx.fillText(scale.fmt(scale.max), x + W, y + H + 12);
+
+    if (scale.limit !== undefined && scale.max > scale.min) {
+      var lx = x + W * (scale.limit - scale.min) / (scale.max - scale.min);
+      ctx.strokeStyle = this.theme.text;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(lx, y - 2); ctx.lineTo(lx, y + H + 2);
+      ctx.stroke();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = this.theme.text;
+      ctx.fillText('limit', lx, y - 6);
+    }
+    ctx.restore();
   };
 
   /* Halo the pipes and nodes the warning chip is reporting.
@@ -1665,6 +1847,7 @@
     this.selection.forEach(function (s) { if (s.kind === 'pipe') selIds[s.id] = true; });
     var conflictIds = {};
     (this.conflict || []).forEach(function (id) { conflictIds[id] = true; });
+    var vizScale = this.vizScale();
 
     m.pipes.forEach(function (p) {
       var a = M.node(m, p.a), b = M.node(m, p.b);
@@ -1678,6 +1861,9 @@
       // Pipes are blue when carrying flow, grey when not (spec §4)
       var q = res && res.flow ? res.flow[p.id] : undefined;
       var colour = (q === undefined || Math.abs(q) < 1e-9) ? self.theme.noflow : self.theme.flow;
+      // A visualiser overrides the flow/no-flow colouring for plain pipes.
+      var vc = self.vizPipeColour(p, vizScale);
+      if (vc) colour = vc;
 
       if (p.kind === 'riser' && a.level !== b.level) {
         // A riser seen in plan is a point — draw it as a ring, not a line
@@ -1829,19 +2015,26 @@
       /* Check valve: the standard flapper — a seat bar across the pipe with a
        * hinged disc swinging onto it, per the symbol Michael supplied. It is
        * not a bowtie, and drawing it as one made a check valve look like an
-       * isolating valve. */
+       * isolating valve.
+       *
+       * Drawn LARGER than the bowtie valves on purpose: the whole point of the
+       * symbol is that it states a direction, and at bowtie size the flapper
+       * was too small to read which way it swings. */
+      var cw = w * 1.6, ch = h * 1.5;
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.moveTo(w, -h - 1); ctx.lineTo(w, h + 1);          // seat
+      ctx.moveTo(cw, -ch - 2); ctx.lineTo(cw, ch + 2);        // seat
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(-w + 1, -h - 1); ctx.lineTo(-w + 1, h + 1); // hinge post
+      ctx.moveTo(-cw + 1, -ch - 2); ctx.lineTo(-cw + 1, ch + 2); // hinge post
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(-w + 1, -h);  ctx.lineTo(w - 1, h);         // flapper
+      ctx.moveTo(-cw + 1, -ch);  ctx.lineTo(cw - 1, ch);      // flapper
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(-w + 1, -h, 2.4, 0, Math.PI * 2);              // hinge pin
+      ctx.arc(-cw + 1, -ch, 3.2, 0, Math.PI * 2);             // hinge pin
       ctx.fillStyle = colour; ctx.fill();
+      ctx.lineWidth = 2;
     } else {
       // Bowtie body, shared by gate and globe.
       ctx.beginPath();
@@ -1908,8 +2101,9 @@
     ctx.lineWidth = 2;
     ctx.beginPath();
     if (off) {
-      // A bar, not an arrow: an isolated device passes nothing.
-      ctx.moveTo(-5, 0); ctx.lineTo(5, 0);
+      /* A bar ACROSS the pipe, not along it: it reads as a blank/isolation
+       * plate stopping flow. Drawn along the run it looked like a dash. */
+      ctx.moveTo(0, -5); ctx.lineTo(0, 5);
     } else {
       // Square box inside the ring — the equipment symbol, still a point.
       ctx.rect(-5, -5, 10, 10);
@@ -1959,7 +2153,9 @@
     ctx.rotate(ang);
     ctx.beginPath();
     if (off) {
-      ctx.moveTo(-5, 0); ctx.lineTo(5, 0);
+      /* Bar ACROSS the run, not along it — it reads as flow being stopped
+       * rather than as a dash. */
+      ctx.moveTo(0, -5); ctx.lineTo(0, 5);
     } else {
       ctx.moveTo(-3, -5); ctx.lineTo(5, 0); ctx.lineTo(-3, 5);
     }
@@ -2137,6 +2333,16 @@
       var pd = this.fittingPDAt(n.id);
       if (pd > 0) parts.push(FD.units.fmtPressure(pd, m.settings.display.pressure) +
                              m.settings.display.pressure);
+    }
+    /* Gauge pressure at the node, straight from the solve. Shown even when it
+     * is negative or zero — a shortfall is exactly what you want to see on the
+     * drawing, so it must not be filtered out the way fitting PD is. */
+    if (a.nodePressure && this.results && this.results.pressure) {
+      var pa = this.results.pressure[n.id];
+      if (pa !== undefined && isFinite(pa)) {
+        parts.push(FD.units.fmtPressure(pa, m.settings.display.pressure) +
+                   m.settings.display.pressure);
+      }
     }
     if (!parts.length) return;
 

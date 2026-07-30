@@ -103,6 +103,10 @@
         pipePDM: false,
         fitType: true,
         fitPD: false,
+        /* Gauge pressure AT the node, as distinct from fitPD (the loss charged
+         * to fittings there). This is the number an engineer reads off a
+         * drawing to check a terminal has enough to work with. */
+        nodePressure: false,
         nodeNumbers: true
       },
       /* Presentation. Arrow and label sizes are separated from the UI font so a

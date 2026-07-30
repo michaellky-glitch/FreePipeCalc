@@ -54,7 +54,7 @@
     },
     check: {
       key: 'check',
-      name: 'Check valve (swing)',
+      name: 'Check valve',
       code: 'CV',
       K: 2.0,
       adjustable: false,      // a check valve's position is not user-set

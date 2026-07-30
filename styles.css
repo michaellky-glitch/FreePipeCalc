@@ -801,3 +801,35 @@ table.doc-table th { background: var(--bg-raised); color: var(--text-dim); font-
 .switch.on .switch-track::after { transform: translateX(16px); }
 .switch-label { white-space: nowrap; }
 .switch:focus-visible { outline: 2px solid var(--select); outline-offset: 2px; }
+
+/* Draggable divider between the side panel and the canvas. Property values and
+ * pasted pipe schedules can be wider than the default panel, and the panel had
+ * a fixed width. Thin line, generous grab area — a 1px target is unhittable. */
+.splitter {
+  flex: none;
+  width: 6px;
+  margin-left: -3px;          /* overlap the panel border, keep the line thin */
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 2;
+}
+.splitter:hover::after,
+.splitter.dragging::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: 2px;
+  width: 2px;
+  background: var(--accent);
+}
+.splitter:focus-visible { outline: 2px solid var(--select); outline-offset: -2px; }
+body.resizing-panel { cursor: col-resize; user-select: none; }
+
+/* Inline separator inside a tool group, for splitting tools from overlays. */
+.sep-inline {
+  display: inline-block;
+  width: 1px; height: 18px;
+  background: var(--line);
+  margin: 0 4px;
+  vertical-align: middle;
+}
