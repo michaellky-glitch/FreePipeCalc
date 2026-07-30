@@ -5,25 +5,41 @@
  *
  *     Δp = K · ρ · V²/2        h = K · V²/2g
  *
- * SOURCE: ASHRAE Handbook — Fundamentals, Pipe Sizing chapter, Table 1
- * (threaded fittings) and Table 2 (flanged/welded fittings). Transcribed from
- * two independent copies of the chapter and cross-checked.
+ * SOURCE: 2021 ASHRAE Handbook — Fundamentals (SI), Chapter 22 "Pipe Design",
+ * Table 3 (threaded steel fittings) and Table 4 (flanged welded steel
+ * fittings). Both cite Engineering Data Book, Hydraulic Institute (1990).
  *
- * PROVENANCE WARNINGS — read before trusting these numbers:
+ * Transcribed 2026-07-31 from Michael's printed copy — the FIRST time this
+ * data has had a verified source. Every value below was diffed against that
+ * copy; 133 of 144 matched the previous guesses exactly, and the two columns
+ * that did not are recorded here because both were wrong in the app:
  *
- *  1. Threaded 45° elbow. Both transcriptions returned a column identical to
- *     the 90° elbow, which is physically wrong (a 45° bend is roughly half a
- *     90°) and is almost certainly a column-duplication artifact in the
- *     extraction. Rather than ship a value known to be wrong, the threaded 45°
- *     row here is DERIVED as 0.53 × the 90° value — the ratio implied by the
- *     Crane TP-410 L/D basis (16 D vs 30 D). Flagged `derived: true`.
- *     Replace from a printed copy of the table when one is to hand.
+ *  1. Threaded 45° elbow WAS DERIVED, and was wrong by up to 250 %. The old
+ *     file could not read the column and synthesised it as 0.53 × the 90°
+ *     value, the ratio implied by the Crane L/D basis (16 D vs 30 D). The real
+ *     ASHRAE column is nearly FLAT with size (0.38 → 0.28) while the 90° column
+ *     falls steeply (2.5 → 0.70), so the invented values ran from 1.33 (vs
+ *     0.38) at DN10 to 0.37 (vs 0.28) at DN100. This is the "never invent
+ *     engineering data" rule earning its keep — the invention was plausible,
+ *     documented, flagged, and still off by 3.5x.
  *
- *  2. Threaded 2 in tee-branch. One copy reads 1.4, the other 1.6. 1.4 is used
- *     because it keeps the column monotonic (2.7 → 1.1 across the range);
- *     1.6 would create an implausible plateau against the 1.5 in value of 1.6.
+ *     NOTE FOR REVIEW: the threaded 45° column behaves unlike the flanged one,
+ *     where 45°/90° = 0.22/0.43 = 0.51, close to the L/D expectation. Flat and
+ *     0.15 of the 90° at DN10 is worth a second look at the printed page.
  *
- * Everything else agreed between both copies.
+ *  2. Flanged/welded GATE VALVE was shifted one row: the app had 0.34 at DN40,
+ *     ASHRAE has it at DN50, and so on down the column. Every size therefore
+ *     UNDER-stated gate loss by 17–38 % (DN100: app 0.10 vs ASHRAE 0.16).
+ *
+ * Confirmed by the same check: threaded DN50 tee-branch is 1.4, not 1.6 — the
+ * old file picked 1.4 on a monotonicity argument and was right.
+ *
+ * UNCERTAINTY (Table 5, "Approximate Range of Variation"). These are not
+ * precise numbers and ASHRAE says so: 90° threaded elbow ±20 % above 50 mm and
+ * ±40 % below; threaded tee (line or branch) ±25 %, flanged ±35 %; globe ±25 %;
+ * gate threaded ±25 %, flanged ±50 %; check threaded ±50 %, flanged +200/−80 %.
+ * The flanged check valve range is not a typo — treat any check valve figure as
+ * indicative only.
  *
  * K is size-dependent, so each fitting carries a curve against nominal bore
  * and is interpolated. ASHRAE notes threaded 90° elbows vary ±20 % above 2 in
@@ -45,10 +61,13 @@
                 .sort(function (a, b) { return a[0] - b[0]; });
   }
 
-  /* ASHRAE Table 1 — threaded (screwed) fittings */
+  /* ASHRAE Table 3 — threaded (screwed) steel fittings */
   var THREADED = {
     E90:     curve([[0.375, 2.5], [0.5, 2.1], [0.75, 1.7], [1, 1.5], [1.25, 1.3],
                     [1.5, 1.2], [2, 1.0], [2.5, 0.85], [3, 0.80], [4, 0.70]]),
+    // Transcribed, no longer derived — see provenance note 1.
+    E45:     curve([[0.375, 0.38], [0.5, 0.37], [0.75, 0.35], [1, 0.34], [1.25, 0.33],
+                    [1.5, 0.32], [2, 0.31], [2.5, 0.30], [3, 0.29], [4, 0.28]]),
     TRUN:    curve([[0.375, 0.90], [0.5, 0.90], [0.75, 0.90], [1, 0.90], [1.25, 0.90],
                     [1.5, 0.90], [2, 0.90], [2.5, 0.90], [3, 0.90], [4, 0.90]]),
     TBRANCH: curve([[0.375, 2.7], [0.5, 2.4], [0.75, 2.1], [1, 1.8], [1.25, 1.7],
@@ -60,12 +79,7 @@
     CHECK:   curve([[0.375, 8.0], [0.5, 5.5], [0.75, 3.7], [1, 3.0], [1.25, 2.7],
                     [1.5, 2.5], [2, 2.3], [2.5, 2.2], [3, 2.1], [4, 2.0]])
   };
-  // Derived, not transcribed — see provenance note 1 above.
-  THREADED.E45 = THREADED.E90.map(function (p) {
-    return [p[0], Math.round(p[1] * 0.53 * 100) / 100];
-  });
-
-  /* ASHRAE Table 2 — flanged / welded fittings */
+  /* ASHRAE Table 4 — flanged / welded steel fittings */
   var FLANGED = {
     E90:     curve([[1, 0.43], [1.25, 0.41], [1.5, 0.40], [2, 0.38], [2.5, 0.35],
                     [3, 0.34], [4, 0.31], [6, 0.29], [8, 0.27], [10, 0.25], [12, 0.24]]),
@@ -75,8 +89,10 @@
                     [3, 0.17], [4, 0.15], [6, 0.12], [8, 0.10], [10, 0.09], [12, 0.08]]),
     TBRANCH: curve([[1, 1.0], [1.25, 0.95], [1.5, 0.90], [2, 0.84], [2.5, 0.79],
                     [3, 0.76], [4, 0.70], [6, 0.62], [8, 0.58], [10, 0.53], [12, 0.50]]),
-    GATE:    curve([[1.5, 0.34], [2, 0.27], [2.5, 0.22], [3, 0.16], [4, 0.10],
-                    [6, 0.08], [8, 0.06], [10, 0.05], [12, 0.05]]),
+    /* Was shifted one row smaller — see provenance note 2. ASHRAE tabulates no
+     * flanged gate valve below DN50. */
+    GATE:    curve([[2, 0.34], [2.5, 0.27], [3, 0.22], [4, 0.16], [6, 0.10],
+                    [8, 0.08], [10, 0.06], [12, 0.05]]),
     GLOBE:   curve([[1, 13], [1.25, 12], [1.5, 10], [2, 9], [2.5, 8], [3, 7],
                     [4, 6.5], [6, 6], [8, 5.7], [10, 5.7], [12, 5.7]]),
     CHECK:   curve([[1, 2.0], [1.25, 2.0], [1.5, 2.0], [2, 2.0], [2.5, 2.0], [3, 2.0],
@@ -84,8 +100,69 @@
   };
 
   var SETS = {
-    threaded: { name: 'Threaded / screwed (ASHRAE Table 1)', data: THREADED },
-    flanged:  { name: 'Flanged / welded (ASHRAE Table 2)',   data: FLANGED }
+    threaded: { name: 'Threaded / screwed (ASHRAE Table 3)', data: THREADED },
+    flanged:  { name: 'Flanged / welded (ASHRAE Table 4)',   data: FLANGED }
+  };
+
+  /* ---------------------------------------------------------------- TEES
+   * 2021 ASHRAE Fundamentals Ch 22, Table 7 — "Summary of Test Data for Loss
+   * Coefficients K for Steel Pipe Tees". ASHRAE research RP-968 / RP-1034
+   * (Rahmeyer 1999b, 2002b; Ding et al. 2005), measured at 1.2 / 2.4 / 3.6 m/s.
+   *
+   * This is the data the project has been blocked on: Tables 3 and 4 give ONE
+   * undifferentiated tee-line / tee-branch pair, but this table separates
+   * DIVERTING flow ("100% branch", "100% line") from MIXING flow ("100% mix"),
+   * which is the converging case.
+   *
+   * Recorded here as measured, NOT yet wired into the calculation, because two
+   * things need Michael's judgement first:
+   *
+   *   a) What "100% mix" is the K of. Read literally it is the whole tee under
+   *      full mixing; the app charges a combining tee's two INLETS separately
+   *      (TRUN_CONV, TBRANCH_CONV), so mapping one measured number onto two
+   *      coefficients is an interpretation, not a transcription.
+   *   b) K here is a velocity head. The Hazen-Williams path in this app charges
+   *      fittings as equivalent LENGTH. Mixing the two needs the composite-loss
+   *      work described in ROADMAP.
+   *
+   * What the data already settles, whatever the mapping:
+   *   - Mixing generally costs MORE than diverting through the branch
+   *     (mix/branch ≈ 0.86, 1.57, 1.32, 1.48, 1.14, 1.35 at DN100…400), so the
+   *     ordering the placeholders asserted is supported — average ≈ 1.3, against
+   *     the 1.5 that was guessed.
+   *   - Line (straight-through) loss is small and falls steeply with size,
+   *     0.19 at DN50 threaded down to 0.028 at DN400 welded.
+   * Velocity dependence is weak above 100 mm: DN300 branch reads 0.70 / 0.63 /
+   * 0.62 across 1.2 / 2.4 / 3.6 m/s, so a flat value per size is defensible.
+   */
+  var TEES = {
+    source: '2021 ASHRAE Fundamentals Ch 22, Table 7 (RP-968 / RP-1034)',
+    /* dn_mm: { joint, branch:{v: K}, line:{v: K}, mix:{v: K} }  — v in m/s.
+     * `past` is the pre-research published range, kept for comparison. */
+    data: [
+      { dn: 50,  joint: 'thread',
+        branch: { 1.2: 0.93 }, line: { 1.2: 0.19 }, mix: { 1.2: 1.19 },
+        past: { branch: [1.20, 1.80, 1.4], line: [0.50, 0.90, 0.90] } },
+      { dn: 100, joint: 'weld',
+        branch: { 2.4: 0.57 }, line: { 2.4: 0.06 }, mix: { 2.4: 0.49 },
+        past: { branch: [0.70, 1.02, 0.70], line: [0.15, 0.34, 0.15] } },
+      { dn: 150, joint: 'weld',
+        branch: { 2.4: 0.56 }, line: { 2.4: 0.12 }, mix: { 2.4: 0.88 } },
+      { dn: 200, joint: 'weld',
+        branch: { 2.4: 0.53 }, line: { 2.4: 0.08 }, mix: { 2.4: 0.70 } },
+      { dn: 250, joint: 'weld',
+        branch: { 2.4: 0.52 }, line: { 2.4: 0.06 }, mix: { 2.4: 0.77 } },
+      { dn: 300, joint: 'weld',
+        branch: { 1.2: 0.70, 2.4: 0.63, 3.6: 0.62 },
+        line:   { 1.2: 0.062, 2.4: 0.091, 3.6: 0.096 },
+        mix:    { 1.2: 0.88, 2.4: 0.72, 3.6: 0.72 },
+        past: { branch: [0.52], line: [0.09] } },
+      { dn: 400, joint: 'weld',
+        branch: { 1.2: 0.54, 2.4: 0.55, 3.6: 0.54 },
+        line:   { 1.2: 0.032, 2.4: 0.028, 3.6: 0.028 },
+        mix:    { 1.2: 0.74, 2.4: 0.74, 3.6: 0.76 },
+        past: { branch: [0.47], line: [0.07] } }
+    ]
   };
 
   /* Linear interpolation on nominal bore, clamped at both ends — K curves are
@@ -109,6 +186,7 @@
   FD.ktable = {
     sets: SETS,
     DN: DN,
+    tees: TEES,
 
     /* K for `type` at nominal bore `dn_mm`, from the chosen connection set.
      * `overrides` is the user's edited table (settings.fittingK), keyed

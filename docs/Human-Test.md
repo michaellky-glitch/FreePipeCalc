@@ -79,8 +79,8 @@ known project has been done.
 | 1.1 | 3-floor riser + ring main solves sensibly | ⚠️ | Built and reviewed; energy balance closes exactly. Not checked against another tool. |
 | 1.2 | Data centre closed circuit, redundant pumps | ⚠️ | Runs; equipment gets exactly its rated flow and ΔP. Numbers not independently verified. |
 | 1.11 | `...ring_main.pnet (fixed).json` redrawn example | ⚠️ | **Rebuilt by hand 2026-07-30 and now coherent** — devices are short links (pumps 0.7 m, equip 0.49 m), ~377 m of real pipe carries friction, solves cleanly as a 20 L/s circuit. Numbers not yet independently verified against another tool. |
-| 1.3 | Hazen-Williams against a manual calculation | ⬜ | `docs/ENGINE.md` has worked examples set up for exactly this. |
-| 1.4 | Fitting equivalent lengths vs. a published table | ⬜ | Flat L/D per spec §3.3. Worth a spot check against ASHRAE. |
+| 1.3 | Hazen-Williams against a manual calculation | ⚠️ | **Constants independently confirmed 2026-07-31**: ASHRAE Eq (6), Δh = 6.819·L·(V/C)^1.852·(1/D)^1.167, reduces algebraically to the app's A = 10.67 and e = 4.8704 (agreement 0.035% and 0.012%). ASHRAE Example 1 also reproduces exactly (750.0 Pa). A full worked pipe run by hand is still outstanding. |
+| 1.4 | Fitting K values vs. the published table | ✅ | **Checked against Michael's 2021 ASHRAE Fundamentals Ch 22, Tables 3 & 4 (2026-07-31).** 133/144 matched; two real errors found and fixed (threaded 45° ell was invented and up to 250% out; flanged gate valve column was shifted a row). The Hazen-Williams *equivalent-length* table is still unchecked — needs ASHRAE Table 8. |
 | 1.9 | Hazen-Williams, straight pipe | ✅ | **Michael validated this.** Mostly correct. |
 | 1.10 | Hazen-Williams, converging/diverging tees | ❌ | **Michael found this wrong.** Two causes, both confirmed in code — see `ENGINE.md`. Blocked on choosing a coefficient source. |
 | 1.5 | Loop flow split against hand calculation | ⬜ | Rings balance to ~1e-16 internally; not checked externally. |
