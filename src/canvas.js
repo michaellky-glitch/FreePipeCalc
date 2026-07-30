@@ -844,15 +844,61 @@
     } else {
       var r = M.addRiser(m, wn.x, wn.y);
       M.attachRiser(m, r.id, m.activeLevel, node.id);
+
+      /* A riser between ONE level is not a riser — it materialises no pipe at
+       * all, so placing one used to mean switching level and clicking again in
+       * the same spot. The floor it should run to is already stated: it is the
+       * level the View Direction points at, the one drawn faded underneath.
+       * So carry it there automatically. */
+      var far = adjacentLevel(m, m.activeLevel);
+      if (far) {
+        var farNode = this.nodeOnLevelAt(far, wn.x, wn.y);
+        M.attachRiser(m, r.id, far.id, farNode.id);
+      }
       M.riserPipes(m);
+
       this.onMessage && this.onMessage(ambiguous
         ? 'New riser column started. Several existing columns are free on this ' +
           'level, so click directly on a riser stub to join that one instead.'
-        : 'Riser column placed. Click this floor\'s pipework on another level to connect it.');
+        : far
+          ? 'Riser column placed, running to ' + far.name +
+            ' (View Direction). Change it in Level properties.'
+          : 'Riser column placed. There is no level in the View Direction, so ' +
+            'click this floor’s pipework on another level to connect it.');
     }
 
     this.selection = [{ kind: 'node', id: node.id }];
     this.changed();
+  };
+
+  /* The level the active floor's View Direction points at — the one rendered
+   * faded, and the one a new riser runs to. `m.levels` is ordered top-first, so
+   * looking UP is one index back. Shared with drawFadedLevel deliberately: if
+   * these two disagreed, a riser would run to a different floor than the one
+   * shown underneath it. Returns null at the top/bottom of the stack. */
+  function adjacentLevel(m, levelId) {
+    var lv = M.level(m, levelId);
+    if (!lv) return null;
+    var idx = m.levels.indexOf(lv);
+    return m.levels[lv.lookDir === 'up' ? idx - 1 : idx + 1] || null;
+  }
+
+  /* A node on `lv` at world point (wx,wy) — reusing one already there rather
+   * than stacking a duplicate on top of it, which would read as a coincident-
+   * node break. Node coordinates are level-local, so the level offset comes
+   * off before storing. */
+  View.prototype.nodeOnLevelAt = function (lv, wx, wy) {
+    var m = this.getModel();
+    var rad = this.pxToM(ENDPOINT_PX);
+    var found = null, bestD = Infinity;
+    m.nodes.forEach(function (n) {
+      if (n.level !== lv.id) return;
+      var w = M.worldXY(m, n);
+      var d = Math.hypot(w.x - wx, w.y - wy);
+      if (d < rad && d < bestD) { bestD = d; found = n; }
+    });
+    if (found) return found;
+    return M.addNode(m, lv.id, wx - (lv.dx || 0), wy - (lv.dy || 0));
   };
 
   /* Slide every level attached to `col` (other than the active one) so that its

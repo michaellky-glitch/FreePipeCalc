@@ -375,6 +375,49 @@ section('Model — riser size inheritance (spec §7.2)');
   ok('A level in two risers has a locked offset', M.isLevelLocked(m, top.id) === true);
 }
 
+section('Model — riser size override (a riser must be sizeable by hand)');
+{
+  /* Inheritance is only a default. A riser is frequently sized differently from
+   * the branches it feeds — a DN80 riser serving DN40 take-offs — so the column
+   * carries an explicit override that wins over inheritance and survives
+   * re-materialisation. */
+  const m = M.create();
+  const top = m.levels[0];
+  const bot = M.addLevel(m, { name: 'Lower', altitude: -3.5 });
+  const tNode = M.addNode(m, top.id, 0, 0);
+  const bNode = M.addNode(m, bot.id, 0, 0);
+  const tSide = M.addNode(m, top.id, 8, 0);
+  M.addPipe(m, tNode.id, tSide.id, { size: 'DN40' });
+
+  const r = M.addRiser(m, 0, 0);
+  M.attachRiser(m, r.id, top.id, tNode.id);
+  M.attachRiser(m, r.id, bot.id, bNode.id);
+  M.riserPipes(m);
+
+  const seg = () => m.pipes.filter(p => p.kind === 'riser' && p.riser === r.id);
+  ok('Inherits DN40 before any override', seg()[0].size === 'DN40', seg()[0].size);
+
+  M.setRiserProps(m, r.id, { size: 'DN80', C: 130 });
+  ok('Override reaches every materialised segment',
+     seg().every(p => p.size === 'DN80' && p.C === 130),
+     seg().map(p => p.size + '/' + p.C).join(' '));
+
+  // Re-materialising must not revert to inheritance nor duplicate the pipe.
+  M.riserPipes(m);
+  ok('Override survives re-materialisation',
+     seg().every(p => p.size === 'DN80'), seg().map(p => p.size).join(' '));
+  ok('Re-materialising does not duplicate segments', seg().length === 1, String(seg().length));
+
+  // Bore actually changes — the override has to reach the hydraulics, not just
+  // the label, or the calculation quietly keeps using the inherited size.
+  const bore = M.pipeBore(m, seg()[0]) * 1000;
+  ok('Bore follows the override (DN80 > DN40 bore)', bore > 60, bore.toFixed(1) + ' mm');
+
+  // Clearing hands the segment back to inheritance on the next materialise.
+  M.setRiserProps(m, r.id, { size: '' });
+  ok('Clearing the override drops it from the column', !r.size, String(r.size));
+}
+
 section('Annotations — node type codes and size labels');
 {
   const m = M.create(), lv = m.levels[0].id;

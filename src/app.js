@@ -909,8 +909,10 @@
         { key: 'name', label: 'Name', type: 'text', value: lv.name },
         { key: 'altitude', label: 'Elevation (' + m.settings.display.length + ')',
           type: 'text', value: FD.units.fmtLength(lv.altitude, m.settings.display.length) },
-        { key: 'lookDir', label: 'Show adjacent level', type: 'select', value: lv.lookDir,
-          options: [['down', 'Look down (level below)'], ['up', 'Look up (level above)']] }
+        /* View Direction drives two things: which neighbouring level renders
+         * faded, and which way a new riser is run from this floor. */
+        { key: 'lookDir', label: 'View Direction', type: 'select', value: lv.lookDir,
+          options: [['down', 'Look Down'], ['up', 'Look Up']] }
       ]
     }).then(function (v) {
       if (!v) return;
