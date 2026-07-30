@@ -1348,11 +1348,11 @@
     host.appendChild(del);
   }
 
-  /* LAYOUT mode: which of this entity's values are echoed on the drawing.
-   * Only offered in LAYOUT, because that is the mode for arranging a drawing
+  /* VIEW mode: which of this entity's values are echoed on the drawing.
+   * Only offered in VIEW, because that is the mode for arranging a drawing
    * for print — in EDIT they would be noise. */
   function displayChecks(host, obj, opts) {
-    if (app.view.tool !== 'layout') return;
+    if (app.view.tool !== 'view') return;
     host.appendChild(el('h3', 'sub', 'Show on drawing'));
     opts.forEach(function (o) {
       var i = el('input'); i.type = 'checkbox';
@@ -3082,8 +3082,8 @@
     });
     var MODE_HINTS = {
       edit:   'Click to select · drag a node to move it · Delete removes the selection',
-      pipe:   'Click to place vertices · scroll = pipe size · Shift = free angle · Esc = finish',
-      layout: 'Drag any label to reposition it for printing · tick properties in the panel to show them on the drawing',
+      pipe:   'Click to place vertices · type a length + Enter · scroll = pipe size · Shift = free angle · Esc = finish',
+      view:   'Drag any label to reposition it for printing · tick properties in the panel to show them on the drawing · TRACE adds a background drawing',
       trace:  'Ctrl+V a screen snip, or drag an image in · drag to move, corners to scale · set the scale, then lock it',
       riser:  'Click this floor\u2019s pipework to place or join a riser column',
       source: 'Click to place a source (tank, mains, or expansion vessel)',
@@ -3092,12 +3092,25 @@
       equip:  'Click a pipe to insert equipment into it',
       valve:  'Click a pipe to insert a valve into it'
     };
+    /* VIEW and DRAW are alternatives, not companions: VIEW is for arranging a
+     * finished drawing, and the placement tools do not apply there. Showing
+     * both meant the ribbon offered PIPE and RISER while in a mode where a
+     * click drags a label instead. TRACE lives in VIEW because tracing IS
+     * arranging the background you then draw over. */
+    function syncToolGroups() {
+      var inView = (app.view.tool === 'view' || app.view.tool === 'trace');
+      var gv = $('group-view'), gd = $('group-draw');
+      if (gv) gv.hidden = !inView;
+      if (gd) gd.hidden = inView;
+    }
+
     function refreshToolButtons() {
       toolButtons.forEach(function (o) {
         if (o.dataset.tool !== 'disconnect') {
           o.classList.toggle('active', o.dataset.tool === app.view.tool);
         }
       });
+      syncToolGroups();
       var hint = MODE_HINTS[app.view.tool] || '';
       $('mode-hint').textContent = hint +
         '  \u00b7  scroll = zoom, middle-drag = pan';

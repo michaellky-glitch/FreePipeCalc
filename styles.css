@@ -768,7 +768,10 @@ table.doc-table th { background: var(--bg-raised); color: var(--text-dim); font-
 .tool-group[data-group]::before {
   content: attr(data-group);
   position: absolute;
-  top: -9px; left: 2px;
+  /* Centred over the cluster rather than left-aligned, so the label reads as a
+   * heading for the whole group instead of belonging to its first button. */
+  top: -9px; left: 0; right: 0;
+  text-align: center;
   font-size: 8.5px;
   letter-spacing: .09em;
   color: var(--text-mute);

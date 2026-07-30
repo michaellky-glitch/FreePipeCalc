@@ -382,7 +382,7 @@
         }
         return;
       }
-      if (self.tool === 'layout') {
+      if (self.tool === 'view') {
         var lab = self.labelAt(sx, sy);
         if (lab) {
           /* Anchor = where the label would sit with zero offset. Kept in SCREEN
@@ -659,7 +659,7 @@
     this.tool = tool;
     this.calibrating = null;
     this.canvas.style.cursor = (tool === 'edit') ? 'default'
-                            : (tool === 'layout' || tool === 'trace') ? 'move'
+                            : (tool === 'view' || tool === 'trace') ? 'move'
                             : 'crosshair';
     if (this.onToolChange) this.onToolChange();
     this.onChange();
@@ -1039,7 +1039,7 @@
     ctx.fillStyle = this.theme.bg;
     ctx.fillRect(0, 0, W, H);
 
-    /* Every label drawn this frame records its screen box, so LAYOUT mode can
+    /* Every label drawn this frame records its screen box, so VIEW mode can
      * hit-test them without re-deriving the layout. */
     this._labelBoxes = [];
 
@@ -1546,7 +1546,7 @@
       ctx.fillText(p.tag, tx, ty);
       var w = ctx.measureText(p.tag).width;
       this.registerLabel('pipe', p, tx - w / 2 - 3, ty - size, w + 6, size + 5);
-      if (this.tool === 'layout') this.labelHandle(tx - w / 2 - 3, ty - size, w + 6, size + 5);
+      if (this.tool === 'view') this.labelHandle(tx - w / 2 - 3, ty - size, w + 6, size + 5);
     }
     this.drawDeviceBox(p, { x: x, y: y }, off);
   };
@@ -1646,7 +1646,7 @@
     var cy = my + Math.cos(ang) * -9;
     var box = rotatedBox(cx, cy, w + 6, size + 8, ang);
     this.registerLabel('pipe', p, box.x, box.y, box.w, box.h);
-    if (this.tool === 'layout') this.labelHandle(box.x, box.y, box.w, box.h);
+    if (this.tool === 'view') this.labelHandle(box.x, box.y, box.w, box.h);
   };
 
   /* Axis-aligned bounding box of a w×h rectangle centred on (cx,cy) and
@@ -1747,7 +1747,7 @@
 
     var w = ctx.measureText(text).width;
     this.registerLabel('node', n, x - w / 2 - 3, y - size, w + 6, size + 6);
-    if (this.tool === 'layout') this.labelHandle(x - w / 2 - 3, y - size, w + 6, size + 6);
+    if (this.tool === 'view') this.labelHandle(x - w / 2 - 3, y - size, w + 6, size + 6);
 
     this.drawDeviceBox(n, s, off);
   };
@@ -1757,7 +1757,7 @@
     return p.labelSize || 11;
   };
 
-  /* Faint outline round a draggable label, so LAYOUT mode shows what can be
+  /* Faint outline round a draggable label, so VIEW mode shows what can be
    * grabbed without cluttering the drawing in every other mode. */
   View.prototype.labelHandle = function (x, y, w, h) {
     var ctx = this.ctx;
@@ -1771,7 +1771,7 @@
   };
 
   /* Device values echoed beside the entity in a box, one line per property the
-   * user ticked in LAYOUT mode. */
+   * user ticked in VIEW mode. */
   View.prototype.drawDeviceBox = function (obj, s, off) {
     var flags = M.displayFlags(obj);
     var keys = Object.keys(flags);
@@ -1881,7 +1881,7 @@
     ctx.fillText(text, x + 7, y + 2);
   };
 
-  /* Register a label's screen box so it can be picked up in LAYOUT mode. */
+  /* Register a label’s screen box so it can be picked up in VIEW mode. */
   View.prototype.registerLabel = function (kind, obj, x, y, w, h) {
     if (!this._labelBoxes) this._labelBoxes = [];
     this._labelBoxes.push({ kind: kind, obj: obj, x: x, y: y, w: w, h: h });

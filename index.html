@@ -38,12 +38,15 @@
     <div class="sep"></div>
     <div class="tool-group" data-group="MODES">
       <button class="btn" data-tool="edit">EDIT</button>
-      <button class="btn" data-tool="layout">LAYOUT</button>
-      <button class="btn" data-tool="trace">TRACE</button>
+      <button class="btn" data-tool="view" title="Arrange the drawing for print: drag labels and value boxes, and trace over a background drawing">VIEW</button>
       <button class="btn" data-tool="disconnect" title="Highlight breaks: coincident unjoined nodes, islands, and devices with nowhere to discharge">SHOW DISCONNECT</button>
     </div>
     <div class="sep"></div>
-    <div class="tool-group" data-group="DRAW">
+    <!-- VIEW's own tools. Shown only in VIEW, where they apply. -->
+    <div class="tool-group" data-group="VIEW" id="group-view" hidden>
+      <button class="btn" data-tool="trace" title="Paste or drag in a background drawing and trace over it">TRACE</button>
+    </div>
+    <div class="tool-group" data-group="DRAW" id="group-draw">
       <button class="btn" data-tool="pipe">PIPE</button>
       <button class="btn" data-tool="riser">RISER</button>
       <button class="btn" data-tool="source">SOURCE</button>

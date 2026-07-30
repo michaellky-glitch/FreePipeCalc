@@ -452,7 +452,7 @@
     return { factor: k, measured: measured, real: realDistance };
   }
 
-  /* LAYOUT mode: manual label placement.
+  /* VIEW mode: manual label placement.
    *
    * Auto-placed annotations collide with pipework on anything busy, and on a
    * printed drawing that is the difference between readable and not. Offsets
