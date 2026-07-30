@@ -70,9 +70,9 @@
        * Used by Hazen-Williams. */
       fittingLD: { E90: 30, E45: 16, TRUN: 20, TBRANCH: 60,
                    TRUN_DIV: 20, TBRANCH_DIV: 60,
-                   /* Placeholders — see the provenance note in data/fittings.js
-                    * and the list in the HYDRAULIC tab. */
-                   TRUN_CONV: 20, TBRANCH_CONV: 90,
+                   /* Combining values equal the dividing ones: ASHRAE Ch 22
+                    * does not split the two cases. See data/fittings.js. */
+                   TRUN_CONV: 20, TBRANCH_CONV: 60,
                    GATE: 8, GLOBE: 340, CHECK: 100 },
 
       /* Fitting K overrides for Darcy. Empty means "use the ASHRAE size

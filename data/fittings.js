@@ -49,18 +49,32 @@
      * correct and the ordering sensible until a sourced set is entered. */
     TRUN:    { ld: 20, code: 'T-run',  label: 'Tee, straight through' },
     TBRANCH: { ld: 60, code: 'T-br',   label: 'Tee, branch' },
+    /* Diverting and combining tees are NOT given different coefficients.
+     *
+     * Michael's decision, 2026-07-31, and it follows the source: 2021 ASHRAE
+     * Fundamentals Ch 22 Tables 3 and 4 tabulate a single tee-line and a single
+     * tee-branch figure and do not split the two cases. Table 7 does measure
+     * them separately, but reports one "100% mix" coefficient where this model
+     * charges a combining tee's two inlets independently — mapping one number
+     * onto two would be an interpretation, and the previous attempt at exactly
+     * that (a guessed 1.5x multiplier) is what left this open for weeks.
+     *
+     * So the four types stay — they still record WHICH case a tee is, which is
+     * worth seeing on the calculation sheet — but the combining values now
+     * equal the dividing ones, and nothing here is a placeholder any more.
+     *
+     * What is NOT collapsed is the charging rule: a dividing tee is charged to
+     * its outlets and a combining tee to its inlets. That is a separate, real
+     * correction (a combining tee used to charge nothing to its branch inflow,
+     * where most of the loss is) and it stands. */
     TRUN_DIV:    { ld: 20, code: 'T-run-d', label: 'Tee, dividing — through run',
                    sourced: true },
     TBRANCH_DIV: { ld: 60, code: 'T-br-d',  label: 'Tee, dividing — to branch',
                    sourced: true },
     TRUN_CONV:   { ld: 20, code: 'T-run-c', label: 'Tee, combining — through run',
-                   sourced: false,
-                   note: 'Placeholder: assumed equal to the dividing run.' },
-    TBRANCH_CONV:{ ld: 90, code: 'T-br-c',  label: 'Tee, combining — from branch',
-                   sourced: false,
-                   note: 'Placeholder: assumed 1.5x the dividing branch. Only the ' +
-                         'ordering (worse than a dividing branch) is asserted; the ' +
-                         'magnitude is a guess.' },
+                   sourced: true },
+    TBRANCH_CONV:{ ld: 60, code: 'T-br-c',  label: 'Tee, combining — from branch',
+                   sourced: true },
     // Not auto-detected in v1, but the table carries them for future use.
     GATE:   { ld: 8,  code: 'GV',   label: 'Gate valve, open' },
     GLOBE:  { ld: 340,code: 'GLV',  label: 'Globe valve, open' },

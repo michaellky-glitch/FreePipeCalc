@@ -2617,6 +2617,13 @@
       function (v) { pushUndo(); m.settings.fluid.specificHeat = v; redrawAll(); }, '(J/kg·K)');
 
     var isDW = m.settings.frictionMethod === 'DW';
+    /* WHICH fitting table to show follows the method's basis, not whether
+     * it happens to be Darcy. Gating on isDW meant that once ASHRAE became
+     * the default the K table — and with it the threaded/flanged choice —
+     * disappeared, while the calculation was using K. That choice is worth
+     * 3.5x on a DN25 elbow (threaded 1.5 against flanged 0.43), so being
+     * unable to reach it was a real defect, not a cosmetic one. */
+    var usesK = FD.hydraulics.method(m.settings.frictionMethod).fittingMode === 'K';
     var usage = el('ul', 'usage-list');
     usage.appendChild(el('li', '', 'Density — used: converts head to pressure everywhere.'));
     usage.appendChild(el('li', '', 'Kinematic viscosity — ' + (isDW
@@ -2648,11 +2655,21 @@
     // ======================================= 3. HYDRAULIC PARAMETERS
     h2('Hydraulic Parameters');
     var mg = grid();
+    /* Built from the registered methods, not hard-coded. The list was a literal
+     * and so did not gain ASHRAE when the method was added: it became the
+     * default for new models while being impossible to SELECT, and the dropdown
+     * showed a different method from the one actually in use. */
     selField(mg, 'Calculation method',
-      [['HW', 'Hazen-Williams'], ['DW', 'Darcy-Weisbach (Experimental)']],
+      Object.keys(FD.hydraulics.methods)
+        .filter(function (k) { return FD.hydraulics.methods[k].available !== false; })
+        .map(function (k) { return [k, FD.hydraulics.methods[k].name]; }),
       m.settings.frictionMethod, function (v) {
         pushUndo(); m.settings.frictionMethod = v; renderHydraulic(); redrawAll();
       });
+    var activeMethod = FD.hydraulics.method(m.settings.frictionMethod);
+    if (activeMethod.source) {
+      host.appendChild(el('p', 'hint', 'Source: ' + activeMethod.source));
+    }
 
     // ---- the formula, with the coefficients editable in place ----
     var fbox = el('div', 'formula-box');
@@ -2788,7 +2805,7 @@
     // ------------------------------------------------ fitting data
     /* Only the table the active method actually uses is shown. Displaying both
      * invites entering numbers into the one that is being ignored. */
-    if (!isDW) {
+    if (!usesK) {
       h2('Fitting equivalent lengths');
       hint('Used by Hazen-Williams. Charged to the downstream pipe as ' +
            'EL = (L/D) × inner diameter. A dividing tee is charged to its ' +
@@ -2857,9 +2874,12 @@
 
     } else {
       h2('Fitting resistance coefficients K');
-      hint('Used by Darcy-Weisbach: h = K · V²/2g. Values are ASHRAE Fundamentals ' +
-           'Pipe Sizing Tables 1 and 2, interpolated by size. Leave a cell blank to use ' +
-           'the size curve, or type a number to pin it flat.');
+      hint('Used by the ASHRAE (2021) method: h = K · V²/2g (Ch 22 Eq 7). Values ' +
+           'are 2021 ASHRAE Fundamentals Ch 22 Table 3 (threaded) and Table 4 ' +
+           '(flanged/welded), interpolated by nominal size. Leave a cell blank to ' +
+           'use the size curve, or type a number to pin it flat.');
+      hint('Connection type matters: a DN25 threaded elbow is K = 1.5 where the ' +
+           'flanged equivalent is 0.43. Pick the one your pipework actually uses.');
       var kg = grid();
       selField(kg, 'Connection type',
         Object.keys(FD.ktable.sets).map(function (kk) { return [kk, FD.ktable.sets[kk].name]; }),
