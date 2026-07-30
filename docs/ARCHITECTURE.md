@@ -538,7 +538,7 @@ Codes worth knowing:
 | `SUPPLY_INSUFFICIENT` | Outflows cannot be met. Hydraulic error; source turns red on the drawing. |
 | `PUMP_DEAD_END`, `PUMP_NO_FLOW` | Pump doing nothing. Hydraulic error. |
 | `VALVE_SHUT`, `CHECK_CLOSED` | Valve state. |
-| `CROSS` | 4+ pipes at a node. |
+| ~~`CROSS`~~ | Removed 2026-07-31. 4+ pipes at a node is ordinary; still modelled as two tee branches, just not warned about. |
 | `ISLAND_NO_SOURCE` | Disconnected section carrying demand. |
 | `FITTING_OSCILLATION` | Two-pass loop did not settle. Should be rare. |
 | `COINCIDENT_NODES` | Two nodes in the same place, not joined. **Error.** The drawing looks continuous and the network is not. |

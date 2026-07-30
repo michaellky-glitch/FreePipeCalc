@@ -37,6 +37,21 @@
        * all of the restriction happens in the last quarter. */
       curve: { 0: 0, 25: 0.12, 50: 0.38, 75: 0.72, 100: 1 }
     },
+    /* A globe valve throttles the same way a gate valve does — position sets a
+     * fraction of full-open Kv — so it is handled identically by the solver.
+     * What differs is magnitude and shape: the tortuous seat makes it roughly
+     * an order of magnitude more resistant when fully open (K ≈ 6 against
+     * 0.15), and it throttles far more evenly, which is why it is the valve you
+     * regulate with rather than merely isolate with. Same DERIVED-not-measured
+     * caveat as the rest of this file. */
+    globe: {
+      key: 'globe',
+      name: 'Globe valve',
+      code: 'GLV',
+      K: 6.0,
+      adjustable: true,
+      curve: { 0: 0, 25: 0.30, 50: 0.55, 75: 0.80, 100: 1 }
+    },
     check: {
       key: 'check',
       name: 'Check valve (swing)',

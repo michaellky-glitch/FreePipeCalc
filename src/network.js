@@ -72,15 +72,15 @@
       return out;
     }
 
-    // --- tee (3 pipes) or cross (4+) ---
-    if (pipes.length > 3 && warnings) {
-      warnings.push({
-        code: 'CROSS',
-        message: pipes.length + ' pipes meet at one node — modelled as two tee branches.',
-        node: nodeId
-      });
-    }
-
+    /* --- tee (3 pipes) or cross (4+) ---
+     *
+     * Four pipes at a node used to raise a CROSS warning. It was removed at
+     * Michael's request (2026-07-31): four-way junctions are ordinary in real
+     * pipework — a ring main crossing a branch, headers in a plant room — and
+     * the modelling (two tee branches) is a reasonable treatment rather than
+     * something the engineer must act on. The warning fired on every such node
+     * and buried the warnings that do need attention. The handling below is
+     * unchanged; only the noise is gone. */
     var runPair = pickRunPair(m, nodeId, pipes, flows);
 
     /* Dividing and combining tees are different fittings, and which one this is

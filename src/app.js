@@ -35,11 +35,42 @@
     return JSON.stringify(M.toJSON(app.model));
   }
 
+  /* Undo stores the state BEFORE an edit, which is harder than it sounds
+   * because the two callers snapshot at different moments: a property-panel
+   * edit calls pushUndo() before mutating, but a canvas gesture mutates first
+   * and only then reports through changed(). Snapshotting inside changed()
+   * therefore captured the model WITH the new pump already in it, so the first
+   * press of Undo restored an identical state and it took two presses to
+   * remove anything (reported 2026-07-31).
+   *
+   * So the pre-edit state is kept in `lastSnap` and that is what gets pushed,
+   * whichever way round the caller works. `snapshotTaken` stops one logical
+   * edit pushing twice when both paths fire. */
+  var lastSnap = null;
+  var snapshotTaken = false;
+  var marking = false;
+
+  function markClean() {
+    lastSnap = snapshot();
+    snapshotTaken = false;
+  }
+
   function pushUndo() {
-    app.undoStack.push(snapshot());
+    if (lastSnap === null) lastSnap = snapshot();
+    app.undoStack.push(lastSnap);
     if (app.undoStack.length > 60) app.undoStack.shift();
     app.redoStack.length = 0;
+    snapshotTaken = true;
     updateHistoryButtons();
+  }
+
+  /* Refresh the pre-edit baseline once the current burst of edits has settled.
+   * Coalesced to the end of the tick because one gesture can report through
+   * changed() more than once. */
+  function scheduleMarkClean() {
+    if (marking) return;
+    marking = true;
+    setTimeout(function () { marking = false; markClean(); }, 0);
   }
 
   function undo() {
@@ -65,6 +96,10 @@
     app.view.selection = [];
     app.results = null;
     app.view.results = null;
+    /* The model has been REPLACED (undo, redo, load, new), so the pre-edit
+     * baseline must follow it — otherwise the next edit would push a snapshot
+     * of a model that is no longer on screen. */
+    markClean();
     renderLevels();
     renderProperties();
     applyTheme();
@@ -3373,12 +3408,14 @@
       }
     });
 
-    // Push an undo snapshot before each structural edit made on canvas.
+    /* Canvas gestures mutate the model and then report through changed(), so
+     * the snapshot pushed here is the PRE-edit one held in lastSnap — see the
+     * note on pushUndo. */
     var origChanged = app.view.changed.bind(app.view);
-    var pending = false;
     app.view.changed = function () {
-      if (!pending) { pushUndo(); pending = true; setTimeout(function () { pending = false; }, 0); }
+      if (!snapshotTaken) pushUndo();
       origChanged();
+      scheduleMarkClean();
     };
 
     renderLevels();

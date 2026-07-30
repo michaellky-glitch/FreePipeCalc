@@ -220,8 +220,13 @@ section('Network — the second pass actually changes the answer');
   ok('Solve reports more than one pass', res.passes >= 2, 'passes=' + res.passes);
 }
 
-section('Network — cross (4 pipes) warns');
+section('Network — cross (4 pipes) is handled without warning');
 {
+  /* This used to assert a CROSS warning. Removed at Michael's request
+   * (2026-07-31): four pipes at a node is ordinary in real pipework and the
+   * two-tee-branch treatment is reasonable, so the warning was noise that
+   * buried the ones that matter. What must still hold is that the node is
+   * FITTED — silently charging nothing there would be a real error. */
   const m = M.create(), lv = m.levels[0].id;
   const c = M.addNode(m, lv, 0, 0);
   [[10, 0], [-10, 0], [0, 10], [0, -10]].forEach(([x, y]) => {
@@ -229,9 +234,12 @@ section('Network — cross (4 pipes) warns');
     M.addPipe(m, c.id, n.id, {});
   });
   const warnings = [];
-  NET.fittingsAtNode(m, c.id, null, warnings);
-  ok('4 pipes at a node raises a CROSS warning',
-     warnings.some(w => w.code === 'CROSS'), JSON.stringify(warnings));
+  const fits = NET.fittingsAtNode(m, c.id, null, warnings);
+  ok('4 pipes at a node raises no CROSS warning',
+     !warnings.some(w => w.code === 'CROSS'), JSON.stringify(warnings));
+  ok('...and still assigns tee fittings there',
+     fits.length > 0 && fits.every(f => /^T/.test(f.type)),
+     JSON.stringify(fits));
 }
 
 section('Network — source, demand and include-in-calculation');
