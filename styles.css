@@ -778,3 +778,26 @@ table.doc-table th { background: var(--bg-raised); color: var(--text-dim); font-
   pointer-events: none;
 }
 .toolbar { padding-top: 14px; }
+
+/* On/off switch for pump and equipment status (app.js statusToggle).
+ * A two-item dropdown read as neither state until you read the words in it;
+ * colour carries the state so it can be scanned on a busy model. */
+.switch {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: none; border: 0; padding: 2px 0; cursor: pointer;
+  font: inherit; color: var(--text);
+}
+.switch-track {
+  position: relative; flex: 0 0 auto;
+  width: 34px; height: 18px; border-radius: 9px;
+  background: var(--error); transition: background .12s ease;
+}
+.switch-track::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; transition: transform .12s ease;
+}
+.switch.on .switch-track { background: var(--ok); }
+.switch.on .switch-track::after { transform: translateX(16px); }
+.switch-label { white-space: nowrap; }
+.switch:focus-visible { outline: 2px solid var(--select); outline-offset: 2px; }

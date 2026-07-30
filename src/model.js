@@ -26,7 +26,11 @@
     return {
       units: 'metric',              // 'metric' | 'ip'
       display: {
-        flow: 'L/s', pressure: 'kPa', pdm: 'Pa/m', length: 'm', size: 'DN'
+        flow: 'L/s', pressure: 'kPa', pdm: 'Pa/m', length: 'm', size: 'DN',
+        /* Which valve flow coefficient to show. They are the same quantity in
+         * different units (Cv ≈ 1.156·Kv), so showing both invites entering a
+         * number into the one that is being ignored. */
+        valveCoef: 'Kv'
       },
       /* DESIGN: outflows state a required flow, pump duty is calculated.
        * SIMULATION: the pump curve is the input, outflow becomes a resistance
@@ -372,6 +376,87 @@
     return out;
   }
 
+  /* Join `dropId` onto `keepId`: every pipe on the dropped node is moved to the
+   * kept one and the dropped node is removed.
+   *
+   * This is what dragging one node onto another should mean. Leaving two nodes
+   * on the same spot is the exact failure `disconnections()` exists to catch —
+   * the drawing looks continuous and the network is not — so the drawing
+   * gesture that produces it should resolve it instead.
+   *
+   * Pipes that would run from the node to itself are dropped rather than kept
+   * as zero-length loops. */
+  function mergeNodes(m, keepId, dropId) {
+    if (keepId === dropId) return null;
+    var keep = node(m, keepId), drop = node(m, dropId);
+    if (!keep || !drop) return null;
+
+    m.pipes.forEach(function (p) {
+      if (p.a === dropId) p.a = keepId;
+      if (p.b === dropId) p.b = keepId;
+    });
+    m.pipes = m.pipes.filter(function (p) { return p.a !== p.b; });
+
+    // A device that was attached to the dropped node keeps working: it now
+    // hangs off the kept node instead.
+    if (!keep.device && drop.device) keep.device = drop.device;
+
+    // Riser attachments must follow, or the column points at a deleted node.
+    m.risers.forEach(function (r) {
+      r.attachments.forEach(function (att) {
+        if (att.node === dropId) att.node = keepId;
+      });
+    });
+
+    m.nodes = m.nodes.filter(function (n) { return n.id !== dropId; });
+    return keep;
+  }
+
+  /* If a node is now nothing but a joint in the middle of a straight run,
+   * dissolve it so the run is one continuous pipe.
+   *
+   * Deliberately conservative — it REFUSES unless the two pipes are genuinely
+   * interchangeable and genuinely straight:
+   *   - both plain pipes (a device or a riser is not a joint to dissolve)
+   *   - same schedule, size and C, because a node where the size changes is a
+   *     real feature of the model and dissolving it would silently re-size
+   *     pipework
+   *   - no device on the node
+   *   - collinear within the same tolerance the fitting detector uses to say
+   *     "no elbow here", so dissolving cannot remove a fitting that was being
+   *     charged
+   * Returns the surviving pipe, or null if it declined. */
+  function dissolveNode(m, nodeId, straightTolDeg) {
+    var n = node(m, nodeId);
+    if (!n || n.device) return null;
+    var ps = pipesAt(m, nodeId);
+    if (ps.length !== 2) return null;
+    var p1 = ps[0], p2 = ps[1];
+    if (p1.kind !== 'pipe' || p2.kind !== 'pipe') return null;
+    if (p1.schedule !== p2.schedule || p1.size !== p2.size || p1.C !== p2.C) return null;
+
+    var farA = other(p1, nodeId), farB = other(p2, nodeId);
+    if (!farA || !farB || farA === farB) return null;
+
+    var here = worldXY(m, n);
+    var wa = worldXY(m, node(m, farA)), wb = worldXY(m, node(m, farB));
+    var v1 = { x: wa.x - here.x, y: wa.y - here.y };
+    var v2 = { x: wb.x - here.x, y: wb.y - here.y };
+    var l1 = Math.hypot(v1.x, v1.y), l2 = Math.hypot(v2.x, v2.y);
+    if (l1 < 1e-9 || l2 < 1e-9) return null;
+    var dot = (v1.x * v2.x + v1.y * v2.y) / (l1 * l2);
+    dot = Math.max(-1, Math.min(1, dot));
+    // Collinear through the node means the two directions are OPPOSITE.
+    var devDeg = 180 - Math.acos(dot) * 180 / Math.PI;
+    if (Math.abs(devDeg) > (straightTolDeg === undefined ? 8 : straightTolDeg)) return null;
+
+    // Keep p1, stretch it across the join, drop p2 and the node.
+    if (p1.a === nodeId) p1.a = farB; else p1.b = farB;
+    m.pipes = m.pipes.filter(function (p) { return p.id !== p2.id; });
+    m.nodes = m.nodes.filter(function (x) { return x.id !== nodeId; });
+    return p1;
+  }
+
   /* Turn a directional device round. Swapping the pipe's own endpoints IS the
    * whole operation — every direction-sensitive rule in the engine reads a→b —
    * so both the properties panel and the on-drawing button call this rather
@@ -684,6 +769,7 @@
 
     addPipe: addPipe, pipe: pipe, removePipe: removePipe,
     flipPipe: flipPipe, isDirectional: isDirectional,
+    mergeNodes: mergeNodes, dissolveNode: dissolveNode,
     pipesAt: pipesAt, other: other, pipeLength: pipeLength, pipeBore: pipeBore,
 
     addRiser: addRiser, attachRiser: attachRiser, riserPipes: riserPipes,

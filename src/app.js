@@ -1541,17 +1541,12 @@
     /* Isolating equipment is a break in the circuit, not a bypass — same as a
      * stopped pump. Without this the only way to take a chiller out of a model
      * was to delete it and redraw it later. */
-    var onSel = el('select');
-    [['on', 'In service'], ['off', 'Isolated (no flow)']].forEach(function (kv) {
-      var o = el('option', '', kv[1]); o.value = kv[0];
-      if ((p.equip.off ? 'off' : 'on') === kv[0]) o.selected = true;
-      onSel.appendChild(o);
-    });
-    field(host, 'Status', onSel).addEventListener('change', function () {
-      pushUndo();
-      if (onSel.value === 'off') p.equip.off = true; else delete p.equip.off;
-      renderProperties(); changed();
-    });
+    statusToggle(host, !p.equip.off, 'In service', 'Isolated (no flow)',
+      function (on) {
+        pushUndo();
+        if (on) delete p.equip.off; else p.equip.off = true;
+        renderProperties(); changed();
+      });
 
     var qIn = el('input'); qIn.type = 'text';
     qIn.value = FD.units.fmtFlow(p.equip.qRated || 0, d.flow);
@@ -1628,42 +1623,57 @@
       renderProperties(); changed();
     });
 
-    var openSel = el('select');
-    FD.valves.openings.forEach(function (o) {
-      var op = el('option', '', o + '% open' + (o === 0 ? ' (shut)' : ''));
-      op.value = String(o);
-      if (o === v.opening) op.selected = true;
-      openSel.appendChild(op);
-    });
-    openSel.disabled = !t.adjustable;
-    var openField = field(host, 'Opening', openSel);
-    openField.addEventListener('change', function () {
-      pushUndo(); v.opening = parseInt(openSel.value, 10); renderProperties(); changed();
-    });
-    if (!t.adjustable) {
+    /* Opening as a SLIDER snapped to the five documented positions. A dropdown
+     * hid the fact that this is a continuum being sampled, and made comparing
+     * positions a menu-open away; a slider shows travel at a glance, which is
+     * what "how far open is that valve" means. */
+    if (t.adjustable) {
+      var openWrap = el('div', 'field');
+      var openLbl = el('label', '', 'Opening');
+      openWrap.appendChild(openLbl);
+      var slider = el('input');
+      slider.type = 'range'; slider.min = '0'; slider.max = '100'; slider.step = '25';
+      slider.value = String(v.opening === undefined ? 100 : v.opening);
+      var readout = el('span', 'hint', slider.value + '% open' +
+                       (Number(slider.value) === 0 ? ' (shut)' : ''));
+      slider.addEventListener('input', function () {
+        readout.textContent = slider.value + '% open' +
+          (Number(slider.value) === 0 ? ' (shut)' : '');
+      });
+      slider.addEventListener('change', function () {
+        pushUndo(); v.opening = parseInt(slider.value, 10);
+        renderProperties(); changed();
+      });
+      openWrap.appendChild(slider);
+      openWrap.appendChild(readout);
+      host.appendChild(openWrap);
+    } else {
       host.appendChild(el('p', 'hint',
         'A check valve is not user-positioned — it opens with forward flow and ' +
         'seats against reverse flow automatically.'));
     }
 
-    var kvIn = el('input'); kvIn.type = 'text'; kvIn.value = String(v.kv);
-    field(host, 'Kv (m³/h at 1 bar)', kvIn).addEventListener('change', function () {
-      var val = FD.units.parse(kvIn.value);
-      if (isFinite(val) && val > 0) { pushUndo(); v.kv = val; renderProperties(); changed(); }
-      else { kvIn.value = String(v.kv); toast('Kv must be a positive number.', 'error'); }
-    });
+    /* ONE coefficient, not both. Kv and Cv are the same quantity in different
+     * units, so showing both invited typing into the one being ignored. Which
+     * one appears is a display choice (SETTINGS ▸ Display units), defaulting to
+     * Kv. */
+    var useCv = (m.settings.display.valveCoef === 'Cv');
+    var coefIn = el('input'); coefIn.type = 'text';
+    coefIn.value = useCv ? FD.valves.kvToCv(v.kv).toFixed(1) : String(v.kv);
+    field(host, useCv ? 'Cv (US gpm at 1 psi)' : 'Kv (m³/h at 1 bar)', coefIn)
+      .addEventListener('change', function () {
+        var val = FD.units.parse(coefIn.value);
+        if (isFinite(val) && val > 0) {
+          pushUndo();
+          v.kv = useCv ? Math.round(FD.valves.cvToKv(val) * 10) / 10 : val;
+          renderProperties(); changed();
+        } else {
+          coefIn.value = useCv ? FD.valves.kvToCv(v.kv).toFixed(1) : String(v.kv);
+          toast((useCv ? 'Cv' : 'Kv') + ' must be a positive number.', 'error');
+        }
+      });
 
-    var cvIn = el('input'); cvIn.type = 'text';
-    cvIn.value = FD.valves.kvToCv(v.kv).toFixed(1);
-    field(host, 'Cv (US gpm at 1 psi)', cvIn).addEventListener('change', function () {
-      var val = FD.units.parse(cvIn.value);
-      if (isFinite(val) && val > 0) {
-        pushUndo(); v.kv = Math.round(FD.valves.cvToKv(val) * 10) / 10;
-        renderProperties(); changed();
-      } else { cvIn.value = FD.valves.kvToCv(v.kv).toFixed(1); }
-    });
-
-    var reset = el('button', 'btn', 'Reset Kv for this size');
+    var reset = el('button', 'btn', 'Reset ' + (useCv ? 'Cv' : 'Kv') + ' for this size');
     reset.addEventListener('click', function () {
       pushUndo();
       v.kv = FD.valves.defaultKv(v.type, M.pipeBore(m, p) * 1000);
@@ -1678,7 +1688,9 @@
       r.appendChild(el('span', 'v', val)); info.appendChild(r);
     }
     var effKv = FD.valves.effectiveKv(v.type, v.kv, v.opening);
-    ro('Effective Kv', effKv.toFixed(1) + (v.opening < 100 ? '  (' + v.opening + '% open)' : ''));
+    ro('Effective ' + (useCv ? 'Cv' : 'Kv'),
+       (useCv ? FD.valves.kvToCv(effKv) : effKv).toFixed(1) +
+       (v.opening < 100 ? '  (' + v.opening + '% open)' : ''));
 
     var res = app.results;
     if (res && res.flow[p.id] !== undefined) {
@@ -1834,6 +1846,26 @@
     host.appendChild(row);
   }
 
+  /* On/off as a sliding switch rather than a dropdown, red when off and green
+   * when running. Whether a pump or a chiller is in service is a state you scan
+   * for on a busy model, and a two-item dropdown reads as neither state until
+   * you look at the words in it. Shared by pumps and equipment so the two
+   * cannot drift apart, and mirrored by the on/off button on the drawing. */
+  function statusToggle(host, isOn, onLabel, offLabel, apply) {
+    var wrap = el('div', 'field');
+    wrap.appendChild(el('label', '', 'Status'));
+    var sw = el('button', 'switch' + (isOn ? ' on' : ' off'));
+    sw.type = 'button';
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', isOn ? 'true' : 'false');
+    sw.appendChild(el('span', 'switch-track', ''));
+    sw.appendChild(el('span', 'switch-label', isOn ? onLabel : offLabel));
+    sw.addEventListener('click', function () { apply(!isOn); });
+    wrap.appendChild(sw);
+    host.appendChild(wrap);
+    return sw;
+  }
+
   /* Devices have a direction and none of them pass flow backwards, so there has
    * to be a way to turn one round without redrawing it. Swapping the pipe's own
    * endpoints is the whole operation — every direction-sensitive rule in the
@@ -1871,19 +1903,13 @@
      * always auto-sizes, and SIMULATION always reads the curve. A 'fixed head'
      * option only ever meant 'a pump that ignores its own curve', which is not
      * a thing worth being able to model. */
-    var runSel = el('select');
-    [['auto', 'Running'],
-     ['off', 'Off (isolated, no flow)']].forEach(function (kv) {
-      var o = el('option', '', kv[1]); o.value = kv[0];
-      if ((p.pump.mode === 'off' ? 'off' : 'auto') === kv[0]) o.selected = true;
-      runSel.appendChild(o);
-    });
-    field(host, 'Status', runSel).addEventListener('change', function () {
-      pushUndo();
-      p.pump.mode = runSel.value;
-      if (p.pump.mode === 'auto') autoSizePump(p);
-      renderProperties(); changed();
-    });
+    statusToggle(host, p.pump.mode !== 'off', 'Running', 'Off (isolated, no flow)',
+      function (on) {
+        pushUndo();
+        p.pump.mode = on ? 'auto' : 'off';
+        if (on) autoSizePump(p);
+        renderProperties(); changed();
+      });
 
     var hIn = el('input'); hIn.type = 'text';
     hIn.value = FD.units.fmtPressure(headToPa(p.pump.head || 0), m.settings.display.pressure);
@@ -2383,6 +2409,12 @@
         m.settings.display.length, function (v) { m.settings.display.length = v; redrawAll(); });
     sel(g1, 'Size', [['DN', 'DN mm'], ['NPS', 'NPS inch']],
         m.settings.display.size, function (v) { m.settings.display.size = v; redrawAll(); });
+    /* Kv and Cv are the same quantity in different units, so only one is ever
+     * shown — offering both invited entering a number into the one being
+     * ignored. Stored Kv either way; Cv is a display conversion. */
+    sel(g1, 'Valve coefficient', [['Kv', 'Kv (m³/h at 1 bar)'], ['Cv', 'Cv (US gpm at 1 psi)']],
+        m.settings.display.valveCoef || 'Kv',
+        function (v) { m.settings.display.valveCoef = v; redrawAll(); });
 
     /* Friction method, fluid, warning thresholds, fitting tables and pipe
      * schedules all live on the HYDRAULIC tab now — this tab is for how the

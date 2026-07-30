@@ -206,6 +206,69 @@
     return found;
   };
 
+  /* On/off button, alongside the flip button and offset a little further out.
+   * Whether a pump is running is the thing most often toggled while looking at
+   * a redundancy scheme, and reaching into the properties panel for it means
+   * looking away from the drawing. Pumps and equipment both have one. */
+  View.prototype.canToggle = function (p) {
+    return !!p && ((p.kind === 'pump' && p.pump) || (p.kind === 'equip' && p.equip));
+  };
+
+  View.prototype.isDeviceOff = function (p) {
+    if (!p) return false;
+    if (p.kind === 'pump') return !!(p.pump && p.pump.mode === 'off');
+    if (p.kind === 'equip') return !!(p.equip && p.equip.off);
+    return false;
+  };
+
+  View.prototype.powerButtonBox = function (p) {
+    if (!this.canToggle(p)) return null;
+    var base = this.flipButtonBox(p);
+    var m = this.getModel();
+    if (!base) {
+      /* Equipment and pumps are directional so flipButtonBox normally exists;
+       * fall back to a plain perpendicular offset if it ever does not. */
+      var a = M.node(m, p.a), b = M.node(m, p.b);
+      if (!a || !b || a.level !== m.activeLevel || b.level !== m.activeLevel) return null;
+      var wa = M.worldXY(m, a), wb = M.worldXY(m, b);
+      var sa = this.toScreen(wa.x, wa.y), sb = this.toScreen(wb.x, wb.y);
+      var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
+      var dx = sb.x - sa.x, dy = sb.y - sa.y, len = Math.hypot(dx, dy) || 1;
+      base = { cx: mx + (-dy / len) * FLIP_BTN.off, cy: my + (dx / len) * FLIP_BTN.off,
+               ang: Math.atan2(dy, dx), w: FLIP_BTN.w, h: FLIP_BTN.h };
+    }
+    // one button-width further along the same perpendicular
+    var nx = Math.cos(base.ang + Math.PI / 2), ny = Math.sin(base.ang + Math.PI / 2);
+    var cx = base.cx + nx * (FLIP_BTN.w + 6), cy = base.cy + ny * (FLIP_BTN.w + 6);
+    return { x: cx - FLIP_BTN.w / 2, y: cy - FLIP_BTN.h / 2,
+             w: FLIP_BTN.w, h: FLIP_BTN.h, cx: cx, cy: cy, ang: base.ang };
+  };
+
+  View.prototype.powerButtonAt = function (sx, sy) {
+    var m = this.getModel(), self = this, found = null;
+    this.selection.forEach(function (s) {
+      if (s.kind !== 'pipe' || found) return;
+      var p = M.pipe(m, s.id);
+      var box = p && self.powerButtonBox(p);
+      if (!box) return;
+      if (sx >= box.x && sx <= box.x + box.w && sy >= box.y && sy <= box.y + box.h) {
+        found = p;
+      }
+    });
+    return found;
+  };
+
+  /* Toggle a device in or out of service. Pumps carry mode, equipment carries
+   * an `off` flag; both mean the same thing to the network builder, which omits
+   * the link entirely rather than modelling a huge resistance. */
+  View.prototype.toggleDevice = function (p) {
+    if (!this.canToggle(p)) return false;
+    var off = this.isDeviceOff(p);
+    if (p.kind === 'pump') p.pump.mode = off ? 'auto' : 'off';
+    else if (off) delete p.equip.off; else p.equip.off = true;
+    return !off ? true : false;
+  };
+
   /* A riser marker sits directly on top of the node it attaches to, so a click
    * on the marker selects that NODE and the riser column is unreachable. The
    * fix is a dedicated select handle — a small triangle drawn beside the marker
@@ -496,6 +559,17 @@
       /* The selected device's reverse button takes precedence over everything:
        * it deliberately sits close to the device it belongs to, so any other
        * test would swallow the click. */
+      var pb = self.powerButtonAt(sx, sy);
+      if (pb) {
+        if (self.onBeforeEdit) self.onBeforeEdit();
+        self.toggleDevice(pb);
+        self.onMessage && self.onMessage(
+          (pb.tag || pb.id) + ' is now ' +
+          (self.isDeviceOff(pb) ? 'OFF (isolated — no flow)' : 'running') + '.');
+        self.changed();
+        return;
+      }
+
       var fb = self.flipButtonAt(sx, sy);
       if (fb) {
         if (self.onBeforeEdit) self.onBeforeEdit();
@@ -698,7 +772,13 @@
       if (self.dragLabel) { self.dragLabel = null; self.changed(); return; }
       if (self.dragAlign) { self.dragAlign = null; self.changed(); return; }
       if (self.dragDevice) { self.dragDevice = null; self.changed(); return; }
-      if (self.dragNode) { self.dragNode = null; self.changed(); return; }
+      if (self.dragNode) {
+        var dropped = self.dragNode.id;
+        self.dragNode = null;
+        self.mergeDroppedNode(dropped);
+        self.changed();
+        return;
+      }
       if (self.marquee) {
         self.applyMarquee();
         self.marquee = null;
@@ -745,6 +825,54 @@
     window.addEventListener('keyup', function (e) {
       if (e.key === 'Shift') self.shiftDown = false;
     });
+  };
+
+  /* A node dropped on top of another one JOINS it.
+   *
+   * Two nodes at the same coordinates that are not connected is precisely the
+   * defect disconnections() exists to report: the drawing looks continuous and
+   * the network is not. Since dragging one onto another is how that happens, it
+   * is also where it should be resolved — silently leaving the break for the
+   * user to discover later is the worse behaviour.
+   *
+   * After joining, a node that has become a plain joint mid-run is dissolved so
+   * the run is one continuous pipe. M.dissolveNode refuses when the two pipes
+   * differ in size, schedule or C, or when they are not actually straight, so a
+   * size transition or a real elbow is never quietly removed. */
+  View.prototype.mergeDroppedNode = function (id) {
+    var m = this.getModel();
+    var n = M.node(m, id);
+    if (!n) return;
+    var here = M.worldXY(m, n);
+
+    // Nearest OTHER node on this level within the endpoint snap radius.
+    var rad = this.pxToM(ENDPOINT_PX);
+    var target = null, bestD = Infinity;
+    m.nodes.forEach(function (o) {
+      if (o.id === id || o.level !== m.activeLevel) return;
+      var w = M.worldXY(m, o);
+      var d = Math.hypot(w.x - here.x, w.y - here.y);
+      if (d < rad && d < bestD) { bestD = d; target = o; }
+    });
+    if (!target) return;
+
+    // Already joined by a pipe? Then this is a zero-length pipe, not a merge.
+    var joined = M.pipesAt(m, id).some(function (p) {
+      return M.other(p, id) === target.id;
+    });
+
+    var keptId = target.id;
+    M.mergeNodes(m, keptId, id);
+    var dissolved = M.dissolveNode(m, keptId);
+
+    this.selection = dissolved
+      ? [{ kind: 'pipe', id: dissolved.id }]
+      : [{ kind: 'node', id: keptId }];
+
+    this.onMessage && this.onMessage(
+      dissolved
+        ? 'Nodes joined and the run made continuous.'
+        : (joined ? 'Nodes joined.' : 'Nodes joined at ' + keptId + '.'));
   };
 
   View.prototype.applyMarquee = function () {
@@ -1344,6 +1472,32 @@
       ctx.moveTo(-4, 3);  ctx.lineTo(0, 8);  ctx.lineTo(4, 3);
       ctx.stroke();
       ctx.restore();
+
+      // ---- on/off button, just beyond the flip button ----
+      var pbox = self.powerButtonBox(p);
+      if (!pbox) return;
+      var off = self.isDeviceOff(p);
+      ctx.save();
+      ctx.translate(pbox.cx, pbox.cy);
+      ctx.fillStyle = self.theme.bg;
+      ctx.strokeStyle = off ? self.theme.error : self.theme.ok;
+      ctx.lineWidth = 2;
+      var pw = pbox.w / 2, ph = pbox.h / 2;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(-pw, -ph, pbox.w, pbox.h, 3);
+      else ctx.rect(-pw, -ph, pbox.w, pbox.h);
+      ctx.fill(); ctx.stroke();
+      /* The IEC power mark: a broken ring with a stem. Reads as "power" at this
+       * size where a word would not fit. */
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(0, 1, 5, -Math.PI / 2 + 0.55, -Math.PI / 2 - 0.55, false);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -6); ctx.lineTo(0, -1);
+      ctx.stroke();
+      ctx.restore();
     });
   };
 
@@ -1670,51 +1824,97 @@
     ctx.lineWidth = 2;
 
     var w = 8, h = 7;
-    ctx.beginPath();
-    ctx.moveTo(-w, -h); ctx.lineTo(0, 0); ctx.lineTo(-w, h); ctx.closePath();
-    ctx.moveTo(w, -h); ctx.lineTo(0, 0); ctx.lineTo(w, h); ctx.closePath();
 
-    // fill proportion = how far CLOSED the valve is
-    var frac = 1 - open / 100;
-    if (frac > 0) {
-      ctx.save();
-      ctx.globalAlpha = 0.25 + 0.75 * frac;
-      ctx.fillStyle = colour;
-      ctx.fill();
-      ctx.restore();
-    }
-    ctx.stroke();
-
-    // check valves get a bar on the seat side to show they are directional
     if (t.checkValve) {
+      /* Check valve: the standard flapper — a seat bar across the pipe with a
+       * hinged disc swinging onto it, per the symbol Michael supplied. It is
+       * not a bowtie, and drawing it as one made a check valve look like an
+       * isolating valve. */
       ctx.beginPath();
-      ctx.moveTo(w + 2, -h); ctx.lineTo(w + 2, h);
+      ctx.moveTo(w, -h - 1); ctx.lineTo(w, h + 1);          // seat
       ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-w + 1, -h - 1); ctx.lineTo(-w + 1, h + 1); // hinge post
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-w + 1, -h);  ctx.lineTo(w - 1, h);         // flapper
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(-w + 1, -h, 2.4, 0, Math.PI * 2);              // hinge pin
+      ctx.fillStyle = colour; ctx.fill();
+    } else {
+      // Bowtie body, shared by gate and globe.
+      ctx.beginPath();
+      ctx.moveTo(-w, -h); ctx.lineTo(0, 0); ctx.lineTo(-w, h); ctx.closePath();
+      ctx.moveTo(w, -h); ctx.lineTo(0, 0); ctx.lineTo(w, h); ctx.closePath();
+
+      // fill proportion = how far CLOSED the valve is
+      var frac = 1 - open / 100;
+      if (frac > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.25 + 0.75 * frac;
+        ctx.fillStyle = colour;
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.stroke();
+
+      /* A globe valve carries a FILLED disc at the throat (a ball valve's is
+       * hollow) — the convention in Michael's reference sheet, and what tells
+       * the two apart on a drawing. */
+      if (v.type === 'globe') {
+        ctx.beginPath();
+        ctx.arc(0, 0, 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = colour;
+        ctx.fill();
+      }
     }
     ctx.restore();
 
-    if (m.settings.annotate.fitType) {
-      ctx.font = '10px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = colour;
-      ctx.fillText(t.code + (open < 100 ? ' ' + open + '%' : ''), mx, my - 13);
-    }
+    /* Position is shown ABOVE the valve whenever it is throttled, independently
+     * of the fitting-type annotation: how far open a regulating valve is set is
+     * a number you want on the drawing even when codes are switched off. */
+    ctx.font = '10px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = colour;
+    var codeTxt = m.settings.annotate.fitType ? t.code : '';
+    var posTxt = t.adjustable ? open + '%' : '';
+    var label = [codeTxt, posTxt].filter(Boolean).join(' ');
+    if (label) ctx.fillText(label, mx, my - 15);
   };
 
   /* Equipment glyph: a square box straddling the pipe — a coil, chiller,
    * heat exchanger, anything with a rated flow and pressure drop. */
   View.prototype.drawEquipGlyph = function (p, sa, sb, selected) {
     var ctx = this.ctx;
+    var off = !!(p.equip && p.equip.off);
     var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
     var ang = Math.atan2(sb.y - sa.y, sb.x - sa.x);
+
+    /* Equipment reads as a NODE on the run, the same as a pump does — it was
+     * an unfilled box that merged into the pipework and did not look like a
+     * device sitting at a point. Green in service, red isolated, matching the
+     * pump so the two can be scanned together. */
+    var colour = selected ? this.theme.select
+               : off ? this.theme.error : this.theme.ok;
     ctx.save();
-    ctx.translate(mx, my); ctx.rotate(ang);
+    ctx.translate(mx, my);
+    ctx.strokeStyle = colour;
     ctx.fillStyle = this.theme.bg;
-    ctx.strokeStyle = selected ? this.theme.select : this.theme.accent;
     ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.rect(-11, -8, 22, 16);
+    ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2);
     ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-11, -8); ctx.lineTo(11, 8); ctx.stroke();
+    ctx.rotate(ang);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (off) {
+      // A bar, not an arrow: an isolated device passes nothing.
+      ctx.moveTo(-5, 0); ctx.lineTo(5, 0);
+    } else {
+      // Square box inside the ring — the equipment symbol, still a point.
+      ctx.rect(-5, -5, 10, 10);
+    }
+    ctx.stroke();
     ctx.restore();
     this.drawTag(p, mx, my);
   };
@@ -1742,18 +1942,27 @@
   /* Pump glyph: a circle with a chevron pointing along the flow. */
   View.prototype.drawPumpGlyph = function (p, sa, sb, selected, q) {
     var ctx = this.ctx;
+    var off = !!(p.pump && p.pump.mode === 'off');
     var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
     var ang = Math.atan2(sb.y - sa.y, sb.x - sa.x) + (q < 0 ? Math.PI : 0);
     ctx.save();
     ctx.translate(mx, my);
-    ctx.strokeStyle = selected ? this.theme.select : this.theme.ok;
+    /* A stopped pump is RED with a bar, not green with a chevron. The chevron
+     * states a flow direction, and a pump that is off has none — showing one
+     * invited reading a standby pump as running. */
+    ctx.strokeStyle = selected ? this.theme.select
+                    : off ? this.theme.error : this.theme.ok;
     ctx.fillStyle = this.theme.bg;
     ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2);
     ctx.fill(); ctx.stroke();
     ctx.rotate(ang);
     ctx.beginPath();
-    ctx.moveTo(-3, -5); ctx.lineTo(5, 0); ctx.lineTo(-3, 5);
+    if (off) {
+      ctx.moveTo(-5, 0); ctx.lineTo(5, 0);
+    } else {
+      ctx.moveTo(-3, -5); ctx.lineTo(5, 0); ctx.lineTo(-3, 5);
+    }
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.restore();

@@ -416,6 +416,56 @@ section('Model — device direction (flip, and which devices have one)');
   ok('A plain pipe is NOT directional', M.isDirectional(plain) === false);
 }
 
+section('Model — merging nodes and dissolving a straight joint');
+{
+  /* Dragging one node onto another joins them. Two coincident unjoined nodes
+   * are exactly the defect disconnections() reports, so the gesture that
+   * creates them resolves them. */
+  const m = M.create(), lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0);
+  const b = M.addNode(m, lv, 10, 0);
+  const c = M.addNode(m, lv, 10, 0);      // dropped on top of b
+  const d = M.addNode(m, lv, 20, 0);
+  M.addPipe(m, a.id, b.id, { size: 'DN50', C: 120 });
+  M.addPipe(m, c.id, d.id, { size: 'DN50', C: 120 });
+
+  ok('Two runs, not connected', M.pipesAt(m, b.id).length === 1);
+  M.mergeNodes(m, b.id, c.id);
+  ok('Merged node carries both pipes', M.pipesAt(m, b.id).length === 2);
+  ok('The dropped node is gone', !M.node(m, c.id));
+
+  // Straight, same size/C -> dissolve into one continuous pipe
+  const survivor = M.dissolveNode(m, b.id);
+  ok('Straight joint dissolves', !!survivor);
+  ok('...leaving one pipe', m.pipes.length === 1, String(m.pipes.length));
+  ok('...and no joint node', !M.node(m, b.id));
+  near('...whose length is the sum', M.pipeLength(m, m.pipes[0]), 20, 1e-9);
+
+  /* A node where the SIZE changes is a real feature of the model. Dissolving
+   * it would silently re-size pipework, so it must be refused. */
+  const m2 = M.create(), lv2 = m2.levels[0].id;
+  const p = M.addNode(m2, lv2, 0, 0), q = M.addNode(m2, lv2, 10, 0), r = M.addNode(m2, lv2, 20, 0);
+  M.addPipe(m2, p.id, q.id, { size: 'DN50', C: 120 });
+  M.addPipe(m2, q.id, r.id, { size: 'DN100', C: 120 });
+  ok('A size transition is NOT dissolved', M.dissolveNode(m2, q.id) === null);
+  ok('...so both pipes remain', m2.pipes.length === 2);
+
+  // A genuine corner must survive too, or an elbow would vanish from the calc.
+  const m3 = M.create(), lv3 = m3.levels[0].id;
+  const s = M.addNode(m3, lv3, 0, 0), t = M.addNode(m3, lv3, 10, 0), u = M.addNode(m3, lv3, 10, 10);
+  M.addPipe(m3, s.id, t.id, { size: 'DN50', C: 120 });
+  M.addPipe(m3, t.id, u.id, { size: 'DN50', C: 120 });
+  ok('A 90° corner is NOT dissolved', M.dissolveNode(m3, t.id) === null);
+
+  // A node carrying a device is not a joint.
+  const m4 = M.create(), lv4 = m4.levels[0].id;
+  const x = M.addNode(m4, lv4, 0, 0), y = M.addNode(m4, lv4, 10, 0), z = M.addNode(m4, lv4, 20, 0);
+  M.addPipe(m4, x.id, y.id, { size: 'DN50', C: 120 });
+  M.addPipe(m4, y.id, z.id, { size: 'DN50', C: 120 });
+  M.setDemand(m4, y.id, 0.001, 100000);
+  ok('A node with a device is NOT dissolved', M.dissolveNode(m4, y.id) === null);
+}
+
 section('Model — riser size override (a riser must be sizeable by hand)');
 {
   /* Inheritance is only a default. A riser is frequently sized differently from
@@ -522,6 +572,31 @@ section('Valves — Kv law');
   ok('Open valve does not report as closed', !FD.valves.isClosed('gate', 100));
   ok('Closing the valve raises resistance',
      FD.valves.resistance('gate', 285, 25) > FD.valves.resistance('gate', 285, 100));
+
+  /* Globe valve. It obeys the same Kv law and the same opening machinery as a
+   * gate valve — what differs is that its seat is far more restrictive, and
+   * that it throttles evenly, which is why it is the regulating valve. */
+  const globe = FD.valves.type('globe');
+  ok('Globe valve exists and is adjustable', !!globe && globe.adjustable === true);
+  ok('Globe is NOT a check valve', !globe.checkValve);
+  near('Globe Kv=100 also drops exactly 1 bar at Kv flow',
+       FD.units.headToPa(FD.valves.resistance('globe', 100, 100) * (100 / 3600) * (100 / 3600)),
+       1e5, 1);
+  ok('A globe valve is far more restrictive than a gate valve of the same bore',
+     FD.valves.defaultKv('globe', 52.48) < FD.valves.defaultKv('gate', 52.48),
+     'globe ' + FD.valves.defaultKv('globe', 52.48).toFixed(0) +
+     ' vs gate ' + FD.valves.defaultKv('gate', 52.48).toFixed(0));
+
+  const gKvs = [0, 25, 50, 75, 100].map(o => FD.valves.effectiveKv('globe', 100, o));
+  ok('Globe opening curve is monotonic',
+     gKvs.every((v, i) => i === 0 || v > gKvs[i - 1]), gKvs.join(','));
+  ok('Globe 0% is shut', gKvs[0] === 0 && FD.valves.isClosed('globe', 0));
+  /* The point of a globe valve: at half travel it still passes a meaningful
+   * fraction, where a gate valve has barely begun to throttle. */
+  ok('Globe throttles more evenly than a gate at 50% travel',
+     gKvs[2] / gKvs[4] > FD.valves.effectiveKv('gate', 100, 50) / FD.valves.effectiveKv('gate', 100, 100),
+     'globe ' + (gKvs[2] / gKvs[4]).toFixed(2) +
+     ' vs gate ' + (FD.valves.effectiveKv('gate', 100, 50) / FD.valves.effectiveKv('gate', 100, 100)).toFixed(2));
 }
 
 section('Valves — in a solved network');
