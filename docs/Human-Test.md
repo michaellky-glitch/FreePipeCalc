@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 651
+This is deliberately separate from the automated suites. Those cover 670
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,32 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-07-30 (v0.6.0-dev)
+Last updated: 2026-07-31 (v0.7.0-dev)
+
+## Awaiting Michael's eye — new in v0.7.0-dev
+
+Same caveat as below: built and internally verified, but the build
+environment's browser has a 0×0 viewport, so **no pixels were ever rendered**
+and nothing here has been looked at.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| 8.1 | Undo removes a pump/equipment in ONE press | ⬜ | **Michael reported this.** Fixed: the snapshot was taken after the mutation. Verified for pump, equipment and a panel edit, redo included. |
+| 8.2 | Equipment drawn as a node (ring), green in service / red isolated | ⬜ | **Michael reported it was not shown as a node.** |
+| 8.3 | Stopped pump is red with a bar, not a chevron | ⬜ | |
+| 8.4 | On/off button on the drawing, pumps and equipment | ⬜ | Beside the flip button, only while selected. |
+| 8.5 | Status as a red/green switch in properties | ⬜ | Pumps and equipment. |
+| 8.6 | Ribbon: DRAW section becomes VIEW section | ⬜ | Corrected from last time — one section that swaps label and contents. |
+| 8.7 | ANNOTATIONS moved from SETTINGS to VIEW | ⬜ | SETTINGS now points at the new home. |
+| 8.8 | ALIGN: drag a node, whole model follows, snaps to grid | ⬜ | Verified lengths and shape unchanged (level offsets only). |
+| 8.9 | Globe valve: symbol, and Kv about 6× lower than a gate | ⬜ | Filled disc at the throat. 7 assertions. |
+| 8.10 | Check valve flapper symbol | ⬜ | Per Michael's screen snip; was a bowtie. |
+| 8.11 | Valve opening slider (0/25/50/75/100) and % shown on the drawing | ⬜ | |
+| 8.12 | Only Kv **or** Cv shown, switchable in Display units | ⬜ | Default Kv. |
+| 8.13 | Dragging a node onto another joins them; straight run goes continuous | ⬜ | Refuses to dissolve a size change, a corner, or a node with a device. |
+| 8.14 | "4 pipes meet at one node" warning gone | ✅ | **Michael asked for this.** Node is still fitted. |
+
+---
 
 ## Awaiting Michael's eye — new in v0.6.0-dev
 

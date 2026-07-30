@@ -237,11 +237,26 @@ The canvas has three modes, plus a set of placement tools.
   bearing stays a mouse gesture (with its 15° snapping) and only the magnitude
   is typed.
 * **VIEW** — arrange the drawing for print. Every annotation is draggable,
-  and device properties can be echoed beside their entity in a box. **TRACE is
-  a tool within VIEW**, because tracing is arranging the background you then
-  draw over. The DRAW placement tools are hidden in VIEW and vice versa: they
-  are alternatives, and the ribbon was offering PIPE in a mode where a click
-  drags a label. (VIEW was called LAYOUT until v0.6.0-dev.)
+  and device properties can be echoed beside their entity in a box. (VIEW was
+  called LAYOUT until v0.6.0-dev.) VIEW carries **TRACE** (arranging the
+  background you draw over), **ALIGN**, and **ANNOTATIONS**.
+
+The ribbon has ONE tool section that swaps both its contents and its label with
+the mode: the placement tools under `DRAW` in EDIT, the drawing-arrangement
+tools under `VIEW` in VIEW. They are alternatives, not companions.
+
+**ALIGN** drags the whole model by one node, snapping the grabbed point to the
+grid — for putting a known node back on grid after the drawing has drifted. It
+moves every level's `(dx, dy)` **offset**, never a coordinate, so by
+construction no geometry, length or fitting can change (§8).
+
+**Dragging a node onto another joins them** (`M.mergeNodes`), and a node left as
+a plain joint mid-run is then dissolved into one continuous pipe
+(`M.dissolveNode`). Two coincident unjoined nodes are exactly the defect
+`disconnections()` reports, so the gesture that creates them resolves them.
+Dissolving **refuses** when the two pipes differ in size, schedule or C, when
+the node is a real corner, or when it carries a device — each of those would
+otherwise silently change the calculation.
 
 VIEW exists because auto-placed labels collide with pipework on anything
 busy, and on a printed drawing that is the difference between readable and not.
@@ -353,7 +368,7 @@ hall. Treat the change list as the deliverable, not the operation.
 | Source | Node | Fixed-head reservoir at its own altitude, 0 gauge. |
 | Demand | Node | Fixed outflow, plus a required pressure. Can be excluded. |
 | Pump | In-line link | Modes `auto`, `fixed`, `off`. |
-| Valve | In-line link | Gate/check, Kv/Cv, 0/25/50/75/100% open. |
+| Valve | In-line link | Gate/globe/check, Kv (Cv is a display conversion), 0/25/50/75/100% open. A globe valve is the same throttling model as a gate but ~6x more resistant open, and throttles evenly. |
 | Equipment | In-line link | Rated flow and ΔP; `ΔP = ΔP_rated·(Q/Q_rated)²`. |
 
 In-line devices are inserted by **splitting** a pipe into three: pipe, device,
@@ -649,7 +664,7 @@ invites entering numbers into the one being ignored.
 
 ## 15. Testing
 
-Six suites, 651 assertions, no dependencies:
+Six suites, 670 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -660,7 +675,7 @@ node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
 
-All 651 pass. The "Parallel pumps share in DESIGN" section of
+All 670 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change
