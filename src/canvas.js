@@ -47,6 +47,7 @@
     this.calibrating = null;       // {points:[]} while picking two scale points
     this.results = null;             // last solve, for colouring & tooltips
     this.drawSize = null;            // size badge during DRAW
+    this.lengthEntry = null;         // digits typed mid-run, committed on Enter
     this.shiftDown = false;
 
     this._bind();
@@ -593,8 +594,32 @@
     window.addEventListener('keydown', function (e) {
       if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
       if (e.key === 'Shift') self.shiftDown = true;
+
+      /* Typing a length while drawing.
+       *
+       * Clicking sets a length by eye; an engineer usually KNOWS it. So digits
+       * typed mid-run are collected and Enter commits a pipe of exactly that
+       * length along the bearing the preview is already pointing — the bearing
+       * stays a mouse gesture (with its 15° snapping) and only the magnitude is
+       * typed. Handled before the Backspace/Delete branch below so editing the
+       * number cannot delete the selection. */
+      if (self.tool === 'pipe' && self.draft) {
+        if (/^[0-9]$/.test(e.key) || e.key === '.') {
+          self.lengthEntry = (self.lengthEntry || '') + e.key;
+          e.preventDefault(); self.render(); return;
+        }
+        if (e.key === 'Backspace' && self.lengthEntry) {
+          self.lengthEntry = self.lengthEntry.slice(0, -1) || null;
+          e.preventDefault(); self.render(); return;
+        }
+        if (e.key === 'Enter' && self.lengthEntry) {
+          e.preventDefault(); self.commitTypedLength(); return;
+        }
+      }
+
       if (e.key === 'Escape') {
         if (self.calibrating) self.cancelCalibration();
+        else if (self.lengthEntry) { self.lengthEntry = null; self.render(); }
         else if (self.draft) self.endDraft();
         else { self.setTool('edit'); }
       }
@@ -665,8 +690,72 @@
 
   View.prototype.endDraft = function () {
     this.draft = null;
+    this.lengthEntry = null;
     this.render();
     this.onChange();
+  };
+
+  /* Unit vector from the run's anchor towards the live preview point. This is
+   * the bearing a typed length is laid along, and it is taken from drawTarget()
+   * so the committed pipe cannot disagree with the dashed preview (including
+   * its 15° angle snapping). Returns null when there is no direction yet. */
+  View.prototype.draftDirection = function () {
+    if (!this.draft || !this.cursor) return null;
+    var a = this.draft.last;
+    var t = this.drawTarget(this.cursor);
+    var dx = t.x - a.x, dy = t.y - a.y;
+    var d = Math.hypot(dx, dy);
+    if (d < 1e-9) return null;
+    return { x: dx / d, y: dy / d };
+  };
+
+  /* The typed length in SI metres, or null if it is not a usable number. */
+  View.prototype.typedLength = function () {
+    if (!this.lengthEntry) return null;
+    var v = FD.units.parse(this.lengthEntry);
+    if (!isFinite(v) || v <= 0) return null;
+    return FD.units.toSILength(v, this.getModel().settings.display.length);
+  };
+
+  /* Commit a pipe of exactly the typed length along the preview bearing. */
+  View.prototype.commitTypedLength = function () {
+    var m = this.getModel();
+    if (!this.draft) return false;
+    var len = this.typedLength();
+    if (len === null) {
+      this.onMessage && this.onMessage(
+        '"' + this.lengthEntry + '" is not a length.', 'error');
+      this.lengthEntry = null; this.render();
+      return false;
+    }
+    var dir = this.draftDirection();
+    if (!dir) {
+      this.onMessage && this.onMessage(
+        'Move the pointer to aim the run first, then type the length.', 'error');
+      return false;
+    }
+
+    var a = this.draft.last;
+    var target = { x: a.x + dir.x * len, y: a.y + dir.y * len };
+
+    /* Land on a node already there rather than stacking a second one on top,
+     * which would look connected and not be. */
+    var node = this.nodeAt(target.x, target.y, ENDPOINT_PX) ||
+               this.nodeForSnap({ kind: 'free', x: target.x, y: target.y });
+
+    if (node.id !== this.draft.fromNode) {
+      M.addPipe(m, this.draft.fromNode, node.id, {
+        size: this.drawSize || undefined,
+        schedule: m.settings.schedule,
+        C: m.settings.C
+      });
+      var wn = M.worldXY(m, node);
+      this.draft.fromNode = node.id;
+      this.draft.last = { x: wn.x, y: wn.y };
+    }
+    this.lengthEntry = null;
+    this.changed();
+    return true;
   };
 
   View.prototype.deviceClick = function (w) {
@@ -1829,6 +1918,18 @@
     var a = this.draft.last;
     var sa = this.toScreen(a.x, a.y);
 
+    /* While a length is being typed, the preview shows THAT length along the
+     * current bearing — so the dashed line is what Enter will commit, not where
+     * the mouse happens to be. */
+    var typed = this.typedLength();
+    if (typed !== null) {
+      var td = this.draftDirection();
+      if (td) {
+        s = { kind: 'typed', x: a.x + td.x * typed, y: a.y + td.y * typed };
+        sb = this.toScreen(s.x, s.y);
+      }
+    }
+
     ctx.save();
     ctx.strokeStyle = this.theme.accent;
     ctx.lineWidth = 2;
@@ -1846,7 +1947,11 @@
                bearing.toFixed(0) + '°';
     this.badge(sb.x + 16, sb.y - 16, text);
 
-    if (s.kind === 'pipe') this.badge(sb.x + 16, sb.y + 6, 'insert tee');
+    if (this.lengthEntry) {
+      this.badge(sb.x + 16, sb.y + 6,
+        'length ' + this.lengthEntry + ' ' + m.settings.display.length +
+        (this.typedLength() === null ? '  — not a number' : '   ↵ to draw'));
+    } else if (s.kind === 'pipe') this.badge(sb.x + 16, sb.y + 6, 'insert tee');
     else if (s.kind === 'node') this.badge(sb.x + 16, sb.y + 6, 'connect');
   };
 

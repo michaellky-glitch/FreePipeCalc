@@ -945,20 +945,134 @@
       host.appendChild(el('p', 'hint', 'Nothing selected. Click a pipe or node to edit it.'));
       return;
     }
-    if (sel.length > 1) {
-      host.appendChild(el('p', 'hint', sel.length + ' items selected.'));
-      var bulk = el('div', 'field');
-      var delBtn = el('button', 'btn danger', 'Delete selection');
-      delBtn.addEventListener('click', function () { pushUndo(); app.view.deleteSelection(); });
-      bulk.appendChild(delBtn);
-      host.appendChild(bulk);
-      return;
-    }
+    if (sel.length > 1) { renderBulkProps(host, sel); return; }
 
     var s = sel[0];
     if (s.kind === 'pipe') renderPipeProps(host, M.pipe(m, s.id));
     else if (s.kind === 'riser') renderRiserProps(host, m.risers.find(function (r) { return r.id === s.id; }));
     else renderNodeProps(host, M.node(m, s.id));
+  }
+
+  /* Multi-selection: change size / schedule / C on every selected pipe at once.
+   *
+   * Marquee-select a floor's worth of pipework and resize it in one gesture —
+   * without this, changing twenty pipes meant twenty selections. Applied on an
+   * explicit button rather than on every field change, because a mass edit is
+   * not something to trigger by brushing a dropdown. Blank means "leave alone",
+   * so one field can be changed without disturbing the others.
+   *
+   * Risers go through setRiserProps so their materialised segments follow;
+   * setting `size` on the column alone would be overwritten on the next
+   * rebuild. */
+  function renderBulkProps(host, sel) {
+    var m = app.model;
+    var pipes = [], risers = [], nodes = 0;
+    sel.forEach(function (s) {
+      if (s.kind === 'pipe') { var p = M.pipe(m, s.id); if (p) pipes.push(p); }
+      else if (s.kind === 'riser') {
+        var r = m.risers.find(function (x) { return x.id === s.id; });
+        if (r) risers.push(r);
+      } else nodes++;
+    });
+
+    host.appendChild(el('h3', '', sel.length + ' items selected'));
+    var bits = [];
+    if (pipes.length) bits.push(pipes.length + ' pipe' + (pipes.length > 1 ? 's' : ''));
+    if (risers.length) bits.push(risers.length + ' riser' + (risers.length > 1 ? 's' : ''));
+    if (nodes) bits.push(nodes + ' node' + (nodes > 1 ? 's' : ''));
+    host.appendChild(el('p', 'hint', bits.join(', ') + '.'));
+
+    var targets = pipes.length + risers.length;
+    if (targets) {
+      host.appendChild(el('h3', 'sub', 'Change on all ' + targets + ''));
+
+      // Is there a single schedule across the selection? Sizes are per schedule,
+      // so a mixed selection has no meaningful size list until one is chosen.
+      var scheds = {};
+      pipes.forEach(function (p) { scheds[p.schedule] = true; });
+      risers.forEach(function (r) {
+        scheds[r.schedule || (m.settings.schedule)] = true;
+      });
+      var schedKeys = Object.keys(scheds);
+      var common = schedKeys.length === 1 ? schedKeys[0] : null;
+
+      var UNCHANGED = '— unchanged —';
+
+      var schSel = el('select');
+      var keep = el('option', '', UNCHANGED); keep.value = ''; schSel.appendChild(keep);
+      var all = FD.schedules.all(m.customSchedules);
+      Object.keys(all).forEach(function (k) {
+        var o = el('option', '', all[k].name); o.value = k;
+        schSel.appendChild(o);
+      });
+      field(host, 'Schedule' + (common ? '' : ' (mixed)'), schSel);
+
+      var sizeSel = el('select');
+      function fillSizes() {
+        sizeSel.innerHTML = '';
+        var k0 = el('option', '', UNCHANGED); k0.value = ''; sizeSel.appendChild(k0);
+        var sched = schSel.value || common;
+        if (!sched) {
+          sizeSel.disabled = true;
+          var none = el('option', '', 'pick a schedule first'); none.value = '';
+          sizeSel.appendChild(none);
+          return;
+        }
+        sizeSel.disabled = false;
+        FD.schedules.get(sched, m.customSchedules).sizes.forEach(function (sz) {
+          var o = el('option', '', sz.label + '  (' + sz.id_mm.toFixed(1) + ' mm)');
+          o.value = sz.label;
+          sizeSel.appendChild(o);
+        });
+      }
+      fillSizes();
+      schSel.addEventListener('change', fillSizes);
+      field(host, 'Size', sizeSel);
+
+      var cIn = el('input'); cIn.type = 'number'; cIn.step = '1'; cIn.value = '';
+      cIn.placeholder = 'unchanged';
+      field(host, 'C factor', cIn);
+
+      var apply = el('button', 'btn primary', 'Apply to ' + targets + ' item' + (targets > 1 ? 's' : ''));
+      apply.addEventListener('click', function () {
+        var sched = schSel.value || null;
+        var size = sizeSel.value || null;
+        var cRaw = cIn.value.trim();
+        var C = cRaw === '' ? null : FD.units.parse(cRaw);
+        if (C !== null && (!isFinite(C) || C <= 0)) {
+          toast('C factor must be a positive number.', 'error'); return;
+        }
+        if (!sched && !size && C === null) { toast('Nothing to change.'); return; }
+
+        pushUndo();
+        pipes.forEach(function (p) {
+          if (sched) p.schedule = sched;
+          if (size) p.size = size;
+          if (C !== null) p.C = C;
+          /* A size carried across a schedule change may not exist in the new
+           * one, which would resolve to a zero bore. */
+          if (!FD.schedules.get(p.schedule, m.customSchedules).sizes
+                .some(function (x) { return x.label === p.size; })) {
+            p.size = FD.schedules.defaultSize(p.schedule, m.customSchedules);
+          }
+        });
+        risers.forEach(function (r) {
+          var props = {};
+          if (sched) props.schedule = sched;
+          if (size) props.size = size;
+          if (C !== null) props.C = C;
+          M.setRiserProps(m, r.id, props);
+        });
+        changed();
+        renderProperties();
+        toast('Updated ' + targets + ' item' + (targets > 1 ? 's' : '') + '.');
+      });
+      host.appendChild(apply);
+    }
+
+    var delBtn = el('button', 'btn danger', 'Delete selection');
+    delBtn.addEventListener('click', function () { pushUndo(); app.view.deleteSelection(); });
+    host.appendChild(delBtn);
   }
 
   /* Riser column properties. A column materialises one or more vertical pipes
