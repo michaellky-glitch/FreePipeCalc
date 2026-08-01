@@ -86,3 +86,13 @@ From the ⚠️/❌ notes in `Human-Test.md`:
 * **Riser from node to pipe does not connect** (7.2); mid-pipe to node works.
   This is a real snapping defect.
 * **Light theme is grey outside the drawing area** (4.9).
+
+### Reported 2026-08-02, not yet done
+
+* **Pump properties restructure.** Remove settable Head; when no curve is set
+  offer a button through to TOOLS ▸ Pump Curve Generator; reorder to
+  Tag / Status / [Design flow, Design pressure] (Resize) / [Actual flow, Actual
+  pressure] (New Curve, Paste, Show, Clear); explanation behind a 🛈.
+* **Outflow in SIMULATE.** Present like equipment — design flow/pressure in one
+  box, actual in another — and verify the outflow flow really is a function of
+  node pressure, the design-point K and the pump curve.

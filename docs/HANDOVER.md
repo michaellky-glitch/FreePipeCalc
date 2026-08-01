@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-07-31 (v0.7.4-dev), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-02 (v0.7.5-dev), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -27,7 +27,7 @@ Tests: `node test/<name>.test.js` — six files, **687 assertions, all passing**
 
 ---
 
-## 2. Where things stand (v0.7.4-dev, 2026-07-31)
+## 2. Where things stand (v0.7.5-dev, 2026-08-02)
 
 Nothing is BROKEN. The engine is green at **687 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
@@ -46,11 +46,42 @@ rest:
   (6.819 / 1.852 / 1.167), not hard-coded. `settings.hw.A` no longer drives the
   default method; `settings.ashrae.K` does.
 
+### READ THIS FIRST — the Hazen-Williams constant question
+
+Michael reported the app "very slightly off" against his hand calculations.
+It is **not** rounding noise, and the app is not wrong. It is a deliberate
+0.142% shift that he should decide about.
+
+The app now derives its coefficients from ASHRAE Ch 22 Eq (6) **as printed**
+(K = 6.819, a = 1.852, e = 1.167), because he asked for exactly that:
+
+    A = 6.819·(4/π)^1.852 = 10.6663      e = 1.167 + 2·1.852 = 4.8710
+
+Most hand calculations — and the older `HW` method in this app — use the
+conventional flow-form constants **A = 10.67, e = 4.8704**. Worked example,
+100 m of DN50 sch40 (52.48 mm bore), C = 120, 5 L/s:
+
+| Basis | h_f |
+|---|---|
+| A = 10.67, e = 4.8704 (conventional, and the `HW` method here) | 14.1304 m |
+| Derived from Eq (6) — what `ASHRAE` now does | 14.1505 m |
+| Eq (6) evaluated directly in velocity form | 14.1505 m |
+
+The last two agree to 1e-14, so the app reproduces the printed ASHRAE equation
+exactly. The 0.142% is the rounding baked into the published 10.67.
+
+**Both are defensible.** If Michael wants his hand calcs to tie out to the last
+digit, either switch the model to the `HW` method, or type 10.67-equivalent
+constants into the HYDRAULIC formula (they are editable and flow through). Do
+not "fix" this without asking — it is a choice, not a bug.
+
 ### What is outstanding
 
 | Item | State |
 |---|---|
 | **Darcy friction-factor correlation** | Still unchosen. Four implemented, spread ≤1.4%. **Darcy remains unusable** until Michael picks one. |
+| **Pump properties restructure** | Requested and NOT done: remove settable Head, add a New Curve button linking to TOOLS, reorder to Tag / Status / [Design flow, Design pressure] / [Actual flow, Actual pressure], explanation behind a 🛈. |
+| **Outflow in SIMULATE** | Requested and NOT done: present like equipment (design box + actual box), and verify outflow flow really is a function of node pressure, the design K and the pump curve. |
 | **Human-Test ⚠️/❌ follow-ups** | Six, listed in `KNOWN-ISSUES.md`: intermittent undo, negative pressure should be red, pressure visualiser should gradient along a pipe, riser marker placement/direction, riser node→pipe not connecting, light theme greyness. |
 | **Independent verification** | Still the biggest gap. Nothing has been checked against another tool or a job with known answers. |
 | **Printer does not draw devices** | `printer.js` strokes device links as plain pipe with no symbol — now inconsistent with the canvas. In `KNOWN-ISSUES.md`. |
