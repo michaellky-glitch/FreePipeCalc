@@ -18,6 +18,15 @@
    * at a whole pipe run, not a coordinate, and missing costs an error message
    * and another click. Generous on purpose. */
   var DEVICE_SNAP_PX = 28;
+
+  /* Every in-line device is exactly this long, in metres.
+   *
+   * A device has to occupy SOME length — it is a link with its own two nodes,
+   * which is what lets the runs either side keep their own sizes and lengths.
+   * Making it a constant (rather than the old min(0.35, len/4), which varied
+   * with the host pipe) means the amount to subtract from a drawn run is always
+   * the same number, and 0.5 m sits on the default grid. */
+  var DEVICE_LEN = 0.5;
   var ANGLE_SNAP = 15;      // degrees (§5)
 
   /* Risers use much larger radii than drawing does. A riser belongs on existing
@@ -511,10 +520,26 @@
           self.selection = [{ kind: lab.kind, id: lab.obj.id }];
           c.setPointerCapture(e.pointerId);
           self.changed();
-        } else {
-          self.selection = [];
-          self.changed();
+          return;
         }
+        /* No label under the pointer: fall through to ordinary selection rather
+         * than clearing it.
+         *
+         * VIEW is where the "Show on drawing" checkboxes live, but a click here
+         * used to deselect — so the only way to reach a pump's display options
+         * was to select it in EDIT and then switch modes. Selecting in the mode
+         * that owns the controls is the whole point. Dragging a NODE is still
+         * not offered here; VIEW arranges the drawing, it does not move
+         * geometry. */
+        var vd = self.deviceAt(w.x, w.y);
+        if (vd) { self.selection = [{ kind: 'pipe', id: vd.id }]; self.changed(); return; }
+        var vn = self.nodeAt(w.x, w.y);
+        if (vn) { self.selection = [{ kind: 'node', id: vn.id }]; self.changed(); return; }
+        var vp = self.pipeAt(w.x, w.y);
+        if (vp) { self.selection = [{ kind: 'pipe', id: vp.pipe.id }]; self.changed(); return; }
+        var vr = self.riserAt(w.x, w.y);
+        self.selection = vr ? [{ kind: 'riser', id: vr.id }] : [];
+        self.changed();
         return;
       }
       if (self.tool === 'pipe') { self.drawClick(w); return; }
@@ -1040,13 +1065,15 @@
     var wa = M.worldXY(m, a), wb = M.worldXY(m, b);
     var lv = M.level(m, m.activeLevel);
     var len = Math.hypot(wb.x - wa.x, wb.y - wa.y);
-    if (len < 0.5) {
-      this.onMessage && this.onMessage('Pipe is too short to hold a ' + label + '.', 'error');
+    if (len < DEVICE_LEN * 2) {
+      this.onMessage && this.onMessage(
+        'Pipe is too short to hold a ' + label + ' — it needs at least ' +
+        (DEVICE_LEN * 2).toFixed(1) + ' m.', 'error');
       return null;
     }
 
     var ux = (wb.x - wa.x) / len, uy = (wb.y - wa.y) / len;
-    var half = Math.min(0.35, len / 4);
+    var half = DEVICE_LEN / 2;
     var t = Math.max(half, Math.min(len - half, hit.t * len));
 
     var opts = { schedule: p.schedule, size: p.size, C: p.C };
@@ -2516,7 +2543,27 @@
   };
 
   View.prototype.drawDraft = function () {
-    if (this.tool !== 'pipe' || !this.cursor) return;
+    if (!this.cursor) return;
+
+    /* The snap preview is shown for every tool that LANDS on geometry, not just
+     * DRAW PIPE. A riser or a source snaps to a node or a pipe exactly as a
+     * pipe vertex does, but showed no marker, so there was no way to tell
+     * whether the click was going to attach to the run or drop next to it —
+     * which is precisely the mistake that produces a coincident-but-unjoined
+     * node. RISER resolves its snap differently (much larger radii, grid last),
+     * so it previews through its own function. */
+    if (this.tool === 'riser') {
+      var rs = this.riserSnap(this.cursor.x, this.cursor.y);
+      this.snapPreview(this.toScreen(rs.x, rs.y), rs.kind);
+      return;
+    }
+    if (this.tool === 'source' || this.tool === 'demand') {
+      var ds = this.snap(this.cursor.x, this.cursor.y);
+      this.snapPreview(this.toScreen(ds.x, ds.y), ds.kind);
+      return;
+    }
+    if (this.tool !== 'pipe') return;
+
     var ctx = this.ctx, m = this.getModel();
     var s = this.drawTarget(this.cursor);
     var sb = this.toScreen(s.x, s.y);

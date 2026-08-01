@@ -236,7 +236,7 @@ section('DESIGN mode is unaffected by a curve');
  */
 section('Parallel pumps and pump failure');
 {
-  const file = __dirname + '/../examples/datacentre-ring.pnet.json';
+  const file = __dirname + '/fixtures/datacentre-ring.pnet.json';
   const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
   const pumps = m.pipes.filter(p => p.kind === 'pump');
   ok('Four pumps in the example', pumps.length === 4);
@@ -311,7 +311,7 @@ section('Parallel pumps and pump failure');
 
 section('SIMULATION refuses to run without a pump curve');
 {
-  const file = __dirname + '/../examples/datacentre-ring.pnet.json';
+  const file = __dirname + '/fixtures/datacentre-ring.pnet.json';
   const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
   m.settings.calcMode = 'simulation';
   // the example's running pump has no curve
@@ -377,7 +377,7 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
    * model (2026-07-30), which is a 20 L/s single-equipment circuit — the old
    * numbers came from the earlier 45 L/s two-CRAH geometry. They also guard
    * against the balancing pass disturbing the sizing. */
-  const file = __dirname + '/../examples/data_centre_redundant_ring_main.pnet (fixed).json';
+  const file = __dirname + '/fixtures/data_centre_redundant_ring_main.pnet (fixed).json';
   const expectHead = { 1: 268.5, 2: 257.6, 3: 253.3, 4: 249.6 };   // kPa
 
   [1, 2, 3, 4].forEach(n => {
@@ -417,7 +417,7 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
 
 section('Equipment is reported as a terminal');
 {
-  const file = __dirname + '/../examples/datacentre-ring.pnet.json';
+  const file = __dirname + '/fixtures/datacentre-ring.pnet.json';
   const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
   const design = NET.solveModel(m);
   const p0 = m.pipes.filter(p => p.kind === 'pump')[0];

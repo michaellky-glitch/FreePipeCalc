@@ -20,28 +20,14 @@ and nothing here has been looked at.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| 8.1 | Undo removes a pump/equipment in ONE press | ⬜ | **Michael reported this.** Fixed: the snapshot was taken after the mutation. Verified for pump, equipment and a panel edit, redo included. |
-| 8.2 | Equipment drawn as a node (ring), green in service / red isolated | ⬜ | **Michael reported it was not shown as a node.** |
-| 8.3 | Stopped pump is red with a bar, not a chevron | ⬜ | |
-| 8.4 | On/off button on the drawing, pumps and equipment | ⬜ | Beside the flip button, only while selected. |
-| 8.5 | Status as a red/green switch in properties | ⬜ | Pumps and equipment. |
-| 8.6 | Ribbon: DRAW section becomes VIEW section | ⬜ | Corrected from last time — one section that swaps label and contents. |
-| 8.7 | ANNOTATIONS moved from SETTINGS to VIEW | ⬜ | SETTINGS now points at the new home. |
-| 8.8 | ALIGN: drag a node, whole model follows, snaps to grid | ⬜ | Verified lengths and shape unchanged (level offsets only). |
+| 8.1 | Undo removes a pump/equipment in ONE press | ❌ | Intermetent bug. Sometimes works. Log as unsolved but low priority. |
 | 8.9 | Globe valve: symbol, and Kv about 6× lower than a gate | ⬜ | Filled disc at the throat. 7 assertions. |
 | 8.10 | Check valve flapper symbol | ⬜ | Per Michael's screen snip; was a bowtie. |
-| 8.11 | Valve opening slider (0/25/50/75/100) and % shown on the drawing | ⬜ | |
-| 8.12 | Only Kv **or** Cv shown, switchable in Display units | ⬜ | Default Kv. |
 | 8.13 | Dragging a node onto another joins them; straight run goes continuous | ⬜ | Refuses to dissolve a size change, a corner, or a node with a device. |
-| 8.14 | "4 pipes meet at one node" warning gone | ✅ | **Michael asked for this.** Node is still fitted. |
-| 8.15 | Pump/equipment stop bar is perpendicular to the pipe | ⬜ | **Michael reported this.** |
 | 8.16 | Check valve symbol is larger and its direction readable | ⬜ | **Michael reported this.** 1.6× the bowtie valves. |
-| 8.17 | ANNOTATIONS closes when leaving VIEW | ⬜ | **Michael reported this.** Verified the panel and the flag both clear. |
 | 8.18 | Pipe properties show Pressure drop and PD/m | ⬜ | Verified against the engine (5.69 kPa, 699.8 Pa/m). Note they are on different lengths and say so. |
-| 8.19 | ANNOTATIONS: "Node" group, with a Pressure toggle | ⬜ | Negative pressures are shown deliberately. |
-| 8.20 | Visualisers: FLOW, VELOCITY, PRESSURE | ⬜ | **Judgement call for Michael:** velocity is pinned to the warning limit (absolute meaning); flow and pressure scale to the model. Colour ramp blue→red. |
-| 8.21 | Side panel resizable by dragging the divider | ⬜ | Double-click resets to 210 px; width kept in localStorage, not in the model file. |
-
+| 8.19 | ANNOTATIONS: "Node" group, with a Pressure toggle | ⚠️ | Show -ve pressure in red. |
+| 8.20 | Visualisers: FLOW, VELOCITY, PRESSURE | ⚠️ | Gradient pressure between 2 nodes on pipe. |
 ---
 
 ## Awaiting Michael's eye — new in v0.6.0-dev
@@ -53,18 +39,10 @@ rendered — anything about how these LOOK is unverified.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| 7.1 | Riser select handle (triangle) + riser size/schedule/C | ⬜ | Click the triangle beside a riser marker. Verified: handle selects the column, panel appears, size change reaches the bore. |
-| 7.2 | New riser runs to the View Direction level automatically | ⬜ | Verified both directions materialise a real vertical pipe on the first click, reusing any node already there. |
-| 7.3 | "View Direction" rename, Look Up / Look Down | ⬜ | |
-| 7.4 | Devices drawn as point symbols on a thin connector | ⬜ | **The one to judge.** Agreed in principle only. At high zoom a 0.7 m pump link is still 0.7 m of drawing with a fixed-size symbol on it. |
-| 7.5 | Type a length while drawing + Enter | ⬜ | Verified exact: 12.5 m east, 4 m north, 10 m at 45°. Preview follows the typed number. |
-| 7.6 | Multi-select → bulk size / schedule / C | ⬜ | Blank = leave alone. Verified bores follow. |
-| 7.7 | VIEW replaces LAYOUT; TRACE inside VIEW; DRAW hidden in VIEW | ⬜ | |
-| 7.8 | Ribbon group labels centred | ⬜ | CSS only, never seen. |
-| 7.9 | PD/m pipe annotation | ⬜ | Verified to agree with the PDM warning to the rounded digit (699.7 → "700Pa/m"). |
-| 7.10 | Reverse-direction button beside a selected device | ⬜ | Only on pumps/equipment/check valves, only while selected. |
-| 7.11 | Warnings chip: hover preview, click to highlight | ⬜ | Verified 12 pipes + 3 nodes highlighted, all genuinely warned; toggles off. |
-| 7.12 | CLOSED LOOP with an expansion tank and no outflow | ✅ | **Michael reported this.** Now reads CLOSED; all five examples classify correctly. |
+| 7.1 | Riser select handle (triangle) + riser size/schedule/C | ⚠️ | Change the riser location marker to be from lower left (225 degrees). Arrow should point up or down to show flow direction. |
+| 7.2 | New riser runs to the View Direction level automatically | ⚠️ | New riser from node to pipe is not connecting. Mid-pipe to node works. |
+| 7.4 | Devices drawn as point symbols on a thin connector | ⚠️ | **The one to judge.** Agreed in principle only. At high zoom a 0.7 m pump link is still 0.7 m of drawing with a fixed-size symbol on it. M: Acceptable but if possible make pump 0.5m to match grids.|
+| 7.6 | Multi-select → bulk size / schedule / C | ⚠️ | Blank = leave alone. Verified bores follow. |
 
 ---
 
@@ -80,8 +58,6 @@ known project has been done.
 | 1.2 | Data centre closed circuit, redundant pumps | ⚠️ | Runs; equipment gets exactly its rated flow and ΔP. Numbers not independently verified. |
 | 1.11 | `...ring_main.pnet (fixed).json` redrawn example | ⚠️ | **Rebuilt by hand 2026-07-30 and now coherent** — devices are short links (pumps 0.7 m, equip 0.49 m), ~377 m of real pipe carries friction, solves cleanly as a 20 L/s circuit. Numbers not yet independently verified against another tool. |
 | 1.3 | Hazen-Williams against a manual calculation | ⚠️ | **Constants independently confirmed 2026-07-31**: ASHRAE Eq (6), Δh = 6.819·L·(V/C)^1.852·(1/D)^1.167, reduces algebraically to the app's A = 10.67 and e = 4.8704 (agreement 0.035% and 0.012%). ASHRAE Example 1 also reproduces exactly (750.0 Pa). A full worked pipe run by hand is still outstanding. |
-| 1.4 | Fitting K values vs. the published table | ✅ | **Checked against Michael's 2021 ASHRAE Fundamentals Ch 22, Tables 3 & 4 (2026-07-31).** 133/144 matched; two real errors found and fixed (threaded 45° ell was invented and up to 250% out; flanged gate valve column was shifted a row). The Hazen-Williams *equivalent-length* table is still unchecked — needs ASHRAE Table 8. |
-| 1.9 | Hazen-Williams, straight pipe | ✅ | **Michael validated this.** Mostly correct. |
 | 1.10 | Hazen-Williams, converging/diverging tees | ❌ | **Michael found this wrong.** Two causes, both confirmed in code — see `ENGINE.md`. Blocked on choosing a coefficient source. |
 | 1.5 | Loop flow split against hand calculation | ⬜ | Rings balance to ~1e-16 internally; not checked externally. |
 | 1.6 | Pump duty vs. a real selection | ⬜ | |
@@ -92,41 +68,24 @@ known project has been done.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| 2.1 | Draw a multi-vertex run | ✅ | |
-| 2.2 | 15° angle snapping | ✅ | |
-| 2.3 | Tee insertion by clicking an existing pipe | ✅ | |
 | 2.4 | Snap priority node > pipe > grid | ⬜ | Rewritten so the grid constrains length along the ray. Needs a human eye. |
 | 2.5 | Riser placement and cross-level connection | ⚠️ | Michael reported it was still being checked. Alignment logic reworked since. |
 | 2.6 | Levels: add, remove, reorder by drag, `[E]` editor | ⬜ | |
-| 2.7 | Copy level layout `[C]` | ⬜ | New. Copies everything including sources. |
-| 2.8 | Geometry conflict → Cancel / Delete / Repair | ⬜ | Repair is a heuristic; the change log is the thing to check. |
-| 2.9 | Undo / redo across all of the above | ⬜ | |
 
 ## 3. Devices
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| 3.1 | Source, demand placement | ✅ | |
 | 3.2 | Pump insert, auto / fixed / off | ⚠️ | Auto-sizing reworked twice. Re-check duty figures. |
 | 3.6 | Pump curve: from duty, paste, table | ⬜ | **New.** Driven in-browser during the redundancy battery; not used by hand. |
-| 3.3 | Valve insert, gate/check, 0–100% | ⬜ | |
-| 3.4 | Equipment insert, rated flow and ΔP | ⬜ | |
-| 3.5 | Equipment tags on drawing and sheet | ⬜ | |
 
 ## 4. Interface
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| 4.1 | Toolbar grouping and mode hints | ⬜ | Reorganised in v0.4.0. |
-| 4.2 | VIEW: drag labels | ⬜ | |
-| 4.3 | VIEW: "Show on drawing" checkboxes | ❌ | **Michael could not find these.** They appear only in VIEW mode, in the properties panel, under a *Show on drawing* heading, after selecting a DEVICE or a source/outflow node — a plain pipe has none at all, which is likely why they seemed absent. If they are still not findable, the placement is wrong — treat this as a UI defect, not user error. |
 | 4.4 | Vertical pipe label drag box | ⚠️ | Was a horizontal box on a vertical pipe (Michael's screenshot). Fixed; needs confirming. |
-| 4.5 | Open/closed loop indicator on the ribbon | ⬜ | **New.** Should read OPEN LOOP when an outflow draws water off, CLOSED LOOP for a sealed pumped circuit (even with an expansion tank), NO SUPPLY with neither — and change as you draw. |
-| 4.6 | HYDRAULIC tab: editable coefficients inside the formula | ⬜ | |
 | 4.7 | Custom pipe schedule: paste from a spreadsheet | ⬜ | **New.** Three columns, all in mm. |
-| 4.8 | UI font / label size / arrow size | ⬜ | |
-| 4.9 | Dark and light themes | ⬜ | Light theme has had very little use. |
-| 4.10 | DOCUMENTATION tab | ⬜ | **New.** Will not render over `file://` — see the note it shows. |
+| 4.9 | Dark and light themes | ⚠️ | Light theme outside drawing area can be a bit grey. |
 
 ## 4A. TRACE mode
 
@@ -167,17 +126,14 @@ threshold (`settings.warn.pumpRunout`, default 120%).
 | # | What | Status | Notes |
 |---|---|---|---|
 | 4B.1 | DESIGN/SIMULATION chip toggles and locks the calculated side | ⚠️ | Verified in-browser: pump head and outflow flow both disable with a tooltip. Needs a human eye on discoverability. |
-| 4B.2 | Zero-pressure outflow is refused | ✅ | Both on the field and on entering SIMULATION. |
 | 4B.3 | Parallel pumps and N+1 failure | ⚠️ | Battery above. Not checked against another tool. |
 | 4B.4 | Balancing Kv figures | ⬜ | Computed but never checked against a valve schedule. |
 | 4B.5 | Fitted curve from a real manufacturer datasheet | ⬜ | **Most important item here.** Only synthetic curves so far. |
-| 4B.6 | SIMULATION without a curve is refused | ✅ | Error on the mode switch and on every solve. |
 
 ## 4C. TOOLS tab
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| 4C.1 | Generic Pump Curve: NFPA 20 worked example | ✅ | Reproduces the hand calculation exactly — `h(q) = 140 − 0.02q − 2e-5q²`, 125 kPa at 50% flow. |
 | 4C.2 | Copy 3 points → paste into a pump | ⚠️ | Verified in-browser; the three stated duties come back exact. Not yet done by hand through the clipboard. |
 | 4C.3 | Copy full table → paste into a pump | ⚠️ | Works, but shifts all three stated duties ~1%. The tool says so. |
 | 4C.4 | Clipboard copy over `file://` | ⬜ | Uses the `execCommand` fallback, same as the rest of the app. Proven over HTTP only. |
@@ -201,7 +157,6 @@ threshold (`settings.warn.pumpRunout`, default 120%).
 | 6.1 | No source → "Water source is required" | ⬜ | |
 | 6.2 | Supply insufficient → red source, actual flows in brackets | ⬜ | |
 | 6.3 | Dead-ended pump | ⬜ | |
-| 6.4 | Velocity / friction-rate warnings | ✅ | Seen throughout testing. |
 | 6.5 | Laminar flow warning | ⬜ | |
 | 6.6 | Shut valve starving a demand | ⬜ | |
 

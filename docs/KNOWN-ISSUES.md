@@ -70,3 +70,19 @@ from the source table. All L/D and K values are user-editable on the HYDRAULIC
 tab, so this is a data-provenance caveat, not a code fault. Left as-is by
 decision (2026-07-30): far from shipping, revisit when the fitting data is
 sourced properly.
+
+### Follow-ups raised by Michael's testing (2026-07-31)
+
+From the ⚠️/❌ notes in `Human-Test.md`:
+
+* **Undo is intermittent** (8.1). Sometimes one press removes a device, sometimes
+  two. The pre-edit-snapshot fix helped but did not fully settle it. Low priority
+  by decision, but it is a correctness bug in the history, not cosmetics.
+* **Negative node pressure should render red** (8.19).
+* **Pressure visualiser should gradient along a pipe** between its two node
+  values (8.20), rather than only colouring the nodes.
+* **Riser marker** should sit at lower-left (225°) of its node, with an arrow
+  showing flow direction up or down (7.1).
+* **Riser from node to pipe does not connect** (7.2); mid-pipe to node works.
+  This is a real snapping defect.
+* **Light theme is grey outside the drawing area** (4.9).

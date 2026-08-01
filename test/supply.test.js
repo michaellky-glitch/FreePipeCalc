@@ -8,7 +8,7 @@ const M = FD.model, NET = FD.network;
 const fs = require('fs');
 const path = require('path');
 
-const FILE = path.join(__dirname, '..', 'examples', '3-floor-riser-test.pnet.json');
+const FILE = path.join(__dirname, 'fixtures', '3-floor-riser-test.pnet.json');
 const base = () => M.fromJSON(JSON.parse(fs.readFileSync(FILE, 'utf8')));
 
 /* Move the source from L1 to L3 on a 10 m pipe into the riser node, leaving
@@ -354,7 +354,7 @@ section('Open / closed detection');
 
   const closed = M.fromJSON(JSON.parse(
     require('fs').readFileSync(
-      require('path').join(__dirname, '..', 'examples', 'datacentre-ring.pnet.json'), 'utf8')));
+      require('path').join(__dirname, 'fixtures', 'datacentre-ring.pnet.json'), 'utf8')));
   ok('Sealed pumped circuit reads CLOSED',
      NET.detectSystemType(closed).type === 'closed');
   ok('...and says why', /fill\/expansion/.test(NET.detectSystemType(closed).reason));

@@ -8,7 +8,7 @@ const M = FD.model, NET = FD.network;
 const fs = require('fs');
 const path = require('path');
 
-const FILE = path.join(__dirname, '..', 'examples', 'datacentre-ring.pnet.json');
+const FILE = path.join(__dirname, 'fixtures', 'datacentre-ring.pnet.json');
 const base = () => M.fromJSON(JSON.parse(fs.readFileSync(FILE, 'utf8')));
 const code = (res, c) => (res.warnings || []).filter(w => w.code === c);
 const pumps = m => m.pipes.filter(p => p.kind === 'pump');

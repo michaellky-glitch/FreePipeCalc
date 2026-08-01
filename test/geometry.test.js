@@ -8,7 +8,7 @@ const M = FD.model, G = FD.geometry;
 const fs = require('fs');
 const path = require('path');
 
-const MODEL_FILE = path.join(__dirname, '..', 'examples', '3-floor-riser-test.pnet.json');
+const MODEL_FILE = path.join(__dirname, 'fixtures', '3-floor-riser-test.pnet.json');
 const loadTest = () => M.fromJSON(JSON.parse(fs.readFileSync(MODEL_FILE, 'utf8')));
 
 const len = (m, id) => M.pipeLength(m, M.pipe(m, id));

@@ -2240,15 +2240,32 @@
       });
     }
 
+    /* Stated as a PRESSURE, stored as a height.
+     *
+     * The field used to read "Altitude offset" in metres, which was confusing
+     * on a source: a source sits at 0 gauge by definition, so the node itself
+     * reads 0 kPa however high you raise it, and the offset appears to do
+     * nothing — even though it is correctly feeding static head into everything
+     * downstream. Asking for the static pressure instead says what the number
+     * is FOR. The model keeps metres (dz) so nothing in the solver changes;
+     * this is a display conversion, through the model's own fluid density. */
+    var dzUnit = m.settings.display.pressure;
     var dzIn = el('input'); dzIn.type = 'text';
-    dzIn.value = FD.units.fmtLength(n.dz || 0, m.settings.display.length);
-    field(host, 'Altitude offset (' + m.settings.display.length + ')', dzIn)
+    dzIn.value = FD.units.fmtPressure(headToPa(n.dz || 0), dzUnit);
+    field(host, 'Static pressure (' + dzUnit + ')', dzIn)
       .addEventListener('change', function () {
         var v = FD.units.parse(dzIn.value);
         if (isFinite(v)) {
-          pushUndo(); n.dz = FD.units.toSILength(v, m.settings.display.length); changed();
-        } else { dzIn.value = FD.units.fmtLength(n.dz || 0, m.settings.display.length); }
+          pushUndo();
+          n.dz = FD.units.paToHeadWith(FD.units.toSIPressure(v, dzUnit),
+                                       m.settings.fluid && m.settings.fluid.density);
+          changed();
+        } else { dzIn.value = FD.units.fmtPressure(headToPa(n.dz || 0), dzUnit); }
       });
+    host.appendChild(el('p', 'hint',
+      'Static pressure this source provides, as a head above its own level. ' +
+      'The source node itself always reads 0 kPa gauge — this is what it adds ' +
+      'downstream.'));
 
     var res = app.results;
     if (res && res.pressure[n.id] !== undefined) {
