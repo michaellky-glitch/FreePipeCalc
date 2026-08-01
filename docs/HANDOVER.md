@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, at the end of a long session, for whoever picks this up next
+Written 2026-07-30, revised 2026-07-31, for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — six files, **670 assertions, all passing**.
+Tests: `node test/<name>.test.js` — six files, **687 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -89,10 +89,10 @@ Nothing below should be guessed at.
 
 | Item | Detail |
 |---|---|
-| **ASHRAE tee coefficients** | Two of four are placeholders — see §4. He has agreed the source (ASHRAE Fundamentals) but not supplied values. |
+| ~~ASHRAE tee coefficients~~ | **RESOLVED 2026-07-31.** Michael supplied 2021 Fundamentals Ch 22 Tables 3–8 and 27, and decided NOT to distinguish diverging from combining tees — which is what those tables support. `FD.fittings.unsourced()` is now empty. |
 | **Darcy friction-factor correlation** | Four implemented (Colebrook, Swamee-Jain, Haaland, Churchill), spread ≤1.4%. It is a judgement about auditability, not accuracy. Until chosen, **Darcy is unusable** — `Human-Test.md` marks it ❌. |
-| **Real name for `LICENSE.txt`** | Currently the placeholder "Michael". Needed before publishing. |
-| **GitHub publishing** | **On hold** at his instruction: *"I have not yet rigorously tested the functionality yet."* Do not push. `docs/PUBLISHING.md` has the notes. |
+| ~~Real name for `LICENSE.txt`~~ | **DONE.** Lew Kwong Yick (Michael). |
+| ~~GitHub publishing~~ | **DONE 2026-07-31.** Private repo at github.com/michaellky-glitch/FreePipeCalc, pushed. Commit history was rewritten to a noreply email BEFORE the first push. See `PUBLISHING.md` before making it public. |
 
 ---
 

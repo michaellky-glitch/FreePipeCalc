@@ -502,23 +502,65 @@
       return;
     }
 
-    // header block (spec §10)
+    /* Collapsible sections.
+     *
+     * A <details> element rather than a hand-rolled toggle: it is the browser's
+     * own disclosure widget, so it keyboards and screen-reads correctly for
+     * free. Collapsing is not just tidying — a collapsed section does not
+     * PRINT (see the @media print rule in styles.css), which makes the sheet
+     * itself the place you choose what to issue, instead of a separate export
+     * dialog nobody would find. */
+    function calcSection(title, opts) {
+      opts = opts || {};
+      var det = el('details', 'calc-section' + (opts.cls ? ' ' + opts.cls : ''));
+      if (opts.open !== false) det.open = true;
+      var sum = el('summary', '', title);
+      if (opts.note) sum.appendChild(el('span', 'sec-note', opts.note));
+      det.appendChild(sum);
+      var body = el('div', 'calc-section-body');
+      det.appendChild(body);
+      host.appendChild(det);
+      return body;
+    }
+
+    /* Project metadata, edited HERE.
+     *
+     * It used to live on the SETTINGS tab, which meant filling in the header of
+     * a document while looking at a different page. These fields are part of
+     * the deliverable, so they belong on the deliverable. */
     var meta = m.settings.meta;
     var head = el('div', 'sheet-head');
-    [['Project', meta.project || '—'], ['System', meta.system || '—'],
-     ['Engineer', meta.engineer || '—'], ['Company', meta.company || '—'],
-     ['Date', meta.date || new Date().toISOString().slice(0, 10)],
-     ['Revision', meta.revision || '—'],
-     ['System type', systemTypeLabel()],
-     ['Method', 'Hazen-Williams (ASHRAE)'],
-     ['Fluid', 'Water ~20 °C'],
-     ['App version', FD.VERSION]
-    ].forEach(function (kv) {
-      var d = el('div', 'kv');
-      d.appendChild(el('span', 'k', kv[0]));
-      d.appendChild(el('span', 'v', kv[1]));
-      head.appendChild(d);
-    });
+    function metaField(label, key, placeholder) {
+      var wrap = el('div', 'kv');
+      wrap.appendChild(el('span', 'k', label));
+      var i = el('input', 'meta-input');
+      i.type = 'text';
+      i.value = meta[key] || '';
+      i.placeholder = placeholder || '';
+      i.addEventListener('change', function () {
+        pushUndo();
+        meta[key] = i.value.trim();
+        scheduleSave();
+      });
+      wrap.appendChild(i);
+      head.appendChild(wrap);
+    }
+    function metaRead(label, value) {
+      var wrap = el('div', 'kv');
+      wrap.appendChild(el('span', 'k', label));
+      wrap.appendChild(el('span', 'v', value));
+      head.appendChild(wrap);
+    }
+    metaField('Project', 'project', 'Project name');
+    metaField('System', 'system', 'e.g. CHW');
+    metaField('Engineer', 'engineer', 'Your name');
+    metaField('Company', 'company', '');
+    metaField('Date', 'date', new Date().toISOString().slice(0, 10));
+    metaField('Revision', 'revision', '');
+    metaRead('System type', systemTypeLabel());
+    metaRead('Method', FD.hydraulics.method(m.settings.frictionMethod).name);
+    metaRead('Fluid', (m.settings.fluid && m.settings.fluid.name) || 'Water');
+    metaRead('App version', FD.VERSION);
     host.appendChild(head);
 
     if (res && res.errors && res.errors.length) {
@@ -555,6 +597,9 @@
     }
 
     var rows = sheetRows(res);
+
+    // ============================================================ 1. ALL PIPES
+    var secAll = calcSection('All Pipes');
     /* Tag only earns a column when something in the model actually has one —
      * an empty column on every row of a plain pipe network is just noise. */
     var anyTag = rows.some(function (r) { return r.tag; });
@@ -563,52 +608,54 @@
                 'L eff ' + d.length, 'Flow ' + d.flow, 'V m/s', 'PD/m ' + d.pdm,
                 'Section PD ' + d.pressure, 'Static ' + d.pressure, 'Pressure ' + d.pressure]);
 
-    var table = el('table', 'sheet');
-    var thead = el('thead'), htr = el('tr');
-    cols.forEach(function (c) {
-      htr.appendChild(el('th', (c === 'Section' || c === 'Tag' || c === 'Fittings') ? 'txt' : '', c));
-    });
-    thead.appendChild(htr); table.appendChild(thead);
+    function pipeTable(list) {
+      var table = el('table', 'sheet');
+      var thead = el('thead'), htr = el('tr');
+      cols.forEach(function (c) {
+        htr.appendChild(el('th', (c === 'Section' || c === 'Tag' || c === 'Fittings') ? 'txt' : '', c));
+      });
+      thead.appendChild(htr); table.appendChild(thead);
+      var tb = el('tbody');
+      list.forEach(function (r) {
+        var tr = el('tr', r.index ? 'index-row' : '');
+        function cell(t, cls) { tr.appendChild(el('td', cls, t)); }
+        cell(r.section);
+        if (anyTag) cell(r.tag || '—', 'txt' + (r.tag ? '' : ' dim'));
+        cell(FD.units.fmtSize(r.size, d.size));
+        cell(r.id_mm.toFixed(2), 'dim');
+        cell(FD.units.fmtLength(r.L, d.length));
+        cell(r.codes || '—', 'txt dim');
+        cell(FD.units.fmtLength(r.el, d.length), 'dim');
+        cell(FD.units.fmtLength(r.Leff, d.length));
+        cell(FD.units.fmtFlow(r.q, d.flow));
+        cell(r.v.toFixed(2), r.vWarn ? 'bad' : '');
+        cell(FD.units.fmtPdm(r.pdm, d.pdm), r.pdmWarn ? 'bad' : '');
+        cell(r.shut ? 'SHUT' : FD.units.fmtPressure(r.pd, d.pressure), r.shut ? 'bad' : '');
+        cell(FD.units.fmtPressure(r.stat, d.pressure), 'dim');
+        var deadEnd = r.shut || isUnreachable(r.pOut);
+        cell(deadEnd ? '—' : FD.units.fmtPressure(r.pOut, d.pressure),
+             deadEnd || r.pOut < 0 ? 'bad' : '');
+        tb.appendChild(tr);
+      });
+      table.appendChild(tb);
+      return table;
+    }
+    secAll.appendChild(pipeTable(rows));
 
-    var tb = el('tbody');
-    rows.forEach(function (r) {
-      var tr = el('tr', r.index ? 'index-row' : '');
-      function cell(t, cls) { tr.appendChild(el('td', cls, t)); }
-      cell(r.section);
-      if (anyTag) cell(r.tag || '—', 'txt' + (r.tag ? '' : ' dim'));
-      cell(FD.units.fmtSize(r.size, d.size));
-      cell(r.id_mm.toFixed(2), 'dim');
-      cell(FD.units.fmtLength(r.L, d.length));
-      cell(r.codes || '—', 'txt dim');
-      cell(FD.units.fmtLength(r.el, d.length), 'dim');
-      cell(FD.units.fmtLength(r.Leff, d.length));
-      cell(FD.units.fmtFlow(r.q, d.flow));
-      cell(r.v.toFixed(2), r.vWarn ? 'bad' : '');
-      cell(FD.units.fmtPdm(r.pdm, d.pdm), r.pdmWarn ? 'bad' : '');
-      cell(r.shut ? 'SHUT' : FD.units.fmtPressure(r.pd, d.pressure), r.shut ? 'bad' : '');
-      cell(FD.units.fmtPressure(r.stat, d.pressure), 'dim');
-      /* Every node beyond a shut valve inherits the same meaningless pressure,
-       * not just the valve's own row — so the test is on the value, not on
-       * whether this particular section is the valve. */
-      var deadEnd = r.shut || isUnreachable(r.pOut);
-      cell(deadEnd ? '—' : FD.units.fmtPressure(r.pOut, d.pressure),
-           deadEnd || r.pOut < 0 ? 'bad' : '');
-      tb.appendChild(tr);
-    });
-    table.appendChild(tb);
-    host.appendChild(table);
-
-    // ---- index circuit summary (spec §10) ----
+    // ========================================================= 2. CRITICAL PATH
     if (res && res.critical && res.critical.sections.length) {
       var ix2 = res.critical;
-      var box = el('div', 'notice index-notice');
-      box.appendChild(el('p', 'notice-head', 'Critical path'));
-      var who = ix2.targetKind === 'demand'
-        ? 'outflow ' + ix2.target
-        : 'equipment at ' + ix2.target;
-      box.appendChild(el('p', '',
-        'Critical Path from ' + ix2.origin + ' to ' + ix2.target +
-        ' (' + who + ') — ' + ix2.sections.length + ' sections.'));
+      var secCrit = calcSection('Critical Path');
+      secCrit.appendChild(el('p', 'notice-head',
+        'Critical Path from ' + ix2.origin + ' to ' + ix2.target));
+
+      /* The critical-path sections are repeated here in full, deliberately.
+       * They duplicate rows from All Pipes, which is the point: this is the
+       * route that sets the pump duty and an engineer checking the duty wants
+       * it on its own, not highlighted among everything else. */
+      var critRows = rows.filter(function (r) { return r.index; });
+      secCrit.appendChild(pipeTable(critRows));
+
       var grid = el('div', 'index-grid');
       function kv(k, v) {
         var d2 = el('div', 'kv');
@@ -616,168 +663,227 @@
         d2.appendChild(el('span', 'v', v));
         grid.appendChild(d2);
       }
-      kv('Friction along the path', FD.units.fmtPressure(headToPa(ix2.frictionHead), d.pressure, true));
-      kv('Static lift', FD.units.fmtPressure(headToPa(ix2.staticHead), d.pressure, true));
-      kv('Total', FD.units.fmtPressure(headToPa(ix2.frictionHead + ix2.staticHead),
-                                       d.pressure, true));
+      kv('Sections', String(ix2.sections.length));
+      kv('Total friction drop', FD.units.fmtPressure(headToPa(ix2.frictionHead), d.pressure, true));
+      kv('Static', FD.units.fmtPressure(headToPa(ix2.staticHead), d.pressure, true));
+      if (ix2.pumpHead) kv('Pump head', FD.units.fmtPressure(headToPa(ix2.pumpHead), d.pressure, true));
       if (ix2.residual !== null && ix2.residual !== undefined) {
         kv('Residual at terminal', FD.units.fmtPressure(ix2.residual, d.pressure, true));
       }
-      box.appendChild(grid);
-      host.appendChild(box);
+      secCrit.appendChild(grid);
     }
 
-    /* SIMULATION's whole justification: natural flow vs design flow, per
-     * terminal. A terminal over 100% is stealing from the rest of the system
-     * and is where a balancing valve goes.
-     *
-     * This sits OUTSIDE the outflow-node block on purpose: a closed circuit
-     * often has no outflow nodes at all — the data centre models are driven
-     * entirely by equipment — and nesting it there left the headline
-     * simulation output blank on exactly the model it was written for. */
-    if (res.simulation && app.model.settings.calcMode === 'simulation') {
-      var sim = res.simulation;
-      host.appendChild(el('h2', '', 'Device Flow'));
-      var st = el('table', 'sheet');
-      st.innerHTML = '<thead><tr>' +
-        '<th class="txt">Terminal</th>' +
-        '<th>Design flow</th><th>Actual flow</th><th>% of design</th>' +
-        '<th>Design press.</th><th>Actual press.</th>' +
-        '<th>Balancing Kv</th></tr></thead>';
-      var sb = el('tbody');
-      sim.terminals.forEach(function (t) {
-        var tr = el('tr');
-        if (t.ratio > 1.05 || t.ratio < 0.95) tr.className = 'warn-row';
-        function td(v, cls) { var c = el('td', cls || '', v); tr.appendChild(c); }
-        td(t.tag || t.node, 'txt');
-        td(FD.units.fmtFlow(t.designFlow, m.settings.display.flow));
-        td(FD.units.fmtFlow(t.actualFlow, m.settings.display.flow));
-        td((t.ratio * 100).toFixed(1) + '%');
-        td(FD.units.fmtPressure(t.designPressure, m.settings.display.pressure));
-        td(FD.units.fmtPressure(t.actualPressure, m.settings.display.pressure));
-        td(t.balanceKv ? t.balanceKv.toFixed(1) : '\u2014');
-        sb.appendChild(tr);
-      });
-      st.appendChild(sb);
-      host.appendChild(st);
-      host.appendChild(el('p', 'hint',
-        'Total design ' + FD.units.fmtFlow(sim.totalDesign, m.settings.display.flow, true) +
-        ' \u2192 actual ' + FD.units.fmtFlow(sim.totalActual, m.settings.display.flow, true) +
-        '. Balancing Kv is the valve that would throttle a terminal back to its design flow; ' +
-        'terminals at or under design need none.'));
+    // ============================================================ 3. DEVICE FLOW
+    /* Every device that moves or consumes water, in ONE section with a single
+     * column layout so the tables line up: what it is actually doing against
+     * what it was designed for. Pumps sit here with the terminals rather than
+     * in a table of their own — they are part of the same question. */
+    (function () {
+      var sim = res && res.simulation;
+      var devCols = ['Node', 'Actual flow ' + d.flow, 'Design flow ' + d.flow, '% of design',
+                     'Actual pressure ' + d.pressure, 'Design pressure ' + d.pressure, '% of design'];
+      var groups = [];
 
-      if (sim.pumps.length) {
-        host.appendChild(el('h2', '', 'Simulation \u2014 pump operating points'));
-        var pt = el('table', 'sheet');
-        pt.innerHTML = '<thead><tr><th class="txt">Pump</th><th class="txt">Mode</th>' +
-          '<th>Flow</th><th>Head</th><th>% of design flow</th>' +
-          '<th>Shutoff</th><th>Max flow</th></tr></thead>';
-        var pb = el('tbody');
-        sim.pumps.forEach(function (pp) {
-          var tr = el('tr');
-          if (pp.beyondCurve) tr.className = 'warn-row';
-          function td(v, cls) { tr.appendChild(el('td', cls || '', v)); }
-          td(pp.tag || pp.pipe, 'txt');
-          td(pp.mode === 'off' ? 'off' : (pp.curve ? 'curve' : 'fixed head'), 'txt');
-          td(FD.units.fmtFlow(Math.abs(pp.flow), m.settings.display.flow));
-          td(FD.units.fmtPressure(headToPa(pp.head), m.settings.display.pressure));
-          td(pp.pctOfDesign === null ? '\u2014' : (pp.pctOfDesign * 100).toFixed(1) + '%');
-          td(pp.shutoff === null ? '\u2014'
-             : FD.units.fmtPressure(headToPa(pp.shutoff), m.settings.display.pressure));
-          td(pp.maxFlow === null || !isFinite(pp.maxFlow) ? '\u2014'
-             : FD.units.fmtFlow(pp.maxFlow, m.settings.display.flow));
-          pb.appendChild(tr);
-        });
-        pt.appendChild(pb);
-        host.appendChild(pt);
+      function pct(a, b) { return (b > 0) ? (a / b * 100) : null; }
+      function row(name, aF, dF, aP, dP) {
+        return { name: name, aF: aF, dF: dF, aP: aP, dP: dP,
+                 fPct: pct(aF, dF), pPct: pct(aP, dP) };
       }
-    }
 
-    // demand summary: available vs required (spec §8.2)
-    var demands = m.nodes.filter(function (n) {
-      return n.device && n.device.kind === 'demand' && n.device.include !== false;
-    });
-    if (demands.length && res) {
-      host.appendChild(el('h2', '', 'Outflows'));
-      var dt = el('table', 'sheet');
-      var actual = res.actual;
-      dt.innerHTML = '<thead><tr><th class="txt">Node</th>' +
-                     '<th>Flow' + (actual ? ' (actual)' : '') + '</th>' +
-                     '<th>Required</th><th>Available</th><th>Residual</th></tr></thead>';
-      var dtb = el('tbody');
-      demands.forEach(function (n) {
-        var avail = res.pressure[n.id];
-        var req = n.device.reqPressure || 0;
-        var residual = avail - req;
-        var dead = isUnreachable(avail);
-        var tr = el('tr');
-
-        /* When the system cannot deliver, the stated flow is a request, not a
-         * result — so the flow the network can actually supply is shown beside
-         * it in brackets. */
-        var flowCell = FD.units.fmtFlow(n.device.flow, d.flow, true);
-        var starved = false;
-        if (actual) {
-          var got = actual.flow[n.id];
-          starved = got < n.device.flow - 1e-9;
-          flowCell += '  <span class="' + (starved ? 'bad' : 'dim') + '">(' +
-                      FD.units.fmtFlow(got, d.flow) + ')</span>';
-        }
-
-        tr.innerHTML = '<td class="txt">' + n.id + '</td>' +
-          '<td>' + flowCell + '</td>' +
-          '<td>' + FD.units.fmtPressure(req, d.pressure, true) + '</td>' +
-          '<td class="' + (dead ? 'bad' : '') + '">' +
-            (dead ? 'unreachable' : FD.units.fmtPressure(avail, d.pressure, true)) + '</td>' +
-          '<td class="' + (dead || residual < 0 ? 'bad' : '') + '">' +
-            (dead ? '—' : FD.units.fmtPressure(residual, d.pressure, true)) + '</td>';
-        dtb.appendChild(tr);
+      // sources
+      var srcRows = m.nodes.filter(function (n) {
+        return n.device && n.device.kind === 'source';
+      }).map(function (n) {
+        var pa = res && res.pressure ? res.pressure[n.id] : null;
+        return row(n.tag || n.id, null, null, pa, headToPa(n.dz || 0));
       });
-      dt.appendChild(dtb);
-      host.appendChild(dt);
-    }
+      if (srcRows.length) groups.push({ title: 'Sources', rows: srcRows });
 
-    /* Threshold exceedances are highlighted red in the table AND listed here,
-     * so they survive into print and CSV where colour does not. */
+      // pumps
+      var pumpRows = m.pipes.filter(function (p) { return p.kind === 'pump'; })
+        .map(function (p) {
+          var off = !p.pump || p.pump.mode === 'off';
+          var q = res && res.flow ? Math.abs(res.flow[p.id] || 0) : null;
+          var hd = off ? 0 : (p.pump && p.pump.curve
+            ? FD.pumps.head(p.pump.curve, q || 0) : (p.pump && p.pump.head) || 0);
+          var design = p.pump && p.pump.curve ? p.pump.curve.Qd : null;
+          var r2 = row((p.tag || p.id) + (off ? ' (off)' : ''), off ? 0 : q, design,
+                       headToPa(hd), null);
+          return r2;
+        });
+      if (pumpRows.length) groups.push({ title: 'Pumps', rows: pumpRows });
+
+      // equipment
+      var eqRows = m.pipes.filter(function (p) { return p.kind === 'equip' && p.equip; })
+        .map(function (p) {
+          var q = res && res.flow ? Math.abs(res.flow[p.id] || 0) : null;
+          var link = res && res.network
+            ? res.network.links.filter(function (l) { return l.id === p.id; })[0] : null;
+          var aP = link ? headToPa(Math.abs(FD.hydraulics.linkLoss(link, q || 0))) : null;
+          return row(p.tag || p.id, q, p.equip.qRated || null, aP, p.equip.pdRated || null);
+        });
+      if (eqRows.length) groups.push({ title: 'Equipment', rows: eqRows });
+
+      // outflows
+      var ofRows = m.nodes.filter(function (n) {
+        return n.device && n.device.kind === 'demand' && n.device.include !== false;
+      }).map(function (n) {
+        var dev = n.device;
+        var simRow = sim && sim.terminals
+          ? sim.terminals.filter(function (t) { return t.node === n.id; })[0] : null;
+        var aF = simRow ? simRow.actualFlow
+               : (res && res.actual && res.actual.flow ? res.actual.flow[n.id] : dev.flow);
+        var aP = res && res.pressure ? res.pressure[n.id] : null;
+        return row(n.tag || n.id, aF, dev.flow, aP, dev.reqPressure || null);
+      });
+      if (ofRows.length) groups.push({ title: 'Outflows', rows: ofRows });
+
+      if (!groups.length) return;
+      var secDev = calcSection('Device Flow');
+
+      groups.forEach(function (g) {
+        secDev.appendChild(el('h3', 'sub', g.title));
+        var t = el('table', 'sheet device-flow');
+        var th = el('thead'), htr2 = el('tr');
+        devCols.forEach(function (c, i) {
+          htr2.appendChild(el('th', i === 0 ? 'txt' : '', c));
+        });
+        th.appendChild(htr2); t.appendChild(th);
+        var tb2 = el('tbody');
+        g.rows.forEach(function (r) {
+          var tr = el('tr');
+          function c(t2, cls) { tr.appendChild(el('td', cls, t2)); }
+          /* Under-delivery is the failure this table exists to expose, so it is
+           * red — a device quietly running below its design flow is the thing
+           * that does not announce itself. */
+          var under = (r.fPct !== null && r.fPct < 99.5);
+          c(r.name, 'txt' + (under ? ' bad' : ''));
+          c(r.aF === null ? '—' : FD.units.fmtFlow(r.aF, d.flow), under ? 'bad' : '');
+          c(r.dF === null ? '—' : FD.units.fmtFlow(r.dF, d.flow), 'dim');
+          c(r.fPct === null ? '—' : r.fPct.toFixed(1) + '%', under ? 'bad' : '');
+          c(r.aP === null ? '—' : FD.units.fmtPressure(r.aP, d.pressure));
+          c(r.dP === null ? '—' : FD.units.fmtPressure(r.dP, d.pressure), 'dim');
+          c(r.pPct === null ? '—' : r.pPct.toFixed(1) + '%');
+          tb2.appendChild(tr);
+        });
+        t.appendChild(tb2);
+        secDev.appendChild(t);
+      });
+    })();
+
+    // ============================================================ 4. PUMP CURVE
+    (function () {
+      var pumps = m.pipes.filter(function (p) { return p.kind === 'pump'; });
+      if (!pumps.length) return;
+      var secCurve = calcSection('Pump Curve', { note: 'WIP' });
+      secCurve.appendChild(el('p', 'hint',
+        'Work in progress — the presentation for more than one pump is not ' +
+        'settled yet. Shown for the first pump with a curve.'));
+      var withCurve = pumps.filter(function (p) { return p.pump && p.pump.curve; })[0];
+      if (!withCurve) {
+        secCurve.appendChild(el('p', 'hint', 'No pump has a curve set.'));
+        return;
+      }
+      var c = withCurve.pump.curve;
+      var qNow = res && res.flow ? Math.abs(res.flow[withCurve.id] || 0) : 0;
+      var qMax = Math.max(FD.pumps.maxFlow(c) || 0, qNow * 1.2);
+      var W = 420, H = 200, PAD = 34;
+      var svgNS = 'http://www.w3.org/2000/svg';
+      function svgEl(tag, attrs) {
+        var e = document.createElementNS(svgNS, tag);
+        Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); });
+        return e;
+      }
+      var hMax = FD.pumps.head(c, 0) || 1;
+      var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'pump-curve' });
+      function X(q) { return PAD + (q / (qMax || 1)) * (W - PAD - 12); }
+      function Y(h) { return (H - PAD) - (h / hMax) * (H - PAD - 12); }
+      svg.appendChild(svgEl('line', { x1: PAD, y1: H - PAD, x2: W - 8, y2: H - PAD,
+                                      stroke: 'currentColor', 'stroke-width': 1, opacity: .5 }));
+      svg.appendChild(svgEl('line', { x1: PAD, y1: 8, x2: PAD, y2: H - PAD,
+                                      stroke: 'currentColor', 'stroke-width': 1, opacity: .5 }));
+      var pts = [];
+      for (var i = 0; i <= 40; i++) {
+        var q = qMax * i / 40;
+        pts.push(X(q).toFixed(1) + ',' + Y(Math.max(0, FD.pumps.head(c, q))).toFixed(1));
+      }
+      svg.appendChild(svgEl('polyline', { points: pts.join(' '), fill: 'none',
+                                          stroke: 'currentColor', 'stroke-width': 2 }));
+      // the operating point the system actually settled at
+      var op = svgEl('circle', { cx: X(qNow), cy: Y(FD.pumps.head(c, qNow)), r: 4,
+                                 fill: 'currentColor' });
+      svg.appendChild(op);
+      var lbl = svgEl('text', { x: X(qNow) + 7, y: Y(FD.pumps.head(c, qNow)) - 6,
+                                'font-size': 11, fill: 'currentColor' });
+      lbl.textContent = FD.units.fmtFlow(qNow, d.flow, true) + ' @ ' +
+                        FD.units.fmtPressure(headToPa(FD.pumps.head(c, qNow)), d.pressure, true);
+      svg.appendChild(lbl);
+      secCurve.appendChild(el('p', 'hint', withCurve.tag || withCurve.id));
+      secCurve.appendChild(svg);
+    })();
+
+    // =============================================================== WARNINGS
+    /* Threshold exceedances are highlighted red in the tables AND listed here,
+     * because a red cell says WHERE but not WHAT. computeWarnings is the single
+     * source shared with the status chip, so the two cannot disagree. */
     var warnings = computeWarnings(res);
     if (warnings.length) {
-      host.appendChild(el('h2', '', 'Warnings'));
-      var ul = el('ul', 'warnlist');
+      var secWarn = calcSection('Warnings', { note: String(warnings.length) });
+      var ul = el('ul');
       warnings.forEach(function (w) { ul.appendChild(el('li', '', w.message)); });
-      host.appendChild(ul);
+      secWarn.appendChild(ul);
     }
 
-    // ---- pump duty summary (spec §8.4) ----
-    var pumpPipes = m.pipes.filter(function (p) { return p.kind === 'pump'; });
-    if (pumpPipes.length && res) {
-      host.appendChild(el('h2', '', 'Pump duty'));
-      var pt = el('table', 'sheet');
-      var pct = m.settings.pumpSafetyPct || 0;
-      pt.innerHTML = '<thead><tr><th class="txt">Pump</th><th class="txt">Tag</th>' +
-        '<th>Mode</th><th>Flow</th><th>Head required</th>' +
-        '<th>Select against (+' + pct + '%)</th></tr></thead>';
-      var ptb = el('tbody');
-      pumpPipes.forEach(function (p) {
-        var off = p.pump && p.pump.mode === 'off';
-        var reqH = (p.pump && p.pump.head) || 0;
-        var tr = el('tr');
-        tr.innerHTML = '<td class="txt">' + p.id + '</td>' +
-          '<td class="txt">' + (p.tag || '—') + '</td>' +
-          '<td>' + (p.pump ? p.pump.mode : '—') + '</td>' +
-          '<td>' + (off ? '—' : FD.units.fmtFlow(Math.abs(res.flow[p.id] || 0), d.flow, true)) + '</td>' +
-          '<td>' + (off ? '—' : FD.units.fmtPressure(headToPa(reqH), d.pressure, true)) + '</td>' +
-          '<td>' + (off ? '—' : FD.units.fmtPressure(headToPa(reqH * (1 + pct / 100)),
-                                                     d.pressure, true)) + '</td>';
-        ptb.appendChild(tr);
-      });
-      pt.appendChild(ptb);
-      host.appendChild(pt);
-      host.appendChild(el('p', 'legend',
-        'Head required is the hydraulic duty at design flow — the figure the calculation ' +
-        'above is based on. Select against includes the safety factor from SETTINGS; it is ' +
-        'a specification margin and is deliberately NOT used in the calculation, because ' +
-        'extra head on a fixed-speed pump raises flow rather than sitting spare.'));
-    }
+    // =============================================================== 5. APPENDIX
+    /* The hydraulic parameters the numbers above were produced with. A sheet
+     * that does not state its own assumptions cannot be checked, and this is
+     * the one place they travel with the result — including any edit made to
+     * the Hazen-Williams constants. */
+    (function () {
+      var secApp = calcSection('Appendix — Hydraulic Parameters', { open: false });
+      var meth = FD.hydraulics.method(m.settings.frictionMethod);
+      var g = el('div', 'index-grid');
+      function kv2(k, v) {
+        var r = el('div', 'kv');
+        r.appendChild(el('span', 'k', k));
+        r.appendChild(el('span', 'v', v));
+        g.appendChild(r);
+      }
+      kv2('Method', meth.name);
+      if (meth.source) kv2('Source', meth.source);
+      if (m.settings.frictionMethod === 'ASHRAE') {
+        var ka = m.settings.ashrae || FD.hydraulics.ASHRAE_DEFAULTS;
+        var der = meth.derive({ ashrae: ka });
+        kv2('Formula (as printed)',
+            'Δh = ' + ka.K + ' · L · (V/C)^' + ka.a + ' · (1/D)^' + ka.e);
+        kv2('Solved as', 'Δh = ' + der.A.toFixed(4) + ' · L · Q^' + der.a +
+                         ' / ( C^' + der.b + ' · d^' + der.e.toFixed(4) + ' )');
+        kv2('Fittings', 'K velocity heads (Ch 22 Eq 7), ' +
+            FD.ktable.sets[(m.settings.dw && m.settings.dw.kSet) || 'threaded'].name);
+        var defA = FD.hydraulics.ASHRAE_DEFAULTS;
+        if (ka.K !== defA.K || ka.a !== defA.a || ka.e !== defA.e) {
+          kv2('NOTE', 'Constants have been EDITED from the ASHRAE defaults.');
+        }
+      } else if (m.settings.frictionMethod === 'HW') {
+        var kh = m.settings.hw;
+        kv2('Formula', 'hf = ' + kh.A + ' · L · Q^' + kh.a +
+                       ' / ( C^' + kh.b + ' · d^' + kh.e + ' )');
+        kv2('Fittings', 'Equivalent length (L/D basis)');
+        var defH = FD.hydraulics.HW_DEFAULTS;
+        if (kh.A !== defH.A || kh.a !== defH.a || kh.b !== defH.b || kh.e !== defH.e) {
+          kv2('NOTE', 'Constants have been EDITED from the ASHRAE defaults.');
+        }
+      } else {
+        kv2('Friction factor', (m.settings.dw && m.settings.dw.frictionFactor) || 'colebrook');
+        kv2('Roughness', ((m.settings.dw && m.settings.dw.roughness_mm) || 0.045) + ' mm');
+      }
+      var fl = m.settings.fluid || {};
+      kv2('Fluid', (fl.name || 'Water') + ', ρ = ' + (fl.density || 998) + ' kg/m³');
+      kv2('Default C factor', String(m.settings.C));
+      kv2('Velocity limit', (m.settings.warn && m.settings.warn.velocity) + ' m/s');
+      kv2('Friction rate limit', (m.settings.warn && m.settings.warn.pdm) + ' Pa/m');
+      secApp.appendChild(g);
+    })();
 
     /* Disclaimer, always shown and always printed. Supplied verbatim by
      * Michael — do not paraphrase it. */
@@ -2520,158 +2626,9 @@
           scheduleSave();
         });
 
-    var g7 = group('Project metadata');
-    ['project', 'system', 'engineer', 'company', 'date', 'revision'].forEach(function (k) {
-      text(g7, k.charAt(0).toUpperCase() + k.slice(1), m.settings.meta[k], function (v) {
-        m.settings.meta[k] = v; scheduleSave();
-      });
-    });
-  }
-
-  // ----------------------------------------------------- HYDRAULIC tab
-  /* Builds an editable coefficient input sized to its content, for dropping
-   * directly into a rendered formula. */
-  function coefInput(value, onChange, title) {
-    var i = el('input', 'coef');
-    i.type = 'text';
-    i.value = value;
-    if (title) i.title = title;
-    i.size = Math.max(3, String(value).length);
-    i.addEventListener('change', function () {
-      var v = FD.units.parse(i.value);
-      if (isFinite(v)) onChange(v); else i.value = value;
-    });
-    return i;
-  }
-
-  /* A fraction rendered as a real two-line stack: numerator, rule, denominator.
-   * Plain text can only manage "a / (b · c)", which is exactly the form an
-   * engineer has to decode rather than read. */
-  function fraction(numParts, denParts) {
-    var f = el('span', 'frac');
-    var n = el('span', 'frac-n');
-    numParts.forEach(function (x) { n.appendChild(typeof x === 'string' ? document.createTextNode(x) : x); });
-    var d = el('span', 'frac-d');
-    denParts.forEach(function (x) { d.appendChild(typeof x === 'string' ? document.createTextNode(x) : x); });
-    f.appendChild(n);
-    f.appendChild(d);
-    return f;
-  }
-
-  function sup(x) {
-    var e = el('sup');
-    e.appendChild(typeof x === 'string' ? document.createTextNode(x) : x);
-    return e;
-  }
-
-  function renderHydraulic() {
-    var m = app.model, host = $('hydraulic-body');
-    host.innerHTML = '';
-
-    function h2(t) { host.appendChild(el('h2', '', t)); }
-    function h3(t) { host.appendChild(el('h3', 'sub', t)); }
-    function hint(t) { host.appendChild(el('p', 'hint', t)); }
-    function grid() { var g = el('div', 'settings-grid'); host.appendChild(g); return g; }
-
-    function numField(g, label, value, onChange, suffix) {
-      var i = el('input'); i.type = 'text'; i.value = value;
-      i.addEventListener('change', function () {
-        var v = FD.units.parse(i.value);
-        if (isFinite(v)) onChange(v); else i.value = value;
-      });
-      var f = el('div', 'field');
-      f.appendChild(el('label', '', label + (suffix ? '  ' + suffix : '')));
-      f.appendChild(i);
-      g.appendChild(f);
-      return i;
-    }
-    function textField(g, label, value, onChange) {
-      var i = el('input'); i.type = 'text'; i.value = value || '';
-      i.addEventListener('change', function () { onChange(i.value); });
-      var f = el('div', 'field');
-      f.appendChild(el('label', '', label));
-      f.appendChild(i);
-      g.appendChild(f);
-      return i;
-    }
-    function selField(g, label, options, current, onChange) {
-      var sel = el('select');
-      options.forEach(function (o) {
-        var opt = el('option', '', o[1]); opt.value = o[0];
-        if (o[0] === current) opt.selected = true;
-        sel.appendChild(opt);
-      });
-      sel.addEventListener('change', function () { onChange(sel.value); });
-      var f = el('div', 'field');
-      f.appendChild(el('label', '', label));
-      f.appendChild(sel);
-      g.appendChild(f);
-      return sel;
-    }
-
-    // ============================================ 1. FLUID PROPERTIES (top)
-    h2('Fluid Properties');
-    hint('The fluid being calculated. Defaults are water at 20 °C.');
-    var fg = grid();
-    textField(fg, 'Fluid name', m.settings.fluid.name,
-      function (v) { pushUndo(); m.settings.fluid.name = v; redrawAll(); });
-    numField(fg, 'Density ρ', m.settings.fluid.density,
-      function (v) { pushUndo(); m.settings.fluid.density = v; redrawAll(); }, '(kg/m³)');
-    numField(fg, 'Kinematic viscosity ν', m.settings.fluid.kinematicViscosity,
-      function (v) { pushUndo(); m.settings.fluid.kinematicViscosity = v; redrawAll(); }, '(m²/s)');
-    numField(fg, 'Temperature', m.settings.fluid.temperature,
-      function (v) { pushUndo(); m.settings.fluid.temperature = v; redrawAll(); }, '(°C)');
-    numField(fg, 'Specific heat capacity Cp', m.settings.fluid.specificHeat,
-      function (v) { pushUndo(); m.settings.fluid.specificHeat = v; redrawAll(); }, '(J/kg·K)');
-
-    var isDW = m.settings.frictionMethod === 'DW';
-    /* WHICH fitting table to show follows the method's basis, not whether
-     * it happens to be Darcy. Gating on isDW meant that once ASHRAE became
-     * the default the K table — and with it the threaded/flanged choice —
-     * disappeared, while the calculation was using K. That choice is worth
-     * 3.5x on a DN25 elbow (threaded 1.5 against flanged 0.43), so being
-     * unable to reach it was a real defect, not a cosmetic one. */
-    var usesK = FD.hydraulics.method(m.settings.frictionMethod).fittingMode === 'K';
-    var usage = el('ul', 'usage-list');
-    usage.appendChild(el('li', '', 'Density — used: converts head to pressure everywhere.'));
-    usage.appendChild(el('li', '', 'Kinematic viscosity — ' + (isDW
-      ? 'used: sets Reynolds number and the friction factor.'
-      : 'used for the laminar-flow check; fully live under Darcy-Weisbach.')));
-    usage.appendChild(el('li', 'unused',
-      'Temperature — not implemented in this version. It does not drive density ' +
-      'or viscosity; those are entered independently.'));
-    usage.appendChild(el('li', 'unused',
-      'Specific heat capacity — not implemented in this version. Stored for the ' +
-      'heating/cooling power calculations to come (Q = ṁ·Cp·ΔT).'));
-    host.appendChild(usage);
-
-    // =================================================== 2. SYSTEM (detected)
-    h2('System');
-    var det = FD.network.detectSystemType(m);
-    var box = el('div', 'notice ' + (det.type === 'closed' ? 'info-notice' : ''));
-    box.appendChild(el('p', 'notice-head', 'System type: ' +
-      (det.type === 'open' ? 'Open loop'
-       : det.type === 'closed' ? 'Closed loop' : 'No supply yet')));
-    host.appendChild(box);
-
-    // ======================================= 3. HYDRAULIC PARAMETERS
-    h2('Hydraulic Parameters');
-    var mg = grid();
-    /* Built from the registered methods, not hard-coded. The list was a literal
-     * and so did not gain ASHRAE when the method was added: it became the
-     * default for new models while being impossible to SELECT, and the dropdown
-     * showed a different method from the one actually in use. */
-    selField(mg, 'Calculation method',
-      Object.keys(FD.hydraulics.methods)
-        .filter(function (k) { return FD.hydraulics.methods[k].available !== false; })
-        .map(function (k) { return [k, FD.hydraulics.methods[k].name]; }),
-      m.settings.frictionMethod, function (v) {
-        pushUndo(); m.settings.frictionMethod = v; renderHydraulic(); redrawAll();
-      });
-    var activeMethod = FD.hydraulics.method(m.settings.frictionMethod);
-    if (activeMethod.source) {
-      host.appendChild(el('p', 'hint', 'Source: ' + activeMethod.source));
-    }
+    /* Project metadata moved to the CALCULATION tab 2026-07-31: those
+     * fields are the header of the deliverable, so they are edited on the
+     * deliverable rather than on a different tab. */
 
     // ---- the formula, with the coefficients editable in place ----
     var fbox = el('div', 'formula-box');
