@@ -742,6 +742,11 @@
       var secDev = calcSection('Device Flow');
 
       groups.forEach(function (g) {
+        /* Pumps are exempt from the under-delivery highlight. A pump running
+         * below its curve's design flow is riding its curve where the system
+         * put it — that is what a pump does, not a fault. The red is for
+         * terminals that are not getting what they were sized for. */
+        var flagUnder = (g.title !== 'Pumps' && g.title !== 'Sources');
         secDev.appendChild(el('h3', 'sub', g.title));
         var t = el('table', 'sheet device-flow');
         var th = el('thead'), htr2 = el('tr');
@@ -756,7 +761,7 @@
           /* Under-delivery is the failure this table exists to expose, so it is
            * red — a device quietly running below its design flow is the thing
            * that does not announce itself. */
-          var under = (r.fPct !== null && r.fPct < 99.5);
+          var under = flagUnder && (r.fPct !== null && r.fPct < 99.5);
           c(r.name, 'txt' + (under ? ' bad' : ''));
           c(r.aF === null ? '—' : FD.units.fmtFlow(r.aF, d.flow), under ? 'bad' : '');
           c(r.dF === null ? '—' : FD.units.fmtFlow(r.dF, d.flow), 'dim');
@@ -1615,7 +1620,7 @@
         var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
         var pdPa = FD.units.headToPaWith(
           Math.abs(FD.hydraulics.linkLoss(link, q)), rho);
-        ro('Pressure drop', FD.units.fmtPressure(pdPa, m.settings.display.pressure, true) +
+        ro('Actual PD', FD.units.fmtPressure(pdPa, m.settings.display.pressure, true) +
                             '  (incl. fittings)');
         if (link._L > 1e-9) {
           var pdmVal = FD.hydraulics.pdPerMetre(link._rActual, q, link.n, link._L, rho);
@@ -1700,7 +1705,7 @@
 
     var pdIn = el('input'); pdIn.type = 'text';
     pdIn.value = FD.units.fmtPressure(p.equip.pdRated || 0, d.pressure);
-    field(host, 'Design pressure (' + d.pressure + ')', pdIn)
+    field(host, 'Design pressure drop (' + d.pressure + ')', pdIn)
       .addEventListener('change', function () {
         var v = FD.units.parse(pdIn.value);
         if (isFinite(v) && v >= 0) {
@@ -1717,9 +1722,9 @@
         var r = el('div', 'kv'); r.appendChild(el('span', 'k', k));
         r.appendChild(el('span', 'v', v)); info.appendChild(r);
       }
-      ro('Flow', FD.units.fmtFlow(Math.abs(q), d.flow, true));
+      ro('Actual flow', FD.units.fmtFlow(Math.abs(q), d.flow, true));
       if (link) {
-        ro('Pressure drop', FD.units.fmtPressure(
+        ro('Actual PD', FD.units.fmtPressure(
           headToPa(Math.abs(FD.hydraulics.linkLoss(link, q))), d.pressure, true));
       }
       host.appendChild(info);
@@ -1840,10 +1845,10 @@
       ro('Flow', FD.units.fmtFlow(Math.abs(q), m.settings.display.flow, true));
       if (link) {
         if (link.r >= FD.valves.CLOSED_R) {
-          ro('Pressure drop', 'Shut — no flow path');
+          ro('Actual PD', 'Shut — no flow path');
         } else {
           var pd = headToPa(Math.abs(FD.hydraulics.linkLoss(link, q)));
-          ro('Pressure drop', FD.units.fmtPressure(pd, m.settings.display.pressure, true));
+          ro('Actual PD', FD.units.fmtPressure(pd, m.settings.display.pressure, true));
         }
         if (link._checkShut) ro('State', 'Seated (holding back-flow)');
       }
@@ -2277,20 +2282,25 @@
     }
 
     var dev = n.device;
-    var kindSel = el('select');
-    [['', 'Junction'], ['source', 'Source (reservoir)'], ['demand', 'Outflow']]
-      .forEach(function (kv) {
-        var o = el('option', '', kv[1]); o.value = kv[0];
-        if ((dev ? dev.kind : '') === kv[0]) o.selected = true;
-        kindSel.appendChild(o);
+    /* The Type selector is for turning a PLAIN node into a device. Once it is
+     * already an outflow the row only offers ways to destroy it by accident,
+     * and Delete does that deliberately when it is meant. */
+    if (!(dev && dev.kind === 'demand')) {
+      var kindSel = el('select');
+      [['', 'Junction'], ['source', 'Source (reservoir)'], ['demand', 'Outflow']]
+        .forEach(function (kv) {
+          var o = el('option', '', kv[1]); o.value = kv[0];
+          if ((dev ? dev.kind : '') === kv[0]) o.selected = true;
+          kindSel.appendChild(o);
+        });
+      field(host, 'Type', kindSel).addEventListener('change', function () {
+        pushUndo();
+        if (kindSel.value === 'source') M.setSource(m, n.id);
+        else if (kindSel.value === 'demand') M.setDemand(m, n.id, 0.001, 100000);
+        else M.clearDevice(m, n.id);
+        renderProperties(); changed();
       });
-    field(host, 'Type', kindSel).addEventListener('change', function () {
-      pushUndo();
-      if (kindSel.value === 'source') M.setSource(m, n.id);
-      else if (kindSel.value === 'demand') M.setDemand(m, n.id, 0.001, 100000);
-      else M.clearDevice(m, n.id);
-      renderProperties(); changed();
-    });
+    }
 
     if (dev && dev.kind === 'demand') {
       var simulating = (m.settings.calcMode === 'simulation');
@@ -2320,7 +2330,7 @@
 
       var pIn = el('input'); pIn.type = 'text';
       pIn.value = FD.units.fmtPressure(dev.reqPressure, m.settings.display.pressure);
-      field(host, 'Required pressure (' + m.settings.display.pressure + ')', pIn)
+      field(host, 'Design pressure (' + m.settings.display.pressure + ')', pIn)
         .addEventListener('change', function () {
           var v = FD.units.parse(pIn.value);
           if (!isFinite(v)) {
@@ -2359,32 +2369,37 @@
       });
     }
 
-    /* Stated as a PRESSURE, stored as a height.
-     *
-     * The field used to read "Altitude offset" in metres, which was confusing
-     * on a source: a source sits at 0 gauge by definition, so the node itself
-     * reads 0 kPa however high you raise it, and the offset appears to do
-     * nothing — even though it is correctly feeding static head into everything
-     * downstream. Asking for the static pressure instead says what the number
-     * is FOR. The model keeps metres (dz) so nothing in the solver changes;
-     * this is a display conversion, through the model's own fluid density. */
-    var dzUnit = m.settings.display.pressure;
-    var dzIn = el('input'); dzIn.type = 'text';
-    dzIn.value = FD.units.fmtPressure(headToPa(n.dz || 0), dzUnit);
-    field(host, 'Static pressure (' + dzUnit + ')', dzIn)
-      .addEventListener('change', function () {
-        var v = FD.units.parse(dzIn.value);
-        if (isFinite(v)) {
-          pushUndo();
-          n.dz = FD.units.paToHeadWith(FD.units.toSIPressure(v, dzUnit),
-                                       m.settings.fluid && m.settings.fluid.density);
-          changed();
-        } else { dzIn.value = FD.units.fmtPressure(headToPa(n.dz || 0), dzUnit); }
-      });
-    host.appendChild(el('p', 'hint',
-      'Static pressure this source provides, as a head above its own level. ' +
-      'The source node itself always reads 0 kPa gauge — this is what it adds ' +
-      'downstream.'));
+    /* Only a SOURCE states a static pressure. On an outflow the same field
+     * read as if it set the terminal's own pressure, which it does not — the
+     * outflow's number is its DESIGN pressure, edited above. */
+    if (n.device && n.device.kind === 'source') {
+      /* Stated as a PRESSURE, stored as a height.
+       *
+       * The field used to read "Altitude offset" in metres, which was confusing
+       * on a source: a source sits at 0 gauge by definition, so the node itself
+       * reads 0 kPa however high you raise it, and the offset appears to do
+       * nothing — even though it is correctly feeding static head into everything
+       * downstream. Asking for the static pressure instead says what the number
+       * is FOR. The model keeps metres (dz) so nothing in the solver changes;
+       * this is a display conversion, through the model's own fluid density. */
+      var dzUnit = m.settings.display.pressure;
+      var dzIn = el('input'); dzIn.type = 'text';
+      dzIn.value = FD.units.fmtPressure(headToPa(n.dz || 0), dzUnit);
+      field(host, 'Static pressure (' + dzUnit + ')', dzIn)
+        .addEventListener('change', function () {
+          var v = FD.units.parse(dzIn.value);
+          if (isFinite(v)) {
+            pushUndo();
+            n.dz = FD.units.paToHeadWith(FD.units.toSIPressure(v, dzUnit),
+                                         m.settings.fluid && m.settings.fluid.density);
+            changed();
+          } else { dzIn.value = FD.units.fmtPressure(headToPa(n.dz || 0), dzUnit); }
+        });
+      host.appendChild(el('p', 'hint',
+        'Static pressure this source provides, as a head above its own level. ' +
+        'The source node itself always reads 0 kPa gauge — this is what it adds ' +
+        'downstream.'));
+    }
 
     var res = app.results;
     if (res && res.pressure[n.id] !== undefined) {
@@ -3242,8 +3257,15 @@
    * object in each, which is a mode-sized distinction rather than a status
    * indicator. This keeps the buttons in step with settings.calcMode. */
   function updateModeChip() {
+    /* Only ONE of DESIGN / SIMULATE / VIEW reads as active at a time. The
+     * calcMode is still whatever it was while you are in VIEW — it has to be,
+     * the sheet keeps rendering — but lighting the button up made it look as
+     * though clicking VIEW had not taken effect. */
+    var inView = (app.view && (app.view.tool === 'view' || app.view.tool === 'trace' ||
+                               app.view.tool === 'align'));
     [].slice.call(document.querySelectorAll('[data-mode]')).forEach(function (b) {
-      b.classList.toggle('active', b.dataset.mode === app.model.settings.calcMode);
+      b.classList.toggle('active',
+        !inView && b.dataset.mode === app.model.settings.calcMode);
     });
   }
 
@@ -3476,6 +3498,7 @@
        * checkboxes while you were selecting pipework — the panel has to follow
        * the mode you are actually in. */
       app.showAnnotations = false;
+      updateModeChip();
       syncToolGroups();
       var hint = MODE_HINTS[app.view.tool] || '';
       $('mode-hint').textContent = hint +

@@ -890,3 +890,10 @@ a.brand:hover { color: var(--accent); }
     border: none; background: none; padding: 0; color: #000;
   }
 }
+
+/* Info marker: reasoning that matters but is a footnote, not an instruction. */
+.info-mark {
+  cursor: help; color: var(--text-mute); font-size: 15px;
+  margin-left: 8px; align-self: center;
+}
+.info-mark:hover { color: var(--accent); }

@@ -62,7 +62,7 @@
     var pu = m.settings.display.pressure;
 
     var card = el('div', 'tool-card');
-    card.appendChild(el('h2', '', 'Generic Pump Curve'));
+    card.appendChild(el('h2', '', 'Pump Curve Generator'));
     card.appendChild(el('p', 'hint',
       'Builds a pump curve from three stated duties: the design point plus two ' +
       'fit points given.'));
@@ -215,8 +215,7 @@
     });
     t.appendChild(tb);
     host.appendChild(t);
-    host.appendChild(el('p', 'hint', 'The design point is highlighted.'));
-
+    
     function asRows(list) {
       return list.map(function (row) { return fmt(row.q) + '\t' + fmt(row.h); }).join('\n');
     }
@@ -263,35 +262,21 @@
      * duties by ~1% — so the button that looked more thorough gave the less
      * exact answer. Removed rather than explained. */
     copyBtn('Copy', threePayload, 'primary');
+    /* The reasoning lives behind an info marker rather than on the page. It
+     * matters (the solver stores H0 - a*Q^b, which has no linear term, so a
+     * refit moves the stated duties) but it is a footnote, not an instruction —
+     * and it was longer than everything it sat under. */
+    var info = el('span', 'info-mark', '\u1F6C8');
+    info.textContent = '\u24D8';
+    info.title = 'Copies the three stated duties as flow/head rows — paste into ' +
+      'pump properties. Only these three points are copied because the solver ' +
+      'stores a curve as H0 - a*Q^b, which has no linear term: refitting the ' +
+      'full table spreads the error and shifts all three stated duties by ~1%. ' +
+      'Three points, three parameters, exact.';
+    row2.appendChild(info);
     host.appendChild(row2);
 
-    host.appendChild(el('p', 'hint', 'Paste into pump properties.'));
 
-    var note = el('div', 'notice');
-    note.appendChild(el('p', '',
-      'The solver stores a curve as H₀ − a·Q^b, which has no linear term and so ' +
-      'cannot hold a quadratic exactly. It matters which of the two you paste:'));
-    var ul = el('ul');
-    if (fitThree) {
-      var li1 = el('li');
-      li1.innerHTML = '<strong>The 3 defining points</strong> reproduce your stated ' +
-        'shutoff, design and runout duties exactly (worst deviation ' +
-        FD.units.fmtPressure(fitThree.fit.maxDev * 998 * 9.81, pu, true) +
-        '), at the cost of a slightly different shape between them.';
-      ul.appendChild(li1);
-    }
-    if (fitFull) {
-      var li2 = el('li');
-      li2.innerHTML = '<strong>The full table</strong> tracks the quadratic more ' +
-        'closely overall (r² = ' + fitFull.fit.r2.toFixed(5) + '), but spreads the ' +
-        'error across every row — so all three stated duties shift by up to ' +
-        FD.units.fmtPressure(fitFull.fit.maxDev * 998 * 9.81, pu, true) + '.';
-      ul.appendChild(li2);
-    }
-    note.appendChild(ul);
-    note.appendChild(el('p', '',
-      'Unless you have a reason to prefer the shape, paste the three points.'));
-    host.appendChild(note);
   }
 
   /* " + -0.02" is how a machine writes it; an engineer writes " - 0.02". */
