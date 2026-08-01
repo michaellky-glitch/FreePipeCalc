@@ -249,7 +249,9 @@ that comment before trusting them.
 
 The canvas has three modes, plus a set of placement tools.
 
-* **EDIT** — select, drag nodes, change properties. Multi-selecting offers
+* **DESIGN / SIMULATE** — the two calculation modes (internally the same
+  `edit` tool); select, drag nodes, change properties. Both offer every drawing
+  tool. **SHOW DISCONNECT is gone**: disconnections always draw a ⚠️. Multi-selecting offers
   size / schedule / C across the whole selection.
 * **DRAW PIPE** — click-to-click routing. Typing digits mid-run and pressing
   Enter draws exactly that length along the current preview bearing: the
@@ -683,7 +685,7 @@ invites entering numbers into the one being ignored.
 
 ## 15. Testing
 
-Six suites, 670 assertions, no dependencies:
+Six suites, 687 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -694,7 +696,7 @@ node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
 
-All 670 pass. The "Parallel pumps share in DESIGN" section of
+All 687 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change

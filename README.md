@@ -55,7 +55,7 @@ and readable, which **LOAD MODEL** reads back. Worked examples are in
 ## A word on trust
 
 This is free software written to be useful, not a certified design tool. The
-engine is covered by 670 assertions whose expected values are independent hand
+engine is covered by 687 assertions whose expected values are independent hand
 calculations rather than numbers copied out of the code, and `docs/ENGINE.md`
 gives worked examples you can check yourself with a calculator.
 
@@ -79,7 +79,7 @@ Usable for simple networks. Implemented so far:
 | Canvas: draw, snap, tee insertion, zoom/pan, select, delete | done |
 | Calculation sheet + CSV export + print stylesheet | done |
 | Settings, theming, autosave, undo/redo | done |
-| Test suite (670 assertions) | done |
+| Test suite (687 assertions) | done |
 | TRACE mode: trace over a pasted drawing | done |
 | Open/closed detection shown on the ribbon | done |
 | DOCUMENTATION tab rendering the project docs | done |

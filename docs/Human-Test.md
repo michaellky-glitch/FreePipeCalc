@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 670
+This is deliberately separate from the automated suites. Those cover 687
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-07-31 (v0.7.0-dev)
+Last updated: 2026-07-31 (v0.7.4-dev)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
