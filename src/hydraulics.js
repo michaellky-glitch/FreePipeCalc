@@ -29,6 +29,12 @@
   var RE_LAMINAR = 2300;
   var RE_TURBULENT = 4000;
 
+  /* ASHRAE Ch 22 Eq (6), as PRINTED — velocity form.
+   *     Δh = K · L · (V/C)^a · (1/D)^e
+   * The flow-form coefficients used by the solver are derived from these; see
+   * methods.ASHRAE.derive. */
+  var ASHRAE_DEFAULTS = { K: 6.819, a: 1.852, e: 1.167 };
+
   // ------------------------------------------------- Hazen-Williams defaults
   var HW_DEFAULTS = {
     A: 10.67,      // leading coefficient (SI, ASHRAE)
@@ -144,19 +150,39 @@
       defaults: HW_DEFAULTS,
       source: '2021 ASHRAE Handbook — Fundamentals (SI), Ch 22, Eq (6) and (7)',
 
+      /* The constants are the VELOCITY-form ones ASHRAE actually prints, and
+       * the flow-form coefficients are DERIVED from them rather than carried
+       * separately. An engineer checking this against the Handbook sees 6.819,
+       * 1.852 and 1.167 — the numbers on the page — and the 10.67 that used to
+       * be hard-coded now falls out of them:
+       *
+       *   V = 4Q/πd²  ⇒  A = 6.819·(4/π)^1.852 = 10.6663
+       *                  E = 1.167 + 2·1.852   = 4.8710
+       *
+       * Editing the printed constants therefore flows through to the solve,
+       * which it could not when A was stored independently. */
+      derive: function (ctx) {
+        var k = (ctx && ctx.ashrae) || ASHRAE_DEFAULTS;
+        return {
+          A: k.K * Math.pow(4 / Math.PI, k.a),
+          b: k.a,
+          e: k.e + 2 * k.a,
+          a: k.a
+        };
+      },
+
       r: function (L_eff, d, C, ctx) {
-        var k = (ctx && ctx.hw) || HW_DEFAULTS;
         if (!(d > 0) || !(C > 0)) return 0;
+        var k = methods.ASHRAE.derive(ctx);
         return k.A * L_eff / (Math.pow(C, k.b) * Math.pow(d, k.e));
       },
       exponent: function (ctx) {
-        var k = (ctx && ctx.hw) || HW_DEFAULTS;
-        return k.a;
+        return methods.ASHRAE.derive(ctx).a;
       },
       formula: function (ctx) {
-        var k = (ctx && ctx.hw) || HW_DEFAULTS;
-        return 'hf = ' + k.A + ' · L · Q^' + k.a +
-               ' / ( C^' + k.b + ' · d^' + k.e + ' )   +   Σ K · V²/2g';
+        var k = (ctx && ctx.ashrae) || ASHRAE_DEFAULTS;
+        return 'Δh = ' + k.K + ' · L · (V/C)^' + k.a + ' · (1/D)^' + k.e +
+               '   +   Σ K · V²/2g';
       }
     },
 
@@ -231,6 +257,7 @@
     RE_LAMINAR: RE_LAMINAR,
     RE_TURBULENT: RE_TURBULENT,
     HW_DEFAULTS: HW_DEFAULTS,
+    ASHRAE_DEFAULTS: ASHRAE_DEFAULTS,
     G: G,
 
     method: function (key) { return methods[key] || methods.HW; },

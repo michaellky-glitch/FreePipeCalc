@@ -318,6 +318,7 @@
     function ctxFor(p, q) {
       return {
         hw: s.hw,
+        ashrae: s.ashrae,
         fluid: s.fluid,
         frictionFactor: s.dw && s.dw.frictionFactor,
         roughness_mm: s.dw && s.dw.roughness_mm,

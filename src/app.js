@@ -2455,20 +2455,13 @@
         m.settings.display.valveCoef || 'Kv',
         function (v) { m.settings.display.valveCoef = v; redrawAll(); });
 
-    /* Friction method, fluid, warning thresholds, fitting tables and pipe
-     * schedules all live on the HYDRAULIC tab now — this tab is for how the
-     * app behaves, not for how the hydraulics are calculated. */
-    var g2 = group('Pump');
-    num(g2, 'Pump safety factor %', m.settings.pumpSafetyPct,
-        function (v) { m.settings.pumpSafetyPct = v; redrawAll(); });
-    host.appendChild(el('p', 'hint',
-      'Applied to the pump head only, and only as a reported selection duty — it never ' +
-      'enters the calculation, so it cannot compound with the margins already in the ' +
-      'C factor, fitting allowances or equipment ratings. Defaults to 0 so you can apply ' +
-      'your own margin after the calculation.'));
+    /* Pump safety factor removed 2026-07-31 at Michael's request: the margin
+     * is the engineer's judgement and belongs after the calculation, not as a
+     * setting that quietly compounds with the margins already sitting in the C
+     * factor, fitting allowances and equipment ratings. */
 
     // ---- presentation ----
-    host.appendChild(el('h2', '', 'Presentation'));
+    host.appendChild(el('h2', '', 'Display'));
     host.appendChild(el('p', 'hint',
       'Drawing sizes are separate from the interface font so a drawing can be tuned for ' +
       'print without changing the app chrome.'));
@@ -2492,21 +2485,6 @@
       toast('Label positions reset.');
     });
     host.appendChild(clr);
-
-    var hydNote = el('p', 'hint',
-      'Calculation method, fluid properties, warning thresholds, fitting data and pipe ' +
-      'schedules are on the HYDRAULIC tab.');
-    host.appendChild(hydNote);
-
-    /* The annotation toggles now live on the VIEW ribbon (ANNOTATIONS), where
-     * the drawing they affect is actually in front of you — changing them on a
-     * different tab meant toggling blind. Kept here as a pointer rather than
-     * duplicated, so there is one set of controls, not two that can disagree. */
-    host.appendChild(el('h2', '', 'Print & drawing annotations'));
-    host.appendChild(el('p', 'hint',
-      'Moved to the PIPING NETWORK tab: switch to VIEW mode and click ' +
-      'ANNOTATIONS. They control what is labelled on the drawing and on printed ' +
-      'level plans, so they are easier to judge with the drawing on screen.'));
 
     var g4 = group('Drawing');
     num(g4, 'Floor-to-floor default (m)', m.settings.floorToFloor,
@@ -2658,15 +2636,9 @@
     h2('System');
     var det = FD.network.detectSystemType(m);
     var box = el('div', 'notice ' + (det.type === 'closed' ? 'info-notice' : ''));
-    box.appendChild(el('p', 'notice-head',
-      det.type === 'open' ? 'Open loop' : det.type === 'closed' ? 'Closed loop'
-                                                                : 'No supply yet'));
-    box.appendChild(el('p', '', det.reason));
-    box.appendChild(el('p', 'hint',
-      'Detected from the model rather than set by hand — a system fed by a source is ' +
-      'open, a sealed circuit driven by a pump is closed. It is shown on the PIPING ' +
-      'NETWORK ribbon as you draw. The distinction is informational: the solver carries ' +
-      'total head, so static lift falls out of the solution either way.'));
+    box.appendChild(el('p', 'notice-head', 'System type: ' +
+      (det.type === 'open' ? 'Open loop'
+       : det.type === 'closed' ? 'Closed loop' : 'No supply yet')));
     host.appendChild(box);
 
     // ======================================= 3. HYDRAULIC PARAMETERS
@@ -2692,7 +2664,71 @@
     var fbox = el('div', 'formula-box');
     var eq = el('div', 'formula-eq');
 
-    if (!isDW) {
+    var isASHRAE = (m.settings.frictionMethod === 'ASHRAE');
+    if (isASHRAE) {
+      /* Shown in ASHRAE's own VELOCITY form, with the printed constants
+       * editable, so an engineer spot-checking against Ch 22 Eq (6) sees the
+       * numbers that are on the page rather than a flow-form rearrangement.
+       * The solver derives its coefficients from these — see
+       * hydraulics.methods.ASHRAE.derive — so editing them here really does
+       * change the calculation. */
+      var ka = m.settings.ashrae || FD.hydraulics.ASHRAE_DEFAULTS;
+      function setA(field) {
+        return function (v) {
+          pushUndo();
+          m.settings.ashrae = Object.assign({}, ka);
+          m.settings.ashrae[field] = v;
+          renderHydraulic(); redrawAll();
+        };
+      }
+      eq.appendChild(el('span', 'fvar', 'Δh'));
+      eq.appendChild(el('span', 'fop', '='));
+      eq.appendChild(coefInput(ka.K, setA('K'), 'ASHRAE leading coefficient'));
+      eq.appendChild(el('span', 'fop', '·'));
+      eq.appendChild(el('span', 'fvar', 'L'));
+      eq.appendChild(el('span', 'fop', '·'));
+      eq.appendChild(document.createTextNode('('));
+      eq.appendChild(el('span', 'fvar', 'V/C'));
+      eq.appendChild(document.createTextNode(')'));
+      eq.appendChild(sup(coefInput(ka.a, setA('a'), 'Velocity / C exponent')));
+      eq.appendChild(el('span', 'fop', '·'));
+      eq.appendChild(document.createTextNode('(1/'));
+      eq.appendChild(el('span', 'fvar', 'D'));
+      eq.appendChild(document.createTextNode(')'));
+      eq.appendChild(sup(coefInput(ka.e, setA('e'), 'Diameter exponent')));
+      fbox.appendChild(eq);
+
+      var eq2 = el('div', 'formula-eq');
+      eq2.appendChild(el('span', 'fop', '+'));
+      eq2.appendChild(el('span', 'fop', ' Σ '));
+      eq2.appendChild(el('span', 'fvar', 'K'));
+      eq2.appendChild(el('span', 'fop', '·'));
+      eq2.appendChild(fraction([el('span', 'fvar', 'V'), sup(document.createTextNode('2'))],
+                               [document.createTextNode('2'), el('span', 'fvar', 'g')]));
+      fbox.appendChild(eq2);
+
+      var legA = el('div', 'formula-legend');
+      var der = FD.hydraulics.methods.ASHRAE.derive({ ashrae: ka });
+      legA.innerHTML =
+        '<b>Δh</b> head loss (m) &nbsp;·&nbsp; <b>L</b> length (m) &nbsp;·&nbsp; ' +
+        '<b>V</b> velocity (m/s) &nbsp;·&nbsp; <b>C</b> roughness coefficient &nbsp;·&nbsp; ' +
+        '<b>D</b> inner diameter (m) &nbsp;·&nbsp; <b>K</b> fitting coefficient<br>' +
+        'Solved as Δh = ' + der.A.toFixed(4) + ' · L · Q<sup>' + der.a +
+        '</sup> / ( C<sup>' + der.b + '</sup> · d<sup>' + der.e.toFixed(4) +
+        '</sup> ), derived from the above by V = 4Q/πD².';
+      fbox.appendChild(legA);
+      host.appendChild(fbox);
+
+      var resetA = el('button', 'btn', 'Reset to ASHRAE (2021) constants');
+      resetA.addEventListener('click', function () {
+        pushUndo();
+        m.settings.ashrae = Object.assign({}, FD.hydraulics.ASHRAE_DEFAULTS);
+        renderHydraulic(); redrawAll();
+        toast('Reset to the 2021 ASHRAE Ch 22 constants.');
+      });
+      host.appendChild(resetA);
+
+    } else if (!isDW) {
       var k = m.settings.hw;
       eq.appendChild(el('span', 'fvar', 'h'));
       eq.appendChild(el('sub', '', 'f'));
@@ -2719,8 +2755,6 @@
       fbox.appendChild(leg);
       host.appendChild(fbox);
 
-      hint('Defaults are the ASHRAE SI values. Some jurisdictions specify different ' +
-           'constants, so all four are editable rather than the app carrying a list of codes.');
       var reset = el('button', 'btn', 'Reset to ASHRAE SI defaults');
       reset.addEventListener('click', function () {
         pushUndo();
@@ -2814,10 +2848,8 @@
     addSch.addEventListener('click', function () { editSchedule(null); });
     host.appendChild(addSch);
     host.appendChild(el('p', 'legend',
-      'Custom schedules are stored in this browser, independent of any one project, AND ' +
-      'embedded in every saved model — so a file stays usable on a machine that has never ' +
-      'seen the schedule. The two governing fields are the nominal label and the inner ' +
-      'diameter; everything else is derived from those.'));
+      'Note: Custom schedules are stored in model & browser storage. ' +
+      'Recommend to keep an offline copy.'));
 
     // ------------------------------------------------ fitting data
     /* Only the table the active method actually uses is shown. Displaying both
@@ -2890,13 +2922,10 @@
       host.appendChild(resetLD);
 
     } else {
-      h2('Fitting resistance coefficients K');
-      hint('Used by the ASHRAE (2021) method: h = K · V²/2g (Ch 22 Eq 7). Values ' +
-           'are 2021 ASHRAE Fundamentals Ch 22 Table 3 (threaded) and Table 4 ' +
-           '(flanged/welded), interpolated by nominal size. Leave a cell blank to ' +
-           'use the size curve, or type a number to pin it flat.');
-      hint('Connection type matters: a DN25 threaded elbow is K = 1.5 where the ' +
-           'flanged equivalent is 0.43. Pick the one your pipework actually uses.');
+      h2('Fitting Coefficients K');
+      hint('Based on ASHRAE (2021) method: h = K · V²/2g (Ch 22 Eq 7).');
+      hint('Connection type: a DN25 threaded elbow is K = 1.5 where the flanged ' +
+           'equivalent is 0.43.');
       var kg = grid();
       selField(kg, 'Connection type',
         Object.keys(FD.ktable.sets).map(function (kk) { return [kk, FD.ktable.sets[kk].name]; }),
@@ -2948,9 +2977,6 @@
 
     // ------------------------------------------------------- warnings
     h2('Warning thresholds');
-    hint('Sections breaching a limit are flagged red on the calculation sheet and listed ' +
-         'as warnings. Typical practice: 1.2–2.4 m/s in occupied areas (up to ~3 m/s in ' +
-         'plant rooms and risers), 100–400 Pa/m friction rate.');
     var wg = grid();
     numField(wg, 'Max velocity', m.settings.warn.velocity,
       function (v) { pushUndo(); m.settings.warn.velocity = v; redrawAll(); }, '(m/s)');

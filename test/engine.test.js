@@ -541,8 +541,21 @@ section('ASHRAE (2021) method — Hazen-Williams pipe + K fittings');
   ok('...where plain Hazen-Williams charges equivalent length', HWm.fittingMode === 'EL');
 
   const d = 0.0525, C = 120, L = 100;
-  near('ASHRAE pipe friction == Hazen-Williams pipe friction',
-       A.r(L, d, C), HWm.r(L, d, C), 1e-12);
+  /* ASHRAE derives its flow-form constants from the PRINTED velocity-form ones
+   * (6.819 / 1.852 / 1.167), where the HW entry carries the rounded published
+   * flow-form values (10.67 / 4.8704). They therefore agree to the rounding of
+   * those published numbers — about 0.15% — rather than exactly. Asserting
+   * equality would be asserting that 10.67 is exact, which it is not. */
+  const rA = A.r(L, d, C), rH = HWm.r(L, d, C);
+  ok('ASHRAE pipe friction matches Hazen-Williams to published rounding',
+     Math.abs(rA - rH) / rH < 0.002, 'diff ' + (Math.abs(rA - rH) / rH * 100).toFixed(3) + '%');
+  // ...and equals the exact derivation, which is the point of deriving it.
+  const kA = FD.hydraulics.ASHRAE_DEFAULTS;
+  const exactA = kA.K * Math.pow(4 / Math.PI, kA.a);
+  const exactE = kA.e + 2 * kA.a;
+  near('ASHRAE A is derived, not hard-coded', A.derive({}).A, exactA, 1e-12);
+  near('ASHRAE d-exponent is derived', A.derive({}).e, exactE, 1e-12);
+  near('...and that A is 10.6663', exactA, 10.6663, 1e-3);
   near('ASHRAE exponent is the HW exponent', A.exponent(), 1.852, 1e-12);
 
   /* Fitting term against Eq (7) by hand: h = K·V²/2g, so K=1 at V=1 m/s

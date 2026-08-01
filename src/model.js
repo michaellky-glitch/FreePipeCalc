@@ -48,6 +48,11 @@
        * ASHRAE SI values and lets them be overridden. */
       hw: { A: 10.67, a: 1.852, b: 1.852, e: 4.8704 },
 
+      /* ASHRAE Ch 22 Eq (6) as printed, velocity form. The solver's flow-form
+       * coefficients are derived from these, so editing what the Handbook
+       * prints actually changes the calculation. */
+      ashrae: { K: 6.819, a: 1.852, e: 1.167 },
+
       /* Darcy-Weisbach settings. frictionFactor is PENDING a decision — all
        * correlations are implemented and selectable. */
       dw: { frictionFactor: 'colebrook', roughness_mm: 0.045, kSet: 'threaded' },

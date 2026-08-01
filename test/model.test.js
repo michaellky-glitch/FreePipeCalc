@@ -935,7 +935,11 @@ section('Editable coefficients change the answer');
   };
 
   const base = build(null);
-  const doubled = build(m => { m.settings.hw.A = 21.34; });
+  /* Double the constant the ACTIVE method actually reads. The default is now
+   * ASHRAE, which derives its coefficient from the printed velocity-form K —
+   * doubling settings.hw.A changed nothing, which is exactly what this
+   * assertion caught when the method was switched over. */
+  const doubled = build(m => { m.settings.ashrae.K *= 2; });
   const bNode = 1;
   ok('Doubling coefficient A increases the loss',
      doubled.pressure[doubled.network.nodes[bNode].id] <

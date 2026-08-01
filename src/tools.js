@@ -65,10 +65,7 @@
     card.appendChild(el('h2', '', 'Generic Pump Curve'));
     card.appendChild(el('p', 'hint',
       'Builds a pump curve from three stated duties: the design point plus two ' +
-      'fit points given as a percentage of it. The curve passes through all ' +
-      'three exactly — it is an interpolation, not a fit. Generate the table, ' +
-      'copy it, then paste it into a pump under PIPING NETWORK ▸ (select pump) ' +
-      '▸ Paste curve data.'));
+      'fit points given.'));
 
     var grid = el('div', 'tool-grid');
 
@@ -223,7 +220,7 @@
     function asRows(list) {
       return list.map(function (row) { return fmt(row.q) + '\t' + fmt(row.h); }).join('\n');
     }
-    var fullPayload = asRows(r.rows);
+    // (the full-table payload was removed with its button — see copyBtn below)
     var threePayload = asRows(r.points);
 
     /* Two payloads, because they are not equally good and the difference is
@@ -261,14 +258,14 @@
       row2.appendChild(b);
       return b;
     }
-    copyBtn('Copy the 3 defining points', threePayload, 'primary');
-    copyBtn('Copy full table', fullPayload);
+    /* One payload only: the three stated duties. The full 16-row table was the
+     * other option and it refits to r² ≈ 0.9997, shifting all three stated
+     * duties by ~1% — so the button that looked more thorough gave the less
+     * exact answer. Removed rather than explained. */
+    copyBtn('Copy', threePayload, 'primary');
     host.appendChild(row2);
 
-    host.appendChild(el('p', 'hint',
-      'Paste into PIPING NETWORK ▸ select the pump ▸ Paste curve data. ' +
-      'The columns are flow then head, in ' + fu + ' and ' + pu + ' — the same ' +
-      'units this tool is showing, so no conversion is needed.'));
+    host.appendChild(el('p', 'hint', 'Paste into pump properties.'));
 
     var note = el('div', 'notice');
     note.appendChild(el('p', '',
