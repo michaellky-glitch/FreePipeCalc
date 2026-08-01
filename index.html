@@ -9,7 +9,11 @@
 <body>
 
 <div class="topbar">
-  <div class="brand" title="FreePipeCalc">FPC <span class="ver" id="app-version"></span></div>
+  <!-- Opens the project repository. Currently private, so it will 404 for
+       anyone but the owner until it is made public. -->
+  <a class="brand" href="https://github.com/michaellky-glitch/FreePipeCalc"
+     target="_blank" rel="noopener noreferrer"
+     title="FreePipeCalc on GitHub">FPC <span class="ver" id="app-version"></span></a>
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" data-pane="pane-network" aria-selected="true">PIPING NETWORK</button>
     <button class="tab" role="tab" data-pane="pane-calculation" aria-selected="false">CALCULATION</button>
@@ -36,17 +40,21 @@
       <button class="btn icon" id="btn-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
     </div>
     <div class="sep"></div>
+    <!-- DESIGN and SIMULATE are the two questions the same drawing answers
+         ("what pump do I need?" / "what will this pump do?"), so they are modes
+         rather than a chip toggle. Both offer the full set of drawing tools.
+         VIEW is the third: arranging what has been drawn. -->
     <div class="tool-group" data-group="MODES">
-      <button class="btn" data-tool="edit">EDIT</button>
+      <button class="btn" data-mode="design" title="Outflows state a required flow; the pump duty is calculated">DESIGN</button>
+      <button class="btn" data-mode="simulation" title="The pump curve is the input; flow is the result">SIMULATE</button>
       <button class="btn" data-tool="view" title="Arrange the drawing for print: drag labels and value boxes, and trace over a background drawing">VIEW</button>
-      <button class="btn" data-tool="disconnect" title="Highlight breaks: coincident unjoined nodes, islands, and devices with nowhere to discharge">SHOW DISCONNECT</button>
     </div>
     <div class="sep"></div>
-    <!-- ONE section that swaps contents with the mode: the placement tools in
-         EDIT/DRAW, the drawing-arrangement tools in VIEW. The group label
-         changes with it, so the ribbon keeps its shape and the tools you
-         cannot use are simply not there. -->
-    <div class="tool-group" data-group="DRAW" id="group-tools">
+    <!-- ONE section that swaps contents with the mode: the placement tools when
+         drawing, the arrangement tools in VIEW. Labelled COMMAND throughout, so
+         the ribbon keeps its shape and the tools you cannot use are simply not
+         there. -->
+    <div class="tool-group" data-group="COMMAND" id="group-tools">
       <span class="tool-set" id="set-draw">
         <button class="btn" data-tool="pipe">PIPE</button>
         <button class="btn" data-tool="riser">RISER</button>
@@ -77,7 +85,6 @@
       <button class="btn icon" id="btn-fit" title="Zoom to fit">⤢</button>
     </div>
     <div class="spacer"></div>
-    <span class="chip mode-chip" id="mode-chip" title="">DESIGN</span>
     <span class="chip system-chip" id="system-chip" title="">NO SUPPLY</span>
     <span class="hint-inline" id="mode-hint"></span>
   </div>
@@ -176,28 +183,28 @@
      the query when resolving a file:// path, so double-clicking still works;
      over HTTP, changing the token forces a reload instead of a stale copy.
      Bump the token on release, or during development after editing a module. -->
-<script src="data/schedules.js?v=0.7.1-dev"></script>
-<script src="data/fittings.js?v=0.7.1-dev"></script>
-<script src="data/valves.js?v=0.7.1-dev"></script>
-<script src="data/ktable.js?v=0.7.1-dev"></script>
-<script src="data/pumps.js?v=0.7.1-dev"></script>
-<script src="src/units.js?v=0.7.1-dev"></script>
-<script src="src/hydraulics.js?v=0.7.1-dev"></script>
-<script src="src/solver.js?v=0.7.1-dev"></script>
-<script src="src/model.js?v=0.7.1-dev"></script>
-<script src="src/geometry.js?v=0.7.1-dev"></script>
-<script src="src/network.js?v=0.7.1-dev"></script>
-<script src="src/dialog.js?v=0.7.1-dev"></script>
-<script src="src/trace.js?v=0.7.1-dev"></script>
-<script src="src/canvas.js?v=0.7.1-dev"></script>
-<script src="src/printer.js?v=0.7.1-dev"></script>
-<script src="src/tools.js?v=0.7.1-dev"></script>
-<script src="src/docs.js?v=0.7.1-dev"></script>
-<script src="src/app.js?v=0.7.1-dev"></script>
+<script src="data/schedules.js?v=0.7.2-dev"></script>
+<script src="data/fittings.js?v=0.7.2-dev"></script>
+<script src="data/valves.js?v=0.7.2-dev"></script>
+<script src="data/ktable.js?v=0.7.2-dev"></script>
+<script src="data/pumps.js?v=0.7.2-dev"></script>
+<script src="src/units.js?v=0.7.2-dev"></script>
+<script src="src/hydraulics.js?v=0.7.2-dev"></script>
+<script src="src/solver.js?v=0.7.2-dev"></script>
+<script src="src/model.js?v=0.7.2-dev"></script>
+<script src="src/geometry.js?v=0.7.2-dev"></script>
+<script src="src/network.js?v=0.7.2-dev"></script>
+<script src="src/dialog.js?v=0.7.2-dev"></script>
+<script src="src/trace.js?v=0.7.2-dev"></script>
+<script src="src/canvas.js?v=0.7.2-dev"></script>
+<script src="src/printer.js?v=0.7.2-dev"></script>
+<script src="src/tools.js?v=0.7.2-dev"></script>
+<script src="src/docs.js?v=0.7.2-dev"></script>
+<script src="src/app.js?v=0.7.2-dev"></script>
 <script>
   window.FD.APP_NAME = 'FreePipeCalc';
   window.FD.APP_SHORT = 'FPC';
-  window.FD.VERSION = '0.7.1-dev';
+  window.FD.VERSION = '0.7.2-dev';
   window.FD.FORMAT_VERSION = 1;
   try {
     window.FD.initApp();

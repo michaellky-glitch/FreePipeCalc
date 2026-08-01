@@ -1572,7 +1572,7 @@
 
     var qIn = el('input'); qIn.type = 'text';
     qIn.value = FD.units.fmtFlow(p.equip.qRated || 0, d.flow);
-    field(host, 'Rated flow (' + d.flow + ')', qIn).addEventListener('change', function () {
+    field(host, 'Design flow (' + d.flow + ')', qIn).addEventListener('change', function () {
       var v = FD.units.parse(qIn.value);
       if (isFinite(v) && v > 0) {
         pushUndo(); p.equip.qRated = FD.units.toSIFlow(v, d.flow); changed();
@@ -1581,7 +1581,7 @@
 
     var pdIn = el('input'); pdIn.type = 'text';
     pdIn.value = FD.units.fmtPressure(p.equip.pdRated || 0, d.pressure);
-    field(host, 'Rated pressure drop (' + d.pressure + ')', pdIn)
+    field(host, 'Design pressure (' + d.pressure + ')', pdIn)
       .addEventListener('change', function () {
         var v = FD.units.parse(pdIn.value);
         if (isFinite(v) && v >= 0) {
@@ -3109,17 +3109,14 @@
          : 'Not yet determined';
   }
 
-  /* DESIGN vs SIMULATION changes what every number on screen means, so the
-   * indicator sits on the ribbon next to the loop type and is clickable. */
+  /* DESIGN and SIMULATE are ribbon MODES now, not a chip toggle: the same
+   * drawing answers two different questions and a terminal is a different
+   * object in each, which is a mode-sized distinction rather than a status
+   * indicator. This keeps the buttons in step with settings.calcMode. */
   function updateModeChip() {
-    var chip = $('mode-chip');
-    if (!chip) return;
-    var sim = (app.model.settings.calcMode === 'simulation');
-    chip.textContent = sim ? 'SIMULATION' : 'DESIGN';
-    chip.className = 'chip mode-chip ' + (sim ? 'info' : 'ok');
-    chip.title = sim
-      ? 'Pump curves drive the network; outflow FLOW is calculated. Click to switch to DESIGN.'
-      : 'Outflows state the flow they need; pump duty is calculated. Click to switch to SIMULATION.';
+    [].slice.call(document.querySelectorAll('[data-mode]')).forEach(function (b) {
+      b.classList.toggle('active', b.dataset.mode === app.model.settings.calcMode);
+    });
   }
 
   /* Outflows without a required pressure have no characteristic K = Q/sqrt(dP),
@@ -3193,11 +3190,19 @@
   }
 
   function initModeChip() {
-    var chip = $('mode-chip');
-    if (!chip) return;
-    chip.style.cursor = 'pointer';
-    chip.addEventListener('click', function () {
-      setCalcMode(app.model.settings.calcMode === 'simulation' ? 'design' : 'simulation');
+    [].slice.call(document.querySelectorAll('[data-mode]')).forEach(function (b) {
+      b.addEventListener('click', function () {
+        /* Selecting a mode also returns to the drawing tool: SIMULATE offers
+         * exactly the same drawing tools as DESIGN, so it must not leave you
+         * in VIEW. setCalcMode carries the guards (a running pump needs a
+         * curve; an outflow needs a required pressure). */
+        if (app.view.tool === 'view' || app.view.tool === 'trace' ||
+            app.view.tool === 'align') {
+          app.view.setTool('edit');
+        }
+        setCalcMode(b.dataset.mode);
+        updateModeChip();
+      });
     });
   }
 
@@ -3303,6 +3308,7 @@
     });
     var MODE_HINTS = {
       edit:   'Click to select · drag a node to move it · Delete removes the selection',
+      /* 'edit' is the internal tool id for both DESIGN and SIMULATE. */
       pipe:   'Click to place vertices · type a length + Enter · scroll = pipe size · Shift = free angle · Esc = finish',
       view:   'Drag any label to reposition it for printing · tick properties in the panel to show them on the drawing · TRACE adds a background drawing',
       align:  'Drag any node to move the WHOLE model · grid-snaps · Shift for free placement',
@@ -3325,8 +3331,10 @@
       var setDraw = $('set-draw'), setView = $('set-view'), group = $('group-tools');
       if (setDraw) setDraw.hidden = inView;
       if (setView) setView.hidden = !inView;
-      // The section LABEL follows its contents, so the ribbon keeps its shape.
-      if (group) group.dataset.group = inView ? 'VIEW' : 'DRAW';
+      /* The label stays COMMAND either way: the section is "what you can do
+       * right now", and renaming it as well as swapping its contents made the
+       * ribbon feel like it was rearranging itself. */
+      if (group) group.dataset.group = 'COMMAND';
     }
 
     function refreshToolButtons() {

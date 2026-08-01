@@ -575,14 +575,21 @@
    * are stored in SCREEN PIXELS rather than metres so a label stays the same
    * distance from its owner at every zoom level — which is what "tidy" means
    * on a drawing, and what carries over to print. */
-  function labelOffset(obj) {
-    return (obj && obj.labelOffset) || { dx: 0, dy: 0 };
+  /* An entity can carry more than one draggable annotation, so the offset is
+   * keyed. The default (no key) is the main label, kept on `labelOffset` so
+   * every model saved before this still loads; the disconnection warning glyph
+   * uses key 'warn' and stores on `warnOffset`. Sharing one offset meant
+   * dragging the warning also moved the node number. */
+  function labelOffset(obj, key) {
+    if (!obj) return { dx: 0, dy: 0 };
+    return obj[key ? key + 'Offset' : 'labelOffset'] || { dx: 0, dy: 0 };
   }
 
-  function setLabelOffset(obj, dx, dy) {
+  function setLabelOffset(obj, dx, dy, key) {
     if (!obj) return;
-    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) delete obj.labelOffset;
-    else obj.labelOffset = { dx: Math.round(dx * 10) / 10, dy: Math.round(dy * 10) / 10 };
+    var prop = key ? key + 'Offset' : 'labelOffset';
+    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) delete obj[prop];
+    else obj[prop] = { dx: Math.round(dx * 10) / 10, dy: Math.round(dy * 10) / 10 };
   }
 
   function clearLabelOffsets(m) {

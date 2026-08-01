@@ -428,11 +428,32 @@
 
   View.prototype.deleteSelection = function () {
     var m = this.getModel();
+    var touched = {};
     this.selection.forEach(function (s) {
-      if (s.kind === 'pipe') M.removePipe(m, s.id);
-      else if (s.kind === 'riser') M.removeRiser(m, s.id);
+      if (s.kind === 'pipe') {
+        var p = M.pipe(m, s.id);
+        if (p) { touched[p.a] = true; touched[p.b] = true; }
+        M.removePipe(m, s.id);
+      } else if (s.kind === 'riser') M.removeRiser(m, s.id);
       else M.removeNode(m, s.id);
     });
+
+    /* Deleting a pipe used to leave its end nodes behind as bare dots with
+     * nothing attached. They are not useful — they draw as orphans, they are
+     * reported by the disconnection check, and they get in the way of snapping.
+     * A node that still carries a DEVICE is kept: a source or an outflow is
+     * deliberate, and losing it because its pipe was redrawn would be worse
+     * than a stray dot. Riser attachments are kept for the same reason. */
+    var riserNodes = {};
+    m.risers.forEach(function (r) {
+      r.attachments.forEach(function (a) { riserNodes[a.node] = true; });
+    });
+    Object.keys(touched).forEach(function (id) {
+      var n = M.node(m, id);
+      if (!n || n.device || riserNodes[id]) return;
+      if (M.pipesAt(m, id).length === 0) M.removeNode(m, id);
+    });
+
     this.selection = [];
     this.changed();
   };
@@ -513,8 +534,11 @@
            * subtracting the current offset from the label box the renderer just
            * registered. Needed so the label can be snapped to the world grid
            * rather than only moved by a pixel delta. */
-          var lo = M.labelOffset(lab.obj);
-          self.dragLabel = { target: lab.obj, sx: sx, sy: sy,
+          /* The disconnection warning has its own offset key, so nudging it
+           * does not drag the node number with it. */
+          var loKey = (lab.kind === 'warn') ? 'warn' : null;
+          var lo = M.labelOffset(lab.obj, loKey);
+          self.dragLabel = { target: lab.obj, sx: sx, sy: sy, key: loKey,
                              ox: lo.dx, oy: lo.dy,
                              ax: lab.x - lo.dx, ay: lab.y - lo.dy };
           self.selection = [{ kind: lab.kind, id: lab.obj.id }];
@@ -712,7 +736,7 @@
           nox = spt.x - d.ax;
           noy = spt.y - d.ay;
         }
-        M.setLabelOffset(d.target, nox, noy);
+        M.setLabelOffset(d.target, nox, noy, d.key);
         self.render();
         return;
       }
@@ -1029,12 +1053,41 @@
     return true;
   };
 
+
+  /* Default equipment tags. An engineer works from the tag, not the node id, so
+   * a device that arrives untagged has to be named before it means anything —
+   * and in practice that step gets skipped. The number is the next free one for
+   * that prefix, so deleting PMP-2 and drawing another gives PMP-2 back rather
+   * than climbing forever. */
+  var TAG_PREFIX = { source: 'SRC', demand: 'OF', pump: 'PMP', equip: 'AHU' };
+
+  View.prototype.nextTag = function (kind) {
+    var m = this.getModel();
+    var prefix = TAG_PREFIX[kind];
+    if (!prefix) return null;
+    var used = {};
+    function note(tag) {
+      var mm = tag && String(tag).match(new RegExp('^' + prefix + '-(\\d+)$'));
+      if (mm) used[parseInt(mm[1], 10)] = true;
+    }
+    m.pipes.forEach(function (p) { note(p.tag); });
+    m.nodes.forEach(function (n) { note(n.tag); });
+    var i = 1;
+    while (used[i]) i++;
+    return prefix + '-' + i;
+  };
+
   View.prototype.deviceClick = function (w) {
     var m = this.getModel();
     var s = this.snap(w.x, w.y);
     var node = this.nodeForSnap(s);
-    if (this.tool === 'source') M.setSource(m, node.id);
-    else M.setDemand(m, node.id, 0.001, 100000);   // 1 L/s @ 100 kPa, editable
+    if (this.tool === 'source') {
+      M.setSource(m, node.id);
+      if (!node.tag) node.tag = this.nextTag('source');
+    } else {
+      M.setDemand(m, node.id, 0.001, 100000);   // 1 L/s @ 100 kPa, editable
+      if (!node.tag) node.tag = this.nextTag('demand');
+    }
     this.selection = [{ kind: 'node', id: node.id }];
     this.changed();
   };
@@ -1095,13 +1148,15 @@
   };
 
   View.prototype.pumpClick = function (w) {
-    this.insertInline(w, 'pump', { pump: { mode: 'auto', head: 20, flow: 0 } }, 'pump');
+    var pmp = this.insertInline(w, 'pump', { pump: { mode: 'auto', head: 20, flow: 0 } }, 'pump');
+    if (pmp && !pmp.tag) { pmp.tag = this.nextTag('pump'); this.changed(); }
   };
 
   View.prototype.equipClick = function (w) {
-    this.insertInline(w, 'equip', {
+    var eq = this.insertInline(w, 'equip', {
       equip: { qRated: 0.02, pdRated: 200000, qOut: 0.02 }
     }, 'equipment');
+    if (eq && !eq.tag) { eq.tag = this.nextTag('equip'); this.changed(); }
   };
 
   View.prototype.valveClick = function (w) {
@@ -1374,67 +1429,54 @@
    * separate networks, and the solve returns zero flow with no error at all.
    * Nothing short of drawing attention to the spot will find that.
    */
+  /* Disconnections are marked with a warning glyph, ALWAYS, in every mode.
+   *
+   * They used to be behind a SHOW DISCONNECT toggle. That was the wrong shape
+   * for the problem: a break is not a view you opt into, it is a defect in the
+   * model — the drawing looks continuous and the network is not — and the whole
+   * reason it needs marking is that you would otherwise never think to look.
+   * The toggle is gone and the markers are permanent.
+   *
+   * The glyph is registered as a draggable label, so in VIEW it can be nudged
+   * off whatever it is covering, exactly like every other annotation.
+   */
   View.prototype.drawDisconnects = function () {
-    /* A VIEW toggle, not a tool. Finding a break is only half the job — you
-     * then have to switch to EDIT and join the pipe, and the markers have to
-     * still be there while you do it, otherwise you are working from memory. */
-    if (!this.showDisconnects) return;
     var m = this.getModel(), ctx = this.ctx, self = this;
     if (!FD.network || !FD.network.disconnections) return;
 
     var issues = FD.network.disconnections(m);
+    if (!issues.length) return;
     var lv = m.activeLevel;
-    var t = performance.now() / 1000;
-    var pulse = 0.55 + 0.45 * Math.sin(t * 3);      // makes a 0 mm gap findable
 
-    var shown = 0;
+    /* One marker per node, carrying the worst severity reported against it —
+     * two issues on the same node used to stack two glyphs in the same place. */
+    var worst = {};
     issues.forEach(function (iss) {
       (iss.nodes || []).forEach(function (id) {
-        var n = M.node(m, id);
-        if (!n || n.level !== lv) return;
-        var w = M.worldXY(m, n);
-        var p = self.toScreen(w.x, w.y);
-        var col = iss.severity === 'error' ? self.theme.error : self.theme.warn;
-        shown++;
-
-        ctx.save();
-        ctx.globalAlpha = pulse;
-        ctx.strokeStyle = col;
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
-        ctx.stroke();
-        /* A cross as well as a ring: two coincident nodes draw two identical
-         * rings on top of each other, and the ring alone would look like one. */
-        ctx.globalAlpha = 1;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(p.x - 22, p.y - 22); ctx.lineTo(p.x - 12, p.y - 12);
-        ctx.moveTo(p.x + 22, p.y - 22); ctx.lineTo(p.x + 12, p.y - 12);
-        ctx.moveTo(p.x - 22, p.y + 22); ctx.lineTo(p.x - 12, p.y + 12);
-        ctx.moveTo(p.x + 22, p.y + 22); ctx.lineTo(p.x + 12, p.y + 12);
-        ctx.stroke();
-        ctx.restore();
+        if (!worst[id] || iss.severity === 'error') {
+          worst[id] = { severity: iss.severity, message: iss.message };
+        }
       });
     });
 
-    // Legend, so the mode explains itself rather than needing to be remembered.
-    ctx.save();
-    ctx.font = '12px ' + (this.fontFamily || 'sans-serif');
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    var errs = issues.filter(function (i) { return i.severity === 'error'; }).length;
-    var msg = issues.length
-      ? errs + ' break' + (errs === 1 ? '' : 's') + ' found' +
-        (shown ? '' : ' — none on this level')
-      : 'No breaks found';
-    ctx.fillStyle = issues.length ? this.theme.error : this.theme.ok || this.theme.text;
-    ctx.fillText('SHOW DISCONNECT: ' + msg, 12, 12);
-    ctx.fillStyle = this.theme.mute;
-    ctx.fillText('Details are listed in the CALCULATION tab.', 12, 30);
-    ctx.restore();
+    Object.keys(worst).forEach(function (id) {
+      var n = M.node(m, id);
+      if (!n || n.level !== lv) return;
+      var w = M.worldXY(m, n);
+      var p = self.toScreen(w.x, w.y);
+      var off = M.labelOffset(n, 'warn');
+      var x = p.x + 14 + off.dx, y = p.y - 12 + off.dy;
 
-    if (issues.length) this.requestAnimation();
+      ctx.save();
+      ctx.font = '15px system-ui, "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('⚠️', x, y);
+      ctx.restore();
+
+      self.registerLabel('warn', n, x - 10, y - 10, 20, 20);
+      if (self.tool === 'view') self.labelHandle(x - 10, y - 10, 20, 20);
+    });
   };
 
   /* ------------------------------------------------------------ visualisers
