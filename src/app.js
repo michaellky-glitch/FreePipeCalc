@@ -2626,9 +2626,144 @@
           scheduleSave();
         });
 
-    /* Project metadata moved to the CALCULATION tab 2026-07-31: those
-     * fields are the header of the deliverable, so they are edited on the
-     * deliverable rather than on a different tab. */
+    /* Project metadata moved to the CALCULATION tab 2026-07-31: those fields
+     * are the header of the deliverable, so they are edited on the deliverable
+     * rather than on a different tab. */
+  }
+
+  // ----------------------------------------------------- HYDRAULIC tab
+  /* Builds an editable coefficient input sized to its content, for dropping
+   * directly into a rendered formula. */
+  function coefInput(value, onChange, title) {
+    var i = el('input', 'coef');
+    i.type = 'text';
+    i.value = value;
+    if (title) i.title = title;
+    i.size = Math.max(3, String(value).length);
+    i.addEventListener('change', function () {
+      var v = FD.units.parse(i.value);
+      if (isFinite(v)) onChange(v); else i.value = value;
+    });
+    return i;
+  }
+
+  /* A fraction rendered as a real two-line stack: numerator, rule, denominator.
+   * Plain text can only manage "a / (b · c)", which is exactly the form an
+   * engineer has to decode rather than read. */
+  function fraction(numParts, denParts) {
+    var f = el('span', 'frac');
+    var n = el('span', 'frac-n');
+    numParts.forEach(function (x) { n.appendChild(typeof x === 'string' ? document.createTextNode(x) : x); });
+    var d = el('span', 'frac-d');
+    denParts.forEach(function (x) { d.appendChild(typeof x === 'string' ? document.createTextNode(x) : x); });
+    f.appendChild(n);
+    f.appendChild(d);
+    return f;
+  }
+
+  function sup(x) {
+    var e = el('sup');
+    e.appendChild(typeof x === 'string' ? document.createTextNode(x) : x);
+    return e;
+  }
+
+  function renderHydraulic() {
+    var m = app.model, host = $('hydraulic-body');
+    host.innerHTML = '';
+
+    function h2(t) { host.appendChild(el('h2', '', t)); }
+    function h3(t) { host.appendChild(el('h3', 'sub', t)); }
+    function hint(t) { host.appendChild(el('p', 'hint', t)); }
+    function grid() { var g = el('div', 'settings-grid'); host.appendChild(g); return g; }
+
+    function numField(g, label, value, onChange, suffix) {
+      var i = el('input'); i.type = 'text'; i.value = value;
+      i.addEventListener('change', function () {
+        var v = FD.units.parse(i.value);
+        if (isFinite(v)) onChange(v); else i.value = value;
+      });
+      var f = el('div', 'field');
+      f.appendChild(el('label', '', label + (suffix ? '  ' + suffix : '')));
+      f.appendChild(i);
+      g.appendChild(f);
+      return i;
+    }
+    function textField(g, label, value, onChange) {
+      var i = el('input'); i.type = 'text'; i.value = value || '';
+      i.addEventListener('change', function () { onChange(i.value); });
+      var f = el('div', 'field');
+      f.appendChild(el('label', '', label));
+      f.appendChild(i);
+      g.appendChild(f);
+      return i;
+    }
+    function selField(g, label, options, current, onChange) {
+      var sel = el('select');
+      options.forEach(function (o) {
+        var opt = el('option', '', o[1]); opt.value = o[0];
+        if (o[0] === current) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener('change', function () { onChange(sel.value); });
+      var f = el('div', 'field');
+      f.appendChild(el('label', '', label));
+      f.appendChild(sel);
+      g.appendChild(f);
+      return sel;
+    }
+
+    // ============================================ 1. FLUID PROPERTIES (top)
+    h2('Fluid Properties');
+    hint('The fluid being calculated. Defaults are water at 20 °C.');
+    var fg = grid();
+    textField(fg, 'Fluid name', m.settings.fluid.name,
+      function (v) { pushUndo(); m.settings.fluid.name = v; redrawAll(); });
+    numField(fg, 'Density ρ', m.settings.fluid.density,
+      function (v) { pushUndo(); m.settings.fluid.density = v; redrawAll(); }, '(kg/m³)');
+    numField(fg, 'Kinematic viscosity ν', m.settings.fluid.kinematicViscosity,
+      function (v) { pushUndo(); m.settings.fluid.kinematicViscosity = v; redrawAll(); }, '(m²/s)');
+    numField(fg, 'Temperature', m.settings.fluid.temperature,
+      function (v) { pushUndo(); m.settings.fluid.temperature = v; redrawAll(); }, '(°C)');
+    numField(fg, 'Specific heat capacity Cp', m.settings.fluid.specificHeat,
+      function (v) { pushUndo(); m.settings.fluid.specificHeat = v; redrawAll(); }, '(J/kg·K)');
+
+    var isDW = m.settings.frictionMethod === 'DW';
+    /* WHICH fitting table to show follows the method's BASIS, not whether it
+     * happens to be Darcy. Gating on isDW meant that once ASHRAE became the
+     * default the K table — and with it the threaded/flanged choice —
+     * disappeared while the calculation was using K. That choice is worth 3.5x
+     * on a DN25 elbow (threaded 1.5 against flanged 0.43). */
+    var usesK = FD.hydraulics.method(m.settings.frictionMethod).fittingMode === 'K';
+    var usage = el('ul', 'usage-list');
+    usage.appendChild(el('li', '', 'Density — used: converts head to pressure everywhere.'));
+    usage.appendChild(el('li', '', 'Kinematic viscosity — ' + (isDW
+      ? 'used: sets Reynolds number and the friction factor.'
+      : 'used for the laminar-flow check; fully live under Darcy-Weisbach.')));
+    usage.appendChild(el('li', 'unused',
+      'Temperature — not implemented in this version. It does not drive density ' +
+      'or viscosity; those are entered independently.'));
+    usage.appendChild(el('li', 'unused',
+      'Specific heat capacity — not implemented in this version. Stored for the ' +
+      'heating/cooling power calculations to come (Q = ṁ·Cp·ΔT).'));
+    host.appendChild(usage);
+
+    // =================================================== 2. SYSTEM (detected)
+    h2('System');
+    var det = FD.network.detectSystemType(m);
+    var box = el('div', 'notice ' + (det.type === 'closed' ? 'info-notice' : ''));
+    box.appendChild(el('p', 'notice-head', 'System type: ' +
+      (det.type === 'open' ? 'Open loop'
+       : det.type === 'closed' ? 'Closed loop' : 'No supply yet')));
+    host.appendChild(box);
+
+    // ======================================= 3. HYDRAULIC PARAMETERS
+    h2('Hydraulic Parameters');
+    var mg = grid();
+    selField(mg, 'Calculation method',
+      [['HW', 'Hazen-Williams'], ['DW', 'Darcy-Weisbach (Experimental)']],
+      m.settings.frictionMethod, function (v) {
+        pushUndo(); m.settings.frictionMethod = v; renderHydraulic(); redrawAll();
+      });
 
     // ---- the formula, with the coefficients editable in place ----
     var fbox = el('div', 'formula-box');
@@ -2962,9 +3097,6 @@
     lam.addEventListener('change', function () {
       pushUndo(); m.settings.warn.laminar = lam.checked; redrawAll();
     });
-    hint('Hazen-Williams is an empirical correlation for turbulent water flow. Below ' +
-         'Re ≈ 2300 it is not merely imprecise, it is the wrong equation — so a laminar ' +
-         'section is a warning about the method, not just the velocity.');
   }
 
   /* Create or edit a custom schedule. The editable content is a plain
