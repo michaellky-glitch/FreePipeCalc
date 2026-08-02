@@ -573,6 +573,11 @@
     metaField('Revision', 'revision', '');
     metaRead('System type', systemTypeLabel());
     metaRead('Method', FD.hydraulics.method(m.settings.frictionMethod).name);
+    /* A method still in BETA has to say so on the sheet itself, not only in
+     * the tab where it was chosen — the sheet is what gets issued. */
+    if (FD.hydraulics.method(m.settings.frictionMethod).experimental) {
+      metaRead('Status', 'BETA — verify before issue');
+    }
     metaRead('Fluid', (m.settings.fluid && m.settings.fluid.name) || 'Water');
     metaRead('App version', FD.VERSION);
     host.appendChild(head);
@@ -893,8 +898,18 @@
           kv2('NOTE', 'Constants have been EDITED from the ASHRAE defaults.');
         }
       } else {
-        kv2('Friction factor', (m.settings.dw && m.settings.dw.frictionFactor) || 'colebrook');
+        var ffKey = (m.settings.dw && m.settings.dw.frictionFactor) || 'swameejain';
+        var ff = FD.hydraulics.frictionFactors[ffKey];
+        kv2('Formula', 'hf = f · (L/d) · V²/2g');
+        kv2('Friction factor', ff ? ff.name : ffKey);
         kv2('Roughness', ((m.settings.dw && m.settings.dw.roughness_mm) || 0.045) + ' mm');
+        kv2('Fittings', 'Equivalent length (L/D basis)');
+        kv2('NOTE', 'BETA. ' + (ffKey === 'swameejain'
+          ? 'Swamee-Jain is an explicit fit to Colebrook-White, measured in the test ' +
+            'suite against an independent iteration of Colebrook: within 0.9% over ' +
+            'Re 1e4–1e7 with ε/d up to 1e-3, and up to 2.8% at Re 5000 with ε/d 1e-2. '
+          : '') +
+          'Verify against your own reference before issue.');
       }
       var fl = m.settings.fluid || {};
       kv2('Fluid', (fl.name || 'Water') + ', ρ = ' + (fl.density || 998) + ' kg/m³');
@@ -3049,10 +3064,23 @@
       fbox.appendChild(leg2);
       host.appendChild(fbox);
 
+      /* Name the correlation ACTUALLY in use, not the one that is now the
+       * default. A model saved before 2026-08-02 carries its own choice and
+       * keeps it — a stored calculation is not re-specified behind the
+       * engineer's back — so a notice hard-coded to Swamee-Jain would have been
+       * describing a different calculation from the one on the screen. */
+      var ffNow = (m.settings.dw && m.settings.dw.frictionFactor) || 'swameejain';
+      var ffDef = FD.hydraulics.frictionFactors[ffNow];
       host.appendChild(el('div', 'notice warn-notice',
-        'Darcy-Weisbach is experimental and the friction-factor correlation has not been ' +
-        'settled. All four correlations are implemented so they can be compared on a real ' +
-        'model. Do not issue calculations from this method until the correlation is confirmed.'));
+        'BETA. Friction factor: ' + (ffDef ? ffDef.name : ffNow) + '. ' +
+        (ffNow === 'swameejain'
+          ? 'Measured against an independent iteration of Colebrook-White in the test ' +
+            'suite: within 0.9% over Re 1e4–1e7 with ε/d up to 1e-3, which is the ' +
+            'envelope building-services pipework sits in, rising to 2.8% at Re 5000 ' +
+            'with ε/d 1e-2. '
+          : 'Swamee-Jain is the correlation this build selects for new models; this ' +
+            'one keeps the choice it was saved with. ') +
+        'Calculations issued from this method carry a BETA note on the sheet.'));
 
       var dg = grid();
       selField(dg, 'Friction factor correlation',

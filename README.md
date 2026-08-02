@@ -10,7 +10,8 @@ no build step, no network access, no CDN, no accounts. It works from a USB stick
 on a machine with no internet.
 
 Calculations follow ASHRAE: Hazen-Williams friction loss and the equivalent-length
-fitting method, with Darcy-Weisbach available as an experimental option. All
+fitting method, with Darcy-Weisbach available as a BETA option (Swamee-Jain
+friction factor). All
 computation is SI internally; imperial is a display conversion.
 
 ## What it does
@@ -95,7 +96,7 @@ Usable for simple networks. Implemented so far:
 | Valves: gate & check, Kv/Cv, 0–100% opening | done |
 | HYDRAULIC tab: method, editable coefficients, fluid, fitting tables | done |
 | Laminar / transitional flow warning | done |
-| Darcy-Weisbach module (experimental, correlation pending) | done |
+| Darcy-Weisbach module (BETA, Swamee-Jain friction factor) | done |
 | ASHRAE fitting K coefficient tables | done |
 | Riser auto-alignment: inactive floors slide to the active floor | done |
 

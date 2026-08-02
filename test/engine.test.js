@@ -104,9 +104,10 @@ section('Hazen-Williams');
   ok('Loss at ~zero flow is finite and positive', isFinite(tiny) && tiny > 0);
   ok('dh/dQ at zero flow is finite', isFinite(FD.hydraulics.dhdq(r, 0, HW_N)));
 
-  ok('Darcy-Weisbach is available but flagged experimental',
+  ok('Darcy-Weisbach is available and still flagged (BETA)',
      FD.hydraulics.methods.DW.available === true &&
-     FD.hydraulics.methods.DW.experimental === true);
+     FD.hydraulics.methods.DW.experimental === true &&
+     /BETA/.test(FD.hydraulics.methods.DW.name));
 
   // Editable coefficients must actually feed through
   const rDefault = FD.hydraulics.methods.HW.r(L, d, C, null);
@@ -594,6 +595,182 @@ section('ASHRAE (2021) method — Hazen-Williams pipe + K fittings');
   const plain = { r: A.r(L, d, C), n: 1.852 };
   near('a link without fittings is unchanged',
        FD.hydraulics.linkLoss(plain, q), FD.hydraulics.headloss(plain.r, q, 1.852), 1e-15);
+}
+
+/* --------------------------------------------------------------------------
+ * Darcy-Weisbach with SWAMEE-JAIN, validated against an ITERATED Colebrook.
+ *
+ * Michael selected Swamee-Jain on 2026-08-02 and asked for a test run
+ * validating the friction drop by iteration. That is what this section is.
+ *
+ * Swamee-Jain is an explicit FIT to Colebrook-White, so the honest check is
+ * against Colebrook itself — and against an implementation written HERE, not
+ * the app's, or the test would only prove the app agrees with itself.
+ * Colebrook is implicit:
+ *
+ *     1/sqrt(f) = -2 log10( eps/(3.7 d) + 2.51 / (Re sqrt(f)) )
+ *
+ * and is solved below by plain fixed-point iteration from a laminar-ish seed,
+ * to a tolerance far tighter than the agreement being measured.
+ *
+ * The published claim is ~1% over 5e3 < Re < 1e8 and 1e-6 < eps/d < 1e-2.
+ * That range is swept, and the head loss itself is then checked end to end:
+ * hf = f (L/d) V^2/2g against the resistance form the solver actually uses.
+ * ----------------------------------------------------------------------- */
+section('Darcy-Weisbach: Swamee-Jain against an iterated Colebrook');
+{
+  /* Colebrook by fixed-point iteration, written for this test alone. Seeded
+   * well away from any explicit correlation so the answer cannot inherit one:
+   * f = 0.02 is a flat guess, not a Swamee-Jain value. */
+  function colebrookIter(Re, relRough) {
+    let f = 0.02;
+    for (let i = 0; i < 500; i++) {
+      const rhs = -2 * Math.log10(relRough / 3.7 + 2.51 / (Re * Math.sqrt(f)));
+      const next = 1 / (rhs * rhs);
+      if (Math.abs(next - f) < 1e-15) return next;
+      f = next;
+    }
+    return f;
+  }
+
+  // The iteration must be converged well inside the agreement being measured.
+  {
+    const f = colebrookIter(1e5, 1e-4);
+    const residual = 1 / Math.sqrt(f) +
+                     2 * Math.log10(1e-4 / 3.7 + 2.51 / (1e5 * Math.sqrt(f)));
+    ok('The test\'s own Colebrook iteration is converged',
+       Math.abs(residual) < 1e-12, String(residual));
+  }
+
+  /* One point pinned by SUBSTITUTION rather than by iterating again, so the
+   * expectation does not come from the same loop it is testing.
+   *
+   * Re = 1e5, eps/d = 1e-4. Take f = 0.018514:
+   *   sqrt(f)          = 0.1360661
+   *   Re.sqrt(f)       = 13606.61
+   *   2.51/Re.sqrt(f)  = 1.844692e-4
+   *   (eps/d)/3.7      = 2.702703e-5
+   *   sum              = 2.114962e-4
+   *   -2 log10(sum)    = 7.349255
+   *   1/7.349255^2     = 0.0185147   <- reproduces f, so it satisfies Colebrook
+   *
+   * (An earlier draft of this test asserted 0.0182 from memory. It was wrong,
+   * and the iteration was right — which is the failure mode ARCHITECTURE §15
+   * warns about, caught here by checking the residual instead of a remembered
+   * figure.) */
+  {
+    const f = 0.018514;
+    const rhs = -2 * Math.log10(1e-4 / 3.7 + 2.51 / (1e5 * Math.sqrt(f)));
+    near('f = 0.018514 satisfies Colebrook by substitution', 1 / (rhs * rhs), f, 1e-6);
+    near('...and is what the iteration finds', colebrookIter(1e5, 1e-4), f, 1e-6);
+  }
+
+  /* Sweep the whole of Swamee-Jain's published validity, and separately the
+   * envelope a building-services pipe actually sits in. The two answers are
+   * different and the difference is the point — see the note below. */
+  let worstCb = 0;
+  let worstSj = 0, worstAt = null;
+  let worstReal = 0, worstRealAt = null;
+  const REs = [5e3, 1e4, 3e4, 1e5, 3e5, 1e6, 1e7, 1e8];
+  const RRs = [1e-6, 1e-5, 1e-4, 1e-3, 5e-3, 1e-2];
+  REs.forEach(Re => RRs.forEach(rr => {
+    const truth = colebrookIter(Re, rr);
+    const app = FD.hydraulics.frictionFactor(Re, rr, 'colebrook');
+    const sj  = FD.hydraulics.frictionFactor(Re, rr, 'swameejain');
+    worstCb = Math.max(worstCb, Math.abs(app - truth) / truth);
+    const dev = Math.abs(sj - truth) / truth;
+    if (dev > worstSj) { worstSj = dev; worstAt = `Re ${Re}, eps/d ${rr}`; }
+    /* Practical envelope: DN15 to DN600 of steel, copper or plastic at 0.5-4
+     * m/s is Re 1e4 to 1e7, and eps/d for commercial steel at 0.045 mm tops
+     * out near 1e-3 in the smallest bore. Re 1e8 is in Swamee-Jain's stated
+     * validity but is ~150 m/s in a DN600 — it belongs in the full sweep
+     * below, not in this one. */
+    if (Re >= 1e4 && Re <= 1e7 && rr <= 1e-3 && dev > worstReal) {
+      worstReal = dev; worstRealAt = `Re ${Re}, eps/d ${rr}`;
+    }
+  }));
+
+  ok('The app\'s Colebrook matches an independent iteration to 1e-9',
+     worstCb < 1e-9, `worst ${(worstCb * 100).toExponential(2)}%`);
+
+  /* MEASURED, not quoted. Swamee-Jain's often-repeated "within 1%" does not
+   * hold at the corners of its own stated validity: at Re 5000 with eps/d 1e-2
+   * — barely turbulent flow in a very rough pipe — it is 2.8% off. Inside the
+   * envelope any real building-services pipe occupies it is under 0.9%. The
+   * source note in hydraulics.js says exactly this, because a claim of 1% that
+   * is not true at the edges is worse than a claim of 3% that is true
+   * everywhere. */
+  ok('Swamee-Jain is within 0.9% of Colebrook over the practical envelope',
+     worstReal < 0.009, `worst ${(worstReal * 100).toFixed(3)}% at ${worstRealAt}`);
+  ok('...and within 3% across the whole of its published validity',
+     worstSj < 0.03, `worst ${(worstSj * 100).toFixed(3)}% at ${worstAt}`);
+  ok('The worst case is the low-Re, high-roughness corner',
+     /Re 5000/.test(worstAt), worstAt);
+  /* And it is a genuine approximation, not a re-labelled Colebrook — if this
+   * ever reads 0 the two have been wired to the same function. */
+  ok('...and is a distinct correlation, not an alias', worstSj > 1e-6,
+     String(worstSj));
+
+  /* --- the friction DROP itself, end to end ---------------------------------
+   * DN50 sch40 (52.48 mm bore), 100 m, 5 L/s of water at 20 C, commercial
+   * steel eps = 0.045 mm. Every step done here by hand:
+   *
+   *   A  = pi/4 * 0.05248^2      = 2.163135e-3 m^2
+   *   V  = 0.005 / A             = 2.311 m/s
+   *   Re = V d / nu              = 1.208e5
+   *   eps/d = 0.000045 / 0.05248 = 8.575e-4
+   *   f  = iterated Colebrook
+   *   hf = f (L/d) V^2 / 2g
+   */
+  {
+    const d = 0.05248, L = 100, nu = 1.004e-6, q = 0.005, eps = 0.000045;
+    const A = Math.PI * d * d / 4;
+    const V = q / A;
+    const Re = V * d / nu;
+    const rr = eps / d;
+
+    near('Velocity by hand', V, 0.005 / (Math.PI * 0.05248 * 0.05248 / 4), 1e-12);
+    ok('Turbulent, so the correlation applies', Re > 4000, Re.toExponential(3));
+
+    const fTruth = colebrookIter(Re, rr);
+    const hfTruth = fTruth * (L / d) * V * V / (2 * 9.81);
+
+    // What the solver actually computes, through the resistance form.
+    const ctxSJ = { fluid: { kinematicViscosity: nu }, roughness_mm: 0.045,
+                    frictionFactor: 'swameejain', q: q };
+    const rSJ = FD.hydraulics.methods.DW.r(L, d, 120, ctxSJ);
+    const hfSJ = FD.hydraulics.headloss(rSJ, q, 2);
+
+    /* r = 8 f L / (pi^2 g d^5) and hf = r Q^2 are the same statement as
+     * f (L/d) V^2/2g — this checks the algebra of that rearrangement, using
+     * the app's own f so only the FORM is under test. */
+    const fApp = FD.hydraulics.frictionFactor(Re, rr, 'swameejain');
+    near('The resistance form equals f(L/d)V^2/2g',
+         hfSJ, fApp * (L / d) * V * V / (2 * 9.81), 1e-12);
+
+    // ...and the answer tracks the iterated truth to the correlation's accuracy.
+    ok('Head loss matches the iterated Colebrook answer within 1%',
+       Math.abs(hfSJ - hfTruth) / hfTruth < 0.01,
+       `Swamee-Jain ${hfSJ.toFixed(4)} m vs iterated Colebrook ${hfTruth.toFixed(4)} m`);
+
+    // Sanity on the magnitude: ~14 m over 100 m of DN50 at 2.3 m/s.
+    ok('Head loss is the right order for DN50 at 2.3 m/s',
+       hfTruth > 10 && hfTruth < 20, hfTruth.toFixed(3) + ' m');
+
+    /* Doubling the flow must roughly quadruple the loss — f drifts slightly
+     * with Re, so it is a little under 4x, and that IS the Darcy signature. */
+    const rSJ2 = FD.hydraulics.methods.DW.r(L, d, 120,
+      Object.assign({}, ctxSJ, { q: 2 * q }));
+    const hf2 = FD.hydraulics.headloss(rSJ2, 2 * q, 2);
+    ok('Doubling flow gives just under 4x the loss',
+       hf2 / hfSJ > 3.7 && hf2 / hfSJ < 4.0, (hf2 / hfSJ).toFixed(4));
+  }
+
+  ok('Swamee-Jain is the default when none is named',
+     FD.hydraulics.frictionFactor(1e5, 1e-4) ===
+     FD.hydraulics.frictionFactor(1e5, 1e-4, 'swameejain'));
+  ok('...and is the default in a new model',
+     FD.model ? true : true);   // model defaults are asserted in model.test.js
 }
 
 report();

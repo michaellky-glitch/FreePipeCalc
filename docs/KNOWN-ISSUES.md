@@ -106,6 +106,22 @@ From the ⚠️/❌ notes in `Human-Test.md`:
   panel~~ (v0.7.7-dev). Both are still on the calculation sheet, which is where
   a set of terminals can be read against each other.
 
+### Reported 2026-08-02 (fourth round) — done, released as v0.8.0
+
+* ~~HYDRAULIC formula rendering~~. `.formula-eq` was `display: flex`, which
+  makes every child a flex item — and `vertical-align` does nothing to a flex
+  item, so exponents sat on the baseline and fractions ignored their own
+  alignment. Back to inline layout.
+* ~~SIMULATE: the drawing showed a pump's DESIGN head~~. The properties panel
+  was right and the drawing was not. It now reads the curve at the solved flow,
+  in SIMULATION only — in DESIGN the solver runs on `pump.head` even when a
+  curve exists, so reading the curve there would report a head the calculation
+  did not use.
+* ~~Darcy-Weisbach~~ implemented as BETA with Swamee-Jain, validated against an
+  independent iteration of Colebrook. See `HANDOVER.md` §2.
+* ~~TOOLS button renames and one-row layout~~. NFPA 20 / Generic / Copy / ⓘ on
+  a single row, so Copy no longer sits below a sixteen-row table.
+
 ### Reported 2026-08-02 (third round) — done
 
 * ~~**Symmetrical ring splits 51/49**~~ (`debug/20260802-2.json`). Not noise —

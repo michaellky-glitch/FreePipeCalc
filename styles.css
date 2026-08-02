@@ -360,7 +360,19 @@ table.sheet td.dim  { color: var(--text-mute); }
   text-transform: uppercase;
   color: var(--text-mute);
 }
-.readout .btn-row { margin-top: 8px; }
+/* A row of buttons. There was no rule for this at all — the class existed and
+   relied on buttons being inline-block, which left the info marker sitting on
+   the text baseline a couple of pixels below the buttons beside it, and gave
+   no control over wrapping. Flex with a gap centres everything on one line and
+   wraps cleanly when the panel is narrow. */
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0;
+}
+.readout .btn-row { margin-top: 8px; margin-bottom: 0; }
 .kv { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 2px 0; }
 .kv .k { color: var(--text-mute); }
 .kv .v { font-variant-numeric: tabular-nums; text-align: right; }
@@ -492,19 +504,25 @@ table.sheet td span.bad { color: var(--error); font-weight: 600; }
   margin: 8px 0 16px;
   overflow-x: auto;
 }
+/* An INLINE formatting context, deliberately not flex.
+   This was `display: flex` and it broke every raised or lowered element in the
+   formula: a flex item is not an inline box, so `vertical-align` does nothing
+   to it. Exponents sat on the baseline as though they were multiplying terms
+   (1.852 next to (V/C) reads as a separate factor, not a power), and the
+   fraction's own `vertical-align: middle` was ignored too. Inline layout is
+   what superscripts and fractions are built on; use it. */
 .formula-eq {
-  display: flex;
-  align-items: center;
-  gap: 4px;
   font-family: "Cambria Math", Cambria, Georgia, serif;
   font-size: 20px;
+  line-height: 2.1;                 /* room for the raised exponent boxes */
   color: var(--text);
   white-space: nowrap;
+  padding: 2px 0;
 }
 .formula-eq .fvar { font-style: italic; }
 .formula-eq .fop  { margin: 0 6px; }
-.formula-eq sub   { font-size: .62em; font-style: italic; }
-.formula-eq sup   { font-size: .62em; }
+.formula-eq sub   { font-size: .62em; font-style: italic; vertical-align: sub; }
+.formula-eq sup   { font-size: .62em; vertical-align: super; }
 
 .frac {
   display: inline-flex;

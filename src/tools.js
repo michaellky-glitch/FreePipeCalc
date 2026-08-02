@@ -95,21 +95,26 @@
     grid.appendChild(left); grid.appendChild(mid); grid.appendChild(right);
     card.appendChild(grid);
 
-    var presets = el('div', 'btn-row');
-    var nfpa = el('button', 'btn', 'NFPA 20 fire pump');
-    nfpa.title = 'Shutoff not more than 140% of rated head; not less than 65% ' +
-                 'of rated head at 150% of rated flow.';
+    /* ONE row: the preset, the generate button, and — once there is something
+     * to copy — Copy and its info marker. They were three stacked rows with
+     * Copy at the bottom of the result table, so taking the curve away meant
+     * scrolling past sixteen rows to reach the button that gives it to you
+     * (Michael, 2026-08-02). */
+    var actions = el('div', 'btn-row');
+
+    var nfpa = el('button', 'btn', 'NFPA 20');
+    nfpa.title = 'NFPA 20 fire-pump envelope: shutoff not more than 140% of ' +
+                 'rated head; not less than 65% of rated head at 150% of rated flow.';
     nfpa.addEventListener('click', function () {
       state.fp1Flow = 0; state.fp1Press = 140;
       state.fp2Flow = 150; state.fp2Press = 65;
       state.result = null;
       render(app);
     });
-    presets.appendChild(nfpa);
-    card.appendChild(presets);
+    actions.appendChild(nfpa);
 
-    var actions = el('div', 'btn-row');
-    var gen = el('button', 'btn primary', 'Generate curve');
+    var gen = el('button', 'btn primary', 'Generic');
+    gen.title = 'Build the curve through the design point and the two fit points above.';
     gen.addEventListener('click', function () {
       state.qDesign = FD.units.parse(qIn.value);
       state.hDesign = FD.units.parse(hIn.value);
@@ -121,6 +126,8 @@
       render(app);
     });
     actions.appendChild(gen);
+
+    if (state.result && !state.result.error) addCopy(actions, state.result, m);
     card.appendChild(actions);
 
     if (state.result) renderResult(card, state.result, m);
@@ -216,67 +223,43 @@
     t.appendChild(tb);
     host.appendChild(t);
     
-    function asRows(list) {
-      return list.map(function (row) { return fmt(row.q) + '\t' + fmt(row.h); }).join('\n');
-    }
-    // (the full-table payload was removed with its button — see copyBtn below)
-    var threePayload = asRows(r.points);
 
-    /* Two payloads, because they are not equally good and the difference is
-     * not obvious.
-     *
-     * The solver stores a curve as H₀ − a·Q^b, which has NO LINEAR TERM, so it
-     * cannot reproduce a quadratic. Pasting all sixteen rows least-squares the
-     * difference across the whole range, which spreads the error evenly — and
-     * therefore moves all three of the points the engineer actually stated.
-     *
-     * Pasting just the three points is exact: three parameters, three points.
-     * The stated duties are the contractual ones — an NFPA envelope, or a
-     * manufacturer's guaranteed points — while the shape between them is an
-     * interpolation nobody promised. So the three-point paste is the default,
-     * and the full table is there to read and to check.
-     */
-    var toSI = function (list) {
-      return list.map(function (row) {
-        return { q: FD.units.toSIFlow(row.q, fu),
-                 h: FD.units.toSIPressure(row.h, pu) / (998 * 9.81) };
-      });
-    };
-    var fitThree = FD.pumps.fit(toSI(r.points));
-    var fitFull = FD.pumps.fit(toSI(r.rows));
+  }
 
-    var row2 = el('div', 'btn-row');
-    function copyBtn(label, payload, cls) {
-      var b = el('button', 'btn' + (cls ? ' ' + cls : ''), label);
-      b.addEventListener('click', function () {
-        copyText(payload);
-        var was = b.textContent;
-        b.textContent = 'Copied';
-        setTimeout(function () { b.textContent = was; }, 1500);
-      });
-      row2.appendChild(b);
-      return b;
-    }
-    /* One payload only: the three stated duties. The full 16-row table was the
-     * other option and it refits to r² ≈ 0.9997, shifting all three stated
-     * duties by ~1% — so the button that looked more thorough gave the less
-     * exact answer. Removed rather than explained. */
-    copyBtn('Copy', threePayload, 'primary');
-    /* The reasoning lives behind an info marker rather than on the page. It
-     * matters (the solver stores H0 - a*Q^b, which has no linear term, so a
-     * refit moves the stated duties) but it is a footnote, not an instruction —
-     * and it was longer than everything it sat under. */
-    var info = el('span', 'info-mark', '\u1F6C8');
-    info.textContent = '\u24D8';
+  /* Copy sits in the button ROW at the top, beside NFPA 20 and Generic.
+   *
+   * ONE payload: the three stated duties. The full 16-row table was the other
+   * option and it refits to r² ≈ 0.9997, shifting all three stated duties by
+   * ~1% — so the button that looked more thorough gave the less exact answer.
+   * Removed rather than explained.
+   *
+   * The reasoning behind that lives on the info marker rather than the page: it
+   * matters (the solver stores H0 - a*Q^b, which has no linear term, so a refit
+   * moves the stated duties) but it is a footnote, not an instruction. */
+  function addCopy(row, r, m) {
+    var payload = r.points.map(function (p) {
+      return fmt(p.q) + '\t' + fmt(p.h);
+    }).join('\n');
+
+    var b = el('button', 'btn', 'Copy');
+    b.title = 'Copy the three stated duties as flow/head rows, ready to paste ' +
+              'into a pump\u2019s Paste curve data.';
+    b.addEventListener('click', function () {
+      copyText(payload);
+      var was = b.textContent;
+      b.textContent = 'Copied';
+      setTimeout(function () { b.textContent = was; }, 1500);
+    });
+    row.appendChild(b);
+
+    var info = el('span', 'info-mark', '\u24D8');
     info.title = 'Copies the three stated duties as flow/head rows — paste into ' +
       'pump properties. Only these three points are copied because the solver ' +
       'stores a curve as H0 - a*Q^b, which has no linear term: refitting the ' +
       'full table spreads the error and shifts all three stated duties by ~1%. ' +
       'Three points, three parameters, exact.';
-    row2.appendChild(info);
-    host.appendChild(row2);
-
-
+    row.appendChild(info);
+    void m;
   }
 
   /* " + -0.02" is how a machine writes it; an engineer writes " - 0.02". */

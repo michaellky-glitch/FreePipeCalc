@@ -53,9 +53,9 @@
        * prints actually changes the calculation. */
       ashrae: { K: 6.819, a: 1.852, e: 1.167 },
 
-      /* Darcy-Weisbach settings. frictionFactor is PENDING a decision — all
-       * correlations are implemented and selectable. */
-      dw: { frictionFactor: 'colebrook', roughness_mm: 0.045, kSet: 'threaded' },
+      /* Darcy-Weisbach settings. Swamee-Jain is the chosen correlation
+       * (2026-08-02); the others stay selectable for comparison. */
+      dw: { frictionFactor: 'swameejain', roughness_mm: 0.045, kSet: 'threaded' },
 
       /* Fluid properties. Only density is used by the current solver; the
        * others are stored and shown so the model is complete, and are marked

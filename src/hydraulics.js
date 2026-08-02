@@ -46,10 +46,26 @@
   // ------------------------------------------------------- friction factors
   /* Explicit and implicit correlations for the Darcy friction factor.
    *
-   * NOT YET SELECTED — Michael is deciding which of these the app should use.
-   * All four are implemented and selectable so the choice can be made by
-   * comparing results rather than on paper. Colebrook-White is the reference
-   * the other three approximate.
+   * SWAMEE-JAIN is the selected correlation (Michael, 2026-08-02), and the
+   * default. It is an explicit fit to Colebrook-White.
+   *
+   * Its accuracy is MEASURED in engine.test.js against an independent
+   * iteration of Colebrook, not quoted: within **0.9%** over Re 1e4 to 1e7 with
+   * eps/d up to 1e-3, which is the envelope every building-services pipe sits
+   * in, and up to **2.8%** at the corner of its own published validity (Re 5000
+   * with eps/d 1e-2 — barely turbulent flow in a very rough pipe). The
+   * often-repeated "within 1%" does not hold there, and saying 1% when it is
+   * 2.8% would be worse than saying 3%.
+   *
+   * Explicit matters here: the solver evaluates
+   * the friction factor on every link on every Newton iteration, and an
+   * iterative correlation inside an iterative solve is a nested loop with no
+   * accuracy to show for it.
+   *
+   * The other three stay implemented and selectable. Colebrook-White is the
+   * reference the others approximate, and `engine.test.js` checks Swamee-Jain
+   * against an INDEPENDENT fixed-point iteration of Colebrook written in the
+   * test itself — that is what makes the choice auditable rather than asserted.
    */
   var FRICTION_FACTORS = {
     colebrook: {
@@ -69,8 +85,10 @@
     },
     swameejain: {
       key: 'swameejain',
-      name: 'Swamee-Jain (explicit)',
-      note: 'Within ~1% of Colebrook for 5e3 < Re < 1e8, 1e-6 < ε/d < 1e-2.',
+      name: 'Swamee-Jain (explicit) — selected',
+      note: 'The correlation this app uses. Measured against an iterated ' +
+            'Colebrook: within 0.9% over Re 1e4–1e7 and ε/d ≤ 1e-3, rising to ' +
+            '2.8% at Re 5000 with ε/d 1e-2.',
       f: function (Re, relRough) {
         var t = Math.log10(relRough / 3.7 + 5.74 / Math.pow(Re, 0.9));
         return 0.25 / (t * t);
@@ -101,7 +119,7 @@
    * Churchill already covers laminar, so it is left to handle itself. */
   function frictionFactor(Re, relRough, which) {
     if (!(Re > 0)) return 0;
-    var corr = FRICTION_FACTORS[which] || FRICTION_FACTORS.colebrook;
+    var corr = FRICTION_FACTORS[which] || FRICTION_FACTORS.swameejain;
     if (corr.key === 'churchill') return corr.f(Re, relRough);
     if (Re < RE_LAMINAR) return 64 / Re;              // Hagen-Poiseuille
     if (Re < RE_TURBULENT) {
@@ -216,7 +234,7 @@
 
     DW: {
       key: 'DW',
-      name: 'Darcy-Weisbach (Experimental)',
+      name: 'Darcy-Weisbach (BETA)',
       n: 2,
       available: true,
       experimental: true,
@@ -231,20 +249,21 @@
         var fluid = ctx.fluid || { kinematicViscosity: 1.004e-6 };
         var nu = fluid.kinematicViscosity || 1.004e-6;
         var eps = (ctx.roughness_mm !== undefined ? ctx.roughness_mm : 0.045) / 1000;
+        /* Swamee-Jain unless the model says otherwise — see FRICTION_FACTORS. */
 
         var q = (ctx.q === undefined || ctx.q === null) ? null : Math.abs(ctx.q);
         var area = Math.PI * d * d / 4;
         var v = (q === null || q < Q_MIN) ? 1.0 : q / area;
 
         var Re = v * d / nu;
-        var f = frictionFactor(Re, eps / d, ctx.frictionFactor);
+        var f = frictionFactor(Re, eps / d, ctx.frictionFactor || 'swameejain');
         return 8 * f * L_eff / (Math.PI * Math.PI * G * Math.pow(d, 5));
       },
 
       exponent: function () { return 2; },
 
       formula: function (ctx) {
-        var ff = FRICTION_FACTORS[(ctx && ctx.frictionFactor)] || FRICTION_FACTORS.colebrook;
+        var ff = FRICTION_FACTORS[(ctx && ctx.frictionFactor)] || FRICTION_FACTORS.swameejain;
         return 'hf = f · (L/d) · V²/2g       f from ' + ff.name;
       }
     }

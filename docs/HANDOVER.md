@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-02 (v0.7.10-dev), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-02 (v0.8.0), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,15 +21,15 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — six files, **761 assertions, all passing**.
+Tests: `node test/<name>.test.js` — six files, **777 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. Where things stand (v0.7.10-dev, 2026-08-02)
+## 2. Where things stand (v0.8.0, 2026-08-02)
 
-Nothing is BROKEN. The engine is green at **761 assertions** and the repository
+Nothing is BROKEN. The engine is green at **777 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
 
 The big change since v0.5.0 is the **ASHRAE (2021) method**, now the default —
@@ -73,12 +73,42 @@ Two things to know before anyone "fixes" this:
 
 | Item | State |
 |---|---|
-| **Darcy friction-factor correlation** | Still unchosen. Four implemented, spread ≤1.4%. **Darcy remains unusable** until Michael picks one. |
+| **Darcy friction-factor correlation** | **CHOSEN: Swamee-Jain** (2026-08-02). Darcy is now BETA rather than blocked, and carries a BETA line on the calculation sheet. Accuracy measured against an iterated Colebrook in `engine.test.js`. |
 | **Pump properties restructure** | **Done, v0.7.6-dev.** Head removed as a settable parameter, New curve… button jumps to TOOLS pre-filled, order is Pump ID / Tag / Direction / Status / Design box (Re-size) / Actual box (New curve, Paste, Show, Clear), explanation behind a 🛈. Appearance unsigned — see `Human-Test.md` 4B.6–4B.9. |
 | **Outflow in SIMULATE** | **Done, v0.7.6-dev.** Design box + actual box, like equipment. The flow WAS verified to be `Q = Q_d·√(P/ΔP_d)` — see §2A. |
 | **Human-Test ⚠️/❌ follow-ups** | Five left in `KNOWN-ISSUES.md`: intermittent undo, negative pressure should be red, riser marker placement/direction, riser node→pipe not connecting, light theme greyness. (The pressure gradient is done, v0.7.7-dev.) |
 | **Independent verification** | Still the biggest gap. Nothing has been checked against another tool or a job with known answers. |
 | **Printer does not draw devices** | `printer.js` strokes device links as plain pipe with no symbol — now inconsistent with the canvas. In `KNOWN-ISSUES.md`. |
+
+### Darcy-Weisbach and Swamee-Jain — what was actually verified
+
+Michael selected Swamee-Jain on 2026-08-02 and asked for a test run validating
+the friction drop by iteration. That is `engine.test.js` §"Swamee-Jain against
+an iterated Colebrook", and the shape of it matters:
+
+* Colebrook-White is solved by a fixed-point iteration **written in the test**,
+  not by calling the app's own Colebrook — otherwise the test would only prove
+  the app agrees with itself. One point is additionally pinned by *substitution*
+  back into Colebrook, so even the iteration is checked rather than trusted.
+* The app's Colebrook then matches that iteration to 1e-9.
+* Swamee-Jain is swept against it over the whole published validity.
+
+**Two numbers came out of that, and one of them corrected a claim already in
+the code.** Within the envelope building-services pipework occupies (Re 1e4–1e7,
+ε/d ≤ 1e-3) the agreement is within 0.9%. At the corner of Swamee-Jain's own
+stated validity — Re 5000 with ε/d 1e-2, barely turbulent flow in a very rough
+pipe — it is 2.8% out. The note in `hydraulics.js` said "within ~1%", which is
+the figure everyone repeats and is not true there; it now states both.
+
+An earlier draft of the test asserted f = 0.0182 at Re 1e5, ε/d 1e-4 from
+memory. The correct value is 0.018514, and the test failed on it — which is the
+`ARCHITECTURE.md` §15 failure mode working as intended. The expectation is now
+derived by substitution with the arithmetic written out.
+
+End to end in the app on 100 m of DN50 at 5 L/s: 11.126 m against a
+hand-iterated Colebrook of 11.046 m, 0.72% apart — exactly Swamee-Jain's own
+deviation at that Re and roughness, so the whole chain (schedule → bore →
+velocity → Reynolds → f → r → head loss) is doing what it says.
 
 ### 2A. The simulated outflow — verified, and what that does and does not mean
 
@@ -161,6 +191,18 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **Darcy-Weisbach is unblocked** (v0.8.0). Swamee-Jain selected; BETA on the
+  sheet, not "do not use". §2 below has the accuracy, which is measured rather
+  than quoted — and the widely repeated "within 1%" turned out not to hold at
+  the corners, so the app says 0.9% / 2.8% instead.
+* **The HYDRAULIC formula rendered wrong** (v0.8.0). `.formula-eq` was a flex
+  container, and a flex item is not an inline box, so `vertical-align` did
+  nothing: every exponent sat on the baseline and every fraction ignored its own
+  alignment. `(V/C)` followed by a baseline `1.852` reads as a separate factor
+  rather than a power. Fixed by returning it to inline layout.
+* **A pump's head on the DRAWING was the design duty in SIMULATE** (v0.8.0),
+  while the properties panel had it right — so one model reported two heads.
+  The drawing now reads the curve at the solved flow, in SIMULATION only.
 * **The bullhead-tee fix** (v0.7.10-dev). Michael asked whether a 1.88% split in
   a symmetrical ring was a problem or noise. It was a problem, and the cause was
   that the run/branch pick had two identical candidates and broke the tie on the

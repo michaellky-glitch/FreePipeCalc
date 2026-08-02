@@ -2576,8 +2576,25 @@
       if (res && res.flow[obj.id] !== undefined) {
         if (flags.flow) lines.push('Q ' + FD.units.fmtFlow(Math.abs(res.flow[obj.id]), d.flow, true));
         if (flags.head && obj.pump) {
+          /* What the pump is ACTUALLY developing, which in SIMULATION is its
+           * curve read at the solved flow — not `pump.head`, which is the
+           * DESIGN duty and the number the drawing was wrongly showing
+           * (Michael, 2026-08-02). The properties panel had this right and the
+           * drawing did not, so the same model reported two different heads.
+           *
+           * Only in SIMULATION: in DESIGN the solver runs on `pump.head` even
+           * when a curve is present, so reading the curve there would report a
+           * head the calculation did not use. A stopped pump develops nothing —
+           * reading its curve at Q = 0 would give shutoff head, the opposite of
+           * the truth. */
+          var pOff = obj.pump.mode === 'off';
+          var pq = Math.abs((res && res.flow[obj.id]) || 0);
+          var hNow = pOff ? 0
+            : (m.settings.calcMode === 'simulation' && obj.pump.curve)
+              ? FD.pumps.head(obj.pump.curve, pq)
+              : (obj.pump.head || 0);
           lines.push('H ' + FD.units.fmtPressure(
-            FD.units.headToPaWith(obj.pump.head || 0, m.settings.fluid.density), d.pressure, true));
+            FD.units.headToPaWith(hNow, m.settings.fluid.density), d.pressure, true));
         }
         if (flags.pd) {
           var link = res.network && res.network.links.find(function (l) { return l.id === obj.id; });

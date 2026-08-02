@@ -822,13 +822,21 @@ with the coefficients as **inputs inside the formula itself**. Editing
 `10.67` in place is the same gesture as reading it. A single-line
 `a / (b · c)` is something an engineer has to decode rather than read.
 
+`.formula-eq` must stay an **inline** formatting context. It was `display: flex`
+and that broke every raised or lowered element in it: a flex item is not an
+inline box, so `vertical-align` does nothing to one. Exponents sat on the
+baseline — `(V/C)` followed by `1.852` reads as a separate factor, not a power —
+and the fraction's own `vertical-align: middle` was ignored too. Superscripts
+and fractions are built on inline layout; do not put a flex container above
+them.
+
 Only the fitting table the active method actually uses is shown: equivalent
 lengths under Hazen-Williams, K coefficients under Darcy-Weisbach. Showing both
 invites entering numbers into the one being ignored.
 
 ## 15. Testing
 
-Six suites, 761 assertions, no dependencies:
+Six suites, 777 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -839,7 +847,7 @@ node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
 
-All 761 pass. The "Parallel pumps share in DESIGN" section of
+All 777 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change
@@ -872,10 +880,22 @@ bad test would have been worse than useless.
 
 ## 16. Known limitations
 
-* **Darcy-Weisbach is experimental** and the friction-factor correlation has
-  not been settled. All four are implemented and selectable; the spread across
-  realistic cases is ≤1.4%, so the choice matters far less than the ε-vs-C
-  equivalence between methods.
+* **Darcy-Weisbach is BETA**, no longer blocked. **Swamee-Jain** is the chosen
+  friction-factor correlation (Michael, 2026-08-02) and the default for new
+  models; the other three stay selectable, and a model saved earlier keeps the
+  choice it was saved with rather than being silently re-specified.
+
+  Its accuracy is **measured, not quoted**. `engine.test.js` sweeps Swamee-Jain
+  against a fixed-point iteration of Colebrook-White written in the test itself:
+  within **0.9%** over Re 1e4–1e7 with ε/d ≤ 1e-3, the envelope every
+  building-services pipe sits in, and up to **2.8%** at the corner of its
+  published validity (Re 5000 with ε/d 1e-2). The widely repeated "within 1%"
+  does not hold there, and the note in `hydraulics.js` says so. End to end on a
+  DN50 run the app lands 0.72% above a hand-iterated Colebrook, which is exactly
+  the correlation's own deviation at that Re and roughness.
+
+  The method carries a BETA line in the calculation-sheet header and a note in
+  the appendix, because the sheet is what gets issued.
 * **Repair cannot fix every geometry.** It refuses rather than guessing.
 * **Temperature and specific heat are stored but not implemented.** Temperature
   does not drive density or viscosity, which are entered independently. Cp is
