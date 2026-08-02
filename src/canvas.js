@@ -1587,9 +1587,52 @@
     return vizColour(span > 1e-12 ? (v - scale.min) / span : 0);
   };
 
-  /* Pressure visualiser: a filled disc at each node. Drawn over the pipework
-   * because pressure is a nodal quantity — colouring the pipes for it would
-   * imply a value along the run that the solve does not produce. */
+  /* Pressure along a pipe, as a gradient between the colours of its two end
+   * nodes. Returns a CanvasGradient (or a plain colour for a degenerate line),
+   * or null when this is not the pressure visualiser.
+   *
+   * Colouring the run for pressure was refused once, on the grounds that
+   * pressure is a nodal quantity and a colour along the pipe would imply a
+   * value the solve does not produce. That was over-cautious for a plain pipe.
+   * Friction loss per metre is constant along a uniform run carrying a constant
+   * flow, and elevation varies linearly between the ends, so the head profile
+   * between two nodes IS a straight line — the ramp is the answer, not an
+   * invention. (Fittings are charged as lumped equivalent length, so the true
+   * profile has small steps where they sit; both endpoints are exact either
+   * way, and the discs still show them.)
+   *
+   * A DEVICE is the case where it would be a lie: a pump, a valve or a piece of
+   * equipment puts its entire change at one point. Those get a hard step at the
+   * symbol rather than a ramp, so the discontinuity stays visible. */
+  View.prototype.vizPipeGradient = function (p, scale, sa, sb) {
+    if (!scale || this.viz !== 'pressure') return null;
+    var res = this.results;
+    if (!res || !res.pressure) return null;
+    var pa = res.pressure[p.a], pb = res.pressure[p.b];
+    if (pa === undefined || pb === undefined) return null;
+    if (!isFinite(pa) || !isFinite(pb)) return null;
+
+    var span = scale.max - scale.min;
+    var at = function (v) { return span > 1e-12 ? (v - scale.min) / span : 0; };
+    var ca = vizColour(at(pa)), cb = vizColour(at(pb));
+    var mid = vizColour(at((pa + pb) / 2));
+
+    if (Math.abs(sa.x - sb.x) < 0.5 && Math.abs(sa.y - sb.y) < 0.5) {
+      return { stroke: ca, mid: mid };
+    }
+    var g = this.ctx.createLinearGradient(sa.x, sa.y, sb.x, sb.y);
+    if (p.kind === 'pump' || p.kind === 'valve' || p.kind === 'equip') {
+      g.addColorStop(0, ca); g.addColorStop(0.5, ca);
+      g.addColorStop(0.5, cb); g.addColorStop(1, cb);
+    } else {
+      g.addColorStop(0, ca); g.addColorStop(1, cb);
+    }
+    return { stroke: g, mid: mid };
+  };
+
+  /* Pressure visualiser: a filled disc at each node, over the gradient above.
+   * The ramp shows the fall along a run; the disc is the exact solved value at
+   * the node, which is the number the calculation sheet reports. */
   View.prototype.drawVizNodes = function (scale) {
     if (!scale || scale.kind !== 'node') return;
     var m = this.getModel(), ctx = this.ctx, self = this, res = this.results;
@@ -1934,6 +1977,13 @@
       var vc = self.vizPipeColour(p, vizScale);
       if (vc) colour = vc;
 
+      /* The pressure visualiser paints a GRADIENT rather than one colour, so
+       * `colour` becomes the mid value — arrows, glyphs and the riser ring all
+       * take a single colour and the midpoint is the honest one for them. */
+      var grad = self.vizPipeGradient(p, vizScale, sa, sb);
+      if (grad) colour = grad.mid;
+      var strokeStyle = grad ? grad.stroke : colour;
+
       if (p.kind === 'riser' && a.level !== b.level) {
         // A riser seen in plan is a point — draw it as a ring, not a line
         self.drawRiserGlyph(sa, colour, selIds[p.id]);
@@ -1968,7 +2018,7 @@
           ctx.lineWidth = 2;
           ctx.beginPath(); ctx.arc(msx, msy, 15, 0, Math.PI * 2); ctx.stroke();
         }
-        ctx.strokeStyle = colour;
+        ctx.strokeStyle = strokeStyle;
         ctx.lineWidth = Math.min(2, self.pipeWidth(p));
         ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
@@ -1984,7 +2034,7 @@
         ctx.lineWidth = self.pipeWidth(p) + 4;
         ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
       }
-      ctx.strokeStyle = colour;
+      ctx.strokeStyle = strokeStyle;
       ctx.lineWidth = self.pipeWidth(p);
       ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();

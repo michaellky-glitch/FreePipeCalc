@@ -1,6 +1,6 @@
 {
   "formatVersion": 1,
-  "appVersion": "0.7.5-dev",
+  "appVersion": "0.7.6-dev",
   "settings": {
     "units": "metric",
     "display": {
@@ -11,7 +11,7 @@
       "size": "DN",
       "valveCoef": "Kv"
     },
-    "calcMode": "design",
+    "calcMode": "simulation",
     "frictionMethod": "ASHRAE",
     "systemType": "open",
     "hw": {
@@ -116,9 +116,9 @@
     {
       "id": "N0",
       "level": "L0",
-      "x": 5,
-      "y": 5,
-      "dz": 0,
+      "x": 10,
+      "y": 15,
+      "dz": 20.42821626944,
       "device": {
         "kind": "source"
       },
@@ -127,64 +127,22 @@
     {
       "id": "N1",
       "level": "L0",
-      "x": 110.5,
-      "y": 5,
+      "x": 60,
+      "y": 15,
       "dz": 0,
       "device": {
         "kind": "demand",
-        "flow": 0.005,
+        "flow": 0.001,
         "reqPressure": 100000,
         "include": true
       },
       "tag": "OF-1"
-    },
-    {
-      "id": "N2",
-      "level": "L0",
-      "x": 10,
-      "y": 5,
-      "dz": 0,
-      "device": null
-    },
-    {
-      "id": "N3",
-      "level": "L0",
-      "x": 10.5,
-      "y": 5,
-      "dz": 0,
-      "device": null
     }
   ],
   "pipes": [
     {
-      "id": "P1",
+      "id": "P0",
       "a": "N0",
-      "b": "N2",
-      "kind": "pipe",
-      "schedule": "sch40",
-      "size": "DN50",
-      "C": 120,
-      "riser": null
-    },
-    {
-      "id": "P2",
-      "a": "N2",
-      "b": "N3",
-      "kind": "pump",
-      "schedule": "sch40",
-      "size": "DN50",
-      "C": 120,
-      "riser": null,
-      "pump": {
-        "mode": "auto",
-        "head": 25.072177493346445,
-        "flow": 0
-      },
-      "tag": "PMP-1"
-    },
-    {
-      "id": "P3",
-      "a": "N3",
       "b": "N1",
       "kind": "pipe",
       "schedule": "sch40",
@@ -196,10 +154,10 @@
   "risers": [],
   "_seq": {
     "level": 1,
-    "node": 4,
-    "pipe": 4,
+    "node": 2,
+    "pipe": 1,
     "riser": 0
   },
   "activeLevel": "L0",
-  "savedAt": "2026-08-02T00:30:07.953Z"
+  "savedAt": "2026-08-02T01:03:00.836Z"
 }

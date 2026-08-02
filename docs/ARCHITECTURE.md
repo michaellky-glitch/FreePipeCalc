@@ -363,6 +363,12 @@ length equal to the altitude difference.
 Changing a pipe's length must never change any *other* pipe's length, so the far
 side translates rigidly (`src/geometry.js`). Three outcomes:
 
+**A pipe's length is 3D**, so the plan move has to be solved for, not assumed:
+`plan = √(L² − rise²)`. Comparing the requested length against the plan length
+directly was a real and silent bug — a sloped pipe reported "already that
+length, nothing to do" and could not be edited at all. A length below the pipe's
+own rise is refused (`SHORTER_THAN_RISE`); no horizontal move can reach it.
+
 * **Rigid move works.** Everything on the far side, across all levels, shifts by
   the same delta. A riser column whose attachments are *all* in the moving set
   travels with it — this is what lets a change upstream of a riser carry every
@@ -386,11 +392,34 @@ hall. Treat the change list as the deliverable, not the operation.
 
 | Device | Model | Notes |
 |---|---|---|
-| Source | Node | Fixed-head reservoir at its own altitude, 0 gauge. |
+| Source | Node | Inexhaustible supply holding a stated static pressure AT the node. |
 | Demand | Node | Fixed outflow, plus a required pressure. Can be excluded. |
 | Pump | In-line link | Modes `auto`, `fixed`, `off`. |
 | Valve | In-line link | Gate/globe/check, Kv (Cv is a display conversion), 0/25/50/75/100% open. A globe valve is the same throttling model as a gate but ~6x more resistant open, and throttles evenly. |
 | Equipment | In-line link | Rated flow and ΔP; `ΔP = ΔP_rated·(Q/Q_rated)²`. |
+
+### A source states a PRESSURE, and reads it
+
+`device.pressure` in pascals, and `H = z + P/(ρg)` so the node's own gauge
+pressure comes back as exactly `P`.
+
+It was pinned at 0 gauge until v0.7.7-dev, on the tank-surface reading: the
+water surface of an open tank really is at atmospheric, and the head it provides
+is the column above the connection point. Every downstream number was right. But
+the source node then read 0 kPa while the very next node read 193, which looks
+like a pressure *jump* across a pipe that loses 7 — and it is not what an
+engineer means when they draw a mains connection and write 200 kPa on it.
+Michael and a colleague both read it the same way. So the node is the connection,
+not the water surface. Downstream heads are identical either way; this changed
+the reading, not the hydraulics.
+
+The pressure was also **stored as the node's `dz`** until then, which was the
+actual defect: `dz` is a real elevation offset and `pipeLength` is a 3D
+distance, so entering 200 kPa lifted the node 20.43 m and stretched a 50 m run
+to 54.01 m. Pressure and elevation are independent properties and are now stored
+separately. `M.fromJSON` migrates old files and returns the list on
+`m.migrations`; the app raises a dialog rather than a toast, because the fix
+*changes pipe lengths* an engineer may already have read off the panel.
 
 In-line devices are inserted by **splitting** a pipe into three: pipe, device,
 pipe. The device gets its own inlet and outlet nodes and the runs either side
@@ -715,7 +744,7 @@ invites entering numbers into the one being ignored.
 
 ## 15. Testing
 
-Six suites, 707 assertions, no dependencies:
+Six suites, 740 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -726,7 +755,7 @@ node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
 
-All 707 pass. The "Parallel pumps share in DESIGN" section of
+All 740 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change

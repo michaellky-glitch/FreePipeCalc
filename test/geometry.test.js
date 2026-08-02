@@ -273,4 +273,69 @@ section('TEST 3 — changing L2 altitude leaves L3 alone');
   near('Level 3 demand is still at 10 m elevation', M.elevation(m, l3Demand), 10, 1e-12);
 }
 
+/* --------------------------------------------------------------------------
+ * A pipe's length is 3D. Editing it must therefore solve for the PLAN length
+ * that gives the requested DRAWN length, not compare the two directly.
+ *
+ * Michael's debug/20260802-1.json is the case that exposed this: a source 20.43
+ * m above its outflow over a 50 m plan run reads sqrt(50^2 + 20.43^2) = 54.01
+ * m, and typing 50 back in reported "already 50, nothing to do" — so the field
+ * sprang back and the pipe could not be edited at all.
+ *
+ * Every expected number below is Pythagoras done by hand.
+ * ----------------------------------------------------------------------- */
+section('Length edits on a sloped pipe target the DRAWN (3D) length');
+{
+  const build = (rise) => {
+    const m = M.create();
+    const lv = m.levels[0];
+    const a = M.addNode(m, lv, 0, 0);
+    const b = M.addNode(m, lv, 50, 0);
+    a.dz = rise;                       // a sits `rise` metres above b
+    const p = M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    return { m, p, a, b };
+  };
+
+  // sqrt(50^2 + 20^2) = sqrt(2900) = 53.8516480713450...
+  const t = build(20);
+  near('Drawn length is the 3D distance', M.pipeLength(t.m, t.p),
+       Math.sqrt(2500 + 400), 1e-9);
+
+  /* Asking for 50 m must MOVE something: the plan run has to come down to
+   * sqrt(50^2 - 20^2) = sqrt(2100) = 45.8257569495584 m. */
+  const r = G.changeLength(t.m, t.p.id, 50);
+  ok('The edit is applied, not swallowed', r.ok === true && r.changes.length === 1);
+  near('Drawn length is now exactly 50 m', M.pipeLength(t.m, t.p), 50, 1e-9);
+  near('...by shortening the PLAN run to sqrt(50^2 - 20^2)',
+       Math.abs(M.worldXY(t.m, t.b).x - M.worldXY(t.m, t.a).x),
+       Math.sqrt(2100), 1e-9);
+  near('The rise is untouched',
+       M.elevation(t.m, t.a) - M.elevation(t.m, t.b), 20, 1e-12);
+
+  // Lengthening works the same way: 80^2 - 20^2 = 6000
+  const t2 = build(20);
+  ok('Lengthening is applied', G.changeLength(t2.m, t2.p.id, 80).ok === true);
+  near('Drawn length is 80 m', M.pipeLength(t2.m, t2.p), 80, 1e-9);
+  near('Plan run is sqrt(80^2 - 20^2)',
+       Math.abs(M.worldXY(t2.m, t2.b).x - M.worldXY(t2.m, t2.a).x),
+       Math.sqrt(6000), 1e-9);
+
+  /* No horizontal move can make a pipe shorter than its own rise. Refused
+   * rather than silently landing somewhere else. */
+  const t3 = build(20);
+  const bad = G.changeLength(t3.m, t3.p.id, 15);
+  ok('Refuses a length shorter than the rise', bad.ok === false);
+  ok('...with a code that says why', bad.code === 'SHORTER_THAN_RISE', bad.code);
+  near('...and changes nothing', M.pipeLength(t3.m, t3.p), Math.sqrt(2900), 1e-9);
+
+  const t4 = build(20);
+  ok('Refuses a length exactly equal to the rise',
+     G.changeLength(t4.m, t4.p.id, 20).ok === false);
+
+  // A level pipe is unaffected: plan and drawn length are the same number.
+  const flat = build(0);
+  ok('A level pipe still edits directly', G.changeLength(flat.m, flat.p.id, 37).ok === true);
+  near('...to exactly the requested length', M.pipeLength(flat.m, flat.p), 37, 1e-9);
+}
+
 report();

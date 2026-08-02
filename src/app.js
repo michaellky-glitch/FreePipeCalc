@@ -182,6 +182,20 @@
         afterModelSwap();
         app.view.zoomToFit();
         toast('Loaded ' + file.name);
+        /* A migration that CHANGES GEOMETRY has to be said out loud. The
+         * source-pressure fix puts a node back where it was drawn, which
+         * shortens every pipe on it — correcting a length the engineer may
+         * have read off the panel and written down. A toast is too easy to
+         * miss for that. */
+        if (loaded.migrations && loaded.migrations.length) {
+          FD.dialog.alert({
+            title: 'This file was updated as it loaded',
+            message: loaded.migrations.map(function (x) { return x.message; })
+                       .join('\n\n') +
+                     '\n\nCheck the pipe lengths before you issue anything from ' +
+                     'this model, then save it again.'
+          });
+        }
       } catch (e) {
         toast('Could not load: ' + e.message, 'error');
       }
@@ -695,7 +709,7 @@
         return n.device && n.device.kind === 'source';
       }).map(function (n) {
         var pa = res && res.pressure ? res.pressure[n.id] : null;
-        return row(n.tag || n.id, null, null, pa, headToPa(n.dz || 0));
+        return row(n.tag || n.id, null, null, pa, (n.device.pressure || 0));
       });
       if (srcRows.length) groups.push({ title: 'Sources', rows: srcRows });
 
@@ -1187,11 +1201,9 @@
       'read like "50⌀/12.50m/2.40L/s"; node labels read like "N3 T".'));
 
     function toggle(label, key) {
-      var i = el('input'); i.type = 'checkbox'; i.checked = !!a[key];
-      i.addEventListener('change', function () { a[key] = i.checked; redrawAll(); });
-      var w = el('label', 'check-inline');
-      w.appendChild(i); w.appendChild(el('span', '', label));
-      host.appendChild(w);
+      switchRow(host, label, !!a[key], function (on) {
+        a[key] = on; redrawAll(); renderProperties();
+      });
     }
 
     host.appendChild(el('h3', 'sub', 'Pipes'));
@@ -1470,12 +1482,8 @@
     op.addEventListener('change', function () { scheduleSave(); });
 
     function toggle(label, key, note) {
-      var i = el('input'); i.type = 'checkbox'; i.checked = !!t[key];
-      var w = el('label', 'check-inline');
-      w.appendChild(i); w.appendChild(el('span', '', label));
-      host.appendChild(w);
-      i.addEventListener('change', function () {
-        pushUndo(); t[key] = i.checked; changed(); renderProperties();
+      switchRow(host, label, !!t[key], function (on) {
+        pushUndo(); t[key] = on; changed(); renderProperties();
       });
       if (note) host.appendChild(el('p', 'hint', note));
     }
@@ -1525,6 +1533,62 @@
     f.appendChild(control);
     host.appendChild(f);
     return control;
+  }
+
+  /* The design K factor of anything that behaves as a resistance: an outflow,
+   * a pump's design duty, a piece of equipment. K = Q_d/√ΔP_d — the same
+   * design point the solver turns into r = ΔP_d/(ρ·g·Q_d²), stated the way an
+   * engineer reads a terminal.
+   *
+   * Quoted in the MODEL'S OWN display units, with the unit written out, at
+   * Michael's choice (2026-08-02). The sprinkler convention (L/min per √bar)
+   * and the valve convention (Kv, m³/h at 1 bar) are different numbers for the
+   * same thing, and a bare "K = 0.1" that silently meant one of the three
+   * would be worse than no number at all. So the unit is never omitted.
+   *
+   * Returns null when the design point is incomplete — K is undefined at zero
+   * pressure, which is the same reason an outflow refuses a zero design
+   * pressure in the first place. */
+  function designKRow(box, qSI, paSI) {
+    var d = app.model.settings.display;
+    if (!(qSI > 0) || !(paSI > 0)) {
+      box.ro('K factor', '—');
+      return null;
+    }
+    var q = FD.units.flow(qSI, d.flow);
+    var p = FD.units.pressure(paSI, d.pressure);
+    var k = q / Math.sqrt(p);
+    var row = box.ro('K factor',
+      (k >= 100 ? k.toFixed(1) : k >= 1 ? k.toFixed(3) : k.toPrecision(3)) +
+      ' ' + d.flow + '/√' + d.pressure);
+    row.title = 'K = design flow / √(design pressure) = ' +
+                q.toPrecision(4) + ' / √' + p.toPrecision(4) + ', in this ' +
+                'model’s display units. Not the sprinkler K (L/min per √bar) ' +
+                'and not a valve Kv — convert before comparing with either.';
+    return k;
+  }
+
+  /* An option as a sliding switch rather than a tick box (Michael, 2026-08-02).
+   *
+   * Same control as the pump's Running switch, and it replaces every checkbox
+   * in the panels — a row of tick boxes and a row of switches in the same panel
+   * read as two different kinds of setting when they are not.
+   *
+   * The OFF colour is muted rather than red, which is the one deliberate
+   * difference from statusToggle. Red means a fault everywhere else in this
+   * app; an unticked "show the tag on the drawing" is not a fault. Red/green
+   * stays where off really is a state of the plant — a stopped pump, isolated
+   * equipment. */
+  function switchRow(host, label, checked, onChange) {
+    var sw = el('button', 'switch plain' + (checked ? ' on' : ' off'));
+    sw.type = 'button';
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', checked ? 'true' : 'false');
+    sw.appendChild(el('span', 'switch-track', ''));
+    sw.appendChild(el('span', 'switch-label', label));
+    sw.addEventListener('click', function () { onChange(!checked); });
+    host.appendChild(sw);
+    return sw;
   }
 
   function renderPipeProps(host, p) {
@@ -1646,20 +1710,15 @@
     if (app.view.tool !== 'view') return;
     host.appendChild(el('h3', 'sub', 'Show on drawing'));
     opts.forEach(function (o) {
-      var i = el('input'); i.type = 'checkbox';
-      i.checked = !!M.displayFlags(obj)[o.key];
-      var w = el('label', 'check-inline');
-      w.appendChild(i);
-      w.appendChild(el('span', '', o.label));
-      host.appendChild(w);
-      i.addEventListener('change', function () {
+      switchRow(host, o.label, !!M.displayFlags(obj)[o.key], function (on) {
         pushUndo();
-        M.setDisplayFlag(obj, o.key, i.checked);
-        changed();
+        M.setDisplayFlag(obj, o.key, on);
+        changed(); renderProperties();
       });
     });
     host.appendChild(el('p', 'hint',
-      'Ticked values appear in a box beside the entity. Drag the box to place it.'));
+      'Values switched on here appear in a box beside the entity. Drag the box ' +
+      'to place it.'));
   }
 
   /* Equipment tag. Shared by every in-line device — it is the reference the
@@ -1712,6 +1771,8 @@
           pushUndo(); p.equip.pdRated = FD.units.toSIPressure(v, d.pressure); changed();
         } else { pdIn.value = FD.units.fmtPressure(p.equip.pdRated || 0, d.pressure); }
       });
+
+    designKRow(readoutBox(host, null), p.equip.qRated, p.equip.pdRated);
 
     var res = app.results;
     if (res && res.flow[p.id] !== undefined) {
@@ -2155,6 +2216,9 @@
             FD.units.fmtPressure(headToPa(dutyH), d.pressure, true) +
             '  (' + dutyH.toFixed(2) + ' m)');
     }
+    /* A pump's design duty read as a resistance, so it can be compared with the
+     * terminals it is feeding on the same basis. */
+    designKRow(db, dp.q, dp.h === null ? 0 : headToPa(dp.h));
     if (p.pump.mode === 'auto') {
       var rrow = el('div', 'btn-row');
       var btn = el('button', 'btn', 'Re-size');
@@ -2420,11 +2484,14 @@
           changed();
         });
 
-      var inc = el('input'); inc.type = 'checkbox'; inc.checked = dev.include !== false;
-      var incWrap = el('label', 'check-inline');
-      incWrap.appendChild(inc);
-      incWrap.appendChild(el('span', '', 'Include in calculation'));
-      host.appendChild(incWrap);
+      /* The terminal characteristic the design point above defines. This is the
+       * number SIMULATION actually runs on, so it belongs beside the two inputs
+       * it comes from rather than only inside the engine. */
+      designKRow(readoutBox(host, null), dev.flow, dev.reqPressure);
+
+      switchRow(host, 'Include in calculation', dev.include !== false, function (on) {
+        pushUndo(); dev.include = on; changed(); renderProperties();
+      });
       /* In SIMULATION the terminal is a resistance derived from the design
        * point above, so its flow is an OUTPUT: Q = Q_d·sqrt(P_node/ΔP_d),
        * with P_node set by the pump curve through the solve. Reported in its
@@ -2440,57 +2507,49 @@
               act && act.actualPressure !== undefined && act.actualPressure !== null
                 ? FD.units.fmtPressure(act.actualPressure, m.settings.display.pressure, true)
                 : '—');
-        if (act && act.ratio !== null) {
-          ab.ro('Of design flow', (act.ratio * 100).toFixed(1) + '%');
-        }
-        /* The regulating valve needed to trim a terminal that is over-flowing.
-         * Already computed by the engine; it was only ever visible on the
-         * calculation sheet, which is not where you are standing when you have
-         * the terminal selected. */
-        if (act && act.balanceKv) {
-          ab.ro('Balance to design', 'Kv ' + act.balanceKv.toFixed(1));
-        }
+        /* No "% of design" and no balancing Kv here (Michael, 2026-08-02).
+         * Both are comparisons across the whole system rather than properties
+         * of this terminal, and both are already on the calculation sheet,
+         * which is where a set of them can be read against each other. */
         if (dev.include === false) {
           ab.box.appendChild(el('p', 'hint',
             'Excluded from the calculation, so it draws nothing.'));
         }
       }
-
-      inc.addEventListener('change', function () {
-        pushUndo(); dev.include = inc.checked; changed();
-      });
     }
 
     /* Only a SOURCE states a static pressure. On an outflow the same field
      * read as if it set the terminal's own pressure, which it does not — the
      * outflow's number is its DESIGN pressure, edited above. */
     if (n.device && n.device.kind === 'source') {
-      /* Stated as a PRESSURE, stored as a height.
+      /* Stated as a PRESSURE and stored as one, on the DEVICE.
        *
-       * The field used to read "Altitude offset" in metres, which was confusing
-       * on a source: a source sits at 0 gauge by definition, so the node itself
-       * reads 0 kPa however high you raise it, and the offset appears to do
-       * nothing — even though it is correctly feeding static head into everything
-       * downstream. Asking for the static pressure instead says what the number
-       * is FOR. The model keeps metres (dz) so nothing in the solver changes;
-       * this is a display conversion, through the model's own fluid density. */
-      var dzUnit = m.settings.display.pressure;
-      var dzIn = el('input'); dzIn.type = 'text';
-      dzIn.value = FD.units.fmtPressure(headToPa(n.dz || 0), dzUnit);
-      field(host, 'Static pressure (' + dzUnit + ')', dzIn)
+       * It used to be stored as the node's `dz` — a height — because a tank
+       * raised 20 m does provide 200 kPa. Downstream that was right, but `dz`
+       * is a real elevation, so entering a pressure physically lifted the node
+       * and stretched every pipe on it in 3D: a 50 m run became 54.01 m and
+       * could not be typed back (Michael, 2026-08-02). Pressure and elevation
+       * are separate properties and are now stored separately. */
+      var spUnit = m.settings.display.pressure;
+      var spIn = el('input'); spIn.type = 'text';
+      var readSp = function () {
+        return FD.units.fmtPressure(n.device.pressure || 0, spUnit);
+      };
+      spIn.value = readSp();
+      field(host, 'Static pressure (' + spUnit + ')', spIn)
         .addEventListener('change', function () {
-          var v = FD.units.parse(dzIn.value);
+          var v = FD.units.parse(spIn.value);
           if (isFinite(v)) {
             pushUndo();
-            n.dz = FD.units.paToHeadWith(FD.units.toSIPressure(v, dzUnit),
-                                         m.settings.fluid && m.settings.fluid.density);
+            n.device.pressure = FD.units.toSIPressure(v, spUnit);
             changed();
-          } else { dzIn.value = FD.units.fmtPressure(headToPa(n.dz || 0), dzUnit); }
+          } else { spIn.value = readSp(); }
         });
       host.appendChild(el('p', 'hint',
-        'Static pressure this source provides, as a head above its own level. ' +
-        'The source node itself always reads 0 kPa gauge — this is what it adds ' +
-        'downstream.'));
+        'The pressure available at this node — a mains connection, or the ' +
+        'bottom of a tank. The node reads this figure, and everything downstream ' +
+        'works from it. Raising the source on the drawing adds its own static ' +
+        'head separately.'));
     }
 
     var res = app.results;
@@ -3200,14 +3259,9 @@
     numField(wg, 'Max friction rate', m.settings.warn.pdm,
       function (v) { pushUndo(); m.settings.warn.pdm = v; redrawAll(); }, '(Pa/m)');
 
-    var lam = el('input'); lam.type = 'checkbox';
-    lam.checked = m.settings.warn.laminar !== false;
-    var lamWrap = el('label', 'check-inline');
-    lamWrap.appendChild(lam);
-    lamWrap.appendChild(el('span', '', 'Warn on laminar / transitional flow'));
-    host.appendChild(lamWrap);
-    lam.addEventListener('change', function () {
-      pushUndo(); m.settings.warn.laminar = lam.checked; redrawAll();
+    switchRow(host, 'Warn on laminar / transitional flow',
+              m.settings.warn.laminar !== false, function (on) {
+      pushUndo(); m.settings.warn.laminar = on; redrawAll(); renderHydraulic();
     });
   }
 

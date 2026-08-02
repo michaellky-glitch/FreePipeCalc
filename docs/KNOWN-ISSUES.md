@@ -79,20 +79,47 @@ From the ⚠️/❌ notes in `Human-Test.md`:
   two. The pre-edit-snapshot fix helped but did not fully settle it. Low priority
   by decision, but it is a correctness bug in the history, not cosmetics.
 * **Negative node pressure should render red** (8.19).
-* **Pressure visualiser should gradient along a pipe** between its two node
-  values (8.20), rather than only colouring the nodes.
+* ~~**Pressure visualiser should gradient along a pipe**~~ (8.20). Done
+  v0.7.7-dev. A plain pipe ramps between its two node colours; a pump, valve or
+  piece of equipment gets a hard step at the symbol instead, because a device
+  puts its whole pressure change at one point and a ramp there would be a lie.
 * **Riser marker** should sit at lower-left (225°) of its node, with an arrow
   showing flow direction up or down (7.1).
 * **Riser from node to pipe does not connect** (7.2); mid-pipe to node works.
   This is a real snapping defect.
 * **Light theme is grey outside the drawing area** (4.9).
 
-### Reported 2026-08-02, not yet done
+### Reported 2026-08-02 — all done
 
-* **Pump properties restructure.** Remove settable Head; when no curve is set
-  offer a button through to TOOLS ▸ Pump Curve Generator; reorder to
-  Tag / Status / [Design flow, Design pressure] (Resize) / [Actual flow, Actual
-  pressure] (New Curve, Paste, Show, Clear); explanation behind a 🛈.
-* **Outflow in SIMULATE.** Present like equipment — design flow/pressure in one
-  box, actual in another — and verify the outflow flow really is a function of
-  node pressure, the design-point K and the pump curve.
+* ~~Pump properties restructure~~ (v0.7.6-dev).
+* ~~Outflow in SIMULATE~~ (v0.7.6-dev). The `Q = K·√P` identity is proven in
+  `simulation.test.js`; see `HANDOVER.md` §2A.
+* ~~Checkboxes become toggles~~ (v0.7.7-dev). Every one in the panels, the
+  annotations list and the HYDRAULIC tab. Option switches are muted-vs-accent
+  rather than red-vs-green: red means a fault everywhere else here, and an
+  unticked label is not one.
+* ~~Pressure gradient along a pipe~~ (v0.7.7-dev), above.
+* ~~K factor on outflows, pumps and equipment~~ (v0.7.7-dev), from the design
+  values, quoted in the model's own display units with the unit written out.
+  Michael chose that over the sprinkler convention (L/min per √bar) and over Kv.
+* ~~"% of design flow" and "Balance to design Kv" off the SIMULATE outflow
+  panel~~ (v0.7.7-dev). Both are still on the calculation sheet, which is where
+  a set of terminals can be read against each other.
+
+### Two defects found in `debug/20260802-1.json`, both fixed v0.7.7-dev
+
+Worth keeping because they are a good illustration of one wrong decision
+producing two unrelated-looking symptoms.
+
+* **A source's static pressure was stored as the node's elevation** (`dz`).
+  Hydraulically that gave the right downstream answers — a tank 20.43 m up does
+  provide 200 kPa — but `dz` is a real elevation and `pipeLength` is a 3D
+  distance, so typing 200 kPa silently stretched a 50 m run to 54.01 m. It is
+  now `device.pressure`, in pascals, and old files are migrated on load with a
+  dialog saying what changed, because the migration moves pipe lengths.
+* **`changeLength` compared a requested 3D length against a PLAN length.** So
+  typing 50 back into that 54.01 m pipe reported "already 50, nothing to do" —
+  `ok:true` with an empty change list — and the field sprang back. It now solves
+  `plan = √(L² − rise²)`, and refuses with `SHORTER_THAN_RISE` when the
+  requested length is below the pipe's own rise. This one was independent of the
+  first: any genuinely sloped pipe had it.

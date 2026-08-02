@@ -678,9 +678,21 @@
   }
 
   // ----------------------------------------------------------- devices
-  function setSource(m, nodeId) {
+  /* A source's static pressure is a property of the DEVICE, in pascals — not
+   * an elevation.
+   *
+   * It was stored as the node's `dz` until v0.7.7-dev, on the reasoning that a
+   * tank raised 20 m provides 200 kPa. Hydraulically that is true, and
+   * downstream every number came out right. Geometrically it is a disaster:
+   * `dz` is a real elevation offset, `pipeLength` is a 3D distance, so setting
+   * 200 kPa on a source silently stretched a 50 m run to 54.01 m — and the
+   * length could not be typed back, because `changeLength` was comparing the
+   * requested 3D length against a PLAN length and concluded there was nothing
+   * to do (debug/20260802-1.json). Pressure and elevation are now independent,
+   * which is what they always were. */
+  function setSource(m, nodeId, pressure) {
     var n = node(m, nodeId);
-    if (n) n.device = { kind: 'source' };
+    if (n) n.device = { kind: 'source', pressure: pressure || 0 };
     return n;
   }
 
@@ -755,7 +767,40 @@
     m.risers = obj.risers || [];
     m.activeLevel = obj.activeLevel || (m.levels[0] && m.levels[0].id);
     m._seq = obj._seq || rebuildSeq(m);
+    m.migrations = migrateSourcePressure(m);
     return m;
+  }
+
+  /* Files written before v0.7.7-dev carry a source's static pressure in the
+   * node's `dz`, which also moved the node in 3D and therefore lengthened
+   * every pipe attached to it (see setSource). Move it onto the device and put
+   * the node back where it was drawn.
+   *
+   * This CHANGES PIPE LENGTHS on load — that is the point, it is the fix — so
+   * it reports what it did rather than doing it quietly. A source whose `dz`
+   * is genuinely an elevation cannot be told apart from one carrying a
+   * pressure, because until now the panel offered no way to set the former. */
+  function migrateSourcePressure(m) {
+    var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
+    var notes = [];
+    m.nodes.forEach(function (n) {
+      if (!n.device || n.device.kind !== 'source') return;
+      if (n.device.pressure !== undefined) return;      // already migrated
+      var dz = n.dz || 0;
+      n.device.pressure = rho * 9.81 * dz;
+      if (!dz) return;
+      n.dz = 0;
+      notes.push({
+        code: 'SOURCE_PRESSURE_MOVED', node: n.id,
+        message: 'Source ' + (n.tag || n.id) + ': its ' +
+                 (rho * 9.81 * dz / 1000).toFixed(1) + ' kPa static pressure was ' +
+                 'stored as a ' + dz.toFixed(2) + ' m elevation, which was ' +
+                 'stretching every pipe on it. The pressure is unchanged; the ' +
+                 'node is back at its drawn level, so those pipes are now their ' +
+                 'true drawn length.'
+      });
+    });
+    return notes;
   }
 
   /* If a file was hand-edited and lost its counters, rebuild them from the
@@ -804,6 +849,7 @@
     displayFlags: displayFlags, setDisplayFlag: setDisplayFlag,
 
     setSource: setSource, setDemand: setDemand, clearDevice: clearDevice,
+    migrateSourcePressure: migrateSourcePressure,
 
     toJSON: toJSON, fromJSON: fromJSON
   };

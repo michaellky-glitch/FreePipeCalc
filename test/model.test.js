@@ -1185,4 +1185,114 @@ section('TRACE — background drawings');
   ok('Discarding removes it', L1.trace === null);
 }
 
+/* --------------------------------------------------------------------------
+ * A source's static pressure is a property of the DEVICE, not an elevation.
+ *
+ * It was stored as the node's dz until v0.7.7-dev. Hydraulically that gave the
+ * right downstream answers — a tank 20.43 m up does provide 200 kPa — but dz is
+ * a real elevation, so entering a pressure physically lifted the node and
+ * stretched every pipe on it in 3D. And the node itself then read 0 kPa gauge
+ * while the next node along read 193, which reads as a pressure JUMP across a
+ * pipe that loses 7.
+ *
+ * Numbers below are hand calculations: rho.g.h with rho = 998, g = 9.81.
+ * ----------------------------------------------------------------------- */
+section('Source static pressure');
+{
+  const RHO = 998, G9 = 9.81;
+
+  const build = (pa, dz) => {
+    const m = M.create();
+    const lv = m.levels[0];
+    const s = M.addNode(m, lv, 0, 0);
+    const t = M.addNode(m, lv, 50, 0);
+    M.setSource(m, s.id, pa);
+    if (dz) s.dz = dz;
+    t.device = { kind: 'demand', flow: 0.001, reqPressure: 100e3, include: true };
+    M.addPipe(m, s.id, t.id, { size: 'DN50', schedule: 'sch40' });
+    return { m, s, t, p: m.pipes[0] };
+  };
+
+  const b = build(200e3, 0);
+  ok('Stored on the device, in pascals', b.s.device.pressure === 200e3);
+  ok('The node is not moved', (b.s.dz || 0) === 0);
+  near('So the pipe is its drawn plan length', M.pipeLength(b.m, b.p), 50, 1e-12);
+
+  const res = NET.solveModel(b.m);
+  near('The source node READS its stated pressure', res.pressure[b.s.id], 200e3, 1);
+  ok('...and the next node is below it, not above',
+     res.pressure[b.t.id] < res.pressure[b.s.id],
+     `${res.pressure[b.s.id]} then ${res.pressure[b.t.id]}`);
+
+  /* Elevation is now a separate matter, and still works. Raising the source
+   * 10 m does two things at once, and the hand answer has to account for both:
+   *
+   *   + rho.g.10 = 998 * 9.81 * 10 = 97 903.8 Pa of static head, and
+   *   - the extra friction in a pipe that is now longer, because its length is
+   *     3D: sqrt(50^2 + 10^2) = 50.9901951 m instead of 50 m.
+   *
+   * The flow is a fixed demand, so friction is proportional to length whatever
+   * the friction law — the extra is f_flat x (L_high/L_flat - 1). */
+  const fc = build(200e3, 0);
+  const flat = NET.solveModel(fc.m);
+  const rc = build(200e3, 10);
+  const high = NET.solveModel(rc.m);
+
+  near('Raising it lengthens the pipe in 3D', M.pipeLength(rc.m, rc.p),
+       Math.sqrt(2500 + 100), 1e-9);
+
+  const fFlat = 200e3 - flat.pressure[fc.t.id];              // friction over 50 m
+  const extra = fFlat * (M.pipeLength(rc.m, rc.p) / 50 - 1);
+  near('Raising the source adds rho.g.dz, less the extra friction',
+       high.pressure[rc.t.id] - flat.pressure[fc.t.id],
+       RHO * G9 * 10 - extra, 1e-6);
+  near('The source node still reads its own stated pressure',
+       high.pressure[rc.s.id], 200e3, 1);
+
+  // A source with no stated pressure is still a valid datum at 0 gauge.
+  near('Zero pressure is a datum, not an error',
+       NET.solveModel(build(0, 0).m).pressure[build(0, 0).s.id], 0, 1);
+}
+
+section('Old files migrate their source pressure off the elevation');
+{
+  const RHO = 998, G9 = 9.81;
+  // 20.42821626944 m of water at 998 kg/m3 is exactly 200 kPa.
+  const dz = 20.42821626944;
+  const old = {
+    formatVersion: 1,
+    settings: {},
+    levels: [{ id: 'L0', name: 'Level 0', altitude: 0, dx: 0, dy: 0 }],
+    nodes: [
+      { id: 'N0', level: 'L0', x: 10, y: 15, dz: dz, device: { kind: 'source' }, tag: 'SRC-1' },
+      { id: 'N1', level: 'L0', x: 60, y: 15, dz: 0,
+        device: { kind: 'demand', flow: 0.001, reqPressure: 100000, include: true } }
+    ],
+    pipes: [{ id: 'P0', a: 'N0', b: 'N1', kind: 'pipe', schedule: 'sch40', size: 'DN50', C: 120 }],
+    risers: []
+  };
+
+  const m = M.fromJSON(JSON.parse(JSON.stringify(old)));
+  ok('The migration is reported, not silent', m.migrations.length === 1);
+  ok('...with a code', m.migrations[0].code === 'SOURCE_PRESSURE_MOVED');
+
+  const src = M.node(m, 'N0');
+  near('The pressure comes across intact', src.device.pressure, RHO * G9 * dz, 1e-6);
+  near('...which is the 200 kPa it was drawn as', src.device.pressure, 200e3, 1);
+  ok('The elevation is cleared', src.dz === 0);
+
+  /* The point of the whole fix: the pipe is 50 m of plan run, and it read
+   * sqrt(50^2 + 20.42821626944^2) = 54.0121... m before. */
+  near('The pipe is back to its true 50 m', M.pipeLength(m, M.pipe(m, 'P0')), 50, 1e-9);
+
+  const res = NET.solveModel(m);
+  near('The source node reads 200 kPa', res.pressure.N0, 200e3, 1);
+
+  // Loading an already-migrated file must not double-count.
+  const again = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(m))));
+  ok('Re-loading migrates nothing', again.migrations.length === 0);
+  near('...and the pressure is unchanged', M.node(again, 'N0').device.pressure, 200e3, 1);
+  near('...as is the length', M.pipeLength(again, M.pipe(again, 'P0')), 50, 1e-9);
+}
+
 report();

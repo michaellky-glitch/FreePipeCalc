@@ -331,8 +331,25 @@
       var demand = 0, fixedHead = null;
       var dev = n.device;
       if (dev && dev.kind === 'source') {
-        // Infinite reservoir at 0 gauge, at its own altitude (spec §8.1)
-        fixedHead = z;
+        /* Inexhaustible supply at its own altitude, holding its stated static
+         * pressure AT THE NODE.
+         *
+         * It used to be pinned at 0 gauge, on the tank-surface reading: the
+         * water surface of an open tank really is at atmospheric, and the head
+         * it provides is the column above the connection. Every downstream
+         * number was right. But the source node itself then read 0 kPa while
+         * the very next node read 193, which looks like a pressure JUMP across
+         * a pipe that loses 7 kPa — and it is not what an engineer means when
+         * they draw a mains connection and label it 200 kPa. Michael and a
+         * colleague both read it the same way (2026-08-02).
+         *
+         * So the node is what you connect to, not the water surface, and it
+         * reads the pressure written on it. H = z + P/(ρg) makes the node's own
+         * gauge pressure ρg(H − z) = P exactly, and leaves every downstream
+         * head identical to before — this changes the reading, not the
+         * hydraulics. Elevation is now a separate matter, which is what it
+         * always should have been (see model.setSource). */
+        fixedHead = z + (dev.pressure || 0) / (rho * 9.81);
       } else if (dev && dev.kind === 'demand' && dev.include !== false) {
         demand = dev.flow || 0;
       }

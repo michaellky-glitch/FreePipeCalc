@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-02 (v0.7.6-dev), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-02 (v0.7.7-dev), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,15 +21,15 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — six files, **707 assertions, all passing**.
+Tests: `node test/<name>.test.js` — six files, **740 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. Where things stand (v0.7.6-dev, 2026-08-02)
+## 2. Where things stand (v0.7.7-dev, 2026-08-02)
 
-Nothing is BROKEN. The engine is green at **707 assertions** and the repository
+Nothing is BROKEN. The engine is green at **740 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
 
 The big change since v0.5.0 is the **ASHRAE (2021) method**, now the default —
@@ -76,7 +76,7 @@ Two things to know before anyone "fixes" this:
 | **Darcy friction-factor correlation** | Still unchosen. Four implemented, spread ≤1.4%. **Darcy remains unusable** until Michael picks one. |
 | **Pump properties restructure** | **Done, v0.7.6-dev.** Head removed as a settable parameter, New curve… button jumps to TOOLS pre-filled, order is Pump ID / Tag / Direction / Status / Design box (Re-size) / Actual box (New curve, Paste, Show, Clear), explanation behind a 🛈. Appearance unsigned — see `Human-Test.md` 4B.6–4B.9. |
 | **Outflow in SIMULATE** | **Done, v0.7.6-dev.** Design box + actual box, like equipment. The flow WAS verified to be `Q = Q_d·√(P/ΔP_d)` — see §2A. |
-| **Human-Test ⚠️/❌ follow-ups** | Six, listed in `KNOWN-ISSUES.md`: intermittent undo, negative pressure should be red, pressure visualiser should gradient along a pipe, riser marker placement/direction, riser node→pipe not connecting, light theme greyness. |
+| **Human-Test ⚠️/❌ follow-ups** | Five left in `KNOWN-ISSUES.md`: intermittent undo, negative pressure should be red, riser marker placement/direction, riser node→pipe not connecting, light theme greyness. (The pressure gradient is done, v0.7.7-dev.) |
 | **Independent verification** | Still the biggest gap. Nothing has been checked against another tool or a job with known answers. |
 | **Printer does not draw devices** | `printer.js` strokes device links as plain pipe with no symbol — now inconsistent with the canvas. In `KNOWN-ISSUES.md`. |
 
@@ -161,6 +161,19 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **Two defects found in `debug/20260802-1.json`** (v0.7.7-dev), both from one
+  wrong decision. A source's static pressure was stored as the node's ELEVATION,
+  which stretched every pipe on it in 3D — 50 m read as 54.01 m. And
+  `changeLength` compared a requested 3D length against a PLAN length, so typing
+  50 back in was a silent no-op. Both fixed; `KNOWN-ISSUES.md` has the detail.
+  **Old files are migrated on load and the app now says so in a dialog**, since
+  the migration moves pipe lengths.
+* **A source node reads its stated pressure**, not 0 kPa gauge (v0.7.7-dev), at
+  Michael's request and his colleague's. Downstream numbers are unchanged —
+  this is the reading, not the hydraulics. `ARCHITECTURE.md` §9.
+* **UX pass** (v0.7.7-dev) — every checkbox is a switch; the PRESSURE visualiser
+  ramps along a pipe and steps at a device; outflows, pumps and equipment show
+  their design K factor.
 * **Pump and outflow property panels restructured** (v0.7.6-dev) — a Design box
   and an Actual box on each, the pump's Head no longer settable, the explanation
   behind a 🛈. `ARCHITECTURE.md` §4A has the reasoning.

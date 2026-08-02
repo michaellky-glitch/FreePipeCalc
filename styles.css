@@ -811,6 +811,13 @@ table.doc-table th { background: var(--bg-raised); color: var(--text-dim); font-
 }
 .switch.on .switch-track { background: var(--ok); }
 .switch.on .switch-track::after { transform: translateX(16px); }
+/* Option switches: same control, muted when off. Red is a FAULT everywhere
+   else in this app, and "do not label the flow on the drawing" is not one. The
+   red/green pair stays on plant state — a stopped pump, isolated equipment. */
+.switch.plain { display: flex; width: 100%; margin: 5px 0; font-size: 12.5px; }
+.switch.plain .switch-track { background: var(--line); }
+.switch.plain.on .switch-track { background: var(--accent); }
+.switch.plain .switch-label { white-space: normal; text-align: left; }
 .switch-label { white-space: nowrap; }
 .switch:focus-visible { outline: 2px solid var(--select); outline-offset: 2px; }
 
