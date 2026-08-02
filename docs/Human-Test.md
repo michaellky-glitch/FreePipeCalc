@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 687
+This is deliberately separate from the automated suites. Those cover 707
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-07-31 (v0.7.4-dev)
+Last updated: 2026-08-02 (v0.7.6-dev)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -125,10 +125,16 @@ threshold (`settings.warn.pumpRunout`, default 120%).
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| 4B.1 | DESIGN/SIMULATION chip toggles and locks the calculated side | ⚠️ | Verified in-browser: pump head and outflow flow both disable with a tooltip. Needs a human eye on discoverability. |
+| 4B.1 | DESIGN/SIMULATION chip toggles and locks the calculated side | ⚠️ | Reworked in v0.7.6-dev — see 4B.6–4B.11. Nothing is a disabled input any more; both sides are read-only boxes. Needs a human eye on discoverability. |
 | 4B.3 | Parallel pumps and N+1 failure | ⚠️ | Battery above. Not checked against another tool. |
 | 4B.4 | Balancing Kv figures | ⬜ | Computed but never checked against a valve schedule. |
 | 4B.5 | Fitted curve from a real manufacturer datasheet | ⬜ | **Most important item here.** Only synthetic curves so far. |
+| 4B.6 | Pump panel: order reads Pump ID / Tag / Direction / Status / DESIGN / ACTUAL | ⬜ | **New in v0.7.6-dev.** Verified in the DOM; never rendered to pixels. |
+| 4B.7 | The 🛈 marker beside the pump heading | ⬜ | **New.** Hover text confirmed present. Two things to look at: does the glyph render on your machine (it may fall back to a box), and is a hover tooltip discoverable enough for what it says? |
+| 4B.8 | "New curve…" jumps to TOOLS with the duty pre-filled | ⬜ | **New.** Verified in the DOM: the tab switches and the generator opens carrying the pump's design flow and pressure. |
+| 4B.9 | DESIGN vs ACTUAL boxes are visually distinguishable | ⬜ | **New.** Two `.readout` boxes with small caps titles. Purely a look question. |
+| 4B.10 | Outflow in SIMULATE: design box editable, actual box beside it | ⬜ | **New in v0.7.6-dev.** The design flow is now EDITABLE in SIMULATE (it is the input the terminal's characteristic comes from, not a result). Worth confirming that reads right. |
+| 4B.11 | Head is no longer a settable pump parameter | ⬜ | **New.** The box was permanently disabled and is gone. Confirm nothing is missed by its absence. |
 
 ## 4C. TOOLS tab
 
@@ -176,6 +182,11 @@ threshold (`settings.warn.pumpRunout`, default 120%).
 * **TRACE has never seen a real drawing.** Everything so far is synthetic line
   art generated in the test itself.
 * **Printing** has not been done on real paper.
+* **Simulated outflow flow is now proven, in algebra.** `Q = Q_d·√(P_node/ΔP_d)`
+  holds to 1e-9 in `simulation.test.js` and was re-confirmed live in the browser
+  (18.78 L/s at 176.4 kPa against a hand answer of 18.78 L/s). That verifies the
+  *relationship*; it does not verify that the absolute numbers match another
+  tool, which remains the gap above.
 * **No pump curve has ever been fitted from a real datasheet.** The fitter is
   exercised only against curves generated from its own form, which it recovers
   exactly — that proves the algebra, not that manufacturer curves take this

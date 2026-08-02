@@ -689,6 +689,7 @@
     res.network = net;
     res.passes = passes;
     res.pumpSizing = sizing;
+    recordDesignPoint(m, res);
 
     /* When the network cannot meet its demands, the demand-driven answer above
      * is still the right one to REPORT — the negative pressures are the size
@@ -699,6 +700,28 @@
     res.critical = criticalPath(m, net, res);
     res.simulation = simulationReport(m, net, res);
     return res;
+  }
+
+  /* Remember the design duty on the pump itself.
+   *
+   * DESIGN sizes the pump, and the answer is a PAIR — flow and head at the
+   * design point. The head was already written back by autoSizePumps; the flow
+   * was not, so the design flow only ever existed as "whatever the last solve
+   * happened to return". SIMULATION needs both, because there the pump is
+   * doing something else and the panel shows the two side by side.
+   *
+   * Recorded in DESIGN only. Writing it in SIMULATION would overwrite the
+   * design point with the operating point, which is the one comparison the
+   * panel exists to make. */
+  function recordDesignPoint(m, res) {
+    if (m.settings.calcMode === 'simulation') return;
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'pump' || !p.pump || p.pump.mode === 'off') return;
+      var q = res.flow[p.id];
+      if (q === undefined) return;
+      p.pump.qDesign = Math.abs(q);
+      p.pump.hDesign = p.pump.head || 0;
+    });
   }
 
   /* Flow-regime check, run once after the solve has settled.

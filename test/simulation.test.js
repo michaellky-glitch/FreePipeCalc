@@ -210,6 +210,169 @@ section('Operating point against an analytic answer');
   ok('Not beyond the curve', sim.pumps[0].beyondCurve === false);
 }
 
+/* ------------------------------------------------------------------------
+ * Is the simulated outflow REALLY a function of node pressure, the design K
+ * and the pump curve?
+ *
+ * That is the claim the SIMULATE outflow panel makes, and it is worth proving
+ * rather than assuming. The claim decomposes into an identity and a response:
+ *
+ *   IDENTITY.  The terminal is r·Q² between the node and a virtual discharge
+ *   pinned at the node's own elevation (0 gauge), with r = ΔP_d/(ρ·g·Q_d²).
+ *   So  P_node/(ρg) = r·Q²  →  Q = Q_d·sqrt(P_node/ΔP_d) = K·sqrt(P_node),
+ *   with K = Q_d/sqrt(ΔP_d). This holds EXACTLY, whatever the rest of the
+ *   network does, so it is checked to 1e-9. It also means the design point is
+ *   a point ON the characteristic: at P_node = ΔP_d the flow is Q_d.
+ *
+ *   RESPONSE.  P_node is what the pump curve delivers through the solve, so a
+ *   different curve must move the flow, and by the amount the algebra says.
+ *
+ * Every expected value below is worked out from that algebra, not read back
+ * out of a solve.
+ * ---------------------------------------------------------------------- */
+section('Outflow flow follows node pressure, the design K and the curve');
+{
+  /* Two terminals of DIFFERENT design K on one pump, so the split between them
+   * has to be explained by K·sqrt(P) and not by anything else. */
+  const mk = (Qd1, Qd2, curve) => {
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    const lv = m.levels[0];
+    const s = M.addNode(m, lv, 0, 0);
+    const j = M.addNode(m, lv, 1, 0);
+    const t1 = M.addNode(m, lv, 2, 0);
+    const t2 = M.addNode(m, lv, 2, 2);
+    s.device = { kind: 'source', head: 0 };
+    t1.device = { kind: 'demand', flow: Qd1, reqPressure: 200e3 };
+    t2.device = { kind: 'demand', flow: Qd2, reqPressure: 150e3 };
+    const pump = M.addPipe(m, s.id, j.id, { kind: 'pump' });
+    pump.pump = { mode: 'fixed', head: 40, curve: curve };
+    M.addPipe(m, j.id, t1.id, { size: 'DN100', schedule: 'sch40' });
+    M.addPipe(m, j.id, t2.id, { size: 'DN100', schedule: 'sch40' });
+    return { m, t1, t2, pump };
+  };
+
+  const K = (Qd, dPd) => Qd / Math.sqrt(dPd);
+
+  const base = mk(0.020, 0.010, P.singlePoint(40, 0.030));
+  const res = NET.solveModel(base.m);
+  ok('Converges', res.converged === true);
+
+  const term = id => res.simulation.terminals.filter(t => t.node === id)[0];
+  const a1 = term(base.t1.id), a2 = term(base.t2.id);
+
+  // Q = K·sqrt(P), K = Q_d/sqrt(dP_d). Nothing here comes from the solver
+  // except the node pressure the identity is a function OF.
+  near('Terminal 1 flow is K1·sqrt(P1)',
+       a1.actualFlow, K(0.020, 200e3) * Math.sqrt(res.pressure[base.t1.id]), 1e-9);
+  near('Terminal 2 flow is K2·sqrt(P2)',
+       a2.actualFlow, K(0.010, 150e3) * Math.sqrt(res.pressure[base.t2.id]), 1e-9);
+
+  // The same statement in the form the panel uses: a ratio to the design point.
+  near('Terminal 1 flow is Qd·sqrt(P/dPd)',
+       a1.actualFlow, 0.020 * Math.sqrt(res.pressure[base.t1.id] / 200e3), 1e-9);
+
+  ok('The two terminals sit at different pressures',
+     Math.abs(res.pressure[base.t1.id] - res.pressure[base.t2.id]) > 1,
+     `${res.pressure[base.t1.id]} vs ${res.pressure[base.t2.id]}`);
+  near('Reported actual pressure is the node pressure',
+       a1.actualPressure, res.pressure[base.t1.id], 1e-9);
+
+  /* Design K is a real input, not decoration: 1.5x the design flow at the same
+   * design pressure is 1.5x the K, so at any given node pressure the terminal
+   * passes 1.5x the flow. The node pressure itself will drop (the pump is
+   * being asked for more), so the flow rises by LESS than 1.5x — the identity
+   * is what stays exact. */
+  const wider = mk(0.030, 0.010, P.singlePoint(40, 0.030));
+  const resW = NET.solveModel(wider.m);
+  const w1 = resW.simulation.terminals.filter(t => t.node === wider.t1.id)[0];
+  near('A 1.5x design K still obeys the identity',
+       w1.actualFlow, K(0.030, 200e3) * Math.sqrt(resW.pressure[wider.t1.id]), 1e-9);
+  ok('A larger design K draws more flow', w1.actualFlow > a1.actualFlow,
+     `${w1.actualFlow} vs ${a1.actualFlow}`);
+  ok('and pulls the node pressure down',
+     resW.pressure[wider.t1.id] < res.pressure[base.t1.id]);
+  ok('Flow rises by less than the K ratio (pressure gave way)',
+     w1.actualFlow / a1.actualFlow < 1.5, String(w1.actualFlow / a1.actualFlow));
+
+  /* The pump curve is the other input. A curve with the same shape but 25%
+   * more head at every flow (H0 40 -> 50) must raise both pressures and both
+   * flows, and the identity must survive it. */
+  const strong = mk(0.020, 0.010, P.singlePoint(50, 0.030));
+  const resS = NET.solveModel(strong.m);
+  const s1 = resS.simulation.terminals.filter(t => t.node === strong.t1.id)[0];
+  near('A stronger curve still obeys the identity',
+       s1.actualFlow, K(0.020, 200e3) * Math.sqrt(resS.pressure[strong.t1.id]), 1e-9);
+  ok('A stronger curve raises the node pressure',
+     resS.pressure[strong.t1.id] > res.pressure[base.t1.id]);
+  ok('and therefore the flow', s1.actualFlow > a1.actualFlow);
+
+  /* Only the curve changed, and both terminals kept their K, so both flows
+   * must scale by the SAME factor — sqrt(P'/P) at each node. That is only true
+   * if the flow really is K·sqrt(P) and nothing else. */
+  near('Both terminals scale by sqrt of their own pressure ratio',
+       s1.actualFlow / a1.actualFlow,
+       Math.sqrt(resS.pressure[strong.t1.id] / res.pressure[base.t1.id]), 1e-9);
+
+  /* And the head the pump makes is its curve read at the total it is passing —
+   * the link between the curve and the pressures above. */
+  const qPump = Math.abs(resS.flow[strong.pump.id]);
+  near('Pump head is its curve at the total flow',
+       resS.simulation.pumps[0].head, P.head(strong.pump.pump.curve, qPump), 1e-9);
+  near('Pump flow is the sum of what the terminals take',
+       qPump,
+       resS.simulation.terminals.reduce((a, t) => a + t.actualFlow, 0), 1e-9);
+}
+
+/* The identity above is exact but relative — it says the flow follows the
+ * pressure. This pins the ABSOLUTE answer for one case, with the friction made
+ * negligible so it has a closed form:
+ *
+ *   H0 - a·Q² = r·Q²   ->   Q = sqrt(H0/(a + r))
+ *
+ * A second, stronger curve is solved the same way. Both are hand answers; the
+ * solved flows must sit just below them (the pipe still has some friction) and
+ * must move between the two curves by the amount the algebra predicts.
+ */
+section('Two curves against a closed-form operating point');
+{
+  const one = (Hd) => {
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    const lv = m.levels[0];
+    const s = M.addNode(m, lv, 0, 0);
+    const j = M.addNode(m, lv, 0.5, 0);
+    const t = M.addNode(m, lv, 1, 0);
+    s.device = { kind: 'source', head: 0 };
+    t.device = { kind: 'demand', flow: 0.020, reqPressure: 200e3 };
+    const pump = M.addPipe(m, s.id, j.id, { kind: 'pump' });
+    pump.pump = { mode: 'fixed', head: Hd, curve: P.singlePoint(Hd, 0.020) };
+    M.addPipe(m, j.id, t.id, { size: 'DN300', schedule: 'sch40' });
+    const res = NET.solveModel(m);
+    // singlePoint: H = (4/3)Hd - (1/3)(Hd/Qd²)Q², so H0 = 4Hd/3 and a = Hd/(3Qd²)
+    const aC = Hd / (3 * 0.020 * 0.020);
+    const rT = 200e3 / (RHO * G * 0.020 * 0.020);
+    const qHand = Math.sqrt((4 * Hd / 3) / (aC + rT));
+    return { res, qHand, q: res.simulation.terminals[0].actualFlow };
+  };
+
+  const lo = one(30);
+  const hi = one(45);
+
+  ok('30 m curve lands just under its frictionless answer',
+     lo.q < lo.qHand && lo.q > lo.qHand * 0.999, `hand ${lo.qHand}, solved ${lo.q}`);
+  ok('45 m curve lands just under its frictionless answer',
+     hi.q < hi.qHand && hi.q > hi.qHand * 0.999, `hand ${hi.qHand}, solved ${hi.q}`);
+
+  /* Both terms of the frictionless answer scale with Hd — H0 = 4Hd/3 and
+   * a = Hd/3Qd² — but r does not, so the flow ratio is NOT sqrt(45/30). Worked
+   * out from the two closed forms rather than assumed. */
+  near('The flow ratio between the two curves matches the algebra',
+       hi.q / lo.q, hi.qHand / lo.qHand, 2e-3);
+
+  ok('More head means more flow', hi.q > lo.q);
+}
+
 section('DESIGN mode is unaffected by a curve');
 {
   const m = M.create();

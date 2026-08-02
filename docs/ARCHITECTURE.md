@@ -621,13 +621,43 @@ terminal *is* a different object in each.
 | Pump | duty calculated — an **output** | curve — an **input**, and mandatory |
 | Question | "what pump do I need?" | "what will this pump do?" |
 
-Whichever side is calculated is greyed and locked in the property panel. The
-mode is `settings.calcMode` and the chip on the ribbon toggles it.
+The mode is `settings.calcMode` and the chip on the ribbon toggles it.
+
+**Both sides are shown, in two boxes, not one greyed input** (v0.7.6-dev). A
+pump and an outflow each present a **Design** group — what it was sized for —
+and an **Actual** group — what it is doing. In DESIGN the two agree by
+construction; in SIMULATION the gap between them is the answer.
+
+Two consequences worth knowing:
+
+* **A pump's head is no longer settable.** It never was in practice — DESIGN
+  auto-sizes it, SIMULATION reads it off the curve — so the box sat permanently
+  disabled with a change handler that could not fire. `network.recordDesignPoint()`
+  now writes `pump.qDesign` / `pump.hDesign` back onto the model on every DESIGN
+  solve, because SIMULATION does not re-size anything and the panel still has to
+  show what the pump was selected FOR.
+* **An outflow's design flow stays EDITABLE in SIMULATION.** It is not a result
+  there: it is the input the terminal's characteristic is derived from. Disabling
+  it hid the number driving the simulated flow, and put the *actual* flow in a
+  box labelled as the design flow.
 
 Terminal characteristic comes from the design point, `r = ΔP_d / (ρ·g·Q_d²)`,
 which is the same form equipment already uses — so nothing extra is entered.
 That is why an outflow at zero required pressure is refused: `K = Q/√ΔP` is
 undefined there, and guessing would be inventing engineering data.
+
+That characteristic sits on a short link from the terminal node to a virtual
+discharge node pinned at the terminal's own elevation, 0 gauge. So the head
+across it is exactly the node's gauge pressure, and
+
+    P_node/(ρg) = r·Q²    ⟹    Q = Q_d·√(P_node/ΔP_d) = K·√(P_node)
+
+with `K = Q_d/√ΔP_d`. The simulated flow is therefore a function of **three
+things and nothing else**: the node pressure, the design-point K, and — through
+the solve, which is what sets the node pressure — the pump curve. That identity
+is exact whatever the rest of the network does, which makes it a strong check,
+and `simulation.test.js` asserts it to 1e-9 across a change of K, a change of
+curve, and two terminals of different K sharing one pump.
 
 Full reasoning in `SIMULATION-design.md`.
 
@@ -685,7 +715,7 @@ invites entering numbers into the one being ignored.
 
 ## 15. Testing
 
-Six suites, 687 assertions, no dependencies:
+Six suites, 707 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -696,7 +726,7 @@ node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
 
-All 687 pass. The "Parallel pumps share in DESIGN" section of
+All 707 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change

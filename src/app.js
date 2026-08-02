@@ -1873,42 +1873,86 @@
   }
 
 
-  /* Pump curve entry. Three ways in, in order of how often they are used:
-   * the EPANET single-point assumption from the design duty (with optional
-   * selection margins), pasted manufacturer Q/H data, or nothing — in which
-   * case SIMULATION falls back to a fixed head, which is not a real pump. */
+  /* A boxed group of read-only values — the same shape the equipment panel
+   * already uses for its actual duty. Returns the box plus a `ro(k, v)` to add
+   * rows with; the box is appended straight away so buttons can follow the
+   * rows inside it. */
+  function readoutBox(host, title) {
+    var box = el('div', 'readout');
+    if (title) box.appendChild(el('h4', 'readout-title', title));
+    host.appendChild(box);
+    return {
+      box: box,
+      ro: function (k, v) {
+        var r = el('div', 'kv');
+        r.appendChild(el('span', 'k', k));
+        r.appendChild(el('span', 'v', v));
+        box.appendChild(r);
+        return r;
+      }
+    };
+  }
+
+  /* Explanation behind a marker rather than on the panel, for the same reason
+   * as the info marker in TOOLS: it matters, but it is a footnote read once,
+   * and as body text it was longer than the controls it sat above. */
+  function infoMark(host, text) {
+    var i = el('span', 'info-mark', '🛈');
+    i.title = text;
+    host.appendChild(i);
+    return i;
+  }
+
+  /* The design duty this pump was sized for.
+   *
+   * Recorded onto the pump by every DESIGN solve (network.recordDesignPoint),
+   * because in SIMULATION nothing re-sizes it and the panel still has to show
+   * what it was selected FOR beside what it is doing. The live fallback covers
+   * the moment before the first solve of a freshly placed pump. */
+  function pumpDesignPoint(p) {
+    var res = app.results;
+    var q = p.pump.qDesign;
+    if (!(q >= 0) && res && res.flow && res.flow[p.id] !== undefined) {
+      q = Math.abs(res.flow[p.id]);
+    }
+    var h = p.pump.hDesign;
+    if (!(h >= 0)) h = p.pump.head;
+    return { q: q >= 0 ? q : null, h: h >= 0 ? h : null };
+  }
+
+  /* What the pump is ACTUALLY doing, which is the question in front of you when
+   * a pump is selected, plus the ways to give it a curve.
+   *
+   * Shutoff head, max flow, the stored form, the curve's provenance and the fit
+   * statistics were all shown here once; they describe the curve rather than
+   * the duty, and pushed the two numbers that matter off the bottom. The
+   * fit-quality warning is kept — a curve that does not fit must stay visible. */
   function renderPumpCurve(host, p) {
     var m = app.model;
     var pu = m.settings.display.pressure, fu = m.settings.display.flow;
-    host.appendChild(el('h4', '', 'Pump curve'));
 
     var c = p.pump.curve;
-    if (!c) {
-      host.appendChild(el('p', 'hint',
-        'No curve set. Without one the pump is modelled as a constant head, which no ' +
-        'real pump is — flow will not respond to the system.'));
-      host.appendChild(el('p', 'hint',
-        'Use a manufacturer curve if you have one. If you do not, build a generic ' +
-        'curve under the TOOLS tab (Generic Pump Curve), copy its table, and paste ' +
-        'it here.'));
-    } else {
-      var d = el('div', 'readout');
+    {
+      var d = readoutBox(host, 'Actual').box;
       function ro(k, v) {
         var r = el('div', 'kv'); r.appendChild(el('span', 'k', k));
         r.appendChild(el('span', 'v', v)); d.appendChild(r);
       }
-      /* What the pump is ACTUALLY doing, which is the question in front of you
-       * when a pump is selected. Shutoff head, max flow, the stored form, the
-       * curve's provenance and the fit statistics were all here too; they
-       * describe the curve rather than the duty, and pushed the two numbers
-       * that matter off the bottom. The fit-quality warning below is kept —
-       * a curve that does not fit must still be visible. */
       var pres = app.results;
-      var qNow = pres && pres.flow ? Math.abs(pres.flow[p.id] || 0) : null;
+      var pOff = p.pump.mode === 'off';
+      var qNow = pOff ? 0
+               : (pres && pres.flow && pres.flow[p.id] !== undefined
+                  ? Math.abs(pres.flow[p.id]) : null);
+      /* A stopped pump develops no head. Reading its curve at Q = 0 would
+       * report shutoff head, which is what it WOULD make if it were running.
+       * With no curve the pump IS its fixed head — what the solver used. */
+      var hNow = pOff ? 0
+               : qNow === null ? null
+               : c ? FD.pumps.head(c, qNow) : (p.pump.head || 0);
       ro('Actual flow', qNow === null ? '—' : FD.units.fmtFlow(qNow, fu, true));
-      ro('Actual pressure', qNow === null ? '—'
-         : FD.units.fmtPressure(headToPa(FD.pumps.head(c, qNow)), pu, true));
-      if (c.fit) {
+      ro('Actual pressure', hNow === null ? '—'
+         : FD.units.fmtPressure(headToPa(hNow), pu, true));
+      if (c && c.fit) {
         /* A bad fit must be visible. A manufacturer curve that does not take
          * this form should be the engineer's problem to see, not a silent
          * error in the answers. */
@@ -1917,10 +1961,29 @@
             'This curve does not fit H = H\u2080 \u2212 a\u00b7Q^b well. Check the pasted data.'));
         }
       }
-      host.appendChild(d);
     }
 
     var row = el('div', 'btn-row');
+
+    /* With no curve, the way to GET one is the offer \u2014 not a paragraph saying
+     * where to look. The generator opens pre-filled with this pump's design
+     * duty, which is the first thing it asks for. */
+    if (!c) {
+      var gen = el('button', 'btn', 'New curve\u2026');
+      gen.title = 'Open TOOLS \u25b8 Pump Curve Generator, pre-filled with this ' +
+                  'pump\u2019s design duty.';
+      gen.addEventListener('click', function () {
+        var dp = pumpDesignPoint(p);
+        if (FD.tools && FD.tools.prefill) {
+          FD.tools.prefill(
+            dp.q === null ? '' : FD.units.fmtFlow(dp.q, fu),
+            dp.h === null ? '' : FD.units.fmtPressure(headToPa(dp.h), pu));
+        }
+        if (app.showTab) app.showTab('pane-tools');
+        if (FD.tools) FD.tools.render(app);
+      });
+      row.appendChild(gen);
+    }
 
     var paste = el('button', 'btn', 'Paste curve data\u2026');
     paste.addEventListener('click', function () {
@@ -2037,18 +2100,36 @@
     host.appendChild(wrap);
   }
 
-  /* Spec §8.4. Head is either user-fixed or auto-sized: auto solves, reads the
-   * worst shortfall at any demand, and adds that plus the safety factor. */
+  var PUMP_INFO =
+    'In DESIGN mode the pump is automatically sized to meet the demand of ' +
+    'Outflow or Equipment. A pump curve with at least 3 points is required for ' +
+    'pipe simulation (see TOOLS>Pump Curve Generator).';
+
+  /* Spec §8.4, restructured 2026-08-02.
+   *
+   * Head is no longer a settable parameter. It never was one in practice —
+   * DESIGN auto-sizes it and SIMULATION reads it off the curve — so the box
+   * sat there permanently disabled, carrying a change handler that could not
+   * fire and inviting the question "why can I not type in this?".
+   *
+   * What replaces it is the same two-box shape equipment uses: what the pump
+   * was SIZED FOR, and what it is DOING. In DESIGN those agree by
+   * construction; in SIMULATION the gap between them is the whole answer. */
   function renderPumpProps(host, p) {
-    var m = app.model;
-    host.appendChild(el('h3', '', 'Pump ' + p.id));
+    var m = app.model, d = m.settings.display;
+    var h3 = el('h3', '', 'Pump ' + p.id);
+    infoMark(h3, PUMP_INFO);
+    host.appendChild(h3);
+
     tagField(host, p);
+    /* Not in the requested order, but a pump that cannot be turned round has to
+     * be redrawn to be reversed. Kept between Tag and Status. */
     flipField(host, p);
 
-    /* Just running or not. There is no longer a sizing choice to make: DESIGN
-     * always auto-sizes, and SIMULATION always reads the curve. A 'fixed head'
-     * option only ever meant 'a pump that ignores its own curve', which is not
-     * a thing worth being able to model. */
+    /* Just running or not. There is no sizing choice to make: DESIGN always
+     * auto-sizes, and SIMULATION always reads the curve. A 'fixed head' option
+     * only ever meant 'a pump that ignores its own curve', which is not a thing
+     * worth being able to model. */
     statusToggle(host, p.pump.mode !== 'off', 'Running', 'Off (isolated, no flow)',
       function (on) {
         pushUndo();
@@ -2057,67 +2138,50 @@
         renderProperties(); changed();
       });
 
-    var hIn = el('input'); hIn.type = 'text';
-    hIn.value = FD.units.fmtPressure(headToPa(p.pump.head || 0), m.settings.display.pressure);
-    hIn.disabled = true;      // always calculated: auto-sized in DESIGN, curve in SIMULATION
-    field(host, 'Head (' + m.settings.display.pressure + ')', hIn)
-      .addEventListener('change', function () {
-        var v = FD.units.parse(hIn.value);
-        if (!isFinite(v)) { return; }
-        pushUndo();
-        p.pump.head = FD.units.paToHeadWith(FD.units.toSIPressure(v, m.settings.display.pressure),
-                                            m.settings.fluid && m.settings.fluid.density);
-        changed();
+    // ---- design: what this pump was sized for ----
+    var dp = pumpDesignPoint(p);
+    var db = readoutBox(host, 'Design');
+    db.ro('Design flow', dp.q === null ? '—' : FD.units.fmtFlow(dp.q, d.flow, true));
+    db.ro('Design pressure', dp.h === null ? '—'
+          : FD.units.fmtPressure(headToPa(dp.h), d.pressure, true) +
+            '  (' + dp.h.toFixed(2) + ' m)');
+    /* The safety factor is a SELECTION margin, not part of the hydraulics.
+     * Baking it into the solve made a 10% margin push 21 L/s through equipment
+     * rated for 20, so it is reported here instead. */
+    var pct = m.settings.pumpSafetyPct || 0;
+    if (pct && dp.h !== null) {
+      var dutyH = dp.h * (1 + pct / 100);
+      db.ro('Select against (+' + pct + '%)',
+            FD.units.fmtPressure(headToPa(dutyH), d.pressure, true) +
+            '  (' + dutyH.toFixed(2) + ' m)');
+    }
+    if (p.pump.mode === 'auto') {
+      var rrow = el('div', 'btn-row');
+      var btn = el('button', 'btn', 'Re-size');
+      if (m.settings.calcMode === 'simulation') {
+        btn.disabled = true;
+        btn.title = 'Sizing is a DESIGN operation — in SIMULATION the curve ' +
+                    'decides the operating point.';
+      }
+      btn.addEventListener('click', function () {
+        pushUndo(); autoSizePump(p); renderProperties(); changed();
       });
+      rrow.appendChild(btn);
+      db.box.appendChild(rrow);
+    }
 
+    // ---- actual: what it is doing, and where a curve comes from ----
     /* The curve is the INPUT to SIMULATION, so it has to be enterable in
      * DESIGN. Gating it behind SIMULATION created a deadlock: you could not
      * reach SIMULATION without a curve, and could not add a curve without
-     * being in SIMULATION. */
-    if (p.pump.mode !== 'off') {
-      if (m.settings.calcMode === 'simulation') {
-        hIn.disabled = true;
-        hIn.title = 'Calculated in SIMULATION — the curve decides the operating point.';
-      }
-      renderPumpCurve(host, p);
-    }
+     * being in SIMULATION. It stays reachable on an OFF pump for the same
+     * reason — the deadlock would just move. */
+    renderPumpCurve(host, p);
 
     if (p.pump.mode === 'off') {
       host.appendChild(el('p', 'hint',
         'An off pump is modelled as isolated — no flow passes through it. Without this, ' +
         'a running pump short-circuits backwards through its idle neighbours.'));
-    }
-    if (p.pump.mode === 'auto') {
-      var btn = el('button', 'btn', 'Re-size now');
-      btn.addEventListener('click', function () {
-        pushUndo(); autoSizePump(p); renderProperties(); changed();
-      });
-      host.appendChild(btn);
-    }
-
-    var res = app.results;
-    if (res && res.flow[p.id] !== undefined) {
-      var info = el('div', 'readout');
-      function ro(k, v) {
-        var r = el('div', 'kv'); r.appendChild(el('span', 'k', k));
-        r.appendChild(el('span', 'v', v)); info.appendChild(r);
-      }
-      var pct = m.settings.pumpSafetyPct || 0;
-      var reqH = p.pump.head || 0;
-      var dutyH = reqH * (1 + pct / 100);
-      ro('Duty flow', FD.units.fmtFlow(Math.abs(res.flow[p.id]), m.settings.display.flow, true));
-      ro('Head required', FD.units.fmtPressure(headToPa(reqH),
-                                               m.settings.display.pressure, true) +
-                          '  (' + reqH.toFixed(2) + ' m)');
-      /* The safety factor is a SELECTION margin, not part of the hydraulics.
-       * Baking it into the solve made a 10% margin push 21 L/s through
-       * equipment rated for 20, so it is reported here instead. */
-      if (pct) {
-        ro('Select against (+' + pct + '%)',
-           FD.units.fmtPressure(headToPa(dutyH), m.settings.display.pressure, true) +
-           '  (' + dutyH.toFixed(2) + ' m)');
-      }
-      host.appendChild(info);
     }
 
     displayChecks(host, p, [
@@ -2304,22 +2368,19 @@
 
     if (dev && dev.kind === 'demand') {
       var simulating = (m.settings.calcMode === 'simulation');
+
+      /* Presented like EQUIPMENT: the design point in one group, what the
+       * terminal actually does in another.
+       *
+       * The design point stays EDITABLE in SIMULATION, which is the change
+       * here. It is not a result there — it is the input the terminal's
+       * characteristic is derived from, K = Q_d/sqrt(ΔP_d) — so disabling it
+       * hid the one number driving the simulated flow, and showed the actual
+       * flow in a box labelled as the design flow. */
       var fIn = el('input'); fIn.type = 'text';
       fIn.value = FD.units.fmtFlow(dev.flow, m.settings.display.flow);
-      if (simulating) {
-        /* In SIMULATION flow is a result, not a requirement. Showing an
-         * editable box that the solver is about to overwrite is a trap. */
-        var act = app.results && app.results.simulation &&
-                  app.results.simulation.terminals.filter(function (t2) {
-                    return t2.node === n.id; })[0];
-        if (act) fIn.value = FD.units.fmtFlow(act.actualFlow, m.settings.display.flow);
-        fIn.disabled = true;
-        fIn.title = 'Calculated in SIMULATION — switch to DESIGN to set it.';
-      }
-      field(host, (simulating ? 'Flow — calculated (' : 'Design flow (') +
-                  m.settings.display.flow + ')', fIn)
+      field(host, 'Design flow (' + m.settings.display.flow + ')', fIn)
         .addEventListener('change', function () {
-          if (fIn.disabled) return;
           var v = FD.units.parse(fIn.value);
           if (isFinite(v) && v >= 0) {
             pushUndo();
@@ -2364,6 +2425,37 @@
       incWrap.appendChild(inc);
       incWrap.appendChild(el('span', '', 'Include in calculation'));
       host.appendChild(incWrap);
+      /* In SIMULATION the terminal is a resistance derived from the design
+       * point above, so its flow is an OUTPUT: Q = Q_d·sqrt(P_node/ΔP_d),
+       * with P_node set by the pump curve through the solve. Reported in its
+       * own box, exactly as equipment reports its actual duty. */
+      if (simulating) {
+        var sim = app.results && app.results.simulation;
+        var act = sim && sim.terminals.filter(function (t2) {
+          return t2.node === n.id; })[0];
+        var ab = readoutBox(host, 'Actual');
+        ab.ro('Actual flow', act ? FD.units.fmtFlow(act.actualFlow, m.settings.display.flow, true)
+                                 : '—');
+        ab.ro('Actual pressure',
+              act && act.actualPressure !== undefined && act.actualPressure !== null
+                ? FD.units.fmtPressure(act.actualPressure, m.settings.display.pressure, true)
+                : '—');
+        if (act && act.ratio !== null) {
+          ab.ro('Of design flow', (act.ratio * 100).toFixed(1) + '%');
+        }
+        /* The regulating valve needed to trim a terminal that is over-flowing.
+         * Already computed by the engine; it was only ever visible on the
+         * calculation sheet, which is not where you are standing when you have
+         * the terminal selected. */
+        if (act && act.balanceKv) {
+          ab.ro('Balance to design', 'Kv ' + act.balanceKv.toFixed(1));
+        }
+        if (dev.include === false) {
+          ab.box.appendChild(el('p', 'hint',
+            'Excluded from the calculation, so it draws nothing.'));
+        }
+      }
+
       inc.addEventListener('change', function () {
         pushUndo(); dev.include = inc.checked; changed();
       });
@@ -2408,10 +2500,15 @@
       r1.appendChild(el('span', 'k', 'Elevation'));
       r1.appendChild(el('span', 'v', FD.units.fmtLength(M.elevation(m, n), m.settings.display.length, true)));
       info.appendChild(r1);
-      var r2 = el('div', 'kv');
-      r2.appendChild(el('span', 'k', 'Pressure'));
-      r2.appendChild(el('span', 'v', FD.units.fmtPressure(res.pressure[n.id], m.settings.display.pressure, true)));
-      info.appendChild(r2);
+      /* Not repeated when the Actual box above has already stated it — the same
+       * number twice in one panel reads as two different numbers that happen to
+       * agree. Elevation still belongs to every node. */
+      if (!(dev && dev.kind === 'demand' && m.settings.calcMode === 'simulation')) {
+        var r2 = el('div', 'kv');
+        r2.appendChild(el('span', 'k', 'Pressure'));
+        r2.appendChild(el('span', 'v', FD.units.fmtPressure(res.pressure[n.id], m.settings.display.pressure, true)));
+        info.appendChild(r2);
+      }
       host.appendChild(info);
     }
 
@@ -3426,6 +3523,10 @@
         $(o.dataset.pane).dataset.active = on ? 'true' : 'false';
       });
     }
+    /* Published so a panel can send the user somewhere — the pump's "New
+     * curve…" button opens TOOLS. It only switches panes; the caller renders
+     * the destination, because the tab click handler above does the same. */
+    app.showTab = showTab;
 
     // ---- tools ----
     var toolButtons = [].slice.call(document.querySelectorAll('[data-tool]'));

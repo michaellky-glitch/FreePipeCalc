@@ -323,6 +323,25 @@
     var host = document.getElementById('tools-body');
     if (!host) return;
     host.innerHTML = '';
+    ensureState();
+    renderPumpCurveTool(host, app);
+  }
+
+  /* Arrive from a pump with its design duty already in the boxes.
+   *
+   * The generator's first two questions are the design flow and pressure, and
+   * a pump that needs a curve has just been sized to exactly those. Values are
+   * strings in the caller's DISPLAY units, which is what the tool works in
+   * throughout (see generate()) — no conversion happens on the way in. Any
+   * previous result is cleared: it belonged to the old design point. */
+  function prefill(qDesign, hDesign) {
+    ensureState();
+    state.qDesign = qDesign;
+    state.hDesign = hDesign;
+    state.result = null;
+  }
+
+  function ensureState() {
     if (!state) {
       state = {
         qDesign: null, hDesign: null,
@@ -331,12 +350,12 @@
         result: null
       };
     }
-    renderPumpCurveTool(host, app);
   }
 
   FD.tools = {
     render: render,
     generate: generate,
+    prefill: prefill,
     _reset: function () { state = null; }
   };
 })(window.FD = window.FD || {});

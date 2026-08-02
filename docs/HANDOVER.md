@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-02 (v0.7.5-dev), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-02 (v0.7.6-dev), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,15 +21,15 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — six files, **687 assertions, all passing**.
+Tests: `node test/<name>.test.js` — six files, **707 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. Where things stand (v0.7.5-dev, 2026-08-02)
+## 2. Where things stand (v0.7.6-dev, 2026-08-02)
 
-Nothing is BROKEN. The engine is green at **687 assertions** and the repository
+Nothing is BROKEN. The engine is green at **707 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
 
 The big change since v0.5.0 is the **ASHRAE (2021) method**, now the default —
@@ -74,11 +74,35 @@ Two things to know before anyone "fixes" this:
 | Item | State |
 |---|---|
 | **Darcy friction-factor correlation** | Still unchosen. Four implemented, spread ≤1.4%. **Darcy remains unusable** until Michael picks one. |
-| **Pump properties restructure** | Requested and NOT done: remove settable Head, add a New Curve button linking to TOOLS, reorder to Tag / Status / [Design flow, Design pressure] / [Actual flow, Actual pressure], explanation behind a 🛈. |
-| **Outflow in SIMULATE** | Requested and NOT done: present like equipment (design box + actual box), and verify outflow flow really is a function of node pressure, the design K and the pump curve. |
+| **Pump properties restructure** | **Done, v0.7.6-dev.** Head removed as a settable parameter, New curve… button jumps to TOOLS pre-filled, order is Pump ID / Tag / Direction / Status / Design box (Re-size) / Actual box (New curve, Paste, Show, Clear), explanation behind a 🛈. Appearance unsigned — see `Human-Test.md` 4B.6–4B.9. |
+| **Outflow in SIMULATE** | **Done, v0.7.6-dev.** Design box + actual box, like equipment. The flow WAS verified to be `Q = Q_d·√(P/ΔP_d)` — see §2A. |
 | **Human-Test ⚠️/❌ follow-ups** | Six, listed in `KNOWN-ISSUES.md`: intermittent undo, negative pressure should be red, pressure visualiser should gradient along a pipe, riser marker placement/direction, riser node→pipe not connecting, light theme greyness. |
 | **Independent verification** | Still the biggest gap. Nothing has been checked against another tool or a job with known answers. |
 | **Printer does not draw devices** | `printer.js` strokes device links as plain pipe with no symbol — now inconsistent with the canvas. In `KNOWN-ISSUES.md`. |
+
+### 2A. The simulated outflow — verified, and what that does and does not mean
+
+The question asked was whether the outflow flow in SIMULATE really is a function
+of node pressure, the design-point K, and the pump curve. It is, and the proof is
+algebraic rather than empirical.
+
+The terminal is a link from the outflow node to a virtual discharge node pinned
+at the node's own elevation and 0 gauge, carrying `r = ΔP_d/(ρ·g·Q_d²)` at
+exponent 2. The head across it is therefore exactly the node's gauge pressure:
+
+    P_node/(ρg) = r·Q²    ⟹    Q = Q_d·√(P_node/ΔP_d) = K·√(P_node)
+
+Nothing else enters. The pump curve acts only by setting `P_node` through the
+solve. `simulation.test.js` now holds two new sections asserting this to **1e-9**
+across a 1.5× change in K, a change of curve, and two terminals of different K on
+one pump — plus a closed-form operating point for two curves. It was
+re-confirmed live in the browser: 18.78 L/s at 176.4 kPa against a hand answer of
+18.78 L/s.
+
+**What this does NOT establish** is that any absolute number is right. It proves
+the terminal model is internally exact and responds to the two inputs it claims
+to. Independent verification against another tool is still the biggest gap
+(below).
 
 ### The tee coefficients — CLOSED
 
@@ -137,6 +161,9 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **Pump and outflow property panels restructured** (v0.7.6-dev) — a Design box
+  and an Actual box on each, the pump's Head no longer settable, the explanation
+  behind a 🛈. `ARCHITECTURE.md` §4A has the reasoning.
 * **ASHRAE (2021) is the default method** — Hazen-Williams pipe friction with
   K velocity-head fittings, both sourced from Ch 22. See §2.
 * **Modes.** EDIT is now **DESIGN**; **SIMULATE** is a mode beside it rather

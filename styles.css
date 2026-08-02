@@ -349,6 +349,18 @@ table.sheet td.dim  { color: var(--text-mute); }
   margin-top: 12px;
   background: var(--bg-raised);
 }
+/* Names the group a readout belongs to — "Design" against "Actual" on a pump
+   or a terminal. Without it the two boxes are two anonymous lists of numbers
+   with the same row labels in each. */
+.readout-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+.readout .btn-row { margin-top: 8px; }
 .kv { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 2px 0; }
 .kv .k { color: var(--text-mute); }
 .kv .v { font-variant-numeric: tabular-nums; text-align: right; }
