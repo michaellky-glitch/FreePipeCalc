@@ -186,11 +186,17 @@ section('Network — tee run/branch by flow direction (spec §3.3)');
      byPipe[pW.id] === undefined, JSON.stringify(byPipe));
 
   // Equivalent length actually reaches the right pipes
+  /* Equivalent length is now NFPA 13 Table 27.2.3.1.1, keyed on NOMINAL size.
+   * These pipes are DN50, where the printed tee-branch figure is 3.0 m. */
   const els = NET.fittingsByPipe(m, res.flow, []);
-  const bore = M.pipeBore(m, pN) * 1000;
-  near('Branch EL = 60·D', els[pN.id].el, FD.fittings.el('TBRANCH', bore), 1e-12);
-  near('Run EL = 20·D', els[pE.id].el, FD.fittings.el('TRUN', bore), 1e-12);
-  ok('Branch EL is 3× the run EL', Math.abs(els[pN.id].el / els[pE.id].el - 3) < 1e-12);
+  const nominal = FD.schedules.nominalMm(pN.size);
+  near('The branch is charged its NFPA figure', els[pN.id].el,
+       FD.fittings.el('TBRANCH', nominal), 1e-12);
+  near('...which at DN50 is 3.0 m', els[pN.id].el, 3.0, 1e-12);
+  /* The straight-through run is BLANK in NFPA 13 and awaiting values from
+   * Michael, so it currently costs nothing. Asserted rather than left to be
+   * discovered when a number looks low. */
+  near('The run is charged nothing while its row is blank', els[pE.id].el, 0, 1e-12);
 }
 
 section('Network — the second pass actually changes the answer');

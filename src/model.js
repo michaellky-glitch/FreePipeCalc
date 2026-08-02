@@ -71,8 +71,15 @@
         specificHeat: 4187             // J/(kg·K) — not implemented
       },
 
-      /* Fitting equivalent lengths on an L/D basis (spec §3.3), editable.
-       * Used by Hazen-Williams. */
+      /* Fitting equivalent lengths, in METRES against nominal size, from
+       * NFPA 13 (2019) Table 27.2.3.1.1. Editable; empty means "use the
+       * printed value". Used by Hazen-Williams only — ASHRAE and Darcy charge
+       * fittings as K velocity heads instead. */
+      fittingEL: {},
+
+      /* SUPERSEDED by fittingEL. The old L/D ratio basis, kept so a model saved
+       * before 2026-08-02 still loads with its settings intact rather than
+       * looking corrupt. Nothing reads it. */
       fittingLD: { E90: 30, E45: 16, TRUN: 20, TBRANCH: 60,
                    TRUN_DIV: 20, TBRANCH_DIV: 60,
                    /* Combining values equal the dividing ones: ASHRAE Ch 22
@@ -786,6 +793,13 @@
                                         (obj.settings || {}).annotate || {});
     m.settings.fittingLD = Object.assign(defaultSettings().fittingLD,
                                          (obj.settings || {}).fittingLD || {});
+    /* Per-size, so a shallow merge would replace a whole fitting's row when the
+     * file only edited one column of it. */
+    m.settings.fittingEL = {};
+    var savedEL = (obj.settings || {}).fittingEL || {};
+    Object.keys(savedEL).forEach(function (t) {
+      m.settings.fittingEL[t] = Object.assign({}, savedEL[t]);
+    });
     m.settings.fittingK = (obj.settings || {}).fittingK || {};
     m.customSchedules = obj.customSchedules || {};
     m.levels = obj.levels || m.levels;

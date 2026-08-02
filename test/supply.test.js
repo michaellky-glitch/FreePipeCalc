@@ -44,11 +44,27 @@ section('Pump auto-sizes on every solve');
    * (K = 0.9) rather than a branch (K = 1.1). The three legs that changed carry
    * 1.30, 2.69 and 2.69 m/s, so the extra 0.2 velocity heads are 0.017, 0.074
    * and 0.074 m — 0.165 m in total against a 0.197 m rise in duty, the
-   * remainder being the flow redistribution that follows. Direction and size
-   * both check out. A RECORDED figure, not a hand calculation. */
-  near('...to the index duty at design flow', pump.pump.head, 41.95, 0.1);
+   * remainder being the flow redistribution that follows.
+   *
+   * 41.95 -> 39.49 the same day, when Hazen-Williams moved to the NFPA 13
+   * equivalent-length table. This fixture is an HW model. Two effects, and the
+   * second dominates:
+   *
+   *   - the elbow and branch figures barely move. At DN100 a 90 deg elbow goes
+   *     from 30 x 0.10226 = 3.068 m to the printed 3.0 m, and a tee-branch from
+   *     6.136 m to 6.1 m. Two independent sources agreeing to ~2% is a good
+   *     sign for both.
+   *   - the STRAIGHT-THROUGH TEE row is blank in NFPA 13 and awaiting values
+   *     from Michael, so it went from 20 x 0.10226 = 2.045 m to zero. This
+   *     model has two of them.
+   *
+   * Total equivalent length removed is about 5.3 m, of which 4.1 m is the two
+   * tee runs; the duty falls 2.46 m because only part of that sits on the
+   * critical path. PROVISIONAL: this figure will move again when the tee-run
+   * row is filled in. RECORDED, not hand-calculated. */
+  near('...to the index duty at design flow', pump.pump.head, 39.49, 0.1);
   near('Selection duty applies the margin on top',
-       pump.pump.head * (1 + m.settings.pumpSafetyPct / 100), 46.15, 0.15);
+       pump.pump.head * (1 + m.settings.pumpSafetyPct / 100), 43.44, 0.15);
   ok('Every demand is met', !res.actual, res.actual ? JSON.stringify(res.actual.unmet) : 'met');
 
   // Re-solving must be stable, not creep upward each time
@@ -182,7 +198,7 @@ section('Restoring the source to L1 fixes everything');
   ok('No pressure-driven fallback needed (everything is met)', !res.actual);
 
   near('Pump carries the whole demand', Math.abs(res.flow[pump.id]), 0.1, 1e-9);
-  near('Pump sized to the index duty at design flow', pump.pump.head, 41.95, 0.1);
+  near('Pump sized to the index duty at design flow', pump.pump.head, 39.49, 0.1);
 
   m.nodes.filter(n => n.device && n.device.kind === 'demand').forEach(n => {
     ok(`${n.id} meets its requirement`,

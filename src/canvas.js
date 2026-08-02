@@ -2676,7 +2676,11 @@
       }
 
       if (!link._Leff) return;
-      var elen = FD.fittings.el(f.type, M.pipeBore(m, pipe) * 1000);
+      /* Keyed on the DESIGNATION, matching the NFPA 13 table — see
+       * fittings.el. The bore is only the velocity's business. */
+      var nominal = FD.schedules.nominalMm
+        ? FD.schedules.nominalMm(pipe.size) : M.pipeBore(m, pipe) * 1000;
+      var elen = FD.fittings.el(f.type, nominal, m.settings.fittingEL);
       var loss = FD.units.headToPaWith(Math.abs(FD.hydraulics.linkLoss(link, q)), rho);
       total += loss * (elen / link._Leff);
     });

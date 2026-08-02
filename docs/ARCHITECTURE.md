@@ -258,6 +258,38 @@ length, size, C and fittings must carry identical flow whatever the
 coefficients are — and `model.test.js` asserts it to 1e-8, along with the
 drawing-order independence that the original bug failed.
 
+### Equivalent length is NFPA 13, not an L/D ratio
+
+Hazen-Williams charged fittings on an L/D basis — `EL = (L/D) × bore`, with flat
+ratios from the spec — until 2026-08-02. It is now **NFPA 13 (2019) Table
+27.2.3.1.1**, supplied by Michael: an equivalent length in **metres against
+nominal size**, read straight off the page. Nothing is multiplied by a bore.
+
+Three consequences worth knowing:
+
+* **The lookup key changed from bore to designation.** Under a ratio the bore
+  was the *correct* key, because the answer was a multiple of it. Under a table
+  keyed on the size designation it is not — HDPE "110 mm" is an outside
+  diameter with a 90 mm bore, so keying on bore lands two rows off and reads 15%
+  low. Both `el()` and `ktable.k()` now take nominal.
+* **The metric column is stored**, not the feet column, because the model is
+  metric and imperial is a display conversion (§2.2). The two are the source's
+  own independent roundings of each other — 13 ft is printed as 4 m — so an
+  imperial display will *not* reproduce the page's feet numbers, and cannot.
+* **The straight-through tee row is BLANK**, pending values from Michael. NFPA
+  13 tabulates only "flow turned 90°". It is left blank rather than assumed to
+  be zero or carried over from the old ratio, so it currently charges nothing —
+  and the HYDRAULIC tab, the calculation-sheet appendix and a test all say so
+  rather than leaving it to be noticed.
+
+What is deliberately *not* in the app's copy of the table: the 90° long-turn
+elbow, butterfly valve, gate valve, vane-type flow switch and swing check rows,
+and the ½ in and ¾ in columns. Valves are modelled by flow coefficient
+(`data/valves.js`), not equivalent length, and the app's table starts at 25 mm
+at Michael's instruction — so a pipe below DN25 clamps to the DN25 figure, which
+overstates it. The steel schedules do go down to DN15, so that is worth
+revisiting.
+
 **How fittings are charged depends on the method.** Under **ASHRAE (2021)** —
 the default — and under **Darcy-Weisbach** they are velocity heads,
 `h = K·V²/2g`, from the Ch 22 K tables (Eq 7), carried as a *separate quadratic
@@ -856,7 +888,7 @@ restating in the UI something the engine already knows.
 
 ## 15. Testing
 
-Six suites, 802 assertions, no dependencies:
+Six suites, 817 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -867,7 +899,7 @@ node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
 
-All 802 pass. The "Parallel pumps share in DESIGN" section of
+All 817 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change

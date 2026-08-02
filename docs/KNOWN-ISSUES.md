@@ -106,6 +106,30 @@ From the ⚠️/❌ notes in `Human-Test.md`:
   panel~~ (v0.7.7-dev). Both are still on the calculation sheet, which is where
   a set of terminals can be read against each other.
 
+### Reported 2026-08-02 (sixth round) — done, v0.8.2
+
+* ~~**Hazen-Williams equivalent length becomes NFPA 13 (2019) Table
+  27.2.3.1.1**~~, editable, with a Reset button and the source named beneath.
+  Metric stored, IP by conversion only.
+
+**OPEN, and waiting on Michael:**
+
+* **The straight-through tee row is blank.** NFPA 13 tabulates only "flow
+  turned 90°". Michael is supplying values next session. Until then that fitting
+  charges NOTHING — said in the HYDRAULIC tab, in the calculation-sheet
+  appendix, and asserted in `engine.test.js` so it cannot pass unnoticed. Every
+  HW baseline is provisional until it lands.
+* **Sizes below DN25 clamp to the DN25 figure, which overstates them.** The
+  app's table starts at 25 mm at Michael's instruction, but the printed table
+  does carry ½ in (15 mm) and ¾ in (20 mm) columns, and the steel schedules go
+  down to DN15. A DN15 90° elbow is charged 0.6 m where NFPA gives 0.3 m. Two
+  columns would fix it; worth asking.
+* **An imperial display cannot reproduce the page's feet column.** The stored
+  value is the printed METRIC one, and the two columns are the source's own
+  independent roundings of each other (13 ft is printed as 4 m). So a model set
+  to feet shows 1.969 ft where the page says 2. Correct by the metric-first
+  rule, and surprising if you are checking against the page in feet.
+
 ### Reported 2026-08-02 (fifth round) — done, v0.8.1
 
 * ~~**Darcy-Weisbach must charge fittings by the ASHRAE K method**~~, and the

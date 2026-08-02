@@ -892,7 +892,19 @@
         var kh = m.settings.hw;
         kv2('Formula', 'hf = ' + kh.A + ' · L · Q^' + kh.a +
                        ' / ( C^' + kh.b + ' · d^' + kh.e + ' )');
-        kv2('Fittings', 'Equivalent length (L/D basis)');
+        kv2('Fittings', 'Equivalent length — ' + FD.fittings.NFPA_SOURCE);
+        /* A blank row charges nothing, and a sheet that does not say so is
+         * quietly reporting a system with no straight-through tee losses. */
+        var blanks = FD.fittings.elTypes().filter(function (t) {
+          return FD.fittings.NFPA_DN.every(function (dn) {
+            return !(FD.fittings.el(t, dn, m.settings.fittingEL) > 0);
+          });
+        });
+        if (blanks.length) {
+          kv2('NOTE', blanks.map(function (t) { return FD.fittings.label(t); }).join(', ') +
+              ' is not tabulated in NFPA 13 and has been left blank, so it is ' +
+              'charged NOTHING in this calculation.');
+        }
         var defH = FD.hydraulics.HW_DEFAULTS;
         if (kh.A !== defH.A || kh.a !== defH.a || kh.b !== defH.b || kh.e !== defH.e) {
           kv2('NOTE', 'Constants have been EDITED from the ASHRAE defaults.');
@@ -2850,6 +2862,23 @@
     var m = app.model, host = $('hydraulic-body');
     host.innerHTML = '';
 
+    /* Lengths in this tab follow the model's display unit. Metric is the model
+     * and the stored value; imperial is a conversion at the edge, so the feet
+     * shown are a conversion of the stored metres and NOT the source's own feet
+     * column — the two are independent roundings of each other in the printed
+     * table (13 ft is printed as 4 m). */
+    var lenUnit = (m.settings.display && m.settings.display.length) || 'm';
+    var lenUnitName = lenUnit;
+    function fmtLen(si) {
+      if (si === null || si === undefined || si === '') return '';
+      var v = FD.units.length(Number(si), lenUnit);
+      /* Up to 3 dp, trailing zeros stripped: the printed metric column needs
+       * one, an edited value may need more, and 0.300 reads as false
+       * precision. */
+      return String(Math.round(v * 1000) / 1000);
+    }
+    function toLenSI(v) { return FD.units.toSILength(Number(v), lenUnit); }
+
     function h2(t) { host.appendChild(el('h2', '', t)); }
     function h3(t) { host.appendChild(el('h3', 'sub', t)); }
     function hint(t) { host.appendChild(el('p', 'hint', t)); }
@@ -3162,70 +3191,97 @@
      * invites entering numbers into the one that is being ignored. */
     if (!usesK) {
       h2('Fitting equivalent lengths');
-      hint('Used by Hazen-Williams. Charged to the downstream pipe as ' +
-           'EL = (L/D) × inner diameter. A dividing tee is charged to its ' +
-           'outlets; a combining tee is charged to its inlets.');
+      hint('Used by Hazen-Williams only. Charged to the downstream pipe: a ' +
+           'dividing tee to its outlets, a combining tee to its inlets.');
+      hint('Read against NOMINAL size, in ' + lenUnitName + '. These are lengths ' +
+           'from the table, not L/D ratios — nothing is multiplied by a bore.');
 
-      /* The unsourced coefficients, named out loud. These are placeholders and
-       * the engineer has to know which ones before issuing anything. */
-      var unsrc = FD.fittings.unsourced ? FD.fittings.unsourced() : [];
-      if (unsrc.length) {
-        var note = el('div', 'notice warn-notice');
-        note.appendChild(el('p', '',
-          unsrc.length + ' of these coefficients are PLACEHOLDERS, not sourced data:'));
-        var ul = el('ul');
-        unsrc.forEach(function (u) {
-          var li = el('li');
-          li.innerHTML = '<strong>' + u.label + '</strong> (L/D ' + u.ld + ') — ' + u.note;
-          ul.appendChild(li);
+      /* The straight-through row is blank pending values from Michael, and a
+       * blank charges NOTHING. That has to be said where the table is, not
+       * left to be discovered when a number comes out low. */
+      var blankRows = FD.fittings.elTypes().filter(function (t) {
+        return FD.fittings.NFPA_DN.every(function (dn) {
+          return !(FD.fittings.el(t, dn, m.settings.fittingEL) > 0);
         });
-        note.appendChild(ul);
-        note.appendChild(el('p', '',
-          'Real tee losses depend on the flow ratio Qb/Qc and vary by more than ' +
-          'an order of magnitude across it, so no flat number is right everywhere. ' +
-          'Enter values from ASHRAE Fundamentals for your case before issuing ' +
-          'calculations through heavily-branched pipework.'));
-        host.appendChild(note);
+      });
+      if (blankRows.length) {
+        var bn = el('div', 'notice warn-notice');
+        bn.appendChild(el('p', '',
+          blankRows.map(function (t) { return FD.fittings.label(t); }).join(', ') +
+          ' — NFPA 13 Table 27.2.3.1.1 tabulates only "flow turned 90°" and has ' +
+          'no row for these. They are left BLANK rather than assumed, so they ' +
+          'currently cost NOTHING. Type values in to charge them.'));
+        host.appendChild(bn);
       }
+
+      /* Sizes below the first column clamp to it, which OVERSTATES them — the
+       * printed table does carry ½ in and ¾ in figures and this one starts at
+       * 25 mm. Worth saying, because the steel schedules go down to DN15. */
+      var smallest = FD.fittings.NFPA_DN[0];
+      if (FD.schedules.all(m.customSchedules)) {
+        host.appendChild(el('p', 'hint',
+          'The table starts at DN' + smallest + '. A smaller pipe is charged the ' +
+          'DN' + smallest + ' figure, which overstates it — the printed table does ' +
+          'give ½ in and ¾ in columns.'));
+      }
+
+      var wrapEl = el('div', 'table-scroll');
       var elTable = el('table', 'sheet editable');
-      elTable.innerHTML = '<thead><tr><th class="txt">Fitting</th><th>Code</th>' +
-                          '<th>L/D</th><th>EL at DN50 (m)</th></tr></thead>';
+      var head = '<thead><tr><th class="txt">Fitting</th>';
+      FD.fittings.NFPA_DN.forEach(function (dn) { head += '<th>DN' + dn + '</th>'; });
+      elTable.innerHTML = head + '</tr></thead>';
       var elBody = el('tbody');
-      Object.keys(FD.fittings.types).forEach(function (t) {
+
+      FD.fittings.elTypes().forEach(function (t) {
         var tr = el('tr');
-        var nm = el('td', 'txt', FD.fittings.label(t));
-        /* Flag the placeholders in the table itself. A number the user can see
-         * and edit but cannot tell is a guess is worse than no number. */
-        if (FD.fittings.types[t].sourced === false) {
-          nm.appendChild(el('span', 'flag', ' placeholder'));
-          nm.title = FD.fittings.types[t].note || 'Not sourced data.';
-          tr.className = 'warn-row';
-        }
-        tr.appendChild(nm);
-        tr.appendChild(el('td', '', FD.fittings.code(t)));
-        var tdIn = el('td');
-        var inp = el('input', 'cell-input'); inp.type = 'text';
-        inp.value = (m.settings.fittingLD[t] !== undefined)
-          ? m.settings.fittingLD[t] : FD.fittings.types[t].ld;
-        inp.addEventListener('change', function () {
-          var v = FD.units.parse(inp.value);
-          if (isFinite(v) && v >= 0) {
-            pushUndo(); m.settings.fittingLD[t] = v; renderHydraulic(); redrawAll();
-          } else { inp.value = m.settings.fittingLD[t]; }
+        tr.appendChild(el('td', 'txt', FD.fittings.label(t)));
+        FD.fittings.NFPA_DN.forEach(function (dn) {
+          var td = el('td');
+          var inp = el('input', 'cell-input'); inp.type = 'text';
+          var ovRow = m.settings.fittingEL[t] || {};
+          var stored = ovRow[dn];
+          var printed = FD.fittings.NFPA_EL[t][FD.fittings.NFPA_DN.indexOf(dn)];
+          var siNow = (stored === undefined || stored === null || stored === '')
+            ? printed : Number(stored);
+          inp.value = (siNow === null || siNow === undefined) ? '' : fmtLen(siNow);
+          if (siNow === null || siNow === undefined) {
+            inp.placeholder = '—';
+            td.className = 'dim';
+          } else if (stored !== undefined && stored !== null && stored !== '') {
+            inp.title = 'Edited. The printed value is ' + fmtLen(printed) + '.';
+            td.className = 'edited';
+          }
+          inp.addEventListener('change', function () {
+            var raw = inp.value.trim();
+            pushUndo();
+            if (!m.settings.fittingEL[t]) m.settings.fittingEL[t] = {};
+            if (raw === '') {
+              delete m.settings.fittingEL[t][dn];
+            } else {
+              var v = FD.units.parse(raw);
+              if (!isFinite(v) || v < 0) { renderHydraulic(); return; }
+              m.settings.fittingEL[t][dn] = toLenSI(v);
+            }
+            renderHydraulic(); redrawAll();
+          });
+          td.appendChild(inp);
+          tr.appendChild(td);
         });
-        tdIn.appendChild(inp);
-        tr.appendChild(tdIn);
-        tr.appendChild(el('td', 'dim', FD.fittings.el(t, 52.48, m.settings.fittingLD).toFixed(3)));
         elBody.appendChild(tr);
       });
       elTable.appendChild(elBody);
-      host.appendChild(elTable);
-      var resetLD = el('button', 'btn', 'Reset equivalent lengths');
-      resetLD.addEventListener('click', function () {
-        pushUndo(); m.settings.fittingLD = FD.fittings.defaultLD();
+      wrapEl.appendChild(elTable);
+      host.appendChild(wrapEl);
+
+      host.appendChild(el('p', 'hint source-line', 'Source: ' + FD.fittings.NFPA_SOURCE));
+
+      var resetEL = el('button', 'btn', 'Reset to ' + FD.fittings.NFPA_SOURCE);
+      resetEL.addEventListener('click', function () {
+        pushUndo(); m.settings.fittingEL = {};
         renderHydraulic(); redrawAll();
+        toast('Equivalent lengths reset to ' + FD.fittings.NFPA_SOURCE + '.');
       });
-      host.appendChild(resetLD);
+      host.appendChild(resetEL);
 
     } else {
       h2('Fitting Coefficients K');

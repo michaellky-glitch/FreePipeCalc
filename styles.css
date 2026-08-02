@@ -377,6 +377,15 @@ table.sheet td.dim  { color: var(--text-mute); }
 .kv .k { color: var(--text-mute); }
 .kv .v { font-variant-numeric: tabular-nums; text-align: right; }
 
+/* A wide table that must scroll on its own rather than pushing the pane. The
+   NFPA equivalent-length chart is thirteen size columns wide. */
+.table-scroll { overflow-x: auto; max-width: 100%; }
+.table-scroll table.sheet { width: auto; min-width: 100%; }
+/* A cell the engineer has changed from the printed value. */
+table.sheet td.edited { background: var(--accent-dim); }
+table.sheet td.edited input.cell-input { color: var(--accent); font-weight: 600; }
+.source-line { margin-top: 6px; font-style: italic; }
+
 /* calculation */
 .calc-actions { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
 .sheet-head {

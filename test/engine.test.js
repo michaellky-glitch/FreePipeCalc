@@ -33,24 +33,97 @@ section('Pipe schedules');
   ok('Size step moves one size up', FD.schedules.step('sch40', 'DN50', +1) === 'DN65');
 }
 
-section('Fitting equivalent lengths');
+/* Equivalent length is NFPA 13 (2019) Table 27.2.3.1.1, keyed on NOMINAL size
+ * and read straight off the page in metres — it is not an L/D ratio and
+ * nothing is multiplied by a bore.
+ *
+ * The rows are transcribed a SECOND time here, independently of
+ * data/fittings.js, so an edit there that drifts from the printed page fails.
+ * Michael supplied the page 2026-08-02.
+ *
+ * The printed table also carries ½ in and ¾ in columns, a 90° long-turn elbow,
+ * a butterfly valve, a gate valve, a vane-type flow switch and a swing check.
+ * All are deliberately absent: valves are modelled by flow coefficient, and the
+ * app's table starts at 25 mm. */
+section('Fitting equivalent lengths — NFPA 13 Table 27.2.3.1.1');
 {
-  // Flat L/D basis per spec §3.3 — no size correction (see spec Q12.1)
-  const e90 = FD.fittings.el('E90', 52.48);
-  near('E90 on DN50 = exactly 30·D', e90, 30 * 0.05248, 1e-12);
-  near('E45 on DN50 = exactly 16·D', FD.fittings.el('E45', 52.48), 16 * 0.05248, 1e-12);
-  near('Tee-run on DN50 = exactly 20·D', FD.fittings.el('TRUN', 52.48), 20 * 0.05248, 1e-12);
-  const tbr = FD.fittings.el('TBRANCH', 52.48);
-  near('Tee-branch on DN50 = exactly 60·D', tbr, 60 * 0.05248, 1e-12);
-  near('Tee-branch is 2× the 90° elbow (60D vs 30D)', tbr / e90, 2.0, 1e-12);
-  ok('Tee-run < tee-branch', FD.fittings.el('TRUN', 52.48) < tbr);
+  const DN =        [25,  32,  40,  50,  65,  80,  90,  100, 125, 150,  200,  250,  300];
+  const E45_M =     [0.3, 0.3, 0.6, 0.6, 0.9, 0.9, 0.9, 1.2, 1.5, 2.1,  2.7,  3.3,  4.0];
+  const E90_M =     [0.6, 0.9, 1.2, 1.5, 1.8, 2.1, 2.4, 3.0, 3.7, 4.3,  5.5,  6.7,  8.2];
+  const TBRANCH_M = [1.5, 1.8, 2.4, 3.0, 3.7, 4.6, 5.2, 6.1, 7.6, 9.1, 10.7, 15.2, 18.3];
 
-  // L/D must be constant across the size range — the correction was removed
-  const ld = (d) => FD.fittings.el('E90', d) / (d / 1000);
-  near('L/D is flat: DN15 matches DN300', ld(15.76), ld(303.18), 1e-12);
-  near('L/D is flat and equals 30', ld(15.76), 30, 1e-12);
-  ok('Unknown fitting type contributes no length', FD.fittings.el('NOPE', 52.48) === 0);
-  ok('Zero bore contributes no length', FD.fittings.el('E90', 0) === 0);
+  let bad = [];
+  DN.forEach((dn, i) => {
+    const check = (t, want) => {
+      const got = FD.fittings.el(t, dn, null);
+      if (Math.abs(got - want) > 1e-9) bad.push(`${t}@DN${dn}: ${got} vs ${want}`);
+    };
+    check('E45', E45_M[i]);
+    check('E90', E90_M[i]);
+    check('TBRANCH', TBRANCH_M[i]);
+  });
+  ok(`All ${DN.length * 3} tabulated equivalent lengths match the printed page`,
+     bad.length === 0, bad.slice(0, 5).join(' | '));
+
+  // Read in METRES, not feet. 8.2 m is the printed 27 ft column, not 27 m.
+  near('A DN300 90° elbow is 8.2 m, the printed metric value',
+       FD.fittings.el('E90', 300, null), 8.2, 1e-12);
+
+  /* Straight-through tee: NFPA 13 charges only "flow turned 90°" and has no
+   * row for the run. Left BLANK pending values from Michael rather than
+   * assumed — so it currently costs NOTHING, and this test says so out loud
+   * instead of letting it pass unnoticed. */
+  DN.forEach(dn => {
+    if (FD.fittings.el('TRUN', dn, null) !== 0) bad.push('TRUN@' + dn);
+  });
+  ok('Tee straight-through is BLANK — charges nothing, awaiting values',
+     FD.fittings.el('TRUN', 100, null) === 0);
+
+  // All four tee variants read the same two rows, as they do for K.
+  near('Dividing branch reads the tee-branch row',
+       FD.fittings.el('TBRANCH_DIV', 100, null), 6.1, 1e-12);
+  near('Combining branch reads the same row',
+       FD.fittings.el('TBRANCH_CONV', 100, null), 6.1, 1e-12);
+
+  /* Keyed on the DESIGNATION, not the bore — the same trap as the K tables, and
+   * now a live one. Under the old L/D basis the bore was the CORRECT key,
+   * because the answer was a multiple of it; against a table keyed on the
+   * designation it is not. Both cases below are wrong by a real margin. */
+  ok('DN100 steel: bore 102.26 does not read the DN100 cell',
+     Math.abs(FD.fittings.el('E90', 102.26, null) - 3.0) > 0.05,
+     String(FD.fittings.el('E90', 102.26, null)));
+  {
+    // HDPE "110 mm" is an OUTSIDE diameter with a 90 mm bore — two rows off.
+    const byNominal = FD.fittings.el('E90', 110, null);
+    const byBore = FD.fittings.el('E90', 90, null);
+    ok('HDPE 110 mm: keying on the 90 mm bore is 15% low',
+       (byNominal - byBore) / byNominal > 0.1, `${byNominal} vs ${byBore}`);
+  }
+
+  // Between tabulated sizes it interpolates; outside, it clamps.
+  const mid = FD.fittings.el('E90', 112.5, null);
+  ok('Interpolates between DN100 and DN125', mid > 3.0 && mid < 3.7, String(mid));
+  near('Clamps below the smallest tabulated size',
+       FD.fittings.el('E90', 15, null), 0.6, 1e-12);
+  near('Clamps above the largest', FD.fittings.el('E90', 500, null), 8.2, 1e-12);
+
+  const e90 = FD.fittings.el('E90', 50, null);
+  const tbr = FD.fittings.el('TBRANCH', 50, null);
+  near('A DN50 tee-branch is twice the 90° elbow', tbr / e90, 2.0, 1e-12);
+  ok('Tee-run < tee-branch', FD.fittings.el('TRUN', 50) < tbr);
+
+  /* The table rises with size throughout — it is not the flat L/D ratio it
+   * replaced, and a monotonic column is a cheap guard against a shifted row of
+   * the kind that understated the flanged gate valve for weeks. */
+  ['E45', 'E90', 'TBRANCH'].forEach(t => {
+    let mono = true;
+    for (let i = 1; i < DN.length; i++) {
+      if (FD.fittings.el(t, DN[i], null) < FD.fittings.el(t, DN[i - 1], null)) mono = false;
+    }
+    ok(t + ' rises with size, never falls', mono);
+  });
+
+  ok('Unknown fitting type contributes no length', FD.fittings.el('NOPE', 50) === 0);
 
   ok('0° deviation produces no fitting', FD.fittings.elbowForAngle(2) === null);
   ok('45° deviation → E45', FD.fittings.elbowForAngle(45) === 'E45');
@@ -285,12 +358,36 @@ section('Fitting K table (ASHRAE)');
 
 section('Editable fitting equivalent lengths');
 {
-  near('Default E90 EL is 30·D', FD.fittings.el('E90', 52.48, null), 30 * 0.05248, 1e-12);
-  near('Override changes EL', FD.fittings.el('E90', 52.48, { E90: 60 }), 60 * 0.05248, 1e-12);
-  near('Blank override falls back to default',
-       FD.fittings.el('E90', 52.48, { E90: '' }), 30 * 0.05248, 1e-12);
-  const defs = FD.fittings.defaultLD();
-  ok('defaultLD exposes the built-in table', defs.E90 === 30 && defs.TBRANCH === 60);
+  near('Default DN50 E90 is the printed 1.5 m',
+       FD.fittings.el('E90', 50, null), 1.5, 1e-12);
+
+  // Overrides are PER SIZE, because the table is.
+  const ov = { E90: { 50: 2.5 } };
+  near('An override replaces just that cell', FD.fittings.el('E90', 50, ov), 2.5, 1e-12);
+  near('...and leaves the rest of the row alone',
+       FD.fittings.el('E90', 100, ov), 3.0, 1e-12);
+  near('A blank cell falls back to the printed value',
+       FD.fittings.el('E90', 50, { E90: { 50: '' } }), 1.5, 1e-12);
+  near('An unparseable cell falls back too',
+       FD.fittings.el('E90', 50, { E90: { 50: 'abc' } }), 1.5, 1e-12);
+
+  /* An edited cell must take part in the interpolation, not sit outside it —
+   * otherwise a corrected value would apply at exactly one diameter. Between
+   * DN50 (edited to 2.5) and DN65 (1.8) the answer must lie between them. */
+  const between = FD.fittings.el('E90', 57, ov);
+  ok('An edited cell interpolates with its neighbours',
+     between < 2.5 && between > 1.8, String(between));
+
+  // Filling in the blank tee-run row makes it charge.
+  near('The blank run row can be filled in',
+       FD.fittings.el('TRUN', 100, { TRUN: { 100: 1.9 } }), 1.9, 1e-12);
+
+  const defs = FD.fittings.defaultEL();
+  ok('defaultEL exposes the printed table', defs.E90[100] === 3.0 && defs.TBRANCH[50] === 3.0);
+  ok('...including the blank row', defs.TRUN[100] === null);
+  ok('The table offers only the fittings the app infers',
+     JSON.stringify(FD.fittings.elTypes()) === JSON.stringify(['E45', 'E90', 'TBRANCH', 'TRUN']));
+  ok('The source is named in the data', /NFPA 13 \(2019\)/.test(FD.fittings.NFPA_SOURCE));
 }
 
 // ------------------------------------------------------------- solver

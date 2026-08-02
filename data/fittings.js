@@ -83,14 +83,109 @@
     EXIT:   { ld: 35, code: 'EXT',  label: 'Exit to atmosphere' }
   };
 
-  /* NOTE (spec Q12.1): the real ASHRAE tables are not flat with size — small
-   * bores run a higher L/D than large ones. A size correction was trialled and
-   * deliberately REMOVED: the curve shape could not be sourced from ASHRAE, and
-   * an invented correction is not defensible to a checking engineer. The flat
-   * L/D basis written into spec §3.3 is used verbatim.
+  /* ---------------------------------------------------- NFPA 13 equivalent length
    *
-   * To reintroduce a correction later, multiply in one factor inside el() —
-   * that is the only place size would enter beyond the diameter itself. */
+   * SOURCE: NFPA 13 (2019), Table 27.2.3.1.1 "Equivalent Schedule 40 Steel Pipe
+   * Length Chart". Supplied by Michael 2026-08-02 and transcribed from that
+   * page; re-transcribed independently into engine.test.js so a drift here
+   * fails a test.
+   *
+   * This REPLACES the L/D basis for Hazen-Williams. The table gives an
+   * equivalent length in metres directly against NOMINAL size — it is not a
+   * ratio — so nothing is multiplied by a bore. The metric column is stored,
+   * not the feet column: the model is metric throughout and imperial is a
+   * display conversion (spec §2). Note the two are the source's own roundings
+   * of each other (13 ft is printed as 4 m), so converting one into the other
+   * would not reproduce the page.
+   *
+   * WHAT IS NOT HERE, and why (Michael, 2026-08-02):
+   *
+   *   - 90° long-turn elbow, butterfly valve, gate valve, vane-type flow
+   *     switch and swing check are all in the printed table and are left out.
+   *     The app does not infer any of them from geometry, and VALVES are
+   *     modelled by flow coefficient (Kv, data/valves.js), not by equivalent
+   *     length. Carrying rows the calculation cannot reach would invite
+   *     entering numbers into something that is being ignored.
+   *
+   *   - Sizes below 25 mm. The printed table has ½ in (15 mm) and ¾ in (20 mm)
+   *     columns; the app's table starts at 25 mm at Michael's instruction.
+   *     A pipe smaller than 25 mm therefore CLAMPS to the 25 mm value, which
+   *     overstates it — NFPA gives 0.3 m for a 15 mm 90° elbow against 0.6 m at
+   *     25 mm. The steel schedules do offer DN15 and DN20, so this is worth
+   *     revisiting; the UI says so rather than leaving it to be discovered.
+   *
+   *   - Tee or cross with flow STRAIGHT THROUGH. The printed table charges only
+   *     "flow turned 90°" and has no row for the run. Left deliberately BLANK,
+   *     pending values from Michael, rather than assumed to be zero or carried
+   *     over from the old L/D basis. Blank charges nothing and the UI says so
+   *     out loud. */
+  var NFPA_DN = [25, 32, 40, 50, 65, 80, 90, 100, 125, 150, 200, 250, 300];
+
+  /* Metres, in NFPA_DN order. `null` = not tabulated / awaiting a value. */
+  var NFPA_EL = {
+    // 45° elbow
+    E45:     [0.3, 0.3, 0.6, 0.6, 0.9, 0.9, 0.9, 1.2, 1.5, 2.1, 2.7, 3.3, 4.0],
+    // 90° standard elbow
+    E90:     [0.6, 0.9, 1.2, 1.5, 1.8, 2.1, 2.4, 3.0, 3.7, 4.3, 5.5, 6.7, 8.2],
+    // Tee or cross (flow turned 90°)
+    TBRANCH: [1.5, 1.8, 2.4, 3.0, 3.7, 4.6, 5.2, 6.1, 7.6, 9.1, 10.7, 15.2, 18.3],
+    // Tee or cross, flow straight through — NOT in NFPA 13. Awaiting values.
+    TRUN:    [null, null, null, null, null, null, null, null, null, null, null, null, null]
+  };
+
+  var NFPA_SOURCE = 'NFPA 13 (2019) Table 27.2.3.1.1';
+
+  /* All four tee variants read the same two NFPA rows: the table gives one
+   * "flow turned 90°" figure and does not split dividing from combining, the
+   * same position ASHRAE Tables 3/4 take (see ktableType). */
+  function elTableType(type) {
+    switch (type) {
+      case 'TRUN': case 'TRUN_DIV': case 'TRUN_CONV': return 'TRUN';
+      case 'TBRANCH': case 'TBRANCH_DIV': case 'TBRANCH_CONV': return 'TBRANCH';
+      default: return type;
+    }
+  }
+
+  /* Interpolate a row against nominal size, clamping at both ends. Same shape
+   * as ktable's interpolation, deliberately — a size between two tabulated
+   * columns has to land somewhere, and clamping outside the table is what the
+   * K tables already do. A `null` cell reads as "not charged". */
+  function elLookup(row, dn_mm) {
+    if (!row) return 0;
+    var pts = [];
+    for (var i = 0; i < NFPA_DN.length; i++) {
+      if (row[i] !== null && row[i] !== undefined && row[i] !== '') {
+        pts.push([NFPA_DN[i], Number(row[i])]);
+      }
+    }
+    if (!pts.length) return 0;
+    if (dn_mm <= pts[0][0]) return pts[0][1];
+    var last = pts[pts.length - 1];
+    if (dn_mm >= last[0]) return last[1];
+    for (var j = 1; j < pts.length; j++) {
+      if (dn_mm <= pts[j][0]) {
+        var a = pts[j - 1], b = pts[j];
+        var t = (dn_mm - a[0]) / (b[0] - a[0]);
+        return a[1] + t * (b[1] - a[1]);
+      }
+    }
+    return last[1];
+  }
+
+  /* The user's edits, merged over the printed values. `overrides` is
+   * settings.fittingEL — { type: { dn: metres, ... }, ... }. */
+  function elRow(type, overrides) {
+    var key = elTableType(type);
+    var base = NFPA_EL[key];
+    if (!base) return null;
+    var ov = overrides && overrides[key];
+    if (!ov) return base;
+    return NFPA_DN.map(function (dn, i) {
+      var v = ov[dn];
+      if (v === undefined || v === null || v === '') return base[i];
+      return isFinite(Number(v)) ? Number(v) : base[i];
+    });
+  }
 
   /* Every coefficient that is a placeholder rather than sourced data, so the
    * app can say so out loud instead of the user having to read this file. */
@@ -106,21 +201,45 @@
     types: LD,
     unsourced: unsourced,
 
+    NFPA_DN: NFPA_DN,
+    NFPA_EL: NFPA_EL,
+    NFPA_SOURCE: NFPA_SOURCE,
+    elTableType: elTableType,
+    elRow: elRow,
+
+    /* Which fittings the equivalent-length table actually offers, in the order
+     * they are shown. Valves are absent on purpose — they are modelled by flow
+     * coefficient, not equivalent length. */
+    elTypes: function () { return ['E45', 'E90', 'TBRANCH', 'TRUN']; },
+
     /* Equivalent length in metres for one fitting of `type` on a pipe of
-     * inner diameter `id_mm`.
+     * NOMINAL size `nominal_mm`.
      *
-     * `overrides` is settings.fittingLD — the user's editable L/D table. The
-     * built-in values are only the starting point; jurisdictions and in-house
-     * standards differ, so whatever is in settings wins. */
-    el: function (type, id_mm, overrides) {
-      var ld = (overrides && overrides[type] !== undefined && overrides[type] !== '')
-        ? Number(overrides[type])
-        : (LD[type] ? LD[type].ld : 0);
-      if (!isFinite(ld)) return 0;
-      return ld * (id_mm / 1000);
+     * NOMINAL, not bore — the same trap as the K tables. These are different
+     * numbers and confusing them is a real hazard: HDPE "110 mm" is an OUTSIDE
+     * diameter with a 90 mm bore, so keying on the bore lands two rows off.
+     * Under the old L/D basis the bore was correct, because the answer was a
+     * multiple of it; under a table keyed on designation it is not.
+     *
+     * `overrides` is settings.fittingEL. */
+    el: function (type, nominal_mm, overrides) {
+      var v = elLookup(elRow(type, overrides), nominal_mm);
+      return isFinite(v) ? v : 0;
     },
 
-    /* Default L/D values as a plain object, for seeding the editable table. */
+    /* Printed NFPA values as a fresh table, for the Reset button. */
+    defaultEL: function () {
+      var out = {};
+      Object.keys(NFPA_EL).forEach(function (t) {
+        out[t] = {};
+        NFPA_DN.forEach(function (dn, i) { out[t][dn] = NFPA_EL[t][i]; });
+      });
+      return out;
+    },
+
+    /* Default L/D values as a plain object. The L/D basis is superseded by the
+     * NFPA table for Hazen-Williams and is kept only so an older saved model
+     * still loads without its settings looking corrupt. */
     defaultLD: function () {
       var out = {};
       Object.keys(LD).forEach(function (k) { out[k] = LD[k].ld; });

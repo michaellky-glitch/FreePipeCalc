@@ -468,8 +468,35 @@ section('Parallel pumps and pump failure');
   // steep, so the survivors take up most of the slack.
   ok('Flow falls by far less than a quarter', q3 > q4 * 0.85, `${q4} -> ${q3}`);
   ok('Survivors run past their design flow', live.every(p => p.pctOfDesign > 1));
-  ok('Runout is warned about',
-     fail.warnings.some(w => w.code === 'PUMP_RUNOUT'));
+
+  /* The runout WARNING, tested against an explicit threshold rather than
+   * against wherever this model happens to land.
+   *
+   * It used to assert simply that PUMP_RUNOUT fired, and passed because the
+   * survivors sat a shade over the fixture's 120% limit. When equivalent length
+   * moved to NFPA 13 (2026-08-02) the circuit lost the straight-through tee
+   * allowance, the system curve flattened, and the survivors came to rest at
+   * 119.8% — just under. The warning correctly stopped firing and the test
+   * failed for a reason that had nothing to do with the warning.
+   *
+   * So the threshold is now set here, either side of the actual operating
+   * point, which is what "does the warning work" actually means. */
+  const worst = Math.max.apply(null, live.map(p => p.pctOfDesign)) * 100;
+  ok('Survivors are between 100% and 130% of design', worst > 100 && worst < 130,
+     worst.toFixed(2) + '%');
+
+  m.settings.warn.pumpRunout = Math.floor(worst) - 1;      // just below them
+  const warned = NET.solveModel(m);
+  ok('Runout is warned about once the limit is below them',
+     warned.warnings.some(w => w.code === 'PUMP_RUNOUT'),
+     'limit ' + m.settings.warn.pumpRunout + '%, worst ' + worst.toFixed(2) + '%');
+
+  m.settings.warn.pumpRunout = Math.ceil(worst) + 1;       // just above them
+  const quiet = NET.solveModel(m);
+  ok('...and silent once the limit is above them',
+     !quiet.warnings.some(w => w.code === 'PUMP_RUNOUT'),
+     'limit ' + m.settings.warn.pumpRunout + '%');
+  m.settings.warn.pumpRunout = 120;
 }
 
 section('SIMULATION refuses to run without a pump curve');
@@ -541,7 +568,17 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
    * numbers came from the earlier 45 L/s two-CRAH geometry. They also guard
    * against the balancing pass disturbing the sizing.
    *
-   * REGENERATED AGAIN 2026-08-02 for the bullhead-tee fix: 268.5 / 257.6 /
+   * REGENERATED A THIRD TIME 2026-08-02, for the NFPA 13 equivalent-length
+   * table: 271.2 / 260.3 / 256.0 / 252.2 became 263.7 / 254.6 / 252.1 / 250.1.
+   * This is an HW model and it contains ELEVEN straight-through tees, whose
+   * row is blank in NFPA 13 pending values from Michael — so each went from
+   * 20 x bore to zero. The elbows and branches barely moved (3.068 -> 3.0 m and
+   * 6.136 -> 6.1 m at DN100), which is the two sources agreeing; the whole
+   * shift is the tee runs. The 1-pump case falls furthest because it carries
+   * the most flow through them. PROVISIONAL — these move again when that row is
+   * filled in.
+   *
+   * REGENERATED BEFORE THAT for the bullhead-tee fix: 268.5 / 257.6 /
    * 253.3 / 249.6 became 271.2 / 260.3 / 256.0 / 252.2. This is a ring main, so
    * its supply and return tees are bullhead tees — nothing passes straight
    * through them — and one leg of each was being charged as a run (K = 0.9)
@@ -553,7 +590,7 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
    * calculations — the hand-calculable statement about this fix is the symmetry
    * assertion in model.test.js, which needs no coefficient at all. */
   const file = __dirname + '/fixtures/data_centre_redundant_ring_main.pnet (fixed).json';
-  const expectHead = { 1: 271.2, 2: 260.3, 3: 256.0, 4: 252.2 };   // kPa
+  const expectHead = { 1: 263.7, 2: 254.6, 3: 252.1, 4: 250.1 };   // kPa
 
   [1, 2, 3, 4].forEach(n => {
     const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));

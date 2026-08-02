@@ -262,18 +262,21 @@
         var p = M.pipe(m, f.pipe);
         if (!p || !byPipe[p.id]) return;
         var bore_mm = M.pipeBore(m, p) * 1000;
-        byPipe[p.id].el += FD.fittings.el(f.type, bore_mm, m.settings.fittingLD);
+        void bore_mm;
 
         /* Both bases are accumulated on every build, because the calculation
          * sheet reports whichever the active method did not use, and switching
          * method must not need a rebuild of anything else.
          *
-         * The K lookup is keyed on NOMINAL size, not bore. They are different
+         * BOTH lookups are keyed on NOMINAL size, not bore. They are different
          * numbers and confusing them is a real hazard: HDPE "110 mm" is an
          * OUTSIDE diameter with a 90 mm bore, so keying on bore lands two rows
-         * off in the table (ARCHITECTURE §7). */
+         * off in the table (ARCHITECTURE §7). Equivalent length used to key on
+         * the bore, correctly, because it was an L/D RATIO and the bore was the
+         * multiplier; the NFPA 13 table is keyed on the designation instead. */
         var nominal_mm = FD.schedules.nominalMm
           ? FD.schedules.nominalMm(p.size) : bore_mm;
+        byPipe[p.id].el += FD.fittings.el(f.type, nominal_mm, m.settings.fittingEL);
         byPipe[p.id].sumK += FD.ktable.k(FD.fittings.ktableType(f.type),
                                          nominal_mm, kSet, m.settings.fittingK);
         byPipe[p.id].types.push(f.type);
