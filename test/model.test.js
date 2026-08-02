@@ -193,10 +193,10 @@ section('Network — tee run/branch by flow direction (spec §3.3)');
   near('The branch is charged its NFPA figure', els[pN.id].el,
        FD.fittings.el('TBRANCH', nominal), 1e-12);
   near('...which at DN50 is 3.0 m', els[pN.id].el, 3.0, 1e-12);
-  /* The straight-through run is BLANK in NFPA 13 and awaiting values from
-   * Michael, so it currently costs nothing. Asserted rather than left to be
-   * discovered when a number looks low. */
-  near('The run is charged nothing while its row is blank', els[pE.id].el, 0, 1e-12);
+  /* The straight-through run comes from the Carrier Design Handbook, NFPA 13
+   * having no row for it. At DN50 that is 1.01 m, against the branch's 3.0. */
+  near('The run is charged its Carrier figure', els[pE.id].el, 1.01, 1e-12);
+  ok('...which is well under the branch', els[pE.id].el < els[pN.id].el);
 }
 
 section('Network — the second pass actually changes the answer');

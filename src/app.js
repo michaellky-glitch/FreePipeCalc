@@ -893,17 +893,17 @@
         kv2('Formula', 'hf = ' + kh.A + ' · L · Q^' + kh.a +
                        ' / ( C^' + kh.b + ' · d^' + kh.e + ' )');
         kv2('Fittings', 'Equivalent length — ' + FD.fittings.NFPA_SOURCE);
-        /* A blank row charges nothing, and a sheet that does not say so is
-         * quietly reporting a system with no straight-through tee losses. */
-        var blanks = FD.fittings.elTypes().filter(function (t) {
-          return FD.fittings.NFPA_DN.every(function (dn) {
-            return !(FD.fittings.el(t, dn, m.settings.fittingEL) > 0);
-          });
+        /* One row of that table is not from that table. A sheet that names a
+         * single source for a mixed one is misleading, so the exception is
+         * spelled out here as well as under the table it came from. */
+        kv2('NOTE', FD.fittings.EL_NOTE);
+        /* Any row the engineer has typed over is no longer either source. */
+        var editedRows = Object.keys(m.settings.fittingEL || {}).filter(function (t) {
+          return Object.keys(m.settings.fittingEL[t] || {}).length > 0;
         });
-        if (blanks.length) {
-          kv2('NOTE', blanks.map(function (t) { return FD.fittings.label(t); }).join(', ') +
-              ' is not tabulated in NFPA 13 and has been left blank, so it is ' +
-              'charged NOTHING in this calculation.');
+        if (editedRows.length) {
+          kv2('EDITED', editedRows.map(function (t) { return FD.fittings.label(t); })
+                .join(', ') + ' — values have been changed from the published table.');
         }
         var defH = FD.hydraulics.HW_DEFAULTS;
         if (kh.A !== defH.A || kh.a !== defH.a || kh.b !== defH.b || kh.e !== defH.e) {
@@ -3196,24 +3196,6 @@
       hint('Read against NOMINAL size, in ' + lenUnitName + '. These are lengths ' +
            'from the table, not L/D ratios — nothing is multiplied by a bore.');
 
-      /* The straight-through row is blank pending values from Michael, and a
-       * blank charges NOTHING. That has to be said where the table is, not
-       * left to be discovered when a number comes out low. */
-      var blankRows = FD.fittings.elTypes().filter(function (t) {
-        return FD.fittings.NFPA_DN.every(function (dn) {
-          return !(FD.fittings.el(t, dn, m.settings.fittingEL) > 0);
-        });
-      });
-      if (blankRows.length) {
-        var bn = el('div', 'notice warn-notice');
-        bn.appendChild(el('p', '',
-          blankRows.map(function (t) { return FD.fittings.label(t); }).join(', ') +
-          ' — NFPA 13 Table 27.2.3.1.1 tabulates only "flow turned 90°" and has ' +
-          'no row for these. They are left BLANK rather than assumed, so they ' +
-          'currently cost NOTHING. Type values in to charge them.'));
-        host.appendChild(bn);
-      }
-
       /* Sizes below the first column clamp to it, which OVERSTATES them — the
        * printed table does carry ½ in and ¾ in figures and this one starts at
        * 25 mm. Worth saying, because the steel schedules go down to DN15. */
@@ -3234,7 +3216,14 @@
 
       FD.fittings.elTypes().forEach(function (t) {
         var tr = el('tr');
-        tr.appendChild(el('td', 'txt', FD.fittings.label(t)));
+        /* A row from a source other than NFPA 13 carries an asterisk, and the
+         * note under the table says which source. One row on this page is not
+         * from the table it is headed by, and that must be visible on the page
+         * rather than only in a comment. */
+        var alt = FD.fittings.EL_ALT_SOURCE[t];
+        var nameCell = el('td', 'txt', FD.fittings.label(t) + (alt ? ' *' : ''));
+        if (alt) nameCell.title = 'Source: ' + alt + ' — not NFPA 13.';
+        tr.appendChild(nameCell);
         FD.fittings.NFPA_DN.forEach(function (dn) {
           var td = el('td');
           var inp = el('input', 'cell-input'); inp.type = 'text';
@@ -3273,6 +3262,8 @@
       wrapEl.appendChild(elTable);
       host.appendChild(wrapEl);
 
+      /* Michael's wording, verbatim. */
+      host.appendChild(el('p', 'hint source-line', FD.fittings.EL_NOTE));
       host.appendChild(el('p', 'hint source-line', 'Source: ' + FD.fittings.NFPA_SOURCE));
 
       var resetEL = el('button', 'btn', 'Reset to ' + FD.fittings.NFPA_SOURCE);

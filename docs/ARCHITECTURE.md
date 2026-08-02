@@ -276,11 +276,18 @@ Three consequences worth knowing:
   metric and imperial is a display conversion (§2.2). The two are the source's
   own independent roundings of each other — 13 ft is printed as 4 m — so an
   imperial display will *not* reproduce the page's feet numbers, and cannot.
-* **The straight-through tee row is BLANK**, pending values from Michael. NFPA
-  13 tabulates only "flow turned 90°". It is left blank rather than assumed to
-  be zero or carried over from the old ratio, so it currently charges nothing —
-  and the HYDRAULIC tab, the calculation-sheet appendix and a test all say so
-  rather than leaving it to be noticed.
+* **One row is not NFPA 13.** The straight-through tee comes from the **Carrier
+  Design Handbook** (Michael, 2026-08-02), because NFPA tabulates only "flow
+  turned 90°" — a sprinkler calculation does not need the run. That row carries
+  an asterisk in the table, a note above the source line, and a line in the
+  calculation-sheet appendix. A page headed by one source with a row from
+  another has to say so on the page.
+
+  A useful cross-check fell out of it: Carrier's own "T (Flow Thru)" column is
+  the same data as NFPA's "flow turned 90°" row at most sizes (5 ft and 60 ft at
+  the two ends), which makes "T (Straight)" unambiguously the run — and at DN100
+  Carrier's 2.04 m sits within 0.25% of the old L/D basis's 2.045 m, from two
+  sources never fitted to each other.
 
 What is deliberately *not* in the app's copy of the table: the 90° long-turn
 elbow, butterfly valve, gate valve, vane-type flow switch and swing check rows,
@@ -888,7 +895,7 @@ restating in the UI something the engine already knows.
 
 ## 15. Testing
 
-Six suites, 817 assertions, no dependencies:
+Six suites, 826 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -899,7 +906,7 @@ node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
 
-All 817 pass. The "Parallel pumps share in DESIGN" section of
+All 826 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change

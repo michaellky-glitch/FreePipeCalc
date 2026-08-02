@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-02 (v0.8.2), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-02 (v0.8.3), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,15 +21,15 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — six files, **817 assertions, all passing**.
+Tests: `node test/<name>.test.js` — six files, **826 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. Where things stand (v0.8.2, 2026-08-02)
+## 2. Where things stand (v0.8.3, 2026-08-02)
 
-Nothing is BROKEN. The engine is green at **817 assertions** and the repository
+Nothing is BROKEN. The engine is green at **826 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
 
 The big change since v0.5.0 is the **ASHRAE (2021) method**, now the default —
@@ -89,13 +89,17 @@ the numbers were updated, and it decomposes cleanly:
 * **Elbows and branches barely move.** At DN100 a 90° elbow goes from
   30 × 0.10226 = 3.068 m to the printed 3.0 m, and a tee-branch from 6.136 m to
   6.1 m. Two independent sources agreeing to ~2% is a good sign for both.
-* **The straight-through tee went to ZERO**, being blank. The 3-floor model has
-  two of them and lost 4.1 m of equivalent length that way against 1.2 m from
-  everything else; its pump duty fell 41.95 → 39.49 m. The data centre ring has
-  ELEVEN, and its parallel-pump heads fell by 2 to 7.5 kPa.
+* **The straight-through tee went to ZERO** while its row was blank, then came
+  back when Michael supplied the Carrier values. The 3-floor duty went
+  41.95 → 39.49 → 41.92 m; the data centre's 1-pump head 271.2 → 263.7 → 269.7
+  kPa. That model has ELEVEN straight-through tees, which is why it swings
+  furthest on one row.
 
-**Those baselines are therefore provisional** and will move again when the
-tee-run row is filled in. Both test comments say so.
+**The round trip is the check.** Landing a shade below the original L/D figures
+is exactly the expected residue: Carrier's tee-run is within 0.25% of the old
+L/D value at DN100 (2.04 against 2.045 m) while NFPA's elbows and branches sit
+~2% under theirs. Three sources, two of them never fitted to the third, and the
+answer moves by under 1%.
 
 One test changed rather than being renumbered. `simulation.test.js` asserted
 that `PUMP_RUNOUT` fires on the N+1 failure case, and it passed only because the
@@ -220,9 +224,10 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 * **Hazen-Williams equivalent length is NFPA 13 (2019) Table 27.2.3.1.1**
   (v0.8.2), supplied by Michael. Metres against NOMINAL size, editable per cell,
   Reset button, source named under the table. The old L/D ratio basis is gone.
-  **The straight-through tee row is BLANK and Michael is supplying values next
-  session** — until then it charges NOTHING, which is said in the HYDRAULIC tab,
-  on the calculation sheet and in a test. This moved every HW baseline; see §2B.
+  **One row is not NFPA 13**: the straight-through tee comes from the Carrier
+  Design Handbook (Michael, v0.8.3), since NFPA has no such row. It carries an
+  asterisk, a note above the source line, and a line on the calculation sheet.
+  This moved every HW baseline twice; see §2B.
 * **Darcy-Weisbach charges fittings by K** (v0.8.1), from ASHRAE Ch 22 Eq (7)
   and Tables 3–6, exactly as the ASHRAE method does. It was equivalent length,
   which mixed two formulations — Darcy is itself a velocity-head equation. The

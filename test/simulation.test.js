@@ -569,14 +569,18 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
    * against the balancing pass disturbing the sizing.
    *
    * REGENERATED A THIRD TIME 2026-08-02, for the NFPA 13 equivalent-length
-   * table: 271.2 / 260.3 / 256.0 / 252.2 became 263.7 / 254.6 / 252.1 / 250.1.
-   * This is an HW model and it contains ELEVEN straight-through tees, whose
-   * row is blank in NFPA 13 pending values from Michael — so each went from
-   * 20 x bore to zero. The elbows and branches barely moved (3.068 -> 3.0 m and
-   * 6.136 -> 6.1 m at DN100), which is the two sources agreeing; the whole
-   * shift is the tee runs. The 1-pump case falls furthest because it carries
-   * the most flow through them. PROVISIONAL — these move again when that row is
-   * filled in.
+   * table, and a FOURTH time the same day when Michael supplied the
+   * straight-through tee row from the Carrier Design Handbook. The sequence is
+   * 271.2 / 260.3 / 256.0 / 252.2 (L/D basis) -> 263.7 / 254.6 / 252.1 / 250.1
+   * (NFPA, tee-run blank and charging nothing) -> 269.7 / 258.9 / 254.5 / 250.8
+   * (NFPA + Carrier).
+   *
+   * This model has ELEVEN straight-through tees, which is why it swings
+   * furthest on that one row. Landing 1.5 kPa BELOW the original L/D figures is
+   * the expected residue: Carrier's tee-run is within 0.25% of the old L/D
+   * value at DN100 (2.04 against 2.045 m) while NFPA's elbows and branches sit
+   * ~2% under theirs. Three sources, two of them never fitted to the third, and
+   * the answer moves by under 1%.
    *
    * REGENERATED BEFORE THAT for the bullhead-tee fix: 268.5 / 257.6 /
    * 253.3 / 249.6 became 271.2 / 260.3 / 256.0 / 252.2. This is a ring main, so
@@ -590,7 +594,7 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
    * calculations — the hand-calculable statement about this fix is the symmetry
    * assertion in model.test.js, which needs no coefficient at all. */
   const file = __dirname + '/fixtures/data_centre_redundant_ring_main.pnet (fixed).json';
-  const expectHead = { 1: 263.7, 2: 254.6, 3: 252.1, 4: 250.1 };   // kPa
+  const expectHead = { 1: 269.7, 2: 258.9, 3: 254.5, 4: 250.8 };   // kPa
 
   [1, 2, 3, 4].forEach(n => {
     const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));

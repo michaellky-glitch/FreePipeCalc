@@ -112,13 +112,13 @@ From the ⚠️/❌ notes in `Human-Test.md`:
   27.2.3.1.1**~~, editable, with a Reset button and the source named beneath.
   Metric stored, IP by conversion only.
 
+* ~~**The straight-through tee row**~~ — supplied by Michael from the **Carrier
+  Design Handbook** and wired in at v0.8.3, since NFPA 13 has no such row. It is
+  the one row on the page from a different source, so it carries an asterisk, a
+  note above the source line, and a line in the calculation-sheet appendix.
+
 **OPEN, and waiting on Michael:**
 
-* **The straight-through tee row is blank.** NFPA 13 tabulates only "flow
-  turned 90°". Michael is supplying values next session. Until then that fitting
-  charges NOTHING — said in the HYDRAULIC tab, in the calculation-sheet
-  appendix, and asserted in `engine.test.js` so it cannot pass unnoticed. Every
-  HW baseline is provisional until it lands.
 * **Sizes below DN25 clamp to the DN25 figure, which overstates them.** The
   app's table starts at 25 mm at Michael's instruction, but the printed table
   does carry ½ in (15 mm) and ¾ in (20 mm) columns, and the steel schedules go

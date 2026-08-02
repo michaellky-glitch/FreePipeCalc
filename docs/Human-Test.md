@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 817
+This is deliberately separate from the automated suites. Those cover 826
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-02 (v0.8.2)
+Last updated: 2026-08-02 (v0.8.3)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -63,7 +63,8 @@ known project has been done.
 | 1.12 | Bullhead tee coefficient | ⬜ | **New in v0.7.10-dev, and the one to rule on.** Where two ring legs leave a tee in line with each other, both are now charged as a BRANCH (K = 1.1) rather than one as a run (K = 0.9). No number was invented — it is a choice of which tabulated coefficient applies — but you hold ASHRAE Tables 3/4 and this case (inlet through the branch, dividing into both run legs) is arguably its own fitting. Worth confirming. It raises pump duties slightly: +0.20 m on the 3-floor model, +2.6 kPa on the data centre. |
 | 1.6 | Pump duty vs. a real selection | ✅ | |
 | 1.7 | Darcy-Weisbach | ⚠️ | **Unblocked, BETA (v0.8.0).** Swamee-Jain, at your selection. Validated against a Colebrook iteration written independently in the test suite: 0.9% over the practical envelope, 2.8% at the corner of its published validity (Re 5000, ε/d 1e-2). End to end on 100 m of DN50 at 5 L/s the app gives 11.126 m against 11.046 m hand-iterated. **Never checked against another tool or a real job** — that is what the BETA line on the sheet is for. |
-| 1.16 | Hazen-Williams equivalent length = NFPA 13 | ⬜ | **New in v0.8.2.** All 39 tabulated cells asserted against the page from a second independent transcription. **Every HW number in the app has moved**, mostly because the straight-through tee row is blank and charges nothing until you supply it — 3-floor pump duty 41.95 → 39.49 m, data centre heads down 2–7.5 kPa. Reassuring cross-check while you are here: the NFPA elbow and tee-branch figures land within ~2% of the old L/D values (3.0 vs 3.068 m at DN100), so two independent sources agree. |
+| 1.16 | Hazen-Williams equivalent length = NFPA 13 + Carrier | ⬜ | **v0.8.2–0.8.3.** All 52 cells asserted against your two pages from a second independent transcription. HW numbers moved and came back: 3-floor duty 41.95 → 39.49 → **41.92 m**. The round trip is the reassuring part — Carrier's tee-run is within **0.25%** of the old L/D value at DN100 (2.04 vs 2.045 m) and NFPA's elbows/branches within ~2% (3.0 vs 3.068 m), from sources never fitted to each other. Net movement under 1%. |
+| 1.19 | The Carrier row is visibly not NFPA | ⬜ | **New in v0.8.3.** Asterisk on the row, your note above the source line, and a line in the calculation-sheet appendix. Worth checking it reads clearly on a printed sheet, since that is where it matters. |
 | 1.17 | Sizes below DN25 | ⬜ | **Please rule on this.** The table starts at DN25 as you asked, so a DN15 pipe is charged the DN25 figure — 0.6 m for a 90° elbow where NFPA prints 0.3 m. The printed table does have ½ in and ¾ in columns and the steel schedules go down to DN15. Two more columns would fix it. |
 | 1.18 | Equivalent length shown in feet | ⬜ | The stored value is the printed METRIC column, so a model set to feet shows 1.969 ft where the page prints 2. The two columns are NFPA's own independent roundings of each other (13 ft is printed as 4 m), so no conversion reproduces both. Correct by the metric-first rule — worth knowing if you check against the page in feet. |
 | 1.14 | Darcy-Weisbach fittings by K | ⬜ | **New in v0.8.1.** Fittings now charge K·V²/2g from ASHRAE Tables 3/4 under Darcy, as under ASHRAE; only Hazen-Williams uses equivalent length. Verified end to end against a hand calculation (a DN100 threaded elbow at the solved flow costs exactly 0.70·V²/2g). **Numbers on an existing Darcy model will change** — they were on an L/D basis before. |

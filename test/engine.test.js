@@ -69,15 +69,43 @@ section('Fitting equivalent lengths — NFPA 13 Table 27.2.3.1.1');
   near('A DN300 90° elbow is 8.2 m, the printed metric value',
        FD.fittings.el('E90', 300, null), 8.2, 1e-12);
 
-  /* Straight-through tee: NFPA 13 charges only "flow turned 90°" and has no
-   * row for the run. Left BLANK pending values from Michael rather than
-   * assumed — so it currently costs NOTHING, and this test says so out loud
-   * instead of letting it pass unnoticed. */
-  DN.forEach(dn => {
-    if (FD.fittings.el('TRUN', dn, null) !== 0) bad.push('TRUN@' + dn);
+  /* The straight-through tee is the one row NOT from NFPA 13. NFPA charges only
+   * "flow turned 90°" — a sprinkler calculation does not need the run — so it
+   * comes from the Carrier Design Handbook, supplied by Michael 2026-08-02 and
+   * transcribed here independently. */
+  const TRUN_M =    [0.52, 0.70, 0.79, 1.01, 1.25, 1.52, 1.80, 2.04, 2.50, 3.05,
+                     3.96, 4.88, 5.79];
+  let badRun = [];
+  DN.forEach((dn, i) => {
+    const got = FD.fittings.el('TRUN', dn, null);
+    if (Math.abs(got - TRUN_M[i]) > 1e-9) badRun.push(`TRUN@DN${dn}: ${got} vs ${TRUN_M[i]}`);
   });
-  ok('Tee straight-through is BLANK — charges nothing, awaiting values',
-     FD.fittings.el('TRUN', 100, null) === 0);
+  ok('The straight-through row matches the Carrier values',
+     badRun.length === 0, badRun.slice(0, 5).join(' | '));
+  ok('It is flagged as coming from somewhere other than NFPA 13',
+     /Carrier/.test(FD.fittings.EL_ALT_SOURCE.TRUN || ''),
+     JSON.stringify(FD.fittings.EL_ALT_SOURCE));
+  ok('...and only that row is', Object.keys(FD.fittings.EL_ALT_SOURCE).length === 1);
+
+  /* A tee costs LESS straight through than round the branch, at every size.
+   * The one relation that holds whatever the source, so it is the check worth
+   * making across two tables that were never fitted to each other. */
+  {
+    let ordered = true;
+    DN.forEach(dn => {
+      if (!(FD.fittings.el('TRUN', dn, null) < FD.fittings.el('TBRANCH', dn, null))) {
+        ordered = false;
+      }
+    });
+    ok('Straight through always costs less than the branch', ordered);
+  }
+
+  /* Carrier's own "T (Flow Thru)" column is the same data as NFPA's
+   * "flow turned 90°" row at most sizes — 5 ft and 60 ft at the two ends —
+   * which is what makes "T (Straight)" unambiguously the run. Recorded as the
+   * cross-check it is, on the two sizes where the two sources agree exactly. */
+  near('Carrier and NFPA agree on the branch at DN25', 1.52, 1.5, 0.03);
+  near('...and at DN300', 18.29, 18.3, 0.03);
 
   // All four tee variants read the same two rows, as they do for K.
   near('Dividing branch reads the tee-branch row',
@@ -115,7 +143,7 @@ section('Fitting equivalent lengths — NFPA 13 Table 27.2.3.1.1');
   /* The table rises with size throughout — it is not the flat L/D ratio it
    * replaced, and a monotonic column is a cheap guard against a shifted row of
    * the kind that understated the flanged gate valve for weeks. */
-  ['E45', 'E90', 'TBRANCH'].forEach(t => {
+  ['E45', 'E90', 'TBRANCH', 'TRUN'].forEach(t => {
     let mono = true;
     for (let i = 1; i < DN.length; i++) {
       if (FD.fittings.el(t, DN[i], null) < FD.fittings.el(t, DN[i - 1], null)) mono = false;
@@ -378,16 +406,21 @@ section('Editable fitting equivalent lengths');
   ok('An edited cell interpolates with its neighbours',
      between < 2.5 && between > 1.8, String(between));
 
-  // Filling in the blank tee-run row makes it charge.
-  near('The blank run row can be filled in',
+  // The Carrier run row is editable like any other.
+  near('The run row can be overridden too',
        FD.fittings.el('TRUN', 100, { TRUN: { 100: 1.9 } }), 1.9, 1e-12);
+  near('...and falls back to the Carrier value when blanked',
+       FD.fittings.el('TRUN', 100, { TRUN: { 100: '' } }), 2.04, 1e-12);
 
   const defs = FD.fittings.defaultEL();
   ok('defaultEL exposes the printed table', defs.E90[100] === 3.0 && defs.TBRANCH[50] === 3.0);
-  ok('...including the blank row', defs.TRUN[100] === null);
+  near('...including the Carrier run row', defs.TRUN[100], 2.04, 1e-12);
   ok('The table offers only the fittings the app infers',
      JSON.stringify(FD.fittings.elTypes()) === JSON.stringify(['E45', 'E90', 'TBRANCH', 'TRUN']));
   ok('The source is named in the data', /NFPA 13 \(2019\)/.test(FD.fittings.NFPA_SOURCE));
+  ok('...and the exception is spelled out for the sheet',
+     /Carrier Design Handbook/.test(FD.fittings.EL_NOTE) &&
+     /not required for NFPA calculations/.test(FD.fittings.EL_NOTE));
 }
 
 // ------------------------------------------------------------- solver

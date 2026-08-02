@@ -114,11 +114,13 @@
    *     25 mm. The steel schedules do offer DN15 and DN20, so this is worth
    *     revisiting; the UI says so rather than leaving it to be discovered.
    *
-   *   - Tee or cross with flow STRAIGHT THROUGH. The printed table charges only
-   *     "flow turned 90°" and has no row for the run. Left deliberately BLANK,
-   *     pending values from Michael, rather than assumed to be zero or carried
-   *     over from the old L/D basis. Blank charges nothing and the UI says so
-   *     out loud. */
+   *   - Tee or cross with flow STRAIGHT THROUGH. NFPA 13 charges only "flow
+   *     turned 90°" and has no row for the run, because a sprinkler
+   *     calculation does not need one. That row therefore comes from a
+   *     DIFFERENT SOURCE — the Carrier Design Handbook, supplied by Michael
+   *     2026-08-02 — and is marked with an asterisk in the UI and named in a
+   *     note above the NFPA source line. It is the one row on the page that is
+   *     not NFPA 13, and it must stay visibly so. */
   var NFPA_DN = [25, 32, 40, 50, 65, 80, 90, 100, 125, 150, 200, 250, 300];
 
   /* Metres, in NFPA_DN order. `null` = not tabulated / awaiting a value. */
@@ -129,11 +131,25 @@
     E90:     [0.6, 0.9, 1.2, 1.5, 1.8, 2.1, 2.4, 3.0, 3.7, 4.3, 5.5, 6.7, 8.2],
     // Tee or cross (flow turned 90°)
     TBRANCH: [1.5, 1.8, 2.4, 3.0, 3.7, 4.6, 5.2, 6.1, 7.6, 9.1, 10.7, 15.2, 18.3],
-    // Tee or cross, flow straight through — NOT in NFPA 13. Awaiting values.
-    TRUN:    [null, null, null, null, null, null, null, null, null, null, null, null, null]
+    /* Tee or cross, flow STRAIGHT THROUGH — Carrier Design Handbook, not
+     * NFPA 13. Supplied by Michael 2026-08-02, in metres as given. NFPA has no
+     * such row: a sprinkler calculation does not need one.
+     *
+     * Sanity check on the mapping, worth recording. Carrier's own
+     * "T (Flow Thru)" column is the SAME data as NFPA's "flow turned 90°" row
+     * at most sizes — 1.52 against 1.5 m at DN25, 18.29 against 18.3 at DN300,
+     * i.e. 5 ft and 60 ft in both — so Carrier's "T (Straight)" is
+     * unambiguously the run, and it is the smaller of the two throughout. */
+    TRUN:    [0.52, 0.70, 0.79, 1.01, 1.25, 1.52, 1.80, 2.04, 2.50, 3.05, 3.96, 4.88, 5.79]
   };
 
   var NFPA_SOURCE = 'NFPA 13 (2019) Table 27.2.3.1.1';
+
+  /* Rows whose values do NOT come from NFPA_SOURCE, and where they do come
+   * from. The UI asterisks these and names the source. */
+  var EL_ALT_SOURCE = {
+    TRUN: 'Carrier Design Handbook'
+  };
 
   /* All four tee variants read the same two NFPA rows: the table gives one
    * "flow turned 90°" figure and does not split dividing from combining, the
@@ -204,6 +220,9 @@
     NFPA_DN: NFPA_DN,
     NFPA_EL: NFPA_EL,
     NFPA_SOURCE: NFPA_SOURCE,
+    EL_ALT_SOURCE: EL_ALT_SOURCE,
+    EL_NOTE: 'Note: Equivalent Length for Straight-Through tees taken from ' +
+             'Carrier Design Handbook as not required for NFPA calculations',
     elTableType: elTableType,
     elRow: elRow,
 
