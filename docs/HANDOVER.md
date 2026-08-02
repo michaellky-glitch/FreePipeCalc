@@ -46,34 +46,28 @@ rest:
   (6.819 / 1.852 / 1.167), not hard-coded. `settings.hw.A` no longer drives the
   default method; `settings.ashrae.K` does.
 
-### READ THIS FIRST — the Hazen-Williams constant question
+### Which Hazen-Williams constant is used (not a defect)
 
-Michael reported the app "very slightly off" against his hand calculations.
-It is **not** rounding noise, and the app is not wrong. It is a deliberate
-0.142% shift that he should decide about.
-
-The app now derives its coefficients from ASHRAE Ch 22 Eq (6) **as printed**
-(K = 6.819, a = 1.852, e = 1.167), because he asked for exactly that:
+The app derives its coefficients from ASHRAE Ch 22 Eq (6) **as printed**
+(K = 6.819, a = 1.852, e = 1.167), at Michael's request:
 
     A = 6.819·(4/π)^1.852 = 10.6663      e = 1.167 + 2·1.852 = 4.8710
 
-Most hand calculations — and the older `HW` method in this app — use the
-conventional flow-form constants **A = 10.67, e = 4.8704**. Worked example,
-100 m of DN50 sch40 (52.48 mm bore), C = 120, 5 L/s:
+Verified 2026-08-02 against Michael's own spreadsheet, which evaluates the same
+velocity form: the two agree to **1e-14** — they are the same calculation.
 
-| Basis | h_f |
-|---|---|
-| A = 10.67, e = 4.8704 (conventional, and the `HW` method here) | 14.1304 m |
-| Derived from Eq (6) — what `ASHRAE` now does | 14.1505 m |
-| Eq (6) evaluated directly in velocity form | 14.1505 m |
+Two things to know before anyone "fixes" this:
 
-The last two agree to 1e-14, so the app reproduces the printed ASHRAE equation
-exactly. The 0.142% is the rounding baked into the published 10.67.
-
-**Both are defensible.** If Michael wants his hand calcs to tie out to the last
-digit, either switch the model to the `HW` method, or type 10.67-equivalent
-constants into the HYDRAULIC formula (they are editable and flow through). Do
-not "fix" this without asking — it is a choice, not a bug.
+* **A hand calc done in the conventional FLOW form** (A = 10.67, e = 4.8704)
+  lands 0.14% away. That is the rounding baked into the published 10.67, not an
+  error here. The older `HW` method in this app still uses those constants, and
+  the HYDRAULIC formula constants are editable, so either route reproduces a
+  10.67 hand calc exactly if that is ever wanted.
+* **Check the units before chasing a difference.** 1 m wg = ρg = 998 × 9.81 =
+  **9.79 kPa**. A reported mismatch on 2026-08-02 turned out to be a m-wg-to-kPa
+  conflation plus rounded spreadsheet inputs (V to 3 s.f. and bore to 52.5 mm
+  instead of 52.48 — worth 0.12% and 0.04% respectively, because V is raised to
+  1.852). Nothing was wrong with the code.
 
 ### What is outstanding
 
