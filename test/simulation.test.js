@@ -539,9 +539,21 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
    * These values are a regression baseline regenerated from the hand-rebuilt
    * model (2026-07-30), which is a 20 L/s single-equipment circuit — the old
    * numbers came from the earlier 45 L/s two-CRAH geometry. They also guard
-   * against the balancing pass disturbing the sizing. */
+   * against the balancing pass disturbing the sizing.
+   *
+   * REGENERATED AGAIN 2026-08-02 for the bullhead-tee fix: 268.5 / 257.6 /
+   * 253.3 / 249.6 became 271.2 / 260.3 / 256.0 / 252.2. This is a ring main, so
+   * its supply and return tees are bullhead tees — nothing passes straight
+   * through them — and one leg of each was being charged as a run (K = 0.9)
+   * instead of a branch (K = 1.1). Correcting it adds resistance, so every head
+   * rises, by 2.6-2.7 kPa across all four cases. A uniform shift of a couple of
+   * kPa from an extra 0.2 velocity heads at two tees is the expected size and
+   * the expected direction; anything else would have meant the fix did
+   * something other than what it says. These are RECORDED figures, not hand
+   * calculations — the hand-calculable statement about this fix is the symmetry
+   * assertion in model.test.js, which needs no coefficient at all. */
   const file = __dirname + '/fixtures/data_centre_redundant_ring_main.pnet (fixed).json';
-  const expectHead = { 1: 268.5, 2: 257.6, 3: 253.3, 4: 249.6 };   // kPa
+  const expectHead = { 1: 271.2, 2: 260.3, 3: 256.0, 4: 252.2 };   // kPa
 
   [1, 2, 3, 4].forEach(n => {
     const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));

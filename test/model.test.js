@@ -1297,4 +1297,134 @@ section('Old files migrate their source pressure off the elevation');
   near('...as is the length', M.pipeLength(again, M.pipe(again, 'P0')), 50, 1e-9);
 }
 
+/* --------------------------------------------------------------------------
+ * A BULLHEAD tee has no run, so neither leg may be charged as one.
+ *
+ * Michael, 2026-08-02 (debug/20260802-2.json): a perfectly symmetrical ring
+ * split 51.0/49.0 and he asked whether that was a problem or noise. It was a
+ * problem. The two legs leave the supply tee at exactly 90 degrees each, so
+ * the run/branch pick had two geometrically identical candidates and broke the
+ * tie on the pipe's ID STRING — one leg got K = 0.9 (run), the other K = 1.1
+ * (branch), a 22% difference decided by an identifier. Pipe lengths agreed to
+ * 1e-12; the whole 1.88% came from the tee.
+ *
+ * The expectation here is SYMMETRY itself, which is the strongest hand
+ * calculation available: two legs identical in length, size, C and fittings
+ * must carry identical flow, whatever the coefficients happen to be. The
+ * id-order test is the one that would have caught the original bug.
+ * ----------------------------------------------------------------------- */
+section('Bullhead tee: a symmetric ring splits exactly in half');
+{
+  /* source - feed - [tee] - two identical 10 m legs - [tee] - outflow.
+   * `flip` builds the two legs in the opposite order, which is the only thing
+   * the old tie-break was actually keying on. */
+  function ring(flip) {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const s  = M.addNode(m, lv, 0, 0);
+    const t1 = M.addNode(m, lv, 10, 0);      // split tee
+    const up = M.addNode(m, lv, 10, 10);
+    const dn = M.addNode(m, lv, 10, -10);
+    const up2 = M.addNode(m, lv, 20, 10);
+    const dn2 = M.addNode(m, lv, 20, -10);
+    const t2 = M.addNode(m, lv, 20, 0);      // join tee
+    const out = M.addNode(m, lv, 30, 0);
+
+    const P = (a, b) => M.addPipe(m, a.id, b.id, { size: 'DN100', schedule: 'sch40' });
+    P(s, t1);
+    const legs = flip
+      ? [() => [P(t1, dn), P(dn, dn2), P(dn2, t2)], () => [P(t1, up), P(up, up2), P(up2, t2)]]
+      : [() => [P(t1, up), P(up, up2), P(up2, t2)], () => [P(t1, dn), P(dn, dn2), P(dn2, t2)]];
+    const first = legs[0](), second = legs[1]();
+    P(t2, out);
+
+    M.setSource(m, s.id, 400e3);
+    M.setDemand(m, out.id, 0.020, 100e3);
+    return { m, t1, t2, s, out,
+             upLeg: flip ? second[0] : first[0],
+             dnLeg: flip ? first[0] : second[0] };
+  }
+
+  const a = ring(false);
+  const res = NET.solveModel(a.m);
+  ok('Converges', res.converged === true, JSON.stringify(res.errors));
+
+  const qUp = Math.abs(res.flow[a.upLeg.id]), qDn = Math.abs(res.flow[a.dnLeg.id]);
+  ok('Both legs carry flow', qUp > 1e-6 && qDn > 1e-6);
+  /* Identical legs, therefore identical flow. Not "within a percent" — the
+   * only difference permitted is the solver's own convergence residue. */
+  ok('A symmetric ring splits exactly in half',
+     Math.abs(qUp - qDn) / ((qUp + qDn) / 2) < 1e-8,
+     `${(qUp * 1000).toFixed(9)} vs ${(qDn * 1000).toFixed(9)} L/s`);
+  near('...and the halves add up to the demand', qUp + qDn, 0.020, 1e-9);
+
+  // Neither leg is a run: nothing passes straight through this tee.
+  const types = {};
+  NET.fittingsAtNode(a.m, a.t1.id, res.flow, []).forEach(f => { types[f.pipe] = f.type; });
+  ok('Split tee charges BOTH legs as a branch',
+     types[a.upLeg.id] === 'TBRANCH_DIV' && types[a.dnLeg.id] === 'TBRANCH_DIV',
+     JSON.stringify(types));
+  const jtypes = {};
+  NET.fittingsAtNode(a.m, a.t2.id, res.flow, []).forEach(f => { jtypes[f.pipe] = f.type; });
+  ok('Join tee charges BOTH inlets as a branch',
+     Object.keys(jtypes).length === 2 &&
+     Object.keys(jtypes).every(k => jtypes[k] === 'TBRANCH_CONV'),
+     JSON.stringify(jtypes));
+
+  /* The bug was an ID-ORDER dependency, so drawing the legs the other way
+   * round must give bit-for-bit the same answer. */
+  const b = ring(true);
+  const res2 = NET.solveModel(b.m);
+  near('Drawing order does not change the split',
+       Math.abs(res2.flow[b.upLeg.id]), qUp, 1e-9);
+  near('...for the other leg either',
+       Math.abs(res2.flow[b.dnLeg.id]), qDn, 1e-9);
+}
+
+section('Bullhead detection leaves ordinary tees alone');
+{
+  const lv0 = (m) => m.levels[0].id;
+
+  /* An ORDINARY branch tee: in from the west, one leg carries straight on east
+   * and one takes off north. The east leg really does go straight through, so
+   * it stays the run. */
+  {
+    const m = M.create(), lv = lv0(m);
+    const s = M.addNode(m, lv, 0, 0);
+    const t = M.addNode(m, lv, 10, 0);
+    const east = M.addNode(m, lv, 30, 0);
+    const north = M.addNode(m, lv, 10, 10);
+    M.addPipe(m, s.id, t.id, { size: 'DN100', schedule: 'sch40' });
+    const pe = M.addPipe(m, t.id, east.id, { size: 'DN100', schedule: 'sch40' });
+    const pn = M.addPipe(m, t.id, north.id, { size: 'DN100', schedule: 'sch40' });
+    M.setSource(m, s.id, 400e3);
+    M.setDemand(m, east.id, 0.010, 100e3);
+    M.setDemand(m, north.id, 0.010, 100e3);
+    const res = NET.solveModel(m);
+
+    ok('Not a bullhead: the two legs are 90 degrees apart',
+       NET.isBullhead(m, t.id, [pe, pn]) === false);
+    const ty = {};
+    NET.fittingsAtNode(m, t.id, res.flow, []).forEach(f => { ty[f.pipe] = f.type; });
+    ok('The straight-on leg is still the run', ty[pe.id] === 'TRUN_DIV', JSON.stringify(ty));
+    ok('The take-off is still the branch', ty[pn.id] === 'TBRANCH_DIV', JSON.stringify(ty));
+  }
+
+  /* Two collinear legs IS the bullhead case, whichever way round they are. */
+  {
+    const m = M.create(), lv = lv0(m);
+    const c = M.addNode(m, lv, 0, 0);
+    const n = M.addNode(m, lv, 0, 10);
+    const sN = M.addNode(m, lv, 0, -10);
+    const w = M.addNode(m, lv, -10, 0);
+    const pn = M.addPipe(m, c.id, n.id, { size: 'DN100', schedule: 'sch40' });
+    const ps = M.addPipe(m, c.id, sN.id, { size: 'DN100', schedule: 'sch40' });
+    M.addPipe(m, w.id, c.id, { size: 'DN100', schedule: 'sch40' });
+    ok('Collinear legs are a bullhead', NET.isBullhead(m, c.id, [pn, ps]) === true);
+    ok('...in either order', NET.isBullhead(m, c.id, [ps, pn]) === true);
+    ok('A single leg is never a bullhead', NET.isBullhead(m, c.id, [pn]) === false);
+    ok('Nor is an empty set', NET.isBullhead(m, c.id, []) === false);
+  }
+}
+
 report();

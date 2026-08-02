@@ -100,9 +100,10 @@
      * Without a previous pass there are no flow directions, so it falls back to
      * the old geometric guess and the undifferentiated coefficients. */
     if (!flows) {
-      pipes.forEach(function (p) {
-        if (!isDownstream(p)) return;
-        var isRun0 = (p.id === runPair[0] || p.id === runPair[1]);
+      var down0 = pipes.filter(isDownstream);
+      var bull0 = isBullhead(m, nodeId, down0);
+      down0.forEach(function (p) {
+        var isRun0 = !bull0 && (p.id === runPair[0] || p.id === runPair[1]);
         out.push({ pipe: p.id, type: isRun0 ? 'TRUN' : 'TBRANCH' });
       });
       return out;
@@ -120,8 +121,11 @@
     var dividing = outs.length >= ins.length;
     var charged = dividing ? outs : ins;
 
+    /* A BULLHEAD tee has no run, so neither charged leg may be called one. */
+    var bull = isBullhead(m, nodeId, charged);
+
     charged.forEach(function (p) {
-      var isRun = (p.id === runPair[0] || p.id === runPair[1]);
+      var isRun = !bull && (p.id === runPair[0] || p.id === runPair[1]);
       out.push({
         pipe: p.id,
         type: dividing ? (isRun ? 'TRUN_DIV' : 'TBRANCH_DIV')
@@ -129,6 +133,43 @@
       });
     });
     return out;
+  }
+
+  /* Two legs are "collinear" within this many degrees of straight-through. */
+  var COLLINEAR_DEG = 2;
+
+  /* A BULLHEAD tee: the two charged legs are collinear WITH EACH OTHER, so the
+   * straight run of the fitting is between THEM and the common leg joins it at
+   * an angle. Nothing goes straight through from the common leg, and neither
+   * charged leg is a run.
+   *
+   * Found by Michael, 2026-08-02 (debug/20260802-2.json). A perfectly
+   * symmetrical ring split 51.0/49.0 instead of 50/50, and the cause was not
+   * noise: the two legs of the ring leave the supply tee at exactly 90° each,
+   * so `pickRunPair` had two geometrically identical candidates and broke the
+   * tie on the pipe's ID STRING. "P18P1" sorts before "P18P5", so the north leg
+   * became the run (K = 0.9) and the south leg the branch (K = 1.1) — a 22%
+   * resistance difference decided by an identifier. Lengths agreed to 1e-12;
+   * the whole 1.88% came from this.
+   *
+   * Charging both as BRANCH is a change of which tabulated coefficient applies,
+   * not a new number: both streams genuinely turn out of the common leg, which
+   * is what the branch coefficient describes, and calling one a run asserts
+   * that something passes straight through when nothing does. It is also the
+   * conservative reading of the two, which matters for a figure that sizes a
+   * pump.
+   *
+   * The test is pure geometry, so it cannot oscillate with the flow — the same
+   * requirement §6 imposes on the run/branch tie-break itself. It leaves the
+   * ordinary cases alone: at a riser tee the two charged legs are the riser
+   * onward and the floor take-off, 90° apart, and at a plain branch tee they
+   * are the through leg and the take-off, also 90° apart. Only the case where
+   * they are in line with one another is caught. */
+  function isBullhead(m, nodeId, charged) {
+    if (!charged || charged.length !== 2) return false;
+    var d0 = dirFrom(m, charged[0], nodeId), d1 = dirFrom(m, charged[1], nodeId);
+    if (!d0 || !d1) return false;
+    return deviation(d0, d1) < COLLINEAR_DEG;
   }
 
   /* Which two legs form the straight run?
@@ -1740,6 +1781,7 @@
     worstShortfall: worstShortfall,
     solveModel: solveModel,
     fittingsAtNode: fittingsAtNode,
+    isBullhead: isBullhead,
     fittingsByPipe: fittingsByPipe,
     deviation: deviation,
     dirFrom: dirFrom,

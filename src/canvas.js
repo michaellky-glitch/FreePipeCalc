@@ -541,14 +541,21 @@
            * subtracting the current offset from the label box the renderer just
            * registered. Needed so the label can be snapped to the world grid
            * rather than only moved by a pixel delta. */
-          /* The disconnection warning has its own offset key, so nudging it
-           * does not drag the node number with it. */
-          var loKey = (lab.kind === 'warn') ? 'warn' : null;
+          /* Anything with its own offset key moves independently of the
+           * entity's own label: the disconnection ⚠️, and the "Show on
+           * drawing" value box. */
+          var loKey = (lab.kind === 'warn' || lab.kind === 'box') ? lab.kind : null;
           var lo = M.labelOffset(lab.obj, loKey);
           self.dragLabel = { target: lab.obj, sx: sx, sy: sy, key: loKey,
                              ox: lo.dx, oy: lo.dy,
                              ax: lab.x - lo.dx, ay: lab.y - lo.dy };
-          self.selection = [{ kind: lab.kind, id: lab.obj.id }];
+          /* A value box belongs to its entity, so grabbing one selects THAT —
+           * `kind: 'box'` would select nothing and empty the properties panel
+           * at the moment you are using it. */
+          var selKind = lab.kind === 'box'
+            ? (lab.obj.a !== undefined ? 'pipe' : 'node')   // only a pipe has ends
+            : lab.kind;
+          self.selection = [{ kind: selKind, id: lab.obj.id }];
           c.setPointerCapture(e.pointerId);
           self.changed();
           return;
@@ -2281,7 +2288,7 @@
       this.registerLabel('pipe', p, tx - w / 2 - 3, ty - size, w + 6, size + 5);
       if (this.tool === 'view') this.labelHandle(tx - w / 2 - 3, ty - size, w + 6, size + 5);
     }
-    this.drawDeviceBox(p, { x: x, y: y }, off);
+    this.drawDeviceBox(p, { x: x, y: y });
   };
 
   /* Pump glyph: a circle with a chevron pointing along the flow. */
@@ -2511,7 +2518,7 @@
     this.registerLabel('node', n, x - w / 2 - 3, y - size, w + 6, size + 6);
     if (this.tool === 'view') this.labelHandle(x - w / 2 - 3, y - size, w + 6, size + 6);
 
-    this.drawDeviceBox(n, s, off);
+    this.drawDeviceBox(n, s);
   };
 
   View.prototype.labelSize = function () {
@@ -2534,10 +2541,19 @@
 
   /* Device values echoed beside the entity in a box, one line per property the
    * user ticked in VIEW mode. */
-  View.prototype.drawDeviceBox = function (obj, s, off) {
+  /* The "Show on drawing" value box.
+   *
+   * It carries its OWN offset ('box'), not the entity's label offset, and it is
+   * registered as a draggable in VIEW. Sharing the label's offset meant moving
+   * a tag dragged the value box with it and the box could not be grabbed at all
+   * — so a tag and its values could never be placed on opposite sides of a
+   * fitting, which is exactly what a busy drawing needs (Michael, 2026-08-02).
+   * The disconnection ⚠️ already worked this way, under the 'warn' key. */
+  View.prototype.drawDeviceBox = function (obj, s) {
     var flags = M.displayFlags(obj);
     var keys = Object.keys(flags);
     if (!keys.length) return;
+    var off = M.labelOffset(obj, 'box');
 
     var m = this.getModel(), d = m.settings.display, res = this.results, ctx = this.ctx;
     var lines = [];
@@ -2592,6 +2608,9 @@
     ctx.textAlign = 'left';
     lines.forEach(function (l, i) { ctx.fillText(l, x + 6, y + size + 2 + i * (size + 3)); });
     ctx.restore();
+
+    this.registerLabel('box', obj, x, y, w, h);
+    if (this.tool === 'view') this.labelHandle(x, y, w, h);
   };
 
   /* Pressure drop attributable to the fittings charged at this node. Each

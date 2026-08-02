@@ -1716,9 +1716,6 @@
         changed(); renderProperties();
       });
     });
-    host.appendChild(el('p', 'hint',
-      'Values switched on here appear in a box beside the entity. Drag the box ' +
-      'to place it.'));
   }
 
   /* Equipment tag. Shared by every in-line device — it is the reference the
@@ -1790,8 +1787,6 @@
       }
       host.appendChild(info);
     }
-    host.appendChild(el('p', 'hint',
-      'Pressure drop scales with the square of flow: ΔP = ΔP_rated × (Q / Q_rated)².'));
     displayChecks(host, p, [
       { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
       { key: 'pd', label: 'Pressure drop' }
@@ -2545,11 +2540,6 @@
             changed();
           } else { spIn.value = readSp(); }
         });
-      host.appendChild(el('p', 'hint',
-        'The pressure available at this node — a mains connection, or the ' +
-        'bottom of a tank. The node reads this figure, and everything downstream ' +
-        'works from it. Raising the source on the drawing adds its own static ' +
-        'head separately.'));
     }
 
     var res = app.results;

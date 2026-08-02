@@ -106,6 +106,21 @@ From the ⚠️/❌ notes in `Human-Test.md`:
   panel~~ (v0.7.7-dev). Both are still on the calculation sheet, which is where
   a set of terminals can be read against each other.
 
+### Reported 2026-08-02 (third round) — done
+
+* ~~**Symmetrical ring splits 51/49**~~ (`debug/20260802-2.json`). Not noise —
+  the run/branch pick had two geometrically identical candidates at the supply
+  tee and broke the tie on the pipe's ID string, so one leg got K = 0.9 and the
+  other K = 1.1. Fixed v0.7.10-dev by recognising the bullhead case: where the
+  two charged legs are collinear with each other, nothing passes straight
+  through and neither is a run. See `ARCHITECTURE.md` §7.
+* ~~Source: remove the static-pressure explanation~~ (v0.7.10-dev).
+* ~~VIEW: remove the "Values switched on here appear in a box…" hint~~ and
+  ~~the equipment square-law hint~~ (v0.7.10-dev).
+* ~~"Show on drawing" box is separately movable~~ (v0.7.10-dev). It has its own
+  `boxOffset` and its own drag handle; it shared the entity's `labelOffset`
+  before, so dragging a tag took the values with it.
+
 ### Reported 2026-08-02 (second round) — done
 
 * ~~**Disallow vertically sloped pipes.**~~ v0.7.8-dev. Everything in the layout

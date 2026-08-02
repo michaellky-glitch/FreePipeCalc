@@ -37,10 +37,18 @@ section('Pump auto-sizes on every solve');
   ok('Solve raised the head by itself', pump.pump.head > 1, pump.pump.head.toFixed(2));
   /* The solved head is the HYDRAULIC duty at design flow. The safety factor is
    * a selection margin reported separately — baking it into the solve pushed
-   * 21 L/s through equipment rated for 20 (see spec Q12.11). */
-  near('...to the index duty at design flow', pump.pump.head, 41.76, 0.1);
+   * 21 L/s through equipment rated for 20 (see spec Q12.11).
+   *
+   * 41.76 -> 41.95 on 2026-08-02, from the bullhead-tee fix. This model has
+   * three ring-main supply tees, and one leg of each was charged as a run
+   * (K = 0.9) rather than a branch (K = 1.1). The three legs that changed carry
+   * 1.30, 2.69 and 2.69 m/s, so the extra 0.2 velocity heads are 0.017, 0.074
+   * and 0.074 m — 0.165 m in total against a 0.197 m rise in duty, the
+   * remainder being the flow redistribution that follows. Direction and size
+   * both check out. A RECORDED figure, not a hand calculation. */
+  near('...to the index duty at design flow', pump.pump.head, 41.95, 0.1);
   near('Selection duty applies the margin on top',
-       pump.pump.head * (1 + m.settings.pumpSafetyPct / 100), 45.94, 0.15);
+       pump.pump.head * (1 + m.settings.pumpSafetyPct / 100), 46.15, 0.15);
   ok('Every demand is met', !res.actual, res.actual ? JSON.stringify(res.actual.unmet) : 'met');
 
   // Re-solving must be stable, not creep upward each time
@@ -174,7 +182,7 @@ section('Restoring the source to L1 fixes everything');
   ok('No pressure-driven fallback needed (everything is met)', !res.actual);
 
   near('Pump carries the whole demand', Math.abs(res.flow[pump.id]), 0.1, 1e-9);
-  near('Pump sized to the index duty at design flow', pump.pump.head, 41.76, 0.1);
+  near('Pump sized to the index duty at design flow', pump.pump.head, 41.95, 0.1);
 
   m.nodes.filter(n => n.device && n.device.kind === 'demand').forEach(n => {
     ok(`${n.id} meets its requirement`,

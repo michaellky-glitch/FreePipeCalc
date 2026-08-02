@@ -618,9 +618,15 @@
     else obj[prop] = { dx: Math.round(dx * 10) / 10, dy: Math.round(dy * 10) / 10 };
   }
 
+  /* "Reset label positions" has to clear EVERY offset key, or the ones it
+   * misses stay put while everything around them snaps back — which reads as
+   * the reset having half worked. `warn` is the disconnection glyph, `box` the
+   * "Show on drawing" value box. */
   function clearLabelOffsets(m) {
-    m.nodes.forEach(function (n) { delete n.labelOffset; });
-    m.pipes.forEach(function (p) { delete p.labelOffset; });
+    var keys = ['labelOffset', 'warnOffset', 'boxOffset'];
+    var strip = function (o) { keys.forEach(function (k) { delete o[k]; }); };
+    m.nodes.forEach(strip);
+    m.pipes.forEach(strip);
   }
 
   /* Which of a device's properties are echoed on the drawing, in a box beside

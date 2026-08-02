@@ -222,6 +222,42 @@ corner give an elbow, three give a tee, four or more raise a warning and are
 modelled as two tee branches. Equivalent length is charged to the **downstream**
 pipe.
 
+### A bullhead tee has no run
+
+Found by Michael on 2026-08-02 (`debug/20260802-2.json`): a perfectly
+symmetrical ring split **51.0/49.0**, and it was not noise.
+
+Both legs leave the supply tee at exactly 90°, so `pickRunPair` had two
+geometrically identical candidates and fell through to its last-resort
+tie-break — **the pipe's ID string**. `P18P1` sorts before `P18P5`, so the north
+leg became the run (K = 0.9) and the south leg the branch (K = 1.1): a 22%
+resistance difference decided by an identifier. Lengths agreed to 1e-12; the
+whole 1.88% came from the tee.
+
+The real fault is deeper than the tie-break. At that junction the two ring legs
+are **collinear with each other** — the straight run of the physical fitting is
+between *them*, and the supply joins it at right angles. Nothing passes straight
+through from the supply, so calling either leg a "run" asserts something untrue.
+
+So `isBullhead()` tests exactly that: when the two charged legs are collinear
+with one another (within 2°), neither is a run and both are charged as
+branches. That is a change of **which tabulated coefficient applies**, not a new
+number — both streams genuinely turn out of the common leg, which is what the
+branch coefficient describes — and it is the conservative reading of the two,
+which matters for a figure that sizes a pump. The test is pure geometry, so it
+cannot oscillate with the flow, which is the same requirement §6 imposes on the
+run/branch tie-break itself.
+
+Ordinary cases are untouched: at a riser tee the two charged legs are the riser
+onward and the floor take-off (90° apart), and at a plain branch tee they are
+the through leg and the take-off (also 90° apart). Only legs in line with one
+another are caught.
+
+The hand-checkable statement is **symmetry itself** — two legs identical in
+length, size, C and fittings must carry identical flow whatever the
+coefficients are — and `model.test.js` asserts it to 1e-8, along with the
+drawing-order independence that the original bug failed.
+
 **How fittings are charged depends on the method.** Under **ASHRAE (2021)** —
 the default — they are velocity heads, `h = K·V²/2g`, from the Ch 22 K tables
 (Eq 7), carried as a *separate quadratic term* on the link. Under **HW** and
@@ -303,6 +339,15 @@ otherwise silently change the calculation.
 
 VIEW exists because auto-placed labels collide with pipework on anything
 busy, and on a printed drawing that is the difference between readable and not.
+
+**Each annotation carries its own offset key**, so it moves independently:
+`labelOffset` for the entity's own label or tag, `warnOffset` for the
+disconnection ⚠️, `boxOffset` for the "Show on drawing" value box. The value box
+shared the label's offset until v0.7.10-dev, which meant dragging a tag took the
+values with it and the box could not be grabbed at all — so a tag and its values
+could never go on opposite sides of a fitting, which is exactly what a busy
+drawing needs. `M.clearLabelOffsets` must clear every key or a reset reads as
+half-working.
 Label offsets are stored in **screen pixels**, not metres, so a label stays the
 same distance from its owner at every zoom — which is what "tidy" means on a
 drawing and what carries to print.
@@ -783,7 +828,7 @@ invites entering numbers into the one being ignored.
 
 ## 15. Testing
 
-Six suites, 746 assertions, no dependencies:
+Six suites, 761 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -794,7 +839,7 @@ node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
 
-All 746 pass. The "Parallel pumps share in DESIGN" section of
+All 761 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change

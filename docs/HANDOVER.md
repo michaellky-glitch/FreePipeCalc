@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-02 (v0.7.9-dev), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-02 (v0.7.10-dev), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,15 +21,15 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — six files, **746 assertions, all passing**.
+Tests: `node test/<name>.test.js` — six files, **761 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. Where things stand (v0.7.9-dev, 2026-08-02)
+## 2. Where things stand (v0.7.10-dev, 2026-08-02)
 
-Nothing is BROKEN. The engine is green at **746 assertions** and the repository
+Nothing is BROKEN. The engine is green at **761 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
 
 The big change since v0.5.0 is the **ASHRAE (2021) method**, now the default —
@@ -161,6 +161,15 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **The bullhead-tee fix** (v0.7.10-dev). Michael asked whether a 1.88% split in
+  a symmetrical ring was a problem or noise. It was a problem, and the cause was
+  that the run/branch pick had two identical candidates and broke the tie on the
+  **pipe's ID string**. Where the two charged legs are collinear with each other
+  nothing goes straight through, so neither is a run and both are now charged as
+  branches. `ARCHITECTURE.md` §7 has the full reasoning. **This moved regression
+  baselines** in `supply.test.js` (41.76 → 41.95 m) and `simulation.test.js`
+  (four parallel-pump heads, +2.6 to +2.7 kPa each); both are recorded figures
+  with the arithmetic of the shift written into the test comments.
 * **A layout pipe is LEVEL** (v0.7.8-dev), and its length is the plan distance.
   Michael's rule: only a riser changes height, and the length wanted off a
   layout is the horizontal one — which stays true when pipe gradients arrive in
