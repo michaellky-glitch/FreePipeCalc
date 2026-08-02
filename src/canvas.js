@@ -2948,10 +2948,13 @@
                FD.units.fmtLength(d.distance, disp.length, true) +
                ' of ' + FD.units.fmtLength(M.pipeLength(m, d.pipe), disp.length, true));
     lines.push('Press ' + FD.units.fmtPressure(d.pressure, disp.pressure, true));
+    /* Flow and velocity are the same at every point of a uniform pipe. That was
+     * spelled out beside each of them once; it made a four-line readout read
+     * like a warning, and it is not news to anyone reading it. */
     lines.push('Flow  ' + (d.flow === undefined ? '—'
-      : FD.units.fmtFlow(Math.abs(d.flow), disp.flow, true)) + '   (whole pipe)');
+      : FD.units.fmtFlow(Math.abs(d.flow), disp.flow, true)));
     lines.push('Vel   ' + (d.velocity === null ? '—'
-      : FD.units.fmtVelocity(d.velocity, disp.length !== 'ft')) + '   (whole pipe)');
+      : FD.units.fmtVelocity(d.velocity, disp.length !== 'ft')));
     return lines;
   };
 

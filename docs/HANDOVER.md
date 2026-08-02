@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-02 (v0.7.8-dev), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-02 (v0.7.9-dev), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -27,7 +27,7 @@ Tests: `node test/<name>.test.js` — six files, **746 assertions, all passing**
 
 ---
 
-## 2. Where things stand (v0.7.8-dev, 2026-08-02)
+## 2. Where things stand (v0.7.9-dev, 2026-08-02)
 
 Nothing is BROKEN. The engine is green at **746 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
@@ -170,7 +170,10 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
   are now the same number.
 * **PROBE** (v0.7.8-dev) — a VIEW tool reading pressure, flow and velocity at
   any point along a run. `ARCHITECTURE.md` §7A has why the pressure line is the
-  real profile and why a device is a step instead.
+  real profile and why a device is a step instead. **The reasoning lives in the
+  docs, not in the app** — the panel copy and the "(whole pipe)" note beside
+  flow and velocity were both cut as clutter (v0.7.9-dev). Do not put them back
+  without asking.
 * **Two defects found in `debug/20260802-1.json`** (v0.7.7-dev), both from one
   wrong decision. A source's static pressure was stored as the node's ELEVATION,
   which stretched every pipe on it in 3D — 50 m read as 54.01 m. And

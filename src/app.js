@@ -1162,27 +1162,6 @@
     // TRACE mode shows the background drawing's own controls instead
     if (app.view.tool === 'trace') { renderTraceProps(host); return; }
     if (app.showAnnotations) { renderAnnotationProps(host); return; }
-    if (app.view.tool === 'probe') {
-      host.appendChild(el('h3', '', 'Probe'));
-      host.appendChild(el('p', 'hint',
-        'Move along any pipe to read the pressure, flow and velocity at that ' +
-        'point. Click to pin the reading so you can take the mouse off the ' +
-        'drawing; Esc clears it.'));
-      host.appendChild(el('p', 'hint',
-        'Pressure is the one that varies: flow and velocity are the same at ' +
-        'every point of a uniform pipe, and are shown for completeness.'));
-      host.appendChild(el('p', 'hint',
-        'The pressure between two nodes is a straight line, because the pipe ' +
-        'is level and its friction loss per metre is constant. Fittings are ' +
-        'charged as equivalent length spread over the whole pipe, so where a ' +
-        'real fitting sits there is a small step the line averages out — the ' +
-        'node values themselves are exact.'));
-      host.appendChild(el('p', 'hint',
-        'A pump, valve or piece of equipment puts its whole pressure change at ' +
-        'one point, so probing one reports both sides and the change across it ' +
-        'rather than a value along it.'));
-      return;
-    }
     if (app.view.tool === 'align') {
       host.appendChild(el('h3', '', 'Align model'));
       host.appendChild(el('p', 'hint',

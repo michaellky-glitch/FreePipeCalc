@@ -272,9 +272,12 @@ Pressure between two nodes is a **straight line**, and that is the real profile
 rather than a convenience: both ends are at the same elevation by the rule
 above, so there is no static term varying along the run, and the flow and bore
 are constant along a pipe, so friction loss per metre is constant. The one
-caveat, stated in the panel: fittings are charged as lumped equivalent length
-spread over the whole pipe, so where a real fitting sits there is a small step
-the line averages out. The node values are exact either way.
+caveat: fittings are charged as lumped equivalent length spread over the whole
+pipe, so where a real fitting sits there is a small step the line averages out.
+The node values are exact either way. **This lives here, not in the app** — the
+explanation was in the properties panel and was removed as clutter
+(Michael, 2026-08-02); flow and velocity likewise dropped the "(whole pipe)"
+note beside each reading.
 
 A **device** is where interpolating would be a lie — a pump, valve or piece of
 equipment puts its entire pressure change at one point — so probing one reports
