@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-02 (v0.10.0), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-02 (v0.10.1), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,15 +21,15 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **936 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **979 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. Where things stand (v0.10.0, 2026-08-02)
+## 2. Where things stand (v0.10.1, 2026-08-02)
 
-Nothing is BROKEN. The engine is green at **936 assertions** and the repository
+Nothing is BROKEN. The engine is green at **979 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
 
 The big change since v0.5.0 is the **ASHRAE (2021) method**, now the default —
@@ -134,12 +134,16 @@ it is flagged until he checks it. Do not quietly promote either to `verified`.
    4187 are the app's own long-standing values and were deliberately NOT nudged
    to the textbook 998.2 / 4182, because that would have moved every pressure
    and every duty in every existing model for 0.02%.
-2. **Insulation thicknesses** (`data/insulation.js`, `verified: false`). There
-   is no single standard to read off: thickness follows the service, the ambient
-   and the jurisdiction, not the pipe. A pipe's own `insulation_mm` always wins,
-   **including 0** — a deliberately bare pipe must not pick up the default. The
-   outside surface coefficient (8 W/m²·K) is likewise a default, and on a BARE
-   pipe it is the entire resistance.
+2. **The outside surface coefficient** (8 W/m²·K) is a default, not sourced
+   data. On an insulated pipe it is a small part of the resistance; on a BARE
+   pipe it is the entire resistance, so a bare-pipe answer is only as good as
+   that number.
+
+Insulation THICKNESS is no longer on this list. It moved onto the pipe schedule
+in v0.10.1 with Michael's own rule as the default — 25 mm below DN50, 50 mm from
+DN50 up — which is a decision rather than a transcription. A pipe's own
+`insulation_mm` still overrides it, **including 0**: a deliberately bare pipe
+must not pick up its schedule's figure.
 
 Both flags surface beside the control, on the THERMAL tab, and on the
 CALCULATION SHEET — which is the thing that gets issued.
@@ -152,6 +156,31 @@ effectiveness model, so they bracket the truth and each is exact for a real
 class of plant. Adding the effectiveness model itself needs exactly one new
 field — the secondary-side entering temperature — with UA derived from the
 design point. `ARCHITECTURE.md` §18.
+
+### 2E. The 100 kW no-rejection case, and what it changed
+
+Michael asked for it as a test: a 100 kW load with nothing to reject the heat,
+which should settle where the pipe loss equals the load. It found two things.
+
+**The datum pinning was wrong.** Pinning happened whenever there was no source,
+which would have held that loop at the flow temperature and reported a system
+that never warms. Ambient IS a reference — a loop with a load and bare pipe is
+not indeterminate. A pin is now used only when there is no source *and* no
+ambient coupling at all.
+
+**Gauss-Seidel was the wrong method.** The loop converges at a rate set by how
+strongly it is tied to ambient, so 200 passes left the energy balance 69 kW out
+on a lagged loop. Every relation in the module is affine in temperature, so it
+is now assembled as one linear system and solved with `FD.solver.solveLinear` in
+a single pass. Exact, and it retires "did it converge?" — never a physical
+question for a linear system.
+
+The loop settles at 63–64 °C for 100 kW into 800 m of bare DN100, with the
+energy balance closing to 0 W. Lagged, the same load solves to 4454 °C, which is
+the right answer to a system that cannot exist — and is what the **runaway
+guard** is for. Michael offered that as an alternative to the equilibrium; it is
+kept alongside it instead, so the answer is correct AND an implausible one is
+flagged. Band adjustable, defaulting to ±50 °C, which trips on any LTHW system.
 
 ### 2D. A second symmetric-split defect, found by a thermal test
 

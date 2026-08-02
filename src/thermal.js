@@ -62,8 +62,6 @@
 
   var M = FD.model;
 
-  var MAX_ITER = 200;
-  var TOL_K = 1e-9;
 
   /* Heat loss per metre per kelvin for a pipe, W/(m·K).
    *
@@ -85,6 +83,14 @@
    * whole resistance. */
   function lossPerMetreK(od_m, thickness_m, k, h_o) {
     if (!(od_m > 0)) return 0;
+    /* h = 0 is ADIABATIC, not "unset". A perfect insulator outside the pipe
+     * exchanges nothing, and someone typing 0 into the surface coefficient
+     * means exactly that. Substituting a default there would quietly reinstate
+     * heat exchange the engineer had switched off — and it is the only way to
+     * express a genuinely sealed circuit, which is the one case that needs a
+     * pinned reference temperature. A negative or missing value still falls
+     * back to the default. */
+    if (h_o === 0) return 0;
     if (!(h_o > 0)) h_o = 8;
     var r_i = od_m / 2;
     var r_o = r_i + Math.max(0, thickness_m || 0);
@@ -115,21 +121,28 @@
     return {
       ambient: t.ambient !== undefined ? t.ambient : 20,
       k: t.insulationK > 0 ? t.insulationK : 0.02,
-      h: t.surfaceCoeff > 0 ? t.surfaceCoeff : 8,
-      supply: t.supplyTemp !== undefined ? t.supplyTemp : 6
+      h: (t.surfaceCoeff === 0 || t.surfaceCoeff > 0) ? t.surfaceCoeff : 8,
+      supply: t.supplyTemp !== undefined ? t.supplyTemp : 6,
+      tMin: t.tempMin !== undefined ? t.tempMin : -50,
+      tMax: t.tempMax !== undefined ? t.tempMax : 50
     };
   }
 
-  /* Insulation thickness in metres for a pipe: its own value if set, else the
-   * default for its nominal size. */
+  /* Insulation thickness in metres for a pipe.
+   *
+   * A pipe's OWN value always wins, INCLUDING zero — a deliberately bare pipe
+   * must not silently pick up its schedule's figure. With nothing set it takes
+   * the value from its SCHEDULE, which is where insulation now lives
+   * (v0.10.1): it is a physical property of the pipe, alongside bore and
+   * outside diameter, rather than a separate table keyed on size. */
   function thicknessOf(m, p) {
     if (p.insulation_mm !== undefined && p.insulation_mm !== null &&
         p.insulation_mm !== '') {
       return Math.max(0, Number(p.insulation_mm)) / 1000;
     }
-    var t = (m.settings && m.settings.thermal) || {};
     var nominal = FD.schedules.nominalMm ? FD.schedules.nominalMm(p.size) : 0;
-    return FD.insulation.defaultThickness(nominal, t.insulationSet) / 1000;
+    return FD.schedules.insulationFor(p.schedule, p.size, nominal,
+                                      m.settings && m.settings.insulation) / 1000;
   }
 
   function pipeOD(m, p) {
@@ -147,7 +160,7 @@
    * one node is pinned instead, at the OUTLET of whatever removes the most
    * heat. In a chilled or heating circuit that is the plant, and its leaving
    * temperature is the number an engineer quotes as the flow temperature. */
-  function referenceNodes(m, res, prm) {
+  function referenceNodes(m, res, prm, coupled) {
     var refs = {}, pinned = null;
     var any = false;
     m.nodes.forEach(function (n) {
@@ -158,6 +171,20 @@
       any = true;
     });
     if (any) return { refs: refs, pinned: null };
+
+    /* AMBIENT IS A REFERENCE, and pinning on top of it would be wrong.
+     *
+     * Michael's case (2026-08-02): a 100 kW load in a sealed loop with no heat
+     * rejection at all. That system is NOT indeterminate — the water heats up
+     * until the pipes shed 100 kW to the room, and where it settles is the
+     * answer. Pinning a node at the flow temperature would have held it there
+     * and reported a loop that never warms, which is the opposite of the truth.
+     *
+     * So a pin is only needed when nothing else sets a level: no source, AND
+     * no pipe exchanging heat with ambient. That is a genuinely adiabatic
+     * circuit — a balanced chiller and coil round insulated pipework — where
+     * the temperature really can sit anywhere and something has to say where. */
+    if (coupled) return { refs: refs, pinned: null, floating: true };
 
     var best = null, bestQ = 0;
     m.pipes.forEach(function (p) {
@@ -208,7 +235,16 @@
     });
     if (!carriers.length) return null;
 
-    var ref = referenceNodes(m, res, prm);
+    /* Does anything tie this system to ambient? Computed before the reference
+     * is chosen, because it decides whether one is needed at all. */
+    var coupled = carriers.some(function (c) {
+      var p = c.pipe;
+      if (p.kind !== 'pipe' && p.kind !== 'riser') return false;
+      return M.pipeLength(m, p) > 0 &&
+             lossPerMetreK(pipeOD(m, p), thicknessOf(m, p), prm.k, prm.h) > 0;
+    });
+
+    var ref = referenceNodes(m, res, prm, coupled);
     if (ref.pinned) {
       warnings.push({
         code: 'THERMAL_DATUM', node: ref.pinned.node, pipe: ref.pinned.pipe,
@@ -239,9 +275,14 @@
     carriers.forEach(function (c) { (inTo[c.to] = inTo[c.to] || []).push(c); });
 
     // ---- seed ----
+    /* Seed. A FLOATING system — no source, no pin, finding its own level
+     * against ambient — starts AT ambient, because that is the answer with no
+     * load at all and it is the nearest starting point to any answer with one.
+     * Seeding it at the flow temperature instead just means more passes. */
+    var seed = ref.floating ? prm.ambient : prm.supply;
     var T = {};
     m.nodes.forEach(function (n) {
-      T[n.id] = (ref.refs[n.id] !== undefined) ? ref.refs[n.id] : prm.supply;
+      T[n.id] = (ref.refs[n.id] !== undefined) ? ref.refs[n.id] : seed;
     });
 
     /* Outlet temperature of one link, given its inlet. */
@@ -259,36 +300,99 @@
       return tIn;
     }
 
-    // ---- iterate: mixing and transport are mutually dependent round a loop ----
-    var iterations = 0, converged = false;
-    for (var it = 0; it < MAX_ITER; it++) {
-      iterations = it + 1;
-      var worst = 0;
-      m.nodes.forEach(function (n) {
-        if (ref.refs[n.id] !== undefined) { T[n.id] = ref.refs[n.id]; return; }
-        var arriving = inTo[n.id];
-        if (!arriving || !arriving.length) return;   // nothing feeds it; leave it
-        var num = 0, den = 0;
-        arriving.forEach(function (c) {
-          var t = outletOf(c, T[c.from]);
-          num += c.mdot * t;
-          den += c.mdot;
-        });
-        if (!(den > 0)) return;
-        var next = num / den;
-        var d = Math.abs(next - T[n.id]);
-        if (d > worst) worst = d;
-        T[n.id] = next;
-      });
-      if (worst < TOL_K) { converged = true; break; }
+    /* ---- SOLVE, do not iterate ----------------------------------------
+     *
+     * Every relation here is AFFINE in temperature:
+     *
+     *   mixing      T = Σ(ṁᵢTᵢ)/Σṁ                        linear
+     *   pipe        T_out = T_amb + (T_in − T_amb)·e^(−x)  affine, e^(−x) fixed
+     *   equipment   T_out = T_in + ΔT   or   T_in + Q/C    affine
+     *
+     * so the whole network is one linear system, A·T = b, and it can be solved
+     * exactly in one pass. It used to be swept Gauss-Seidel until the
+     * temperatures stopped moving, which worked but converged at a rate set by
+     * how strongly the loop is tied to ambient — fine on a system with a
+     * source, hopeless on Michael's case of a 100 kW load in a lagged loop with
+     * no heat rejection, where 200 passes still left the energy balance 69 kW
+     * out. That is not a tolerance to tune: it is the wrong method for a linear
+     * problem.
+     *
+     * Solving it also retires the question "did it converge?", which for a
+     * linear system was never a physical question in the first place. */
+    var ids = m.nodes.map(function (n) { return n.id; });
+    var index = {};
+    ids.forEach(function (id, i) { index[id] = i; });
+    var N = ids.length;
+
+    /* Row per node. `outletCoef` gives the affine pair for one link, so the
+     * matrix is assembled from exactly the same relations the report uses. */
+    function outletCoef(c) {
+      var p = c.pipe;
+      if (p.kind === 'pipe' || p.kind === 'riser') {
+        var C2 = c.mdot * cp;
+        if (!(C2 > 0) || !(c.UperM > 0) || !(c.L > 0)) return { a: 1, b: 0 };
+        var x = c.UperM * c.L / C2;
+        if (x > 60) return { a: 0, b: prm.ambient };      // fully equilibrated
+        var e = Math.exp(-x);
+        return { a: e, b: prm.ambient * (1 - e) };
+      }
+      if (p.kind === 'equip' && p.equip && !p.equip.off) {
+        var eq = p.equip;
+        if (eq.thermalMode === 'dT') return { a: 1, b: (eq.dT || 0) };
+        return { a: 1, b: (c.C > 0 ? (eq.duty || 0) / c.C : 0) };
+      }
+      return { a: 1, b: 0 };                              // pump, valve
     }
-    if (!converged) {
+
+    var A = [], bvec = [];
+    for (var r = 0; r < N; r++) {
+      A.push(new Array(N).fill(0));
+      bvec.push(0);
+    }
+    ids.forEach(function (id, i) {
+      if (ref.refs[id] !== undefined) {          // a known temperature
+        A[i][i] = 1; bvec[i] = ref.refs[id];
+        return;
+      }
+      var arriving = inTo[id];
+      if (!arriving || !arriving.length) {
+        /* Nothing feeds it — a dead end off the flowing network. Hold it at
+         * the seed rather than leaving the row singular. */
+        A[i][i] = 1; bvec[i] = seed;
+        return;
+      }
+      var den = 0;
+      arriving.forEach(function (c) { den += c.mdot; });
+      if (!(den > 0)) { A[i][i] = 1; bvec[i] = seed; return; }
+
+      A[i][i] = 1;
+      arriving.forEach(function (c) {
+        var co = outletCoef(c);
+        var w = c.mdot / den;
+        A[i][index[c.from]] -= w * co.a;
+        bvec[i] += w * co.b;
+      });
+    });
+
+    var solved = FD.solver.solveLinear(A, bvec);
+    var singular = !solved;
+    if (solved) {
+      ids.forEach(function (id, i) {
+        if (isFinite(solved[i])) T[id] = solved[i];
+      });
+    } else {
+      /* Singular only when the temperature genuinely is not determined — no
+       * reference and no tie to ambient anywhere, which referenceNodes is
+       * supposed to have pinned. Reported rather than papered over. */
       warnings.push({
-        code: 'THERMAL_NOT_CONVERGED',
-        message: 'Temperatures did not settle in ' + MAX_ITER + ' passes. The ' +
-                 'reported values are the last iteration.'
+        code: 'THERMAL_SINGULAR',
+        message: 'The temperature field has no unique solution: nothing sets a ' +
+                 'level and nothing ties the system to ambient. Give a source a ' +
+                 'temperature, or let the pipework exchange heat with the room.'
       });
     }
+    var converged = !singular;
+    var iterations = 1;
 
     // ---- report per link ----
     var links = {};
@@ -313,15 +417,61 @@
     var temps = Object.keys(T).map(function (k) { return T[k]; })
       .filter(function (v) { return isFinite(v); });
 
+    /* RUNAWAY GUARD (Michael, 2026-08-02).
+     *
+     * The solve is exact, so nothing "runs away" numerically — but a correct
+     * answer can still be an absurd one. A 100 kW load in a well-lagged loop
+     * with no heat rejection genuinely does settle at a ridiculous
+     * temperature, and that is a statement about the DESIGN, not about the
+     * arithmetic. Reporting 400 °C as though it were a result would be worse
+     * than refusing.
+     *
+     * An ERROR rather than a warning, because every number downstream of it is
+     * conditional on a system that cannot exist. The band is adjustable: what
+     * counts as absurd depends on the service, and the default ±50 °C suits
+     * chilled water rather than LTHW. */
+    var errors = [];
+    var outside = [];
+    Object.keys(T).forEach(function (id) {
+      var v = T[id];
+      if (!isFinite(v)) return;
+      if (v < prm.tMin || v > prm.tMax) outside.push({ node: id, t: v });
+    });
+    if (outside.length) {
+      outside.sort(function (a, b) {
+        return Math.abs(b.t - prm.ambient) - Math.abs(a.t - prm.ambient);
+      });
+      var worst = outside[0];
+      errors.push({
+        code: 'THERMAL_LIMIT', node: worst.node, temperature: worst.t,
+        message: 'Temperature at ' + worst.node + ' solves to ' +
+                 worst.t.toFixed(1) + ' °C, outside the plausible band ' +
+                 prm.tMin.toFixed(0) + ' to ' + prm.tMax.toFixed(0) + ' °C' +
+                 (outside.length > 1 ? ' (' + outside.length + ' nodes are outside it)' : '') +
+                 '. The heat going in has nowhere to go: check the equipment ' +
+                 'duty, the insulation and whether anything rejects heat. Widen ' +
+                 'the band on the THERMAL tab if this system really does run ' +
+                 'that hot or cold.'
+      });
+    }
+
     return {
       temperature: T,
       links: links,
+      floating: !!ref.floating,
+      /* At steady state everything put in has to come out. For a floating
+       * system this IS the convergence criterion in physical terms, and it is
+       * worth reporting: a residual that is not near zero means the iteration
+       * has not finished, whatever the temperature tolerance said. */
+      imbalance: pipeLoss + equipDuty,
       fluid: fluid,
       ambient: prm.ambient,
       pinned: ref.pinned,
-      converged: converged,
+      converged: converged && !errors.length,
       iterations: iterations,
       warnings: warnings,
+      errors: errors,
+      outside: outside,
       totals: {
         pipeLoss: pipeLoss,          // W, signed — negative when losing heat
         equipDuty: equipDuty,        // W, signed
@@ -337,7 +487,6 @@
     pipeOutlet: pipeOutlet,
     params: params,
     thicknessOf: thicknessOf,
-    pipeOD: pipeOD,
-    MAX_ITER: MAX_ITER
+    pipeOD: pipeOD
   };
 })(window.FD = window.FD || {});

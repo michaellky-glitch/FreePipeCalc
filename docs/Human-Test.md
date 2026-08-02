@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 936
+This is deliberately separate from the automated suites. Those cover 979
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-02 (v0.10.0)
+Last updated: 2026-08-02 (v0.10.1)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -168,6 +168,20 @@ threshold (`settings.warn.pumpRunout`, default 120%).
 | 4C.4 | Clipboard copy over `file://` | ⬜ | Uses the `execCommand` fallback, same as the rest of the app. Proven over HTTP only. |
 | 4C.5 | Rising / concave-up curve warnings | ⬜ | Unit-tested; not seen by a human. |
 
+## MICHAEL'S TO-DO
+
+Things only Michael can settle, pulled out of the tables below so they are not
+buried in them. Nothing here is a defect — each is a number or a judgement the
+app cannot source for itself.
+
+| # | To do | Why it matters |
+|---|---|---|
+| **TD.1** | **Check the propylene glycol properties** (`data/fluids.js`) | Asked for at his instruction and written from recollection of ASHRAE Ch 31, flagged `verified: false` throughout. **Cp first**: it scales every thermal duty *linearly*, and unlike a friction factor nothing downstream absorbs an error. Water is untouched at 998 / 4187. The flag shows beside the selector, on THERMAL, and on the calculation sheet. |
+| **TD.2** | Set the outside surface coefficient | 8 W/m²·K is a default, not sourced. On an insulated pipe it is a small part of the resistance; on a **bare** pipe it is the whole of it. |
+| **TD.3** | Set the plausibility band per service | Defaults to ±50 °C, which suits chilled water and **trips on any LTHW system** — the test suite demonstrates this at 80 °C flow. Adjustable on THERMAL. |
+| **TD.4** | Confirm the insulation rule | 25 mm below DN50, 50 mm from DN50 up, per size on the schedule. His rule, so not flagged — but worth confirming it is the one he meant, including that DN50 itself takes 50. |
+| **TD.5** | Rule on the Critical Radius tool's temperature inputs | It takes ambient and fluid temperature as asked, but **r_cr = k/h contains no temperature**. They are used for heat loss and surface temperature instead. See 4E.1. |
+
 ## 4D. THERMAL module (v0.10.0)
 
 Built and engine-tested; nothing here has been rendered to pixels, and two data
@@ -183,6 +197,17 @@ sets need Michael's eye before anything is issued.
 | 4D.6 | Temperature on the drawing, probe, visualiser | ⬜ | ANNOTATIONS ▸ Temperature, the PROBE readout, and a TEMPERATURE visualiser beside PRESSURE. Verified through the render path; the probe re-solves the exponential rather than interpolating between the ends. |
 | 4D.7 | Fluid selector locks unless Custom | ⬜ | A named fluid's properties are read-only, for the same reason the published equivalent-length tables are. Verified in the DOM. |
 | 4D.8 | **Does the whole thing agree with a job you know?** | ⬜ | **The one that matters.** Pipe heat gain, coil duties and mixed temperatures against something with known answers. Nothing here has been checked against another tool. |
+
+## 4E. Thermal, second round (v0.10.1)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| 4E.1 | **Insulation Critical Radius tool** | ⬜ | **Please rule on this one.** It takes ambient and fluid temperature as you asked, but the critical radius is `r_cr = k/h` and contains **no temperature at all** — doubling the temperature difference doubles the heat flow at every radius and moves the turning point not at all. Rather than ignore the inputs, they drive the heat loss and the **surface temperature**, which is the number to compare against dew point. With PU at k = 0.02 and h = 8, r_cr = **2.5 mm**, so it never binds on any pipe in any schedule here. If what you actually want is the condensation-control thickness, that is a different calculation and needs the room's humidity. |
+| 4E.2 | Insulation moved onto the pipe schedule | ⬜ | The schedule table now shows nominal / bore / OD / wall / insulation, with only insulation editable. 25 mm below DN50, 50 mm from DN50 up. A pipe still overrides it individually, including 0. |
+| 4E.3 | Current schedule + Add / Copy buttons | ⬜ | "Copy Current Schedule" seeds a new custom one from the active schedule's sizes. Custom schedules now take an **outside diameter** as their third column instead of insulation — the thermal module needs it, and without it a custom schedule falls back to the bore and understates heat loss. |
+| 4E.4 | Equipment: Hydraulics header, thermal dropdown | ⬜ | "Solve Q from ΔT" / "Solve ΔT from Q". |
+| 4E.5 | **A 100 kW load with no heat rejection** | ⬜ | **Your test case, and it found a real design fault.** The datum pinning would have held the loop at the flow temperature and reported a system that never warms. Ambient is a reference, so a pin is now only used when there is no source *and* no ambient coupling. The loop settles where the pipes shed exactly what the load puts in — 63–64 °C for 100 kW into 800 m of bare DN100, energy balance closing to 0 W. |
+| 4E.6 | Runaway guard | ⬜ | Your alternative, kept alongside the equilibrium rather than instead of it. Outside the band it is an **error**, clears `converged`, and takes the status chip — but the temperatures are still reported, because the answer is not wrong, it is implausible, and hiding it leaves nothing to diagnose from. |
 
 ## 5. Output
 

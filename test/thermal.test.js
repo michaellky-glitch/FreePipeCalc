@@ -22,7 +22,9 @@ function line(opts) {
   const m = M.create();
   m.settings.thermal = Object.assign({
     ambient: 20, supplyTemp: 6, insulationK: 0.02, surfaceCoeff: 8,
-    insulationSet: 'none'
+    /* Wide, because several of these run legitimately hot — an 80 °C LTHW
+     * flow is not a runaway. The guard itself is tested on its own below. */
+    tempMin: -100, tempMax: 200
   }, opts.thermal || {});
   const lv = m.levels[0].id;
   const a = M.addNode(m, lv, 0, 0);
@@ -178,7 +180,7 @@ section('Equipment: dT and dQ are the same equation read two ways');
   function withEquip(equip, flow) {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: 6, insulationK: 0.02,
-                           surfaceCoeff: 8, insulationSet: 'none' };
+                           surfaceCoeff: 8, tempMin: -100, tempMax: 200 };
     const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0);
     const j = M.addNode(m, lv, 1, 0);
@@ -273,7 +275,7 @@ section('Mixing at a junction');
    * whatever the split turns out to be. */
   const m = M.create();
   m.settings.thermal = { ambient: 20, supplyTemp: 6, insulationK: 0.02,
-                         surfaceCoeff: 8, insulationSet: 'none' };
+                         surfaceCoeff: 8, tempMin: -100, tempMax: 200 };
   const lv = m.levels[0].id;
   const hot = M.addNode(m, lv, 0, 10);
   const cold = M.addNode(m, lv, 0, -10);
@@ -288,7 +290,7 @@ section('Mixing at a junction');
   m.pipes.forEach(p => { p.insulation_mm = 0; });
   /* No heat exchange with the room: the mixing is then the only thing acting,
    * so the identity can be asserted exactly rather than to a tolerance. */
-  m.settings.thermal.surfaceCoeff = 1e-12;
+  m.settings.thermal.surfaceCoeff = 0;
 
   const res = NET.solveModel(m);
   ok('Solves', res.converged === true, JSON.stringify(res.errors));
@@ -324,7 +326,7 @@ section('A closed circuit pins its own reference temperature');
    * temperature floats, so one node is pinned and it is reported. */
   const m = M.create();
   m.settings.thermal = { ambient: 20, supplyTemp: 6, insulationK: 0.02,
-                         surfaceCoeff: 8, insulationSet: 'none' };
+                         surfaceCoeff: 8, tempMin: -100, tempMax: 200 };
   const lv = m.levels[0].id;
   const n = [];
   for (let i = 0; i < 4; i++) n.push(M.addNode(m, lv, i * 10, 0));
@@ -339,7 +341,7 @@ section('A closed circuit pins its own reference temperature');
   M.addPipe(m, n[3].id, back.id, { size: 'DN50', schedule: 'sch40' });
   M.addPipe(m, back.id, n[0].id, { size: 'DN50', schedule: 'sch40' });
   m.pipes.forEach(p => { p.insulation_mm = 0; });
-  m.settings.thermal.surfaceCoeff = 1e-12;      // adiabatic pipes
+  m.settings.thermal.surfaceCoeff = 0;          // adiabatic: h = 0
 
   const res = NET.solveModel(m);
   const th = res.thermal;
@@ -371,7 +373,7 @@ section('Pumps and valves pass temperature straight through');
 {
   const m = M.create();
   m.settings.thermal = { ambient: 20, supplyTemp: 6, insulationK: 0.02,
-                         surfaceCoeff: 1e-12, insulationSet: 'none' };
+                         surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
   const lv = m.levels[0].id;
   const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
   const c = M.addNode(m, lv, 2, 0), d = M.addNode(m, lv, 3, 0);
@@ -452,42 +454,268 @@ section('Fluid properties and the unverified flag');
        round.settings.fluid.density, 1015, 1e-12);
 }
 
-section('Insulation thickness defaults are flagged, not sourced');
+section('Insulation lives on the pipe schedule');
 {
-  const unv = FD.insulation.unverified();
-  ok('The default thickness set is flagged', unv.length === 1 &&
-     unv[0].key === 'standard');
-  ok('"Uninsulated" is not — zero is a real choice',
-     FD.insulation.set('none').verified === true);
-  near('Uninsulated really is zero',
-       FD.insulation.defaultThickness(100, 'none'), 0, 1e-12);
+  /* Michael's rule (v0.10.1): 25 mm below DN50, 50 mm from DN50 up. It is his
+   * standard rather than a transcription, so it is not flagged the way the
+   * glycol properties are — it is a decision, and decisions are his to make. */
+  near('DN15 takes 25 mm', FD.schedules.defaultInsulation(15), 25, 1e-12);
+  near('DN40 takes 25 mm', FD.schedules.defaultInsulation(40), 25, 1e-12);
+  near('DN50 is the boundary and takes the LARGER',
+       FD.schedules.defaultInsulation(50), 50, 1e-12);
+  near('DN300 takes 50 mm', FD.schedules.defaultInsulation(300), 50, 1e-12);
 
-  // Rises with size, as every published table does.
-  let mono = true;
-  FD.insulation.DN.forEach((dn, i) => {
-    if (i && FD.insulation.defaultThickness(dn, 'standard') <
-             FD.insulation.defaultThickness(FD.insulation.DN[i - 1], 'standard')) {
-      mono = false;
-    }
-  });
-  ok('Thickness never falls with size', mono);
-  near('Clamps below the table', FD.insulation.defaultThickness(5, 'standard'),
-       FD.insulation.defaultThickness(15, 'standard'), 1e-12);
-  near('Clamps above it', FD.insulation.defaultThickness(900, 'standard'),
-       FD.insulation.defaultThickness(300, 'standard'), 1e-12);
+  // An override on the schedule wins over the rule.
+  const ov = { sch40: { DN50: 80 } };
+  near('A schedule override is used',
+       FD.schedules.insulationFor('sch40', 'DN50', 50, ov), 80, 1e-12);
+  near('...only for the size it names',
+       FD.schedules.insulationFor('sch40', 'DN100', 100, ov), 50, 1e-12);
+  near('...and only for the schedule it names',
+       FD.schedules.insulationFor('sch10', 'DN50', 50, ov), 50, 1e-12);
+  near('A blank override falls back to the rule',
+       FD.schedules.insulationFor('sch40', 'DN50', 50, { sch40: { DN50: '' } }),
+       50, 1e-12);
+  near('Zero is a real override, not a blank',
+       FD.schedules.insulationFor('sch40', 'DN50', 50, { sch40: { DN50: 0 } }),
+       0, 1e-12);
 
-  /* A pipe's own value always wins, INCLUDING zero — otherwise a deliberately
-   * bare pipe would silently pick up the default. */
+  /* A pipe's OWN value always wins, INCLUDING zero — otherwise a deliberately
+   * bare pipe would silently pick up its schedule's figure. */
   const m = M.create();
   const lv = m.levels[0].id;
   const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 10, 0);
   const p = M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
-  ok('With nothing set it takes the default',
-     TH.thicknessOf(m, p) > 0);
+  near('With nothing set it takes the schedule figure',
+       TH.thicknessOf(m, p), 0.050, 1e-12);
+  m.settings.insulation = { sch40: { DN50: 80 } };
+  near('...and follows an edit to the schedule', TH.thicknessOf(m, p), 0.080, 1e-12);
   p.insulation_mm = 0;
-  near('A pipe set to zero is bare', TH.thicknessOf(m, p), 0, 1e-12);
+  near('A pipe set to zero is bare, whatever the schedule says',
+       TH.thicknessOf(m, p), 0, 1e-12);
   p.insulation_mm = 45;
   near('...and its own value is used', TH.thicknessOf(m, p), 0.045, 1e-12);
+
+  /* Custom schedules can now carry an OUTSIDE diameter, which is what the
+   * insulation geometry needs. Without one it falls back to the bore, which
+   * understates the surface and so understates the loss. */
+  const parsed = FD.schedules.parseSizeTable('DN50\t53.0\t60.3\nDN80\t80.8\t88.9');
+  ok('Three columns parse as label / bore / OD', parsed.sizes.length === 2);
+  near('Bore is read', parsed.sizes[0].id_mm, 53.0, 1e-12);
+  near('...and the outside diameter with it', parsed.sizes[0].od_mm, 60.3, 1e-12);
+  const noOD = FD.schedules.parseSizeTable('DN50\t53.0');
+  near('With no OD column it falls back to the bore',
+       noOD.sizes[0].od_mm, 53.0, 1e-12);
+  const badOD = FD.schedules.parseSizeTable('DN50\t53.0\t40');
+  near('An OD smaller than the bore is refused, not stored',
+       badOD.sizes[0].od_mm, 53.0, 1e-12);
+}
+
+/* --------------------------------------------------------------------------
+ * Michael's case: a 100 kW load with NO heat rejection equipment.
+ *
+ * A sealed loop, a pump, a +100 kW load, and bare pipework. Nothing removes
+ * heat except the pipes, so the water heats up until they shed exactly what
+ * the load puts in. Where it settles IS the answer, and it is set by the
+ * ambient rather than by anything the engineer types.
+ *
+ * This is the case that showed the reference-pinning was wrong. Pinning a node
+ * at the flow temperature would have held the loop there and reported a system
+ * that never warms — the opposite of the truth. Ambient is a reference, and a
+ * pin is only needed when there is no source AND no ambient coupling at all.
+ *
+ * The steady-state statement is an ENERGY BALANCE and needs no reference
+ * temperature to check:  pipe loss + equipment duty = 0.
+ * ----------------------------------------------------------------------- */
+section('A 100 kW load with no heat rejection finds its own equilibrium');
+{
+  function loop(loadW, ambient, pipeLen) {
+    const m = M.create();
+    m.settings.thermal = { ambient: ambient, supplyTemp: 6,
+                           insulationK: 0.02, surfaceCoeff: 8,
+                           tempMin: -100, tempMax: 500 };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0);
+    const b = M.addNode(m, lv, 2, 0);
+    const c = M.addNode(m, lv, 3, 0);
+    const d = M.addNode(m, lv, 3 + pipeLen, 0);
+
+    const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 10 };
+    const load = M.addPipe(m, b.id, c.id, { kind: 'equip' });
+    load.equip = { qRated: 0.020, pdRated: 50e3, thermalMode: 'dQ', duty: loadW };
+    /* Bare pipework, so it can actually reject heat. Out and back. */
+    const out = M.addPipe(m, c.id, d.id, { size: 'DN100', schedule: 'sch40' });
+    const ret = M.addPipe(m, d.id, a.id, { size: 'DN100', schedule: 'sch40' });
+    out.insulation_mm = 0; ret.insulation_mm = 0;
+    return { m, load, out, ret, a, b, c, d };
+  }
+
+  const t = loop(100000, 20, 400);
+  const res = NET.solveModel(t.m);
+  ok('Solves', res.converged === true, JSON.stringify(res.errors));
+  const th = res.thermal;
+  ok('Produces a thermal result', !!th);
+
+  /* NOT pinned: ambient sets the level, so nothing needed pinning. */
+  ok('Nothing was pinned — ambient is the reference', th.pinned === null);
+  ok('...and it is reported as a floating system', th.floating === true);
+  ok('No datum warning was raised',
+     !th.warnings.some(w => w.code === 'THERMAL_DATUM'));
+  ok('It converged', th.converged === true, String(th.iterations));
+
+  /* THE assertion: at steady state the pipes shed exactly what the load puts
+   * in. This needs no reference temperature and no hand-computed answer — it
+   * is the definition of steady state. */
+  near('Pipe loss cancels the load exactly', th.totals.pipeLoss, -100000, 1);
+  near('...which is what the imbalance figure reports', th.imbalance, 0, 1);
+  near('The load is delivering its stated 100 kW', th.totals.equipDuty, 100000, 1);
+
+  /* The water must sit ABOVE ambient — it is being heated and losing to the
+   * room — and well above, because bare DN100 sheds only ~1.5 W/(m·K). */
+  ok('The loop settles above ambient', th.totals.min > 20,
+     th.totals.min.toFixed(1) + ' … ' + th.totals.max.toFixed(1) + ' °C');
+
+  /* And the level is set by the physics, not by the flow temperature typed on
+   * the THERMAL tab. Changing that must move nothing. */
+  const t2 = loop(100000, 20, 400);
+  t2.m.settings.thermal.supplyTemp = 75;
+  const th2 = NET.solveModel(t2.m).thermal;
+  near('The stated flow temperature does not move a floating system',
+       th2.totals.max, th.totals.max, 0.01);
+
+  /* Raising ambient raises the whole loop by the same amount: the balance
+   * depends on the DIFFERENCE to ambient, so the profile just shifts. */
+  const t3 = loop(100000, 30, 400);
+  const th3 = NET.solveModel(t3.m).thermal;
+  near('Raising ambient 10 K raises the loop 10 K',
+       th3.totals.max - th.totals.max, 10, 0.05);
+  near('...and the balance still closes', th3.imbalance, 0, 1);
+
+  /* Halve the load and the temperature rise above ambient halves — the loss is
+   * linear in the difference, so the equilibrium difference is linear in the
+   * load. That is a hand-checkable statement about the whole loop. */
+  const t4 = loop(50000, 20, 400);
+  const th4 = NET.solveModel(t4.m).thermal;
+  near('Half the load, half the rise above ambient',
+       (th4.totals.max - 20) / (th.totals.max - 20), 0.5, 0.02);
+
+  /* More pipe rejects the same load at a smaller rise. Double the run, and the
+   * rise roughly halves — not exactly, because the loss per metre is driven by
+   * the local difference, which is itself falling along the pipe. */
+  const t5 = loop(100000, 20, 800);
+  const th5 = NET.solveModel(t5.m).thermal;
+  ok('Twice the pipe settles at a lower temperature',
+     th5.totals.max < th.totals.max,
+     `${th.totals.max.toFixed(1)} -> ${th5.totals.max.toFixed(1)} °C`);
+  near('...and still balances', th5.imbalance, 0, 1);
+
+  /* INSULATE it and the same load has almost nowhere to go, so the loop runs
+   * far hotter. This is the case worth seeing on a real job. */
+  const t6 = loop(100000, 20, 400);
+  t6.out.insulation_mm = 50; t6.ret.insulation_mm = 50;
+  const th6 = NET.solveModel(t6.m).thermal;
+  ok('Insulating the same loop drives it much hotter',
+     th6.totals.max > th.totals.max * 2,
+     `bare ${th.totals.max.toFixed(0)} °C, lagged ${th6.totals.max.toFixed(0)} °C`);
+  near('...and it still balances', th6.imbalance, 0, 1);
+}
+
+/* --------------------------------------------------------------------------
+ * The runaway guard (Michael, 2026-08-02).
+ *
+ * The solve is exact, so nothing runs away numerically — but a correct answer
+ * can still be an absurd one. A large load in a lagged loop with no heat
+ * rejection genuinely does settle somewhere ridiculous, and that is a
+ * statement about the DESIGN, not the arithmetic.
+ *
+ * The band is adjustable, and it has to be: the default +/-50 C suits chilled
+ * water and fires on any LTHW system, which the tests above demonstrate by
+ * needing it widened.
+ * ----------------------------------------------------------------------- */
+section('Temperatures outside the plausible band are an error');
+{
+  function loaded(loadW, band, ins) {
+    const m = M.create();
+    m.settings.thermal = Object.assign(
+      { ambient: 20, supplyTemp: 6, insulationK: 0.02, surfaceCoeff: 8 }, band);
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 2, 0);
+    const c = M.addNode(m, lv, 3, 0), d = M.addNode(m, lv, 60, 0);
+    const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 10 };
+    const load = M.addPipe(m, b.id, c.id, { kind: 'equip' });
+    load.equip = { qRated: 0.020, pdRated: 50e3, thermalMode: 'dQ', duty: loadW };
+    const out = M.addPipe(m, c.id, d.id, { size: 'DN100', schedule: 'sch40' });
+    const ret = M.addPipe(m, d.id, a.id, { size: 'DN100', schedule: 'sch40' });
+    var t = (ins === undefined) ? 50 : ins;
+    out.insulation_mm = t; ret.insulation_mm = t;
+    return m;
+  }
+
+  // Defaults: chilled-water band, and a 100 kW load in a lagged loop breaks it.
+  const hot = NET.solveModel(loaded(100000, {}));
+  ok('A runaway is an ERROR, not a warning',
+     (hot.errors || []).some(e => e.code === 'THERMAL_LIMIT'));
+  ok('...and it clears converged, because the system cannot exist',
+     hot.converged === false);
+  const err = hot.errors.find(e => e.code === 'THERMAL_LIMIT');
+  ok('...naming the node', !!err.node);
+  ok('...and the temperature it reached', err.temperature > 50, String(err.temperature));
+  ok('...and saying the band it broke', /-50 to 50/.test(err.message), err.message);
+
+  /* The temperatures are still REPORTED. The answer is not wrong, it is
+   * implausible — hiding it would leave nothing to diagnose from. */
+  ok('The solved temperatures are still there', hot.thermal.totals.max > 50);
+  ok('...and the energy balance still closes',
+     Math.abs(hot.thermal.imbalance) < 1, String(hot.thermal.imbalance));
+
+  /* How absurd? 100 kW into 120 m of 50 mm-lagged DN100, which sheds about
+   * 0.2 W/(m·K), needs roughly 100000/(0.2 x 120) = 4200 K above ambient. The
+   * solve says 4454 °C, and THAT is the point of the guard: it is the right
+   * answer to a system that cannot exist. */
+  ok('The absurd answer really is absurd', hot.thermal.totals.max > 4000,
+     hot.thermal.totals.max.toFixed(0) + ' °C');
+
+  // Widening the band accepts the same system, unchanged.
+  const wide = NET.solveModel(loaded(100000, { tempMin: -1e6, tempMax: 1e6 }));
+  ok('A wide enough band accepts it',
+     !(wide.errors || []).some(e => e.code === 'THERMAL_LIMIT'));
+  near('...and gives exactly the same answer', wide.thermal.totals.max,
+       hot.thermal.totals.max, 1e-9);
+
+  // A load the pipework can actually reject stays inside the default band.
+  const mild = NET.solveModel(loaded(200, {}));
+  ok('A load the pipe can shed is fine on the defaults',
+     !(mild.errors || []).some(e => e.code === 'THERMAL_LIMIT'),
+     mild.thermal.totals.max.toFixed(1) + ' °C');
+  ok('...and sits just above ambient', mild.thermal.totals.max > 20 &&
+     mild.thermal.totals.max < 40, mild.thermal.totals.max.toFixed(1));
+
+  /* COLD runs away too, and must be caught the same way — the band is two
+   * sided. A large negative duty drives the loop below the lower limit. */
+  const cold = NET.solveModel(loaded(-100000, {}));
+  const cErr = (cold.errors || []).find(e => e.code === 'THERMAL_LIMIT');
+  ok('A runaway downwards is caught as well', !!cErr);
+  ok('...at a temperature below the lower limit', cErr.temperature < -50,
+     String(cErr.temperature));
+
+  /* An ordinary LTHW system at 80 C flow trips the DEFAULT band, which is why
+   * it is adjustable. Recorded rather than left to be discovered. */
+  const lthw = M.create();
+  lthw.settings.thermal = { ambient: 20, supplyTemp: 80, insulationK: 0.02,
+                            surfaceCoeff: 8 };
+  const lv2 = lthw.levels[0].id;
+  const s1 = M.addNode(lthw, lv2, 0, 0), s2 = M.addNode(lthw, lv2, 30, 0);
+  M.setSource(lthw, s1.id, 400e3); s1.device.temperature = 80;
+  s2.device = { kind: 'demand', flow: 0.005, reqPressure: 100e3, include: true };
+  M.addPipe(lthw, s1.id, s2.id, { size: 'DN50', schedule: 'sch40' });
+  const lres = NET.solveModel(lthw);
+  ok('An 80 C LTHW flow trips the default band — so it must be adjustable',
+     (lres.errors || []).some(e => e.code === 'THERMAL_LIMIT'));
+  lthw.settings.thermal.tempMax = 120;
+  ok('...and is accepted once the band matches the service',
+     !(NET.solveModel(lthw).errors || []).some(e => e.code === 'THERMAL_LIMIT'));
 }
 
 report();

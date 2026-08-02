@@ -159,7 +159,12 @@
 
       var label = (cols[0] || '').trim();
       var bore = FD.units ? FD.units.parse(cols[1]) : parseFloat(cols[1]);
-      var ins = cols.length > 2 && String(cols[2]).trim() !== ''
+      /* Third column is the OUTSIDE diameter, not insulation (v0.10.1).
+       * Insulation moved onto the schedule's own editable column on the
+       * HYDRAULIC tab, and OD is what was actually missing: without it a
+       * custom schedule falls back to the bore for insulation geometry, which
+       * understates the surface area and so understates the heat loss. */
+      var od = cols.length > 2 && String(cols[2]).trim() !== ''
         ? (FD.units ? FD.units.parse(cols[2]) : parseFloat(cols[2])) : null;
 
       if (!label) { skipped.push({ line: i + 1, text: line, why: 'no label' }); return; }
@@ -170,11 +175,12 @@
         return;
       }
 
+      /* `od !== null` matters: isFinite(null) is TRUE, because null coerces to
+       * 0 — so a blank column would otherwise be stored as an outside diameter
+       * of zero. Falls back to the bore, which is what it did before an OD
+       * column existed. */
       var row = { label: label, id_mm: bore, od_mm: bore };
-      /* `ins !== null` matters: isFinite(null) is TRUE, because null coerces to
-       * 0 — so a blank insulation column would otherwise be stored as a real
-       * value of null and show up as insulated-with-nothing. */
-      if (ins !== null && isFinite(ins) && ins >= 0) row.insulation_mm = ins;
+      if (od !== null && isFinite(od) && od > bore) row.od_mm = od;
       sizes.push(row);
     });
 
@@ -183,7 +189,40 @@
     return { sizes: sizes, skipped: skipped };
   }
 
+  /* Default insulation thickness against NOMINAL size, in millimetres.
+   *
+   * Michael's rule (2026-08-02): 25 mm below DN50, 50 mm from DN50 up. It
+   * replaces the placeholder curve that shipped with the thermal module, and
+   * it is a DECISION rather than a transcription — his standard, the way a
+   * Custom fluid's properties are the engineer's. It is not flagged as
+   * unverified for the same reason.
+   *
+   * DN50 itself takes the larger figure: "below 50" is the smaller, so 50 and
+   * above is the larger.
+   *
+   * Insulation lives on the SCHEDULE rather than in a table of its own,
+   * because that is where an engineer looks for a pipe's physical properties —
+   * bore, outside diameter, and now what it is lagged with. A pipe's own
+   * `insulation_mm` still overrides it, including 0 for a bare pipe. */
+  function defaultInsulation(nominal_mm) {
+    return (nominal_mm > 0 && nominal_mm < 50) ? 25 : 50;
+  }
+
+  /* The insulation for one size of one schedule: the model's override if there
+   * is one, else the rule above. `overrides` is settings.insulation, keyed
+   * { scheduleKey: { sizeLabel: mm } }. */
+  function insulationFor(scheduleKey, sizeLabel, nominal_mm, overrides) {
+    var row = overrides && overrides[scheduleKey];
+    var v = row && row[sizeLabel];
+    if (v !== undefined && v !== null && v !== '' && isFinite(Number(v))) {
+      return Math.max(0, Number(v));
+    }
+    return defaultInsulation(nominal_mm);
+  }
+
   FD.schedules = {
+    defaultInsulation: defaultInsulation,
+    insulationFor: insulationFor,
     builtin: SCHEDULES,
     parseSizeTable: parseSizeTable,
 

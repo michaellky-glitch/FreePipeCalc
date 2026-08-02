@@ -111,10 +111,9 @@ From the ⚠️/❌ notes in `Human-Test.md`:
 * **Propylene glycol properties are UNVERIFIED** (`data/fluids.js`). Written
   from recollection of ASHRAE Ch 31 at Michael's instruction, flagged until he
   checks them. Cp scales every thermal duty linearly, so check that first.
-* **Insulation thicknesses are a PLACEHOLDER** (`data/insulation.js`). There is
-  no single standard to read off — thickness follows the service, the ambient
-  and the jurisdiction, not the pipe. A pipe's own value always wins, including
-  0 for a bare pipe.
+* ~~Insulation thicknesses~~ — moved onto the pipe schedule in v0.10.1 with
+  Michael's own rule as the default (25 mm below DN50, 50 mm from DN50 up). His
+  decision, so no longer flagged. A pipe's own value still wins, including 0.
 * **The outside surface coefficient (8 W/m²·K) is a default**, not sourced data.
   On an insulated pipe it is a small part of the resistance; on a **bare** pipe
   it is the whole of it, so a bare-pipe answer is only as good as that number.
@@ -125,6 +124,14 @@ From the ⚠️/❌ notes in `Human-Test.md`:
   hydraulics: the coupling does not exist yet.
 * **Pumps and valves add no heat.** Michael's instruction. A pump's shaft work
   is real but is hundredths of a kelvin at typical duties.
+* **The plausibility band defaults to ±50 °C**, which suits chilled water and
+  **trips on any LTHW system** — the test suite demonstrates this at 80 °C flow.
+  Adjustable on THERMAL, and it has to be set per service.
+* **The Critical Radius tool takes temperatures that do not enter r_cr = k/h.**
+  Michael asked for ambient and fluid temperature as inputs; they are used for
+  the heat loss and the surface temperature instead, and the tool says so. If
+  what is wanted is the CONDENSATION-CONTROL thickness, that is a different
+  calculation needing the room's humidity, which the app does not hold.
 * **The effectiveness model for equipment in SIMULATION is not implemented.**
   The two modes shipped (`dT`, `dQ`) are its asymptotes and bracket it. Adding
   it needs one field: the secondary-side entering temperature.

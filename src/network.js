@@ -782,8 +782,17 @@
      * once the flows are known — and it feeds nothing back, because fluid
      * properties are held at one temperature. Last, and one-way. */
     res.thermal = FD.thermal ? FD.thermal.solve(m, res) : null;
-    if (res.thermal && res.thermal.warnings.length) {
-      res.warnings = res.warnings.concat(res.thermal.warnings);
+    if (res.thermal) {
+      if (res.thermal.warnings.length) {
+        res.warnings = res.warnings.concat(res.thermal.warnings);
+      }
+      /* A temperature outside the plausible band is a HYDRAULIC-level error:
+       * it takes the status chip and clears `converged`, because every number
+       * on the sheet is then describing a system that cannot exist. */
+      if (res.thermal.errors && res.thermal.errors.length) {
+        res.errors = (res.errors || []).concat(res.thermal.errors);
+        res.converged = false;
+      }
     }
     return res;
   }

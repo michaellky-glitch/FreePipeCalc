@@ -301,6 +301,217 @@
     document.body.removeChild(ta);
   }
 
+  /* ============================== Tool 2 — Insulation Critical Radius
+   *
+   * ONE THING TO KNOW BEFORE READING THE OUTPUT, and it is the reason this
+   * tool says more than it was asked to:
+   *
+   *     THE CRITICAL RADIUS DOES NOT DEPEND ON TEMPERATURE.
+   *
+   * r_cr = k / h. That is the whole of it — the conductivity of the insulation
+   * over the outside film coefficient. Ambient and fluid temperature do not
+   * appear, and cannot: the critical radius is the radius at which ADDING
+   * insulation stops increasing the surface area faster than it adds
+   * resistance, which is a geometry-and-materials question. Doubling the
+   * temperature difference doubles the heat flow at every radius and moves the
+   * turning point not at all.
+   *
+   * Michael asked for ambient and fluid temperature as inputs (2026-08-02).
+   * They are taken, and they are USED — for the surface temperature and the
+   * heat loss at the chosen thickness, which is what those two numbers really
+   * govern. Silently ignoring them would have been worse than saying this.
+   *
+   * The practical answer is almost always the same: with polyurethane at
+   * k = 0.02 and still air at h = 8, r_cr = 2.5 mm. Every pipe in every
+   * schedule this app carries is larger than that, so insulation always
+   * reduces the loss and the critical radius never binds. It matters for thin
+   * wires and small tubes, which is where the textbook example comes from.
+   *
+   * The condensation-control thickness — the one that actually governs a
+   * chilled-water job — is a DIFFERENT calculation and needs the room's
+   * humidity, which this app does not hold. The surface temperature below is
+   * the input to it: compare it against your dew point.
+   */
+  var critState = null;
+
+  function critDefaults(app) {
+    var t = (app.model.settings && app.model.settings.thermal) || {};
+    return {
+      ambient: t.ambient !== undefined ? t.ambient : 20,
+      fluid: t.supplyTemp !== undefined ? t.supplyTemp : 6,
+      od: 60.3,
+      k: t.insulationK > 0 ? t.insulationK : 0.02,
+      h: t.surfaceCoeff > 0 ? t.surfaceCoeff : 8
+    };
+  }
+
+  function renderCriticalTool(host, app) {
+    if (!critState) critState = critDefaults(app);
+    var st = critState;
+
+    var card = el('div', 'tool-card');
+    card.appendChild(el('h2', '', 'Insulation Critical Radius'));
+    card.appendChild(el('p', 'hint',
+      'The radius below which adding insulation INCREASES heat loss, because ' +
+      'it grows the outer surface faster than it adds resistance. r_cr = k / h.'));
+
+    var grid = el('div', 'tool-grid');
+    var left = el('div', 'tool-col');
+    left.appendChild(el('h3', '', 'Pipe'));
+    var odIn = num(st.od);
+    field(left, 'Outside diameter (mm)', odIn);
+    var kIn = num(st.k);
+    field(left, 'Insulation k (W/m·K)', kIn);
+    var hIn = num(st.h);
+    field(left, 'Surface coefficient h (W/m²·K)', hIn);
+
+    var mid = el('div', 'tool-col');
+    mid.appendChild(el('h3', '', 'Temperatures'));
+    var taIn = num(st.ambient);
+    field(mid, 'Ambient (°C)', taIn);
+    var tfIn = num(st.fluid);
+    field(mid, 'Fluid (°C)', tfIn);
+    mid.appendChild(el('p', 'hint',
+      'These do NOT affect the critical radius — see the note below. They set ' +
+      'the heat loss and the surface temperature.'));
+
+    grid.appendChild(left); grid.appendChild(mid);
+    card.appendChild(grid);
+
+    var row = el('div', 'btn-row');
+    var go = el('button', 'btn primary', 'Calculate');
+    go.addEventListener('click', function () {
+      st.od = FD.units.parse(odIn.value);
+      st.k = FD.units.parse(kIn.value);
+      st.h = FD.units.parse(hIn.value);
+      st.ambient = FD.units.parse(taIn.value);
+      st.fluid = FD.units.parse(tfIn.value);
+      st.result = critical(st);
+      render(app);
+    });
+    row.appendChild(go);
+    var reset = el('button', 'btn', 'Reset to model');
+    reset.addEventListener('click', function () {
+      critState = critDefaults(app); render(app);
+    });
+    row.appendChild(reset);
+    card.appendChild(row);
+
+    if (st.result) renderCritical(card, st.result);
+    host.appendChild(card);
+  }
+
+  /* r_cr = k/h. The "critical thickness" is that radius less the pipe's own,
+   * and it is NEGATIVE whenever the pipe is already bigger than r_cr — which
+   * is the normal case, and is the useful answer: any insulation at all
+   * reduces the loss. */
+  function critical(st) {
+    if (!(st.od > 0)) return { error: 'Outside diameter must be greater than zero.' };
+    if (!(st.k > 0)) return { error: 'Conductivity must be greater than zero.' };
+    if (!(st.h > 0)) return { error: 'Surface coefficient must be greater than zero.' };
+
+    var r_pipe = st.od / 2000;                 // m
+    var r_cr = st.k / st.h;                    // m
+    var tCrit = (r_cr - r_pipe) * 1000;        // mm, negative when it does not bind
+    /* Rounded UP to the next 25 mm, not to the nearest: rounding a critical
+     * thickness DOWN would leave you below it, which is the one place you must
+     * not be. Never less than 25 mm — no one specifies 0 mm of lagging. */
+    var tRound = Math.max(25, Math.ceil(Math.max(0, tCrit) / 25) * 25);
+
+    var dT = st.fluid - st.ambient;
+    function at(t_mm) {
+      var t = t_mm / 1000;
+      var U = FD.thermal.lossPerMetreK(st.od / 1000, t, st.k, st.h);
+      var q = U * dT;                          // W/m, signed with the fluid
+      var r_o = r_pipe + t;
+      /* Surface temperature: the outside film carries the same heat, so
+       *     T_s = T_amb + q / (2.pi.r_o.h)
+       * with q signed the same way. This is the number to compare against the
+       * dew point on a chilled system. */
+      var Ts = st.ambient + q / (2 * Math.PI * r_o * st.h);
+      return { U: U, q: q, Ts: Ts, t: t_mm };
+    }
+
+    return {
+      r_pipe_mm: r_pipe * 1000,
+      r_cr_mm: r_cr * 1000,
+      tCrit_mm: tCrit,
+      binds: tCrit > 0,
+      tRound_mm: tRound,
+      bare: at(0),
+      atRound: at(tRound),
+      dT: dT
+    };
+  }
+
+  function renderCritical(host, r) {
+    if (r.error) {
+      var e = el('div', 'notice warn-notice');
+      e.appendChild(el('p', '', r.error));
+      host.appendChild(e);
+      return;
+    }
+    host.appendChild(el('h3', '', 'Result'));
+
+    var ro = el('div', 'readout');
+    function kv(k, v) {
+      var row = el('div', 'kv');
+      row.appendChild(el('span', 'k', k));
+      row.appendChild(el('span', 'v', v));
+      ro.appendChild(row);
+    }
+    kv('Pipe radius', r.r_pipe_mm.toFixed(2) + ' mm');
+    kv('Critical radius  r_cr = k/h', r.r_cr_mm.toFixed(2) + ' mm');
+    kv('Critical thickness', r.binds
+      ? r.tCrit_mm.toFixed(2) + ' mm'
+      : 'none — the pipe is already larger than r_cr');
+    kv('Rounded thickness', r.tRound_mm.toFixed(0) + ' mm');
+    host.appendChild(ro);
+
+    var verdict = el('div', 'notice ' + (r.binds ? 'warn-notice' : 'info-notice'));
+    verdict.appendChild(el('p', 'notice-head',
+      r.binds ? 'The critical radius BINDS on this pipe'
+              : 'The critical radius does not bind'));
+    verdict.appendChild(el('p', '', r.binds
+      ? 'This pipe is smaller than r_cr, so a thin layer of insulation would ' +
+        'INCREASE the heat loss. Go past ' + r.tCrit_mm.toFixed(1) + ' mm or do ' +
+        'not insulate at all.'
+      : 'The pipe is already larger than r_cr = ' + r.r_cr_mm.toFixed(2) + ' mm, ' +
+        'so any thickness reduces the loss and more is always better. This is ' +
+        'the normal case for building services pipework — the critical radius ' +
+        'matters for thin wires and small tubes.'));
+    host.appendChild(verdict);
+
+    var t = el('table', 'sheet');
+    t.innerHTML = '<thead><tr><th class="txt"></th><th>Thickness (mm)</th>' +
+                  '<th>Loss (W/m·K)</th><th>Heat flow (W/m)</th>' +
+                  '<th>Surface temp (°C)</th></tr></thead>';
+    var tb = el('tbody');
+    [['Bare', r.bare], ['At rounded thickness', r.atRound]].forEach(function (pair) {
+      var tr = el('tr');
+      tr.appendChild(el('td', 'txt', pair[0]));
+      tr.appendChild(el('td', '', pair[1].t.toFixed(0)));
+      tr.appendChild(el('td', '', pair[1].U.toFixed(3)));
+      tr.appendChild(el('td', '', (pair[1].q >= 0 ? '+' : '') + pair[1].q.toFixed(1)));
+      tr.appendChild(el('td', '', pair[1].Ts.toFixed(2)));
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    host.appendChild(t);
+
+    host.appendChild(el('p', 'legend',
+      'Heat flow is signed with the FLUID: negative loses heat, positive gains ' +
+      'it. Surface temperature is the number to compare against your DEW POINT ' +
+      'on a chilled system — condensation control usually governs the thickness, ' +
+      'and it is a different calculation from this one, needing the room’s ' +
+      'humidity which this app does not hold.'));
+    host.appendChild(el('p', 'legend',
+      'r_cr = k/h contains NO temperature. Ambient and fluid temperature set ' +
+      'the heat flow and the surface temperature above, but they cannot move ' +
+      'the critical radius: doubling the temperature difference doubles the ' +
+      'heat flow at every radius and shifts the turning point not at all.'));
+  }
+
   // ---------------------------------------------------------------- rendering
   function render(app) {
     var host = document.getElementById('tools-body');
@@ -308,6 +519,7 @@
     host.innerHTML = '';
     ensureState();
     renderPumpCurveTool(host, app);
+    renderCriticalTool(host, app);
   }
 
   /* Arrive from a pump with its design duty already in the boxes.
@@ -339,6 +551,7 @@
     render: render,
     generate: generate,
     prefill: prefill,
-    _reset: function () { state = null; }
+    critical: critical,
+    _reset: function () { state = null; critState = null; }
   };
 })(window.FD = window.FD || {});

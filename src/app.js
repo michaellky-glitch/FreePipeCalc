@@ -890,15 +890,16 @@
           'against a printed table. Specific heat scales every duty below ' +
           'linearly. Check before issue.'));
       }
-      var insSet = FD.insulation.set((m.settings.thermal || {}).insulationSet);
-      if (insSet.verified === false) {
-        secT.appendChild(el('div', 'notice warn-notice')).appendChild(el('p', '',
-          'Pipe gains and losses use PLACEHOLDER insulation thicknesses, and an ' +
-          'outside surface coefficient of ' +
-          (m.settings.thermal.surfaceCoeff).toFixed(1) + ' W/(m²·K) which is a ' +
-          'default rather than sourced data. Set thicknesses from your own ' +
-          'standard before issue.'));
-      }
+      /* Insulation thickness is now the engineer's own — set on the schedule,
+       * or per pipe — so it is no longer flagged. The surface coefficient
+       * still is: it is a default, and on a BARE pipe it is the entire
+       * resistance. */
+      secT.appendChild(el('p', 'legend',
+        'Pipe gains and losses use the insulation on each pipe’s schedule ' +
+        '(overridden per pipe where set) and an outside surface coefficient of ' +
+        (m.settings.thermal.surfaceCoeff).toFixed(1) + ' W/(m²·K), which is a ' +
+        'DEFAULT rather than sourced data — on a bare pipe it is the whole of ' +
+        'the resistance.'));
       if (th.pinned) {
         secT.appendChild(el('p', 'legend',
           'No source, so ' + m.settings.thermal.supplyTemp.toFixed(1) + ' °C was ' +
@@ -1761,8 +1762,8 @@
      * blank falls back to the default for its size. That distinction matters:
      * a deliberately uninsulated pipe must not silently pick up 30 mm. */
     var nominal = FD.schedules.nominalMm ? FD.schedules.nominalMm(p.size) : 0;
-    var insDefault = FD.insulation.defaultThickness(nominal,
-      (m.settings.thermal || {}).insulationSet);
+    var insDefault = FD.schedules.insulationFor(p.schedule, p.size, nominal,
+                                               m.settings.insulation);
     var insIn = el('input'); insIn.type = 'text';
     insIn.value = (p.insulation_mm === undefined || p.insulation_mm === null ||
                    p.insulation_mm === '') ? '' : p.insulation_mm;
@@ -1887,6 +1888,8 @@
         renderProperties(); changed();
       });
 
+    host.appendChild(el('h3', 'sub', 'Hydraulics'));
+
     var qIn = el('input'); qIn.type = 'text';
     qIn.value = FD.units.fmtFlow(p.equip.qRated || 0, d.flow);
     field(host, 'Design flow (' + d.flow + ')', qIn).addEventListener('change', function () {
@@ -1965,19 +1968,21 @@
 
     host.appendChild(el('h3', 'sub', 'Thermal'));
 
-    var sw = el('button', 'switch plain' + (byDT ? ' on' : ' off'));
-    sw.type = 'button';
-    sw.setAttribute('role', 'switch');
-    sw.appendChild(el('span', 'switch-track', ''));
-    sw.appendChild(el('span', 'switch-label',
-      byDT ? 'ΔT — state the temperature difference'
-           : 'Q — state the duty'));
-    sw.addEventListener('click', function () {
+    /* A dropdown rather than a slider (Michael, 2026-08-02). A two-state
+     * switch reads as on/off, and neither of these is off — they are two ways
+     * of stating the same equation, and the labels have to say which is being
+     * solved FOR. */
+    var modeSel = el('select');
+    [['dT', 'Solve Q from ΔT'], ['dQ', 'Solve ΔT from Q']].forEach(function (o) {
+      var opt = el('option', '', o[1]); opt.value = o[0];
+      if (o[0] === e.thermalMode) opt.selected = true;
+      modeSel.appendChild(opt);
+    });
+    field(host, 'Mode', modeSel).addEventListener('change', function () {
       pushUndo();
-      e.thermalMode = byDT ? 'dQ' : 'dT';
+      e.thermalMode = modeSel.value;
       renderProperties(); changed();
     });
-    host.appendChild(sw);
 
     var d = m.settings.display;
     if (byDT) {
@@ -3145,18 +3150,42 @@
     numField(g2, 'Outside surface coefficient', th.surfaceCoeff,
       function (v) { m.settings.thermal.surfaceCoeff = v; renderThermal(); redrawAll(); },
       '(W/m²·K)');
-    selField(g2, 'Default thickness',
-      Object.keys(FD.insulation.SETS).map(function (k) {
-        return [k, FD.insulation.SETS[k].name];
-      }),
-      FD.insulation.setKey(th.insulationSet), function (v) {
-        pushUndo(); m.settings.thermal.insulationSet = v;
-        renderThermal(); redrawAll();
-      });
+    host.appendChild(el('p', 'hint',
+      'A surface coefficient of 0 means ADIABATIC — no exchange with the room ' +
+      'at all. It is the only way to say that, and it is what makes a sealed ' +
+      'circuit need a pinned reference temperature.'));
 
+    h2('Plausibility band');
+    var g3 = grid();
+    numField(g3, 'Minimum temperature', th.tempMin,
+      function (v) { m.settings.thermal.tempMin = v; renderThermal(); redrawAll(); },
+      '(°C)');
+    numField(g3, 'Maximum temperature', th.tempMax,
+      function (v) { m.settings.thermal.tempMax = v; renderThermal(); redrawAll(); },
+      '(°C)');
+    host.appendChild(el('p', 'hint',
+      'A temperature outside this band is reported as an ERROR rather than ' +
+      'printed. The solve itself is exact and nothing runs away numerically — ' +
+      'but a load with nowhere to go settles somewhere ridiculous, and that is ' +
+      'a statement about the design rather than the arithmetic.'));
+    if ((th.tempMax || 0) <= 60) {
+      var bw = el('div', 'notice info-notice');
+      bw.appendChild(el('p', '',
+        'The band suits CHILLED water. An LTHW circuit at 80 °C flow will trip ' +
+        'it — raise the maximum to match the service.'));
+      host.appendChild(bw);
+    }
     hint('Loss per metre is 1 / [ ln(r₀/rᵢ)/(2πk) + 1/(2πr₀h) ] — the ' +
          'insulation and the outside air film in series. Insulation sits on the ' +
          'pipe’s OUTSIDE diameter, so rᵢ is the pipe OD, not the bore.');
+
+    /* THICKNESS lives on the schedule, not here (v0.10.1). It is a physical
+     * property of the pipe alongside bore and outside diameter, and having it
+     * in a table of its own meant looking in two places for one pipe. */
+    host.appendChild(el('p', 'hint',
+      'Thickness is set on the HYDRAULIC tab, in the schedule’s own size table ' +
+      '— 25 mm below DN50 and 50 mm from DN50 up unless it is changed there. ' +
+      'Any individual pipe can override it, including 0 for a bare pipe.'));
 
     /* h₀ is a DEFAULT, not sourced data, and it is a big lever on a bare pipe:
      * with no insulation it is the entire resistance. Said out loud. */
@@ -3168,31 +3197,21 @@
       'answer is only as good as this number.'));
     host.appendChild(hw);
 
-    var ins = FD.insulation.set(th.insulationSet);
-    if (ins.verified === false) {
-      var iw = el('div', 'notice warn-notice');
-      iw.appendChild(el('p', '',
-        'The default thickness table is a PLACEHOLDER. Insulation thickness is ' +
-        'not a property of the pipe — it follows the service, the ambient and ' +
-        'the jurisdiction (BS 5422, ASHRAE 90.1, local energy codes all differ) ' +
-        '— so no single table keyed on size can be right. Set the thickness on ' +
-        'each pipe from your own standard; a pipe’s own value always wins, ' +
-        'including 0 for a bare pipe.'));
-      host.appendChild(iw);
-    }
-
+    /* What the current schedule's thicknesses actually cost, so the two
+     * numbers above can be seen doing something. */
+    var allS = FD.schedules.all(m.customSchedules);
+    var curS = allS[m.settings.schedule] || allS[Object.keys(allS)[0]];
     var tbl = el('table', 'sheet');
-    tbl.innerHTML = '<thead><tr><th class="txt">Nominal size</th>' +
-                    '<th>Thickness (mm)</th><th>Loss (W/m·K)</th></tr></thead>';
+    tbl.innerHTML = '<thead><tr><th class="txt">' + curS.name + '</th>' +
+                    '<th>Insulation (mm)</th><th>Loss (W/m·K)</th></tr></thead>';
     var tb = el('tbody');
-    FD.insulation.DN.forEach(function (dn) {
-      var t = FD.insulation.defaultThickness(dn, th.insulationSet);
-      /* Loss shown against the SCHEDULE 40 outside diameter, which is the
-       * commonest case; a different schedule shifts it a little. */
-      var sz = FD.schedules.size('sch40', 'DN' + dn);
-      var od = sz ? (sz.od_mm || sz.id_mm) / 1000 : 0;
+    curS.sizes.forEach(function (sz) {
+      var nominal = FD.schedules.nominalMm ? FD.schedules.nominalMm(sz.label) : 0;
+      var t = FD.schedules.insulationFor(m.settings.schedule, sz.label, nominal,
+                                         m.settings.insulation);
+      var od = (sz.od_mm || sz.id_mm) / 1000;
       var tr = el('tr');
-      tr.appendChild(el('td', 'txt', 'DN' + dn));
+      tr.appendChild(el('td', 'txt', sz.label));
       tr.appendChild(el('td', '', t.toFixed(0)));
       tr.appendChild(el('td', 'dim', od > 0
         ? FD.thermal.lossPerMetreK(od, t / 1000, th.insulationK, th.surfaceCoeff).toFixed(3)
@@ -3213,7 +3232,15 @@
         : t2.totals.min.toFixed(2) + ' … ' + t2.totals.max.toFixed(2) + ' °C');
       rb.ro('Equipment duty', (t2.totals.equipDuty / 1000).toFixed(2) + ' kW');
       rb.ro('Pipe gain / loss', (t2.totals.pipeLoss / 1000).toFixed(3) + ' kW');
-      rb.ro('Iterations', String(t2.iterations));
+      /* At steady state everything in comes out. Reported because it is the
+       * one number that says the answer is finished — and on a system with no
+       * heat rejection, where the loop finds its own level against ambient, it
+       * IS the statement being solved. */
+      rb.ro('Energy balance', Math.abs(t2.imbalance) < 1
+        ? 'closes' : (t2.imbalance / 1000).toFixed(3) + ' kW out');
+      if (t2.floating) {
+        rb.ro('Reference', 'ambient — the system finds its own level');
+      }
       void d;
       if (t2.pinned) {
         host.appendChild(el('p', 'hint',
@@ -3506,50 +3533,114 @@
     }
 
     // -------------------------------------------------- pipe schedules
-    h2('Pipe schedules');
-    var schGrid = grid();
+    /* The ACTIVE schedule's own size data, not a list of schedules.
+     *
+     * The list told you a schedule existed and how many sizes it had, which is
+     * not a question anyone asks. What an engineer wants is the pipe: its bore,
+     * its outside diameter, and what it is lagged with. Insulation lives here
+     * (v0.10.1) because it is a physical property of the pipe alongside those
+     * two, and having it in a table of its own meant looking in two places for
+     * one pipe. */
+    h2('Pipe schedule');
     var all = FD.schedules.all(m.customSchedules);
-    selField(schGrid, 'Default schedule for new pipes',
+    var curKey = all[m.settings.schedule] ? m.settings.schedule
+                                          : Object.keys(all)[0];
+    var cur = all[curKey];
+    var isCustom = !!(m.customSchedules && m.customSchedules[curKey]);
+
+    var schGrid = grid();
+    selField(schGrid, 'Current schedule',
       Object.keys(all).map(function (kk) { return [kk, all[kk].name]; }),
-      m.settings.schedule, function (v) {
+      curKey, function (v) {
         pushUndo(); m.settings.schedule = v; renderHydraulic(); redrawAll();
       });
     numField(schGrid, 'Default C factor', m.settings.C,
       function (v) { pushUndo(); m.settings.C = v; redrawAll(); });
 
-    var schTable = el('table', 'sheet');
-    schTable.innerHTML = '<thead><tr><th class="txt">Schedule</th><th>Sizes</th>' +
-                         '<th class="txt">Bore range (mm)</th><th>Default C</th>' +
-                         '<th class="txt">Source</th><th></th></tr></thead>';
+    var schBtns = el('div', 'btn-row');
+    var addSch = el('button', 'btn', 'Add Custom Schedule');
+    addSch.addEventListener('click', function () { editSchedule(null); });
+    schBtns.appendChild(addSch);
+
+    var copySch = el('button', 'btn', 'Copy Current Schedule');
+    copySch.title = 'Start a new custom schedule from ' + cur.name +
+                    ', so the sizes are there to edit rather than to retype.';
+    copySch.addEventListener('click', function () { editSchedule(null, curKey); });
+    schBtns.appendChild(copySch);
+
+    if (isCustom) {
+      var edSch = el('button', 'btn', 'Edit sizes');
+      edSch.addEventListener('click', function () { editSchedule(curKey); });
+      schBtns.appendChild(edSch);
+      var rmSch = el('button', 'btn danger', 'Delete');
+      rmSch.style.marginTop = '0';
+      rmSch.addEventListener('click', function () { deleteSchedule(curKey); });
+      schBtns.appendChild(rmSch);
+    }
+    host.appendChild(schBtns);
+
+    /* Everything except INSULATION is read-only. Bore and outside diameter are
+     * the published dimensions of a standard pipe — typing over them would
+     * leave the sheet naming "ASME Schedule 40" beside numbers that are not
+     * schedule 40. Copy the schedule to change them. */
+    var schWrap = el('div', 'table-scroll');
+    var schTable = el('table', 'sheet editable');
+    schTable.innerHTML = '<thead><tr><th class="txt">Nominal</th>' +
+                         '<th>Inside dia (mm)</th><th>Outside dia (mm)</th>' +
+                         '<th>Wall (mm)</th><th>Insulation (mm)</th></tr></thead>';
     var schBody = el('tbody');
-    Object.keys(all).forEach(function (kk) {
-      var sc = all[kk], first = sc.sizes[0], last = sc.sizes[sc.sizes.length - 1];
-      var custom = !!(m.customSchedules && m.customSchedules[kk]);
+    cur.sizes.forEach(function (sz) {
+      var nominal = FD.schedules.nominalMm ? FD.schedules.nominalMm(sz.label) : 0;
       var tr = el('tr');
-      if (kk === m.settings.schedule) tr.className = 'active-row';
-      tr.innerHTML = '<td class="txt">' + sc.name + '</td><td>' + sc.sizes.length + '</td>' +
-        '<td class="txt dim">' + first.label + ' (' + first.id_mm.toFixed(1) + ') … ' +
-        last.label + ' (' + last.id_mm.toFixed(1) + ')</td><td>' + sc.defaultC + '</td>' +
-        '<td class="txt dim">' + (custom ? 'custom' : 'built-in') + '</td>';
-      var act = el('td', 'txt');
-      if (custom) {
-        var ed = el('button', 'btn tiny', 'Edit');
-        ed.addEventListener('click', function () { editSchedule(kk); });
-        act.appendChild(ed);
-        var rm = el('button', 'btn tiny', '✕');
-        rm.title = 'Delete this schedule';
-        rm.addEventListener('click', function () { deleteSchedule(kk); });
-        act.appendChild(rm);
+      tr.appendChild(el('td', 'txt', sz.label));
+      tr.appendChild(el('td', '', sz.id_mm.toFixed(2)));
+      tr.appendChild(el('td', '', sz.od_mm ? sz.od_mm.toFixed(2) : '—'));
+      tr.appendChild(el('td', 'dim', sz.od_mm
+        ? ((sz.od_mm - sz.id_mm) / 2).toFixed(2) : '—'));
+
+      var td = el('td');
+      var ovRow = m.settings.insulation[curKey] || {};
+      var stored = ovRow[sz.label];
+      var deflt = FD.schedules.defaultInsulation(nominal);
+      var inp = el('input', 'cell-input'); inp.type = 'text';
+      inp.value = (stored === undefined || stored === null || stored === '')
+        ? '' : stored;
+      inp.placeholder = deflt.toFixed(0);
+      if (stored !== undefined && stored !== null && stored !== '') {
+        td.className = 'edited';
+        inp.title = 'Edited. The default for this size is ' + deflt + ' mm.';
       }
-      tr.appendChild(act);
+      inp.addEventListener('change', function () {
+        var raw = inp.value.trim();
+        pushUndo();
+        if (!m.settings.insulation[curKey]) m.settings.insulation[curKey] = {};
+        if (raw === '') {
+          delete m.settings.insulation[curKey][sz.label];
+        } else {
+          var v = FD.units.parse(raw);
+          if (!isFinite(v) || v < 0) { renderHydraulic(); return; }
+          m.settings.insulation[curKey][sz.label] = v;
+        }
+        renderHydraulic(); redrawAll();
+      });
+      td.appendChild(inp);
+      tr.appendChild(td);
       schBody.appendChild(tr);
     });
     schTable.appendChild(schBody);
-    host.appendChild(schTable);
+    schWrap.appendChild(schTable);
+    host.appendChild(schWrap);
 
-    var addSch = el('button', 'btn', 'New custom schedule');
-    addSch.addEventListener('click', function () { editSchedule(null); });
-    host.appendChild(addSch);
+    host.appendChild(el('p', 'hint',
+      'Dimensions are the published ones and are read-only — copy the schedule ' +
+      'to change them. Insulation is editable: blank takes the default, 25 mm ' +
+      'below DN50 and 50 mm from DN50 up. A pipe can override it individually, ' +
+      'including 0 for a bare pipe.'));
+    host.appendChild(el('p', 'legend',
+      'Source: ' + (isCustom ? 'custom schedule, entered by the user.'
+                             : cur.name + ', published dimensions.') +
+      ' C factor and roughness are properties of the schedule and the model, ' +
+      'not of an individual size.'));
     host.appendChild(el('p', 'legend',
       'Note: Custom schedules are stored in model & browser storage. ' +
       'Recommend to keep an offline copy.'));
@@ -3737,13 +3828,19 @@
   /* Create or edit a custom schedule. The editable content is a plain
    * "label, inner diameter" list — spec §9 calls those the two governing
    * fields, and everything hydraulic derives from the bore. */
-  function editSchedule(key) {
+  /* `copyFrom` seeds a NEW custom schedule from an existing one, so "Copy
+   * Current Schedule" gives you the sizes to edit rather than to retype. */
+  function editSchedule(key, copyFrom) {
     var m = app.model;
     var existing = key ? m.customSchedules[key] : null;
-    var seedRows = existing
-      ? existing.sizes.map(function (z) {
+    var seed = existing;
+    if (!seed && copyFrom) {
+      seed = FD.schedules.all(m.customSchedules)[copyFrom];
+    }
+    var seedRows = seed
+      ? seed.sizes.map(function (z) {
           return z.label + '\t' + z.id_mm +
-                 (z.insulation_mm !== undefined ? '\t' + z.insulation_mm : '');
+                 (z.od_mm ? '\t' + z.od_mm : '');
         }).join('\n')
       : '';
 
@@ -3751,19 +3848,21 @@
       title: existing ? 'Edit schedule' : 'New custom schedule',
       ok: existing ? 'Save' : 'Create',
       message: 'Paste three columns straight from a spreadsheet:\n' +
-               '    nominal label   ·   inner diameter (mm)   ·   insulation thickness (mm)\n\n' +
-               'ALL DIAMETERS AND THICKNESSES ARE IN MILLIMETRES. Insulation may be left ' +
-               'blank — it is stored for the thermal module and is not used by the ' +
-               'hydraulics. Tabs, commas or spaced columns all work, and a header row is ' +
-               'skipped automatically.',
+               '    nominal label   ·   inner diameter (mm)   ·   outside diameter (mm)\n\n' +
+               'ALL DIAMETERS ARE IN MILLIMETRES. The outside diameter may be left ' +
+               'blank, in which case the bore is used — but the thermal module needs ' +
+               'it, because insulation wraps the OUTSIDE of the pipe, and leaving it ' +
+               'out understates the heat loss. Insulation itself is set in the ' +
+               'schedule table on this tab, not here. Tabs, commas or spaced columns ' +
+               'all work, and a header row is skipped automatically.',
       fields: [
         { key: 'name', label: 'Schedule name', type: 'text',
           value: existing ? existing.name : 'My schedule' },
         { key: 'C', label: 'Default C factor', type: 'text',
           value: existing ? existing.defaultC : 120 },
-        { key: 'sizes', label: 'Sizes  —  label / bore mm / insulation mm',
+        { key: 'sizes', label: 'Sizes  —  label / bore mm / outside dia mm',
           type: 'textarea', rows: 10, value: seedRows,
-          placeholder: 'DN15\t16.0\t25' }
+          placeholder: 'DN15\t16.0\t21.3' }
       ]
     }).then(function (v) {
       if (!v) return;
@@ -3781,7 +3880,7 @@
         FD.dialog.alert({
           title: 'No usable sizes',
           message: 'Every line needs a label and a positive inner diameter in mm, ' +
-                   'for example:\n\n    DN50    53.0    40'
+                   'for example:\n\n    DN50    53.0    60.3'
         });
         return;
       }

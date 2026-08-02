@@ -108,14 +108,13 @@ Load order matters; this is it.
 
 | File | Responsibility |
 |---|---|
-| `data/schedules.js` | Pipe schedules → inner diameters. Sizing helpers. |
+| `data/schedules.js` | Pipe schedules → bore, outside diameter, insulation thickness. Sizing helpers. |
 | `data/fittings.js` | Fitting equivalent lengths (L/D basis) and K-based losses. |
 | `data/valves.js` | Valve Kv/Cv data, opening curves, resistance. |
 | `data/ktable.js` | ASHRAE fitting resistance coefficients K, by nominal size. |
 | `src/units.js` | SI ↔ display conversion, number parsing. **Display only.** |
 | `data/pumps.js` | Pump curves: single-point, three-point quadratic, least-squares fit, parsing. |
 | `data/fluids.js` | Water and propylene-glycol property sets. **Glycol rows are flagged unverified.** |
-| `data/insulation.js` | Default insulation thickness by nominal size. **Flagged as a placeholder.** |
 | `src/hydraulics.js` | Pipe loss models: Hazen-Williams, Darcy, friction factors. |
 | `src/solver.js` | The Global Gradient Algorithm. Knows nothing about drawings. |
 | `src/model.js` | Model state: levels, nodes, pipes, risers, devices, save/load. |
@@ -962,6 +961,21 @@ water is being warmed. Everything in the module follows from that.
    places that wants `od_mm` and not the bore.
 3. **Equipment**, in one of two modes.
 
+### It is SOLVED, not iterated
+
+Every relation above is **affine** in temperature — mixing is linear, pipe
+transport is `T_out = e^(−x)·T_in + T_amb(1−e^(−x))`, equipment adds a constant
+— so the whole network is one linear system and `FD.solver.solveLinear` does it
+in a single pass.
+
+It was swept Gauss-Seidel until temperatures stopped moving, which worked and
+was wrong. The convergence rate is set by how strongly the loop is tied to
+ambient, so it was fine on a system with a source and hopeless on Michael's case
+of a 100 kW load in a lagged loop with no heat rejection: 200 passes still left
+the energy balance **69 kW** out. That is not a tolerance to tune — it is the
+wrong method for a linear problem. Solving it also retires "did it converge?",
+which was never a physical question here.
+
 ### One toggle serves DESIGN and SIMULATION
 
 It looked like two features when it was asked for. It is one:
@@ -985,14 +999,36 @@ pump does put its shaft work into the water, but at typical duties that is
 hundredths of a kelvin and stating it would imply a precision the rest of this
 does not have.
 
-### The reference temperature
+### The reference temperature — and why AMBIENT counts as one
 
-Something must be known or every temperature floats. A **source** holds its
-supply temperature. A **closed circuit has no source** — the same problem the
-hydraulic solver has with pressure — so one node is pinned, preferring the
-outlet of whatever moves the most heat, because in a chilled or heating circuit
-that is the plant and its leaving temperature is the flow temperature an
-engineer quotes. Reported as `THERMAL_DATUM`, never silent.
+A **source** holds its supply temperature. Failing that, **the pipework's
+exchange with ambient is itself a reference**: a loop with a load and bare pipe
+is not indeterminate, it heats up until the pipes shed what the load puts in,
+and where it settles is the answer.
+
+That distinction was got wrong first. Pinning happened whenever there was no
+source, which held Michael's 100 kW loop at the flow temperature and reported a
+system that never warms — the opposite of the truth. A pin is now used only when
+there is **no source AND no ambient coupling**: a genuinely adiabatic circuit,
+which is a balanced chiller and coil round insulated pipework, where the level
+really can sit anywhere. Reported as `THERMAL_DATUM`, never silent.
+
+`h = 0` on the surface coefficient means **adiabatic**, not "unset". It is the
+only way to express a sealed circuit, and substituting a default there would
+quietly reinstate the heat exchange the engineer had switched off.
+
+### The runaway guard
+
+The solve is exact, so nothing runs away numerically — but a correct answer can
+still be absurd. 100 kW into 120 m of lagged DN100 settles at **4454 °C**,
+because that is what the arithmetic says about a system that cannot exist.
+A temperature outside `thermal.tempMin … tempMax` is therefore an **error**: it
+clears `converged` and takes the status chip, because every number downstream is
+conditional on it. The temperatures are still reported — the answer is not
+wrong, it is implausible, and hiding it would leave nothing to diagnose from.
+
+The band is adjustable and has to be. The default ±50 °C suits chilled water and
+**trips on any LTHW system**; the test suite demonstrates that at 80 °C flow.
 
 ### Unverified data, carried with teeth
 
@@ -1004,9 +1040,12 @@ with Michael on the understanding that they are flagged until he checks them:
   of ASHRAE Ch 31. Cp is the one to check first: it scales every thermal duty
   *linearly*, and unlike a friction factor there is nothing downstream to absorb
   an error.
-* **Insulation thicknesses** (`data/insulation.js`) — there is no single
-  standard to read off. Thickness follows the service, the ambient and the
-  jurisdiction, not the pipe, so no table keyed on size can be right.
+Insulation thickness is no longer among them. It moved onto the **pipe
+schedule** (v0.10.1), where it sits beside bore and outside diameter as a
+physical property of the pipe, with Michael's own rule as the default — 25 mm
+below DN50, 50 mm from DN50 up. That is a decision rather than a transcription,
+so it is not flagged; a pipe's own `insulation_mm` still overrides it, including
+0 for a bare pipe.
 
 Both carry `verified: false`, both are listed by an `unverified()` helper, and
 the flag appears beside the control, on the THERMAL tab **and on the calculation
@@ -1014,7 +1053,7 @@ sheet**, which is the thing that gets issued.
 
 ## 15. Testing
 
-Seven suites, 936 assertions, no dependencies:
+Seven suites, 979 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -1026,7 +1065,7 @@ node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 node test/thermal.test.js    heat loss, mixing, equipment duty, fluid data
 ```
 
-All 936 pass. The "Parallel pumps share in DESIGN" section of
+All 979 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change

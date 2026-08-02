@@ -74,6 +74,13 @@
         specificHeat: 4187             // J/(kg·K)
       },
 
+      /* Insulation thickness overrides, by schedule and size:
+       * { 'sch40': { 'DN50': 40 } }. Empty means "use the rule" — 25 mm below
+       * DN50, 50 mm from DN50 up. Edited on the HYDRAULIC tab, in the active
+       * schedule's own size table, because that is where a pipe's physical
+       * properties live. */
+      insulation: {},
+
       /* THERMAL tab. Ambient is what an uninsulated or insulated pipe loses
        * to; supplyTemp is the system flow temperature, used as the reference
        * where nothing else states one. surfaceCoeff is the outside film — a
@@ -83,7 +90,15 @@
         supplyTemp: 6,                 // °C — chilled water by default
         insulationK: 0.02,             // W/(m·K) — polyurethane
         surfaceCoeff: 8,               // W/(m²·K) — still indoor air
-        insulationSet: 'standard'
+
+        /* Plausibility band for the solved temperature. Outside it, the answer
+         * is reported as an ERROR rather than printed — Michael's runaway
+         * guard, 2026-08-02, and adjustable because what is absurd depends on
+         * the system. ±50 °C suits chilled water, which is the default here;
+         * an LTHW circuit at 80 °C flow needs tempMax raised, and the fields
+         * are on the THERMAL tab for exactly that. */
+        tempMin: -50,                  // °C
+        tempMax: 50                    // °C
       },
 
       /* Which equivalent-length table Hazen-Williams reads: 'carrier' (Carrier
@@ -834,6 +849,13 @@
     m.settings.fluid = Object.assign(defaultSettings().fluid, (obj.settings || {}).fluid || {});
     m.settings.thermal = Object.assign(defaultSettings().thermal,
                                        (obj.settings || {}).thermal || {});
+    /* Per schedule AND per size, so a shallow merge would replace a whole
+     * schedule's row when the file only edited one size of it. */
+    m.settings.insulation = {};
+    var savedIns = (obj.settings || {}).insulation || {};
+    Object.keys(savedIns).forEach(function (k) {
+      m.settings.insulation[k] = Object.assign({}, savedIns[k]);
+    });
     /* Re-apply the named fluid, so a file cannot carry a preset of '20%
      * Propylene Glycol' with water's properties beside it — whether from a
      * hand edit or from a correction to the published values since it was
