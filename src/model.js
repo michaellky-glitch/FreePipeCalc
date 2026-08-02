@@ -59,18 +59,31 @@
        * (2026-08-02); the others stay selectable for comparison. */
       dw: { frictionFactor: 'swameejain', roughness_mm: 0.045, kSet: 'threaded' },
 
-      /* Fluid properties. Only density is used by the current solver; the
-       * others are stored and shown so the model is complete, and are marked
-       * as unused in the UI. Kinematic viscosity becomes live with Darcy. */
+      /* Fluid. `preset` names one of data/fluids.js; the four numbers below
+       * are only read when the preset is 'custom', because a named fluid's
+       * properties belong to the fluid rather than to this file. All four are
+       * live now: density everywhere, viscosity under Darcy, and specific heat
+       * throughout the thermal module. */
       fluid: {
+        preset: 'water',
         name: 'Water',
-        density: 998,                  // kg/m³    — used
-        kinematicViscosity: 1.004e-6,  // m²/s     — used by Darcy only
-        temperature: 20,               // °C       — not implemented
-        /* Specific heat capacity. Not used by the hydraulics at all — it is
-         * here for the heating/cooling power work coming next, where
-         * Q = ṁ·Cp·ΔT. Stored and shown, clearly marked as unused. */
-        specificHeat: 4187             // J/(kg·K) — not implemented
+        density: 998,                  // kg/m³
+        kinematicViscosity: 1.004e-6,  // m²/s
+        temperature: 20,               // °C — the temperature the properties
+                                       //      are quoted at, not a result
+        specificHeat: 4187             // J/(kg·K)
+      },
+
+      /* THERMAL tab. Ambient is what an uninsulated or insulated pipe loses
+       * to; supplyTemp is the system flow temperature, used as the reference
+       * where nothing else states one. surfaceCoeff is the outside film — a
+       * DEFAULT, not sourced data, and the UI says so. */
+      thermal: {
+        ambient: 20,                   // °C
+        supplyTemp: 6,                 // °C — chilled water by default
+        insulationK: 0.02,             // W/(m·K) — polyurethane
+        surfaceCoeff: 8,               // W/(m²·K) — still indoor air
+        insulationSet: 'standard'
       },
 
       /* Which equivalent-length table Hazen-Williams reads: 'carrier' (Carrier
@@ -131,6 +144,8 @@
          * to fittings there). This is the number an engineer reads off a
          * drawing to check a terminal has enough to work with. */
         nodePressure: false,
+        /* Gauge temperature at the node, from the thermal module. */
+        nodeTemperature: false,
         nodeNumbers: true
       },
       /* Presentation. Arrow and label sizes are separated from the UI font so a
@@ -762,6 +777,29 @@
     return n;
   }
 
+  /* Apply a named fluid's published properties onto the model.
+   *
+   * The numbers are COPIED onto settings.fluid rather than looked up on every
+   * read. Twenty-odd call sites already read settings.fluid.density directly,
+   * and rewriting them all to resolve a preset would have been a large change
+   * for no gain — and a saved file that carries its own numbers is readable
+   * without this app. `preset` records which fluid they came from so the UI
+   * can lock them and the sheet can name it.
+   *
+   * 'custom' is the exception: it leaves the numbers alone, because they are
+   * the engineer's. */
+  function applyFluidPreset(m, key) {
+    var f = FD.fluids.get(key);
+    m.settings.fluid = m.settings.fluid || {};
+    m.settings.fluid.preset = f.key;
+    if (f.editable) return m.settings.fluid;
+    m.settings.fluid.name = f.name;
+    m.settings.fluid.density = f.density;
+    m.settings.fluid.kinematicViscosity = f.kinematicViscosity;
+    m.settings.fluid.specificHeat = f.specificHeat;
+    return m.settings.fluid;
+  }
+
   function clearDevice(m, nodeId) {
     var n = node(m, nodeId);
     if (n) n.device = null;
@@ -794,6 +832,15 @@
     m.settings.hw = Object.assign(defaultSettings().hw, (obj.settings || {}).hw || {});
     m.settings.dw = Object.assign(defaultSettings().dw, (obj.settings || {}).dw || {});
     m.settings.fluid = Object.assign(defaultSettings().fluid, (obj.settings || {}).fluid || {});
+    m.settings.thermal = Object.assign(defaultSettings().thermal,
+                                       (obj.settings || {}).thermal || {});
+    /* Re-apply the named fluid, so a file cannot carry a preset of '20%
+     * Propylene Glycol' with water's properties beside it — whether from a
+     * hand edit or from a correction to the published values since it was
+     * saved. Custom is left exactly as written. */
+    if (m.settings.fluid.preset && m.settings.fluid.preset !== 'custom') {
+      applyFluidPreset(m, m.settings.fluid.preset);
+    }
     if (!m.settings.calcMode) m.settings.calcMode = 'design';
     m.settings.presentation = Object.assign(defaultSettings().presentation,
                                             (obj.settings || {}).presentation || {});
@@ -904,6 +951,7 @@
     displayFlags: displayFlags, setDisplayFlag: setDisplayFlag,
 
     setSource: setSource, setDemand: setDemand, clearDevice: clearDevice,
+    applyFluidPreset: applyFluidPreset,
     migrateSourcePressure: migrateSourcePressure,
 
     toJSON: toJSON, fromJSON: fromJSON

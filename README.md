@@ -1,11 +1,11 @@
 # FreePipeCalc
 
-Free piping friction loss calculator for Building Services Engineers. Draw a
-multi-level water piping network, solve it, and get flow distribution, friction
-losses and pump duty — plus a node-to-node calculation sheet you can print or
-export.
+Free piping friction loss calculator for Building Services Engineers. You can draw and simulate multi level piping networks and loops.
+Calculate friction losses to size the pump, and export node-to-node calculations.
+A thermal module carries temperature through the network: heat loss through
+insulation, mixing at junctions, and equipment duty from Q = ṁ·Cp·ΔT.
 
-**Download the folder, open `index.html`, and it runs.** No server, no install,
+**Download the folder, open `index.html`, and it runs.** No server required, no install,
 no build step, no network access, no CDN, no accounts. It works from a USB stick
 on a machine with no internet.
 
@@ -55,10 +55,7 @@ and readable, which **LOAD MODEL** reads back. Worked examples are in
 
 ## A word on trust
 
-This is free software written to be useful, not a certified design tool. The
-engine is covered by 687 assertions whose expected values are independent hand
-calculations rather than numbers copied out of the code, and `docs/ENGINE.md`
-gives worked examples you can check yourself with a calculator.
+This is free software written to be useful, not a certified design tool. The engine is covered by 687 assertions whose expected values are independent hand calculations rather than numbers copied out of the code, and `docs/ENGINE.md` gives worked examples you can check yourself with a calculator.
 
 That is not the same as being right for your project. **Verify the results.**
 

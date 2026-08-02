@@ -221,9 +221,9 @@ section('Equivalent length — Custom, and the lookup key');
   /* A BULLHEAD tee is charged the same equivalent length as a branch tee
    * (Michael, 2026-08-02), and it already was: at a bullhead nothing passes
    * straight through, so both legs are charged as branches (see
-   * network.isBullhead) and every branch variant reads the same row. */
+   * network.isSymmetricSplit) and every branch variant reads the same row. */
   ['TBRANCH', 'TBRANCH_DIV', 'TBRANCH_CONV'].forEach(t => {
-    near('Bullhead legs read the tee-branch row: ' + t,
+    near('Symmetric-split legs read the tee-branch row: ' + t,
          F.el(t, 100, carrier), F.el('TBRANCH', 100, carrier), 1e-12);
   });
   ok('The table offers only the fittings the app infers',

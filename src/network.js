@@ -101,7 +101,9 @@
      * the old geometric guess and the undifferentiated coefficients. */
     if (!flows) {
       var down0 = pipes.filter(isDownstream);
-      var bull0 = isBullhead(m, nodeId, down0);
+      var up0 = pipes.filter(function (p) { return !isDownstream(p); });
+      var bull0 = isSymmetricSplit(m, nodeId, down0,
+                                   up0.length === 1 ? up0[0] : null);
       down0.forEach(function (p) {
         var isRun0 = !bull0 && (p.id === runPair[0] || p.id === runPair[1]);
         out.push({ pipe: p.id, type: isRun0 ? 'TRUN' : 'TBRANCH' });
@@ -121,8 +123,11 @@
     var dividing = outs.length >= ins.length;
     var charged = dividing ? outs : ins;
 
-    /* A BULLHEAD tee has no run, so neither charged leg may be called one. */
-    var bull = isBullhead(m, nodeId, charged);
+    /* A SYMMETRIC split has no run, so neither charged leg may be called one.
+     * The common leg is the single one on the other side. */
+    var common = (dividing ? ins : outs);
+    var bull = isSymmetricSplit(m, nodeId, charged,
+                                common.length === 1 ? common[0] : null);
 
     charged.forEach(function (p) {
       var isRun = !bull && (p.id === runPair[0] || p.id === runPair[1]);
@@ -135,8 +140,8 @@
     return out;
   }
 
-  /* Two legs are "collinear" within this many degrees of straight-through. */
-  var COLLINEAR_DEG = 2;
+  /* Two deviations count as equal within this many degrees. */
+  var SYMMETRY_DEG = 2;
 
   /* A BULLHEAD tee: the two charged legs are collinear WITH EACH OTHER, so the
    * straight run of the fitting is between THEM and the common leg joins it at
@@ -164,12 +169,21 @@
    * ordinary cases alone: at a riser tee the two charged legs are the riser
    * onward and the floor take-off, 90° apart, and at a plain branch tee they
    * are the through leg and the take-off, also 90° apart. Only the case where
-   * they are in line with one another is caught. */
-  function isBullhead(m, nodeId, charged) {
-    if (!charged || charged.length !== 2) return false;
+   * they are in line with one another is caught.
+   *
+   * GENERALISED 2026-08-02, after the thermal mixing test found the same
+   * defect in a geometry this missed: a symmetric Y, two legs meeting a common
+   * outlet at 45° each. Not collinear, so the collinearity test said nothing,
+   * and the split came out 51.7/48.3 with the mixed temperature 46.2 °C where
+   * symmetry demands 45.0. The general statement is to compare each charged
+   * leg's deviation from the COMMON leg: if they are equal, nothing
+   * distinguishes them. The bullhead is the special case where both are 90°. */
+  function isSymmetricSplit(m, nodeId, charged, common) {
+    if (!charged || charged.length !== 2 || !common) return false;
+    var dc = dirFrom(m, common, nodeId);
     var d0 = dirFrom(m, charged[0], nodeId), d1 = dirFrom(m, charged[1], nodeId);
-    if (!d0 || !d1) return false;
-    return deviation(d0, d1) < COLLINEAR_DEG;
+    if (!dc || !d0 || !d1) return false;
+    return Math.abs(deviation(dc, d0) - deviation(dc, d1)) < SYMMETRY_DEG;
   }
 
   /* Which two legs form the straight run?
@@ -764,6 +778,13 @@
     res.actual = actualDelivery(m, net, res);
     res.critical = criticalPath(m, net, res);
     res.simulation = simulationReport(m, net, res);
+    /* Temperature is transported by the water, so it can only be worked out
+     * once the flows are known — and it feeds nothing back, because fluid
+     * properties are held at one temperature. Last, and one-way. */
+    res.thermal = FD.thermal ? FD.thermal.solve(m, res) : null;
+    if (res.thermal && res.thermal.warnings.length) {
+      res.warnings = res.warnings.concat(res.thermal.warnings);
+    }
     return res;
   }
 
@@ -1788,7 +1809,7 @@
     worstShortfall: worstShortfall,
     solveModel: solveModel,
     fittingsAtNode: fittingsAtNode,
-    isBullhead: isBullhead,
+    isSymmetricSplit: isSymmetricSplit,
     fittingsByPipe: fittingsByPipe,
     deviation: deviation,
     dirFrom: dirFrom,

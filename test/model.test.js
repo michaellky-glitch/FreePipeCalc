@@ -1399,7 +1399,7 @@ section('Bullhead tee: a symmetric ring splits exactly in half');
        Math.abs(res2.flow[b.dnLeg.id]), qDn, 1e-9);
 }
 
-section('Bullhead detection leaves ordinary tees alone');
+section('Symmetric-split detection leaves ordinary tees alone');
 {
   const lv0 = (m) => m.levels[0].id;
 
@@ -1420,15 +1420,16 @@ section('Bullhead detection leaves ordinary tees alone');
     M.setDemand(m, north.id, 0.010, 100e3);
     const res = NET.solveModel(m);
 
-    ok('Not a bullhead: the two legs are 90 degrees apart',
-       NET.isBullhead(m, t.id, [pe, pn]) === false);
+    const inMain = M.pipe(m, m.pipes[0].id);
+    ok('Not symmetric: one leg is straight on, the other turns 90 degrees',
+       NET.isSymmetricSplit(m, t.id, [pe, pn], inMain) === false);
     const ty = {};
     NET.fittingsAtNode(m, t.id, res.flow, []).forEach(f => { ty[f.pipe] = f.type; });
     ok('The straight-on leg is still the run', ty[pe.id] === 'TRUN_DIV', JSON.stringify(ty));
     ok('The take-off is still the branch', ty[pn.id] === 'TBRANCH_DIV', JSON.stringify(ty));
   }
 
-  /* Two collinear legs IS the bullhead case, whichever way round they are. */
+  /* A BULLHEAD: two collinear legs off a common leg at 90 degrees to both. */
   {
     const m = M.create(), lv = lv0(m);
     const c = M.addNode(m, lv, 0, 0);
@@ -1437,11 +1438,51 @@ section('Bullhead detection leaves ordinary tees alone');
     const w = M.addNode(m, lv, -10, 0);
     const pn = M.addPipe(m, c.id, n.id, { size: 'DN100', schedule: 'sch40' });
     const ps = M.addPipe(m, c.id, sN.id, { size: 'DN100', schedule: 'sch40' });
-    M.addPipe(m, w.id, c.id, { size: 'DN100', schedule: 'sch40' });
-    ok('Collinear legs are a bullhead', NET.isBullhead(m, c.id, [pn, ps]) === true);
-    ok('...in either order', NET.isBullhead(m, c.id, [ps, pn]) === true);
-    ok('A single leg is never a bullhead', NET.isBullhead(m, c.id, [pn]) === false);
-    ok('Nor is an empty set', NET.isBullhead(m, c.id, []) === false);
+    const pw = M.addPipe(m, w.id, c.id, { size: 'DN100', schedule: 'sch40' });
+    ok('A bullhead is symmetric', NET.isSymmetricSplit(m, c.id, [pn, ps], pw) === true);
+    ok('...in either order', NET.isSymmetricSplit(m, c.id, [ps, pn], pw) === true);
+    ok('A single leg is never a split',
+       NET.isSymmetricSplit(m, c.id, [pn], pw) === false);
+    ok('Nor is an empty set', NET.isSymmetricSplit(m, c.id, [], pw) === false);
+    ok('Nor is one with no common leg to be symmetric ABOUT',
+       NET.isSymmetricSplit(m, c.id, [pn, ps], null) === false);
+  }
+
+  /* A symmetric Y — the case the bullhead rule missed, found by the thermal
+   * mixing test. Two legs meeting a common leg at 45 degrees each. Neither is
+   * more of a run than the other, and before this was caught the split came
+   * out 51.7/48.3 with the mixed temperature 46.2 C where symmetry demands
+   * 45.0. */
+  {
+    const m = M.create(), lv = lv0(m);
+    const nw = M.addNode(m, lv, 0, 10);
+    const sw = M.addNode(m, lv, 0, -10);
+    const tee = M.addNode(m, lv, 10, 0);
+    const out = M.addNode(m, lv, 20, 0);
+    const p1 = M.addPipe(m, nw.id, tee.id, { size: 'DN50', schedule: 'sch40' });
+    const p2 = M.addPipe(m, sw.id, tee.id, { size: 'DN50', schedule: 'sch40' });
+    const p3 = M.addPipe(m, tee.id, out.id, { size: 'DN50', schedule: 'sch40' });
+    near('Both legs deviate 45 degrees from the outlet',
+         NET.deviation(NET.dirFrom(m, p1, tee.id), NET.dirFrom(m, p3, tee.id)), 45, 1e-9);
+    near('...both of them', 
+         NET.deviation(NET.dirFrom(m, p2, tee.id), NET.dirFrom(m, p3, tee.id)), 45, 1e-9);
+    ok('So it is a symmetric split, even though the legs are NOT collinear',
+       NET.isSymmetricSplit(m, tee.id, [p1, p2], p3) === true);
+    near('...and the legs are 90 degrees to each other, not 0',
+         NET.deviation(NET.dirFrom(m, p1, tee.id), NET.dirFrom(m, p2, tee.id)), 90, 1e-9);
+
+    M.setSource(m, nw.id, 400e3);
+    M.setSource(m, sw.id, 400e3);
+    M.setDemand(m, out.id, 0.010, 100e3);
+    const res = NET.solveModel(m);
+    const q1 = Math.abs(res.flow[p1.id]), q2 = Math.abs(res.flow[p2.id]);
+    ok('A symmetric Y splits exactly in half',
+       Math.abs(q1 - q2) / ((q1 + q2) / 2) < 1e-8,
+       `${(q1 * 1000).toFixed(6)} vs ${(q2 * 1000).toFixed(6)} L/s`);
+    const ty = {};
+    NET.fittingsAtNode(m, tee.id, res.flow, []).forEach(f => { ty[f.pipe] = f.type; });
+    ok('...because both legs are charged as a branch',
+       ty[p1.id] === 'TBRANCH_CONV' && ty[p2.id] === 'TBRANCH_CONV', JSON.stringify(ty));
   }
 }
 

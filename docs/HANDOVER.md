@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-02 (v0.9.0), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-02 (v0.10.0), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,15 +21,15 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — six files, **834 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **936 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. Where things stand (v0.9.0, 2026-08-02)
+## 2. Where things stand (v0.10.0, 2026-08-02)
 
-Nothing is BROKEN. The engine is green at **834 assertions** and the repository
+Nothing is BROKEN. The engine is green at **936 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
 
 The big change since v0.5.0 is the **ASHRAE (2021) method**, now the default —
@@ -120,6 +120,54 @@ and the warning correctly stopped firing. The test now sets the threshold either
 side of the actual operating point and checks the warning both fires and stays
 silent — which is what "does the warning work" means, and is not hostage to
 where a fixture lands.
+
+### 2C. The thermal module — the two things waiting on Michael
+
+Both are data that was **not** transcribed from a page. That is a deliberate
+exception to the "never invent" rule, agreed with him on the understanding that
+it is flagged until he checks it. Do not quietly promote either to `verified`.
+
+1. **Propylene glycol properties** (`data/fluids.js`, `verified: false`).
+   Written from recollection of ASHRAE Ch 31. **Cp is the one that matters**: it
+   scales every thermal duty linearly, and unlike a friction factor there is
+   nothing downstream to absorb an error. Water is not in question — 998 and
+   4187 are the app's own long-standing values and were deliberately NOT nudged
+   to the textbook 998.2 / 4182, because that would have moved every pressure
+   and every duty in every existing model for 0.02%.
+2. **Insulation thicknesses** (`data/insulation.js`, `verified: false`). There
+   is no single standard to read off: thickness follows the service, the ambient
+   and the jurisdiction, not the pipe. A pipe's own `insulation_mm` always wins,
+   **including 0** — a deliberately bare pipe must not pick up the default. The
+   outside surface coefficient (8 W/m²·K) is likewise a default, and on a BARE
+   pipe it is the entire resistance.
+
+Both flags surface beside the control, on the THERMAL tab, and on the
+CALCULATION SHEET — which is the thing that gets issued.
+
+**What SIMULATION does for equipment**, since it was the open question: one
+toggle, `dT` or `dQ`, serves both modes. In SIMULATION `dT` holds the difference
+and lets duty float (a controlled coil); `dQ` holds the duty and lets the
+difference float (a fixed load). Those are the asymptotes of the real
+effectiveness model, so they bracket the truth and each is exact for a real
+class of plant. Adding the effectiveness model itself needs exactly one new
+field — the secondary-side entering temperature — with UA derived from the
+design point. `ARCHITECTURE.md` §18.
+
+### 2D. A second symmetric-split defect, found by a thermal test
+
+The bullhead fix in v0.7.10 tested whether the two charged legs of a tee were
+**collinear with each other**. The thermal mixing test then found the same
+defect in a geometry that misses: a symmetric **Y**, two legs meeting a common
+outlet at 45° each. Not collinear, so nothing caught it — the split came out
+51.7/48.3 and the mixed temperature 46.2 °C where symmetry demands 45.0.
+
+`isBullhead` is now `isSymmetricSplit`, and the general statement is to compare
+each charged leg's deviation from the **common** leg: if they are equal, nothing
+distinguishes them. The bullhead falls out as the special case where both are at
+90°. Neither fixture moved, so no baseline changed.
+
+Worth remembering as evidence that a test written for one part of the system is
+worth having in another: nothing in the hydraulic suite would have found this.
 
 ### Darcy-Weisbach and Swamee-Jain — what was actually verified
 
@@ -232,6 +280,12 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **THE THERMAL MODULE** (v0.10.0) — the headline. `src/thermal.js` carries
+  temperature along the solved flows: heat loss through insulation, mixing at
+  junctions, and equipment duty from `Q = ṁ·Cp·ΔT`. New THERMAL tab, fluid
+  presets, temperature on the drawing, in the probe and as a visualiser, and a
+  Thermal section on the calculation sheet. `ARCHITECTURE.md` §18 has the whole
+  design; §2C below has the two things that need Michael.
 * **TWO calculation methods, not three** (v0.9.0). `Hazen-Williams (ASHRAE with
   Equivalent Lengths)` and `Darcy-Weisbach (BETA)`. The two Hazen-Williams
   entries computed pipe loss identically — two roundings of the same equation,
@@ -378,15 +432,23 @@ printing on real paper; the light theme.
   first two digits.
 * `Previous Version/` holds archived releases (v0.2 → v0.6), gitignored.
 
-## 9. Next version — v0.10, the THERMAL MODULE
+## 9. Next version
 
-**v0.9.0 is the line Michael drew.** Everything above is the hydraulics, and it
-is where he wanted it: two methods, three equivalent-length tables, K tables
-checked against the page, Darcy out of the blocked list. The next version is a
-new capability rather than more of this one, and Michael is writing the prompt
-for it.
+The thermal module landed in v0.10.0. What is NOT in it, in the order it would
+most likely be wanted:
 
-`ROADMAP.md` has the detail. The headline is **heating and cooling power**:
+* **The effectiveness model for equipment in SIMULATION.** One new field per
+  piece of equipment (secondary-side entering temperature); UA derived from the
+  design point. §2C.
+* **Temperature-dependent fluid properties.** Everything is held at 20 °C, and
+  glycol viscosity roughly doubles between 20 °C and 0 °C — so a chilled circuit
+  at 6 °C is being given the wrong viscosity, which affects Darcy but not
+  Hazen-Williams. It is also what would let the thermal result feed back into
+  the hydraulics, which it currently cannot.
+* **Pump heat gain.** Left out at Michael's instruction, and it is hundredths of
+  a kelvin at typical duties.
+
+Older notes below, kept because the groundwork is still relevant:
 `Q = ṁ·Cp·ΔT`. The groundwork is in the model already —
 `settings.fluid.specificHeat` and `pipe.temperature`, both stored and marked
 unused in the UI. The open questions are where ΔT comes from (per section, per

@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 834
+This is deliberately separate from the automated suites. Those cover 936
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-02 (v0.9.0)
+Last updated: 2026-08-02 (v0.10.0)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -167,6 +167,22 @@ threshold (`settings.warn.pumpRunout`, default 120%).
 | 4C.3 | Copy full table → paste into a pump | ⚠️ | Works, but shifts all three stated duties ~1%. The tool says so. |
 | 4C.4 | Clipboard copy over `file://` | ⬜ | Uses the `execCommand` fallback, same as the rest of the app. Proven over HTTP only. |
 | 4C.5 | Rising / concave-up curve warnings | ⬜ | Unit-tested; not seen by a human. |
+
+## 4D. THERMAL module (v0.10.0)
+
+Built and engine-tested; nothing here has been rendered to pixels, and two data
+sets need Michael's eye before anything is issued.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| 4D.1 | **Propylene glycol properties** | ⬜ | **Check these first.** Written from recollection of ASHRAE Ch 31, flagged `verified: false` throughout, and the flag appears on the calculation sheet. **Cp scales every duty linearly** — 5% out on Cp is 5% out on every kW. Water is untouched (998 / 4187, the app's own values). |
+| 4D.2 | **Insulation thicknesses** | ⬜ | A placeholder, and flagged as one. No single standard exists to read off — thickness follows service, ambient and jurisdiction. Set them from your standard; a pipe's own value wins, including 0. |
+| 4D.3 | Outside surface coefficient | ⬜ | 8 W/m²·K, a default. On a bare pipe it is the ENTIRE resistance, so a bare-pipe answer is only as good as this. |
+| 4D.4 | THERMAL tab layout | ⬜ | Sign convention, fluid readout, conditions, insulation table, last-solve summary. Never seen as pixels. |
+| 4D.5 | Equipment ΔT / Q toggle | ⬜ | One toggle serves DESIGN and SIMULATION. Verified in the DOM: ΔT 6 K and a duty of −125.359 kW give exactly ∓6 K and ±125.36 kW on the same model. |
+| 4D.6 | Temperature on the drawing, probe, visualiser | ⬜ | ANNOTATIONS ▸ Temperature, the PROBE readout, and a TEMPERATURE visualiser beside PRESSURE. Verified through the render path; the probe re-solves the exponential rather than interpolating between the ends. |
+| 4D.7 | Fluid selector locks unless Custom | ⬜ | A named fluid's properties are read-only, for the same reason the published equivalent-length tables are. Verified in the DOM. |
+| 4D.8 | **Does the whole thing agree with a job you know?** | ⬜ | **The one that matters.** Pipe heat gain, coil duties and mixed temperatures against something with known answers. Nothing here has been checked against another tool. |
 
 ## 5. Output
 

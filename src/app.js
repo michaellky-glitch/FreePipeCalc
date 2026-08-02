@@ -863,6 +863,89 @@
      * that does not state its own assumptions cannot be checked, and this is
      * the one place they travel with the result — including any edit made to
      * the Hazen-Williams constants. */
+    /* ------------------------------------------------------------ THERMAL
+     * Its own section, collapsible like the rest — and a collapsed section
+     * does not print, which is how the engineer chooses what to issue. Absent
+     * entirely when nothing is flowing, rather than printing a table of
+     * dashes. */
+    (function () {
+      var th = res && res.thermal;
+      if (!th) return;
+      var fluid = th.fluid;
+      var secT = calcSection('Thermal', {
+        open: false,
+        note: (th.totals.equipDuty / 1000).toFixed(1) + ' kW equipment · ' +
+              (th.totals.pipeLoss / 1000).toFixed(2) + ' kW pipes'
+      });
+
+      secT.appendChild(el('p', 'legend',
+        'Q = ṁ·Cp·ΔT. Sign is about the FLUID: negative removes heat from it, ' +
+        'positive adds it — so a chilled-water coil reads positive. Ambient ' +
+        (m.settings.thermal.ambient).toFixed(1) + ' °C, ' + fluid.name +
+        ' at Cp = ' + fluid.specificHeat.toFixed(0) + ' J/(kg·K).'));
+
+      if (!fluid.verified) {
+        secT.appendChild(el('div', 'notice warn-notice')).appendChild(el('p', '',
+          fluid.name + ': the fluid properties used here are NOT verified ' +
+          'against a printed table. Specific heat scales every duty below ' +
+          'linearly. Check before issue.'));
+      }
+      var insSet = FD.insulation.set((m.settings.thermal || {}).insulationSet);
+      if (insSet.verified === false) {
+        secT.appendChild(el('div', 'notice warn-notice')).appendChild(el('p', '',
+          'Pipe gains and losses use PLACEHOLDER insulation thicknesses, and an ' +
+          'outside surface coefficient of ' +
+          (m.settings.thermal.surfaceCoeff).toFixed(1) + ' W/(m²·K) which is a ' +
+          'default rather than sourced data. Set thicknesses from your own ' +
+          'standard before issue.'));
+      }
+      if (th.pinned) {
+        secT.appendChild(el('p', 'legend',
+          'No source, so ' + m.settings.thermal.supplyTemp.toFixed(1) + ' °C was ' +
+          'pinned at ' + th.pinned.node + '. Every temperature is relative to that.'));
+      }
+
+      var t = el('table', 'sheet');
+      t.innerHTML = '<thead><tr><th class="txt">Item</th><th class="txt">Tag</th>' +
+                    '<th>In (°C)</th><th>Out (°C)</th><th>ΔT (K)</th>' +
+                    '<th>Q (kW)</th></tr></thead>';
+      var tb = el('tbody');
+      var rows = 0;
+      m.pipes.forEach(function (p) {
+        var l = th.links[p.id];
+        if (!l) return;
+        /* Plain pipe rows only when they actually move heat — a table of
+         * 0.00 kW lines buries the equipment that matters. */
+        if ((p.kind === 'pipe' || p.kind === 'riser') && Math.abs(l.qW) < 1) return;
+        var tr = el('tr');
+        if (p.kind === 'equip') tr.className = 'index-row';
+        tr.appendChild(el('td', 'txt', p.kind === 'equip' ? 'Equipment' :
+                                       p.kind === 'riser' ? 'Riser' : 'Pipe ' + p.id));
+        tr.appendChild(el('td', 'txt', p.tag || ''));
+        tr.appendChild(el('td', '', l.tIn.toFixed(2)));
+        tr.appendChild(el('td', '', l.tOut.toFixed(2)));
+        tr.appendChild(el('td', '', (l.dT >= 0 ? '+' : '') + l.dT.toFixed(2)));
+        tr.appendChild(el('td', '', (l.qW >= 0 ? '+' : '') + (l.qW / 1000).toFixed(2)));
+        tb.appendChild(tr);
+        rows++;
+      });
+      t.appendChild(tb);
+      if (rows) secT.appendChild(t);
+
+      var g = el('div', 'index-grid');
+      function kvT(k, v) {
+        var r = el('div', 'kv');
+        r.appendChild(el('span', 'k', k));
+        r.appendChild(el('span', 'v', v));
+        g.appendChild(r);
+      }
+      kvT('Equipment duty', (th.totals.equipDuty / 1000).toFixed(2) + ' kW');
+      kvT('Pipe gain / loss', (th.totals.pipeLoss / 1000).toFixed(3) + ' kW');
+      kvT('Temperature range', th.totals.min === null ? '—'
+        : th.totals.min.toFixed(2) + ' … ' + th.totals.max.toFixed(2) + ' °C');
+      secT.appendChild(g);
+    })();
+
     (function () {
       var secApp = calcSection('Appendix — Hydraulic Parameters', { open: false });
       var meth = FD.hydraulics.method(m.settings.frictionMethod);
@@ -1237,6 +1320,7 @@
     toggle('Type (EL, T, S, P, OF)', 'fitType');
     toggle('Fitting PD', 'fitPD');
     toggle('Pressure', 'nodePressure');
+    toggle('Temperature', 'nodeTemperature');
     toggle('Node numbers', 'nodeNumbers');
 
     var done = el('button', 'btn', 'Done');
@@ -1672,6 +1756,29 @@
         changed();
       });
 
+    /* ---- thermal: insulation ----
+     * A pipe's OWN thickness always wins, including 0 for a bare pipe — a
+     * blank falls back to the default for its size. That distinction matters:
+     * a deliberately uninsulated pipe must not silently pick up 30 mm. */
+    var nominal = FD.schedules.nominalMm ? FD.schedules.nominalMm(p.size) : 0;
+    var insDefault = FD.insulation.defaultThickness(nominal,
+      (m.settings.thermal || {}).insulationSet);
+    var insIn = el('input'); insIn.type = 'text';
+    insIn.value = (p.insulation_mm === undefined || p.insulation_mm === null ||
+                   p.insulation_mm === '') ? '' : p.insulation_mm;
+    insIn.placeholder = insDefault.toFixed(0) + ' (default)';
+    field(host, 'Insulation (mm)', insIn).addEventListener('change', function () {
+      var raw = insIn.value.trim();
+      pushUndo();
+      if (raw === '') delete p.insulation_mm;
+      else {
+        var v = FD.units.parse(raw);
+        if (isFinite(v) && v >= 0) p.insulation_mm = v;
+        else { insIn.value = p.insulation_mm === undefined ? '' : p.insulation_mm; }
+      }
+      renderProperties(); changed();
+    });
+
     // derived read-outs
     var res = app.results;
     if (res && res.network) {
@@ -1710,6 +1817,19 @@
         }
         host.appendChild(info);
       }
+    }
+
+    /* What this pipe did thermally. Separate box, because it answers a
+     * different question from the pressure drop above it. */
+    var tl = res && res.thermal && res.thermal.links[p.id];
+    if (tl) {
+      var tb = readoutBox(host, 'Thermal');
+      tb.ro('Inlet', tl.tIn.toFixed(2) + ' °C');
+      tb.ro('Outlet', tl.tOut.toFixed(2) + ' °C');
+      tb.ro('Gain / loss', (tl.qW >= 0 ? '+' : '') + tl.qW.toFixed(1) + ' W');
+      tb.ro('Loss coefficient', (tl.UperM || 0).toFixed(3) + ' W/(m·K)');
+      tb.box.appendChild(el('p', 'hint',
+        'Positive gains heat from the room, negative loses it to the room.'));
     }
 
     var del = el('button', 'btn danger', 'Delete pipe');
@@ -1788,6 +1908,8 @@
 
     designKRow(readoutBox(host, null), p.equip.qRated, p.equip.pdRated);
 
+    renderEquipThermal(host, p);
+
     var res = app.results;
     if (res && res.flow[p.id] !== undefined) {
       var link = res.network.links.find(function (l) { return l.id === p.id; });
@@ -1815,6 +1937,83 @@
       changed(); renderProperties();
     });
     host.appendChild(del);
+  }
+
+  /* Equipment's thermal side: Q = ṁ·Cp·ΔT, entered from whichever end you
+   * know.
+   *
+   * ONE toggle serves DESIGN and SIMULATION, which is worth knowing because it
+   * looked like two features when it was asked for:
+   *
+   *   ΔT  — state the temperature difference. Duty follows, and in SIMULATION
+   *         it FLOATS with flow. This is a coil under control, holding its
+   *         leaving temperature.
+   *   Q   — state the duty. ΔT follows, and in SIMULATION the duty is HELD as
+   *         flow changes. This is a fixed load: IT equipment, a process, an
+   *         electric heater.
+   *
+   * Those two are not a pair of approximations picked for convenience. They
+   * are the asymptotes of the real effectiveness model,
+   * Q = ṁCp(T_in−T_sec)(1−e^(−UA/ṁCp)): at high flow it tends to constant
+   * duty, at low flow to constant ΔT. So they bracket the truth and each is
+   * exact for a real class of plant. */
+  function renderEquipThermal(host, p) {
+    var m = app.model;
+    var e = p.equip;
+    if (e.thermalMode !== 'dT' && e.thermalMode !== 'dQ') e.thermalMode = 'dT';
+    var byDT = (e.thermalMode === 'dT');
+
+    host.appendChild(el('h3', 'sub', 'Thermal'));
+
+    var sw = el('button', 'switch plain' + (byDT ? ' on' : ' off'));
+    sw.type = 'button';
+    sw.setAttribute('role', 'switch');
+    sw.appendChild(el('span', 'switch-track', ''));
+    sw.appendChild(el('span', 'switch-label',
+      byDT ? 'ΔT — state the temperature difference'
+           : 'Q — state the duty'));
+    sw.addEventListener('click', function () {
+      pushUndo();
+      e.thermalMode = byDT ? 'dQ' : 'dT';
+      renderProperties(); changed();
+    });
+    host.appendChild(sw);
+
+    var d = m.settings.display;
+    if (byDT) {
+      var tIn = el('input'); tIn.type = 'text';
+      tIn.value = (e.dT !== undefined ? e.dT : 0);
+      field(host, 'Temperature difference (K)', tIn)
+        .addEventListener('change', function () {
+          var v = FD.units.parse(tIn.value);
+          if (isFinite(v)) { pushUndo(); e.dT = v; changed(); }
+          else { tIn.value = e.dT || 0; }
+        });
+    } else {
+      var qIn = el('input'); qIn.type = 'text';
+      qIn.value = ((e.duty || 0) / 1000);
+      field(host, 'Duty (kW)', qIn)
+        .addEventListener('change', function () {
+          var v = FD.units.parse(qIn.value);
+          if (isFinite(v)) { pushUndo(); e.duty = v * 1000; changed(); }
+          else { qIn.value = (e.duty || 0) / 1000; }
+        });
+    }
+    host.appendChild(el('p', 'hint',
+      'Negative removes heat from the fluid, positive adds it. A chilled-water ' +
+      'coil is POSITIVE — the room is cooled, the water is warmed.'));
+
+    var res = app.results;
+    var link = res && res.thermal && res.thermal.links[p.id];
+    if (link) {
+      var tb = readoutBox(host, 'Actual');
+      tb.ro('Inlet', link.tIn.toFixed(2) + ' °C');
+      tb.ro('Outlet', link.tOut.toFixed(2) + ' °C');
+      tb.ro('ΔT', (link.dT >= 0 ? '+' : '') + link.dT.toFixed(2) + ' K');
+      tb.ro('Duty', (link.qW >= 0 ? '+' : '') + (link.qW / 1000).toFixed(2) + ' kW');
+      tb.ro('Mass flow', link.mdot.toFixed(3) + ' kg/s');
+    }
+    void d;
   }
 
   /* Valves are sized by flow coefficient. Kv and Cv are the same number in
@@ -2845,6 +3044,188 @@
     return e;
   }
 
+  /* ============================================================= THERMAL
+   *
+   * Everything that decides a TEMPERATURE, where HYDRAULIC decides a pressure.
+   * The split is Michael's (v0.10.0) and it is the same split the engine
+   * already had: FD.network solves flow, FD.thermal then carries temperature
+   * along it. Fluid PROPERTIES stay on HYDRAULIC — they set density, which is
+   * a hydraulic quantity — and the Cp that follows from the chosen fluid is
+   * echoed here, read-only, so the number driving Q = ṁ·Cp·ΔT is visible on
+   * the tab that uses it.
+   */
+  function renderThermal() {
+    var m = app.model, host = $('thermal-body');
+    if (!host) return;
+    host.innerHTML = '';
+
+    function h2(t) { host.appendChild(el('h2', '', t)); }
+    function hint(t) { host.appendChild(el('p', 'hint', t)); }
+    function grid() { var g = el('div', 'settings-grid'); host.appendChild(g); return g; }
+
+    function numField(g, label, value, onChange, suffix) {
+      var f = el('div', 'field');
+      f.appendChild(el('label', '', label + (suffix ? '  ' + suffix : '')));
+      var i = el('input'); i.type = 'text'; i.value = value;
+      i.addEventListener('change', function () {
+        var v = FD.units.parse(i.value);
+        if (isFinite(v)) { pushUndo(); onChange(v); } else { i.value = value; }
+      });
+      f.appendChild(i); g.appendChild(f);
+      return i;
+    }
+    function selField(g, label, options, current, onChange) {
+      var sel = el('select');
+      options.forEach(function (o) {
+        var opt = el('option', '', o[1]); opt.value = o[0];
+        if (o[0] === current) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener('change', function () { onChange(sel.value); });
+      var f = el('div', 'field');
+      f.appendChild(el('label', '', label));
+      f.appendChild(sel);
+      g.appendChild(f);
+      return sel;
+    }
+
+    var th = m.settings.thermal;
+    var fluid = FD.fluids.resolve(m.settings);
+
+    // ------------------------------------------------- 1. sign convention
+    h2('Heat flow');
+    var sign = el('div', 'notice info-notice');
+    sign.appendChild(el('p', 'notice-head', 'Sign convention'));
+    sign.appendChild(el('p', '',
+      'Every duty on this tab and on the calculation sheet is about the FLUID. ' +
+      'A negative Q removes heat from the fluid — a chiller, or a hot pipe ' +
+      'losing to the room. A positive Q adds heat to it — a boiler, or a ' +
+      'chilled-water coil picking up room load. So a cooling coil reads ' +
+      'POSITIVE: the room is being cooled, and the water is being warmed.'));
+    host.appendChild(sign);
+
+    // ------------------------------------------------- 2. fluid (read-only)
+    h2('Fluid');
+    hint('Chosen on the HYDRAULIC tab, because the same properties set density ' +
+         'and therefore every pressure. Shown here because specific heat is ' +
+         'what Q = ṁ·Cp·ΔT runs on.');
+    var fb = readoutBox(host, null);
+    fb.ro('Fluid', fluid.name);
+    fb.ro('Specific heat', fluid.specificHeat.toFixed(0) + ' J/(kg·K)');
+    fb.ro('Density', fluid.density.toFixed(1) + ' kg/m³');
+    fb.ro('Properties quoted at', fluid.refTemp.toFixed(1) + ' °C');
+    if (!fluid.verified) {
+      var fw = el('div', 'notice warn-notice');
+      fw.appendChild(el('p', '',
+        fluid.name + ': these properties are NOT verified against a printed ' +
+        'table. Specific heat scales every duty on this tab linearly — a Cp ' +
+        'that is 5% out puts every kW 5% out. Check it before issuing anything.'));
+      host.appendChild(fw);
+    }
+
+    // ------------------------------------------------- 3. parameters
+    h2('Conditions');
+    var g1 = grid();
+    numField(g1, 'Ambient air temperature', th.ambient,
+      function (v) { m.settings.thermal.ambient = v; renderThermal(); redrawAll(); },
+      '(°C)');
+    numField(g1, 'System flow temperature', th.supplyTemp,
+      function (v) { m.settings.thermal.supplyTemp = v; renderThermal(); redrawAll(); },
+      '(°C)');
+    hint('Ambient is what a pipe exchanges heat with. The flow temperature is ' +
+         'the reference: a source without its own temperature holds it, and a ' +
+         'sealed circuit — which has no source, so nothing states a temperature ' +
+         'at all — has it pinned at the outlet of whatever moves the most heat.');
+
+    h2('Insulation');
+    var g2 = grid();
+    numField(g2, 'Thermal conductivity', th.insulationK,
+      function (v) { m.settings.thermal.insulationK = v; renderThermal(); redrawAll(); },
+      '(W/m·K)');
+    numField(g2, 'Outside surface coefficient', th.surfaceCoeff,
+      function (v) { m.settings.thermal.surfaceCoeff = v; renderThermal(); redrawAll(); },
+      '(W/m²·K)');
+    selField(g2, 'Default thickness',
+      Object.keys(FD.insulation.SETS).map(function (k) {
+        return [k, FD.insulation.SETS[k].name];
+      }),
+      FD.insulation.setKey(th.insulationSet), function (v) {
+        pushUndo(); m.settings.thermal.insulationSet = v;
+        renderThermal(); redrawAll();
+      });
+
+    hint('Loss per metre is 1 / [ ln(r₀/rᵢ)/(2πk) + 1/(2πr₀h) ] — the ' +
+         'insulation and the outside air film in series. Insulation sits on the ' +
+         'pipe’s OUTSIDE diameter, so rᵢ is the pipe OD, not the bore.');
+
+    /* h₀ is a DEFAULT, not sourced data, and it is a big lever on a bare pipe:
+     * with no insulation it is the entire resistance. Said out loud. */
+    var hw = el('div', 'notice warn-notice');
+    hw.appendChild(el('p', '',
+      'The outside surface coefficient is a DEFAULT (8 W/m²·K, still indoor ' +
+      'air), not a value read off a table. On an insulated pipe it is a small ' +
+      'part of the resistance; on a BARE pipe it is the whole of it, and the ' +
+      'answer is only as good as this number.'));
+    host.appendChild(hw);
+
+    var ins = FD.insulation.set(th.insulationSet);
+    if (ins.verified === false) {
+      var iw = el('div', 'notice warn-notice');
+      iw.appendChild(el('p', '',
+        'The default thickness table is a PLACEHOLDER. Insulation thickness is ' +
+        'not a property of the pipe — it follows the service, the ambient and ' +
+        'the jurisdiction (BS 5422, ASHRAE 90.1, local energy codes all differ) ' +
+        '— so no single table keyed on size can be right. Set the thickness on ' +
+        'each pipe from your own standard; a pipe’s own value always wins, ' +
+        'including 0 for a bare pipe.'));
+      host.appendChild(iw);
+    }
+
+    var tbl = el('table', 'sheet');
+    tbl.innerHTML = '<thead><tr><th class="txt">Nominal size</th>' +
+                    '<th>Thickness (mm)</th><th>Loss (W/m·K)</th></tr></thead>';
+    var tb = el('tbody');
+    FD.insulation.DN.forEach(function (dn) {
+      var t = FD.insulation.defaultThickness(dn, th.insulationSet);
+      /* Loss shown against the SCHEDULE 40 outside diameter, which is the
+       * commonest case; a different schedule shifts it a little. */
+      var sz = FD.schedules.size('sch40', 'DN' + dn);
+      var od = sz ? (sz.od_mm || sz.id_mm) / 1000 : 0;
+      var tr = el('tr');
+      tr.appendChild(el('td', 'txt', 'DN' + dn));
+      tr.appendChild(el('td', '', t.toFixed(0)));
+      tr.appendChild(el('td', 'dim', od > 0
+        ? FD.thermal.lossPerMetreK(od, t / 1000, th.insulationK, th.surfaceCoeff).toFixed(3)
+        : '—'));
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb);
+    host.appendChild(tbl);
+
+    // ------------------------------------------------- 4. what it found
+    var res = app.results;
+    if (res && res.thermal) {
+      h2('Last solve');
+      var t2 = res.thermal;
+      var rb = readoutBox(host, null);
+      var d = m.settings.display;
+      rb.ro('Temperature range', t2.totals.min === null ? '—'
+        : t2.totals.min.toFixed(2) + ' … ' + t2.totals.max.toFixed(2) + ' °C');
+      rb.ro('Equipment duty', (t2.totals.equipDuty / 1000).toFixed(2) + ' kW');
+      rb.ro('Pipe gain / loss', (t2.totals.pipeLoss / 1000).toFixed(3) + ' kW');
+      rb.ro('Iterations', String(t2.iterations));
+      void d;
+      if (t2.pinned) {
+        host.appendChild(el('p', 'hint',
+          'No source, so ' + th.supplyTemp.toFixed(1) + ' °C was pinned at ' +
+          t2.pinned.node + ', the outlet of ' + t2.pinned.pipe + '. Every other ' +
+          'temperature is relative to that.'));
+      }
+    } else {
+      hint('Nothing solved yet, or nothing is flowing.');
+    }
+  }
+
   function renderHydraulic() {
     var m = app.model, host = $('hydraulic-body');
     host.innerHTML = '';
@@ -2909,18 +3290,59 @@
 
     // ============================================ 1. FLUID PROPERTIES (top)
     h2('Fluid Properties');
-    hint('The fluid being calculated. Defaults are water at 20 °C.');
+    var fPreset = (m.settings.fluid && m.settings.fluid.preset) || 'water';
+    var fDef = FD.fluids.get(fPreset);
+    var fEditable = FD.fluids.isEditable(fPreset);
+
     var fg = grid();
-    textField(fg, 'Fluid name', m.settings.fluid.name,
-      function (v) { pushUndo(); m.settings.fluid.name = v; redrawAll(); });
-    numField(fg, 'Density ρ', m.settings.fluid.density,
-      function (v) { pushUndo(); m.settings.fluid.density = v; redrawAll(); }, '(kg/m³)');
-    numField(fg, 'Kinematic viscosity ν', m.settings.fluid.kinematicViscosity,
-      function (v) { pushUndo(); m.settings.fluid.kinematicViscosity = v; redrawAll(); }, '(m²/s)');
-    numField(fg, 'Temperature', m.settings.fluid.temperature,
-      function (v) { pushUndo(); m.settings.fluid.temperature = v; redrawAll(); }, '(°C)');
-    numField(fg, 'Specific heat capacity Cp', m.settings.fluid.specificHeat,
-      function (v) { pushUndo(); m.settings.fluid.specificHeat = v; redrawAll(); }, '(J/kg·K)');
+    selField(fg, 'Fluid',
+      FD.fluids.keys().map(function (k) { return [k, FD.fluids.get(k).name]; }),
+      fPreset, function (v) {
+        pushUndo(); M.applyFluidPreset(m, v);
+        renderHydraulic(); redrawAll();
+      });
+
+    /* A named fluid's properties are READ-ONLY. Typing over them would leave
+     * the sheet naming "20% Propylene Glycol" beside numbers that are not that
+     * fluid's — the same reason the published equivalent-length tables are
+     * locked. Custom is the way to enter your own. */
+    function fluidField(label, key, suffix, dp) {
+      var f = el('div', 'field');
+      f.appendChild(el('label', '', label + (suffix ? '  ' + suffix : '')));
+      var v = m.settings.fluid[key];
+      if (!fEditable) {
+        var ro = el('div', 'locked-value',
+          dp !== undefined ? Number(v).toFixed(dp) : String(v));
+        f.appendChild(ro);
+      } else {
+        var i = el('input'); i.type = 'text'; i.value = v;
+        i.addEventListener('change', function () {
+          var nv = FD.units.parse(i.value);
+          if (isFinite(nv) && nv > 0) {
+            pushUndo(); m.settings.fluid[key] = nv; renderHydraulic(); redrawAll();
+          } else { i.value = v; }
+        });
+        f.appendChild(i);
+      }
+      fg.appendChild(f);
+    }
+    fluidField('Density ρ', 'density', '(kg/m³)', 1);
+    fluidField('Kinematic viscosity ν', 'kinematicViscosity', '(m²/s)');
+    fluidField('Specific heat capacity Cp', 'specificHeat', '(J/kg·K)', 0);
+    fluidField('Properties quoted at', 'temperature', '(°C)', 1);
+
+    if (!fEditable) {
+      hint('Published properties for ' + fDef.name + ', so they are read-only. ' +
+           'Choose Custom to enter your own.');
+    }
+    if (fDef.verified === false) {
+      var fnote = el('div', 'notice warn-notice');
+      fnote.appendChild(el('p', '', fDef.source));
+      fnote.appendChild(el('p', '',
+        'Specific heat scales every thermal duty LINEARLY, so this matters ' +
+        'more on the THERMAL tab than it does here.'));
+      host.appendChild(fnote);
+    }
 
     var isDW = m.settings.frictionMethod === 'DW';
     /* WHICH fitting table to show follows the method's BASIS, not whether it
@@ -2934,12 +3356,13 @@
     usage.appendChild(el('li', '', 'Kinematic viscosity — ' + (isDW
       ? 'used: sets Reynolds number and the friction factor.'
       : 'used for the laminar-flow check; fully live under Darcy-Weisbach.')));
+    usage.appendChild(el('li', '',
+      'Specific heat capacity — used: it is what Q = ṁ·Cp·ΔT runs on. See the ' +
+      'THERMAL tab.'));
     usage.appendChild(el('li', 'unused',
-      'Temperature — not implemented in this version. It does not drive density ' +
-      'or viscosity; those are entered independently.'));
-    usage.appendChild(el('li', 'unused',
-      'Specific heat capacity — not implemented in this version. Stored for the ' +
-      'heating/cooling power calculations to come (Q = ṁ·Cp·ΔT).'));
+      'Temperature — the temperature the three properties above are QUOTED at, ' +
+      'not a result and not a driver. Nothing recalculates density or viscosity ' +
+      'from it, so a glycol circuit run at 6 °C is being given 20 °C properties.'));
     host.appendChild(usage);
 
     // =================================================== 2. SYSTEM (detected)
@@ -3608,6 +4031,7 @@
         if (t.dataset.pane === 'pane-calculation') renderCalculation();
         if (t.dataset.pane === 'pane-settings') renderSettings();
         if (t.dataset.pane === 'pane-hydraulic') renderHydraulic();
+        if (t.dataset.pane === 'pane-thermal') renderThermal();
         if (t.dataset.pane === 'pane-tools' && FD.tools) FD.tools.render(app);
         if (t.dataset.pane === 'pane-docs' && FD.docs && !docsReady) {
           FD.docs.init(); docsReady = true;

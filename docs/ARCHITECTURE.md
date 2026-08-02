@@ -114,11 +114,14 @@ Load order matters; this is it.
 | `data/ktable.js` | ASHRAE fitting resistance coefficients K, by nominal size. |
 | `src/units.js` | SI ↔ display conversion, number parsing. **Display only.** |
 | `data/pumps.js` | Pump curves: single-point, three-point quadratic, least-squares fit, parsing. |
+| `data/fluids.js` | Water and propylene-glycol property sets. **Glycol rows are flagged unverified.** |
+| `data/insulation.js` | Default insulation thickness by nominal size. **Flagged as a placeholder.** |
 | `src/hydraulics.js` | Pipe loss models: Hazen-Williams, Darcy, friction factors. |
 | `src/solver.js` | The Global Gradient Algorithm. Knows nothing about drawings. |
 | `src/model.js` | Model state: levels, nodes, pipes, risers, devices, save/load. |
 | `src/geometry.js` | Rigid length edits, conflict detection, repair. UI-free. |
 | `src/network.js` | **Model → solver translation.** The busiest file. |
+| `src/thermal.js` | Temperature transport, mixing and heat loss. Reads the solved flows; feeds nothing back. |
 | `src/dialog.js` | In-app modal dialogs (no browser popups). |
 | `src/canvas.js` | Drawing surface: rendering + pointer interaction. |
 | `src/printer.js` | Printed level plans as SVG. |
@@ -927,9 +930,91 @@ new model showed "Hazen-Williams" in a box that was set to ASHRAE, and picking
 either option was a one-way door with no route back. Both faults came from
 restating in the UI something the engine already knows.
 
+## 18. The thermal module
+
+New in v0.10.0. `src/thermal.js` runs AFTER the hydraulic solve and reads its
+flows, because temperature is carried by the water. It feeds nothing back:
+fluid properties are held at one temperature, so a warmer pipe does not change
+its own friction. That is a real simplification, recorded in `KNOWN-ISSUES.md`
+rather than hidden.
+
+### Sign convention
+
+Michael's, and it is about the **fluid**, not the room:
+
+    Q < 0   heat REMOVED from the fluid   (a chiller, a hot pipe losing to the room)
+    Q > 0   heat ADDED to the fluid       (a boiler, a CHW coil picking up load)
+
+So a chilled-water coil reads **positive** — the room is being cooled and the
+water is being warmed. Everything in the module follows from that.
+
+### Three things, coupled, which is why it iterates
+
+1. **Mixing** at a junction, mass-weighted: `T = Σ(ṁᵢTᵢ)/Σ(ṁᵢ)`. Mass rather
+   than volume because it is energy that mixes; with one fluid and a constant
+   Cp the Cp cancels and this is exact.
+2. **A pipe** exchanging heat with ambient. Closed form, no stepping along the
+   pipe: `T_out = T_amb + (T_in − T_amb)·exp(−U'L/ṁCp)`, with
+   `U' = 1/[ ln(r₀/rᵢ)/(2πk) + 1/(2πr₀h) ]`. The exponential matters — a linear
+   model on a long run at low flow walks the temperature straight past ambient
+   and out the other side. **`rᵢ` is the pipe's OUTSIDE radius**, because
+   insulation sits on the pipe rather than in the bore; this is one of the few
+   places that wants `od_mm` and not the bore.
+3. **Equipment**, in one of two modes.
+
+### One toggle serves DESIGN and SIMULATION
+
+It looked like two features when it was asked for. It is one:
+
+| Mode | States | Follows | In SIMULATION |
+|---|---|---|---|
+| `dT` | the temperature difference | `Q = ṁCpΔT` | ΔT held, duty floats with flow — a coil under control |
+| `dQ` | the duty | `ΔT = Q/ṁCp` | duty held, ΔT floats — a fixed load: IT, process, electric heater |
+
+Those two are not approximations picked for convenience. They are the
+**asymptotes of the real effectiveness model**,
+`Q = ṁCp(T_in−T_sec)(1−e^(−UA/ṁCp))`: at high flow it tends to constant duty,
+at low flow to constant ΔT. So they bracket the truth and each is *exact* for a
+real class of plant. The effectiveness model itself needs exactly one number the
+app does not have — the secondary-side entering temperature — with `UA` derived
+from the design point the same way an outflow's K and equipment's ΔP already
+are. That is the next step if it is wanted, not a rewrite.
+
+Pumps and valves pass temperature straight through, at Michael's instruction. A
+pump does put its shaft work into the water, but at typical duties that is
+hundredths of a kelvin and stating it would imply a precision the rest of this
+does not have.
+
+### The reference temperature
+
+Something must be known or every temperature floats. A **source** holds its
+supply temperature. A **closed circuit has no source** — the same problem the
+hydraulic solver has with pressure — so one node is pinned, preferring the
+outlet of whatever moves the most heat, because in a chilled or heating circuit
+that is the plant and its leaving temperature is the flow temperature an
+engineer quotes. Reported as `THERMAL_DATUM`, never silent.
+
+### Unverified data, carried with teeth
+
+Two data sets in this module were **not** transcribed from a page, which is a
+deliberate exception to the "never invent engineering data" rule and was agreed
+with Michael on the understanding that they are flagged until he checks them:
+
+* **Propylene glycol properties** (`data/fluids.js`) — written from recollection
+  of ASHRAE Ch 31. Cp is the one to check first: it scales every thermal duty
+  *linearly*, and unlike a friction factor there is nothing downstream to absorb
+  an error.
+* **Insulation thicknesses** (`data/insulation.js`) — there is no single
+  standard to read off. Thickness follows the service, the ambient and the
+  jurisdiction, not the pipe, so no table keyed on size can be right.
+
+Both carry `verified: false`, both are listed by an `unverified()` helper, and
+the flag appears beside the control, on the THERMAL tab **and on the calculation
+sheet**, which is the thing that gets issued.
+
 ## 15. Testing
 
-Six suites, 834 assertions, no dependencies:
+Seven suites, 936 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -938,9 +1023,10 @@ node test/geometry.test.js   rigid edits, conflicts, repair
 node test/supply.test.js     pump sizing, supply adequacy, pressure-driven
 node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
+node test/thermal.test.js    heat loss, mixing, equipment duty, fluid data
 ```
 
-All 834 pass. The "Parallel pumps share in DESIGN" section of
+All 936 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change

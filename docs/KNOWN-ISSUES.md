@@ -106,6 +106,29 @@ From the ⚠️/❌ notes in `Human-Test.md`:
   panel~~ (v0.7.7-dev). Both are still on the calculation sheet, which is where
   a set of terminals can be read against each other.
 
+### The thermal module (v0.10.0) — what is flagged
+
+* **Propylene glycol properties are UNVERIFIED** (`data/fluids.js`). Written
+  from recollection of ASHRAE Ch 31 at Michael's instruction, flagged until he
+  checks them. Cp scales every thermal duty linearly, so check that first.
+* **Insulation thicknesses are a PLACEHOLDER** (`data/insulation.js`). There is
+  no single standard to read off — thickness follows the service, the ambient
+  and the jurisdiction, not the pipe. A pipe's own value always wins, including
+  0 for a bare pipe.
+* **The outside surface coefficient (8 W/m²·K) is a default**, not sourced data.
+  On an insulated pipe it is a small part of the resistance; on a **bare** pipe
+  it is the whole of it, so a bare-pipe answer is only as good as that number.
+* **Fluid properties are held at ONE temperature.** Nothing recalculates density
+  or viscosity from the solved temperature, so a glycol circuit run at 6 °C is
+  being given 20 °C properties — glycol viscosity roughly doubles over that
+  range. This is also why the thermal result cannot feed back into the
+  hydraulics: the coupling does not exist yet.
+* **Pumps and valves add no heat.** Michael's instruction. A pump's shaft work
+  is real but is hundredths of a kelvin at typical duties.
+* **The effectiveness model for equipment in SIMULATION is not implemented.**
+  The two modes shipped (`dT`, `dQ`) are its asymptotes and bracket it. Adding
+  it needs one field: the secondary-side entering temperature.
+
 ### Reported 2026-08-02 (seventh round) — done, released as v0.9.0
 
 * ~~**Only two calculation methods**~~: `Hazen-Williams (ASHRAE with Equivalent

@@ -1564,6 +1564,23 @@
     var d = m.settings.display;
     var vals = [];
 
+    if (this.viz === 'temperature') {
+      /* Nodal, like pressure — and the pipes ramp between their two ends for
+       * the same reason: along a level pipe in a constant ambient the profile
+       * really is monotonic between the two node values. */
+      if (!res.thermal) return null;
+      var tv = [];
+      m.nodes.forEach(function (n) {
+        var t = res.thermal.temperature[n.id];
+        if (t !== undefined && isFinite(t)) tv.push(t);
+      });
+      if (!tv.length) return null;
+      var tmin = Math.min.apply(null, tv), tmax = Math.max.apply(null, tv);
+      if (tmax - tmin < 1e-9) tmax = tmin + 1;
+      return { kind: 'node', field: 'temperature', min: tmin, max: tmax,
+               label: 'TEMPERATURE',
+               fmt: function (v) { return v.toFixed(1) + ' \u00b0C'; } };
+    }
     if (this.viz === 'pressure') {
       m.nodes.forEach(function (n) {
         var pa = res.pressure && res.pressure[n.id];
@@ -1644,10 +1661,13 @@
    * equipment puts its entire change at one point. Those get a hard step at the
    * symbol rather than a ramp, so the discontinuity stays visible. */
   View.prototype.vizPipeGradient = function (p, scale, sa, sb) {
-    if (!scale || this.viz !== 'pressure') return null;
+    if (!scale || (this.viz !== 'pressure' && this.viz !== 'temperature')) return null;
     var res = this.results;
-    if (!res || !res.pressure) return null;
-    var pa = res.pressure[p.a], pb = res.pressure[p.b];
+    var field = (this.viz === 'temperature')
+      ? (res && res.thermal && res.thermal.temperature)
+      : (res && res.pressure);
+    if (!field) return null;
+    var pa = field[p.a], pb = field[p.b];
     if (pa === undefined || pb === undefined) return null;
     if (!isFinite(pa) || !isFinite(pb)) return null;
 
@@ -1677,9 +1697,14 @@
     var m = this.getModel(), ctx = this.ctx, self = this, res = this.results;
     var span = scale.max - scale.min;
     ctx.save();
+    /* Whichever nodal field the scale names. PRESSURE was the only one when
+     * this was written, so it read res.pressure directly. */
+    var field = (scale.field === 'temperature')
+      ? (res.thermal && res.thermal.temperature) : res.pressure;
+    if (!field) return;
     m.nodes.forEach(function (n) {
       if (n.level !== m.activeLevel) return;
-      var pa = res.pressure && res.pressure[n.id];
+      var pa = field[n.id];
       if (pa === undefined || !isFinite(pa)) return;
       var w = M.worldXY(m, n);
       var s = self.toScreen(w.x, w.y);
@@ -2502,6 +2527,13 @@
                    m.settings.display.pressure);
       }
     }
+    /* Temperature at the node, from the thermal module. Like pressure, shown
+     * whatever the value — a temperature that has run away from where it
+     * should be is exactly the thing you want to see on the drawing. */
+    if (a.nodeTemperature && this.results && this.results.thermal) {
+      var tC = this.results.thermal.temperature[n.id];
+      if (tC !== undefined && isFinite(tC)) parts.push(tC.toFixed(1) + '\u00b0C');
+    }
     if (!parts.length) return;
 
     var off = M.labelOffset(n);
@@ -2996,6 +3028,32 @@
       out.velocity = FD.hydraulics.velocity(q, link._d);
     }
     if (!device) out.distance = hit.t * M.pipeLength(m, p);
+
+    /* Temperature at the probed point.
+     *
+     * NOT a straight line between the two ends, which is what pressure gets.
+     * The profile along a pipe is exponential — the difference driving the
+     * heat exchange shrinks as the water approaches ambient — so the same
+     * closed form the engine uses is re-solved for the part-length. A linear
+     * interpolation would read low near the inlet and high near the outlet,
+     * and on a long run at low flow it would walk straight past ambient.
+     *
+     * A DEVICE puts its whole change at one point, so it reports both sides
+     * and no value along it, exactly as it does for pressure. */
+    var th = res.thermal;
+    out.temperature = null;
+    if (th && th.links[p.id]) {
+      var tl = th.links[p.id];
+      out.thermal = tl;
+      if (!device) {
+        /* `hit.t` runs a -> b along the DRAWN segment; the water may be going
+         * the other way. Measure from the inlet, not from the a-end. */
+        var frac = (q >= 0) ? hit.t : (1 - hit.t);
+        out.temperature = FD.thermal.pipeOutlet(
+          tl.tIn, th.ambient, tl.UperM || 0, (tl.length || 0) * frac,
+          tl.mdot, th.fluid.specificHeat);
+      }
+    }
     return out;
   };
 
@@ -3011,6 +3069,12 @@
       if (d.flow !== undefined) {
         lines.push('Flow  ' + FD.units.fmtFlow(Math.abs(d.flow), disp.flow, true));
       }
+      if (d.thermal) {
+        lines.push('Temp  ' + d.thermal.tIn.toFixed(1) + ' \u2192 ' +
+                   d.thermal.tOut.toFixed(1) + ' \u00b0C');
+        lines.push('Duty  ' + (d.thermal.qW >= 0 ? '+' : '') +
+                   (d.thermal.qW / 1000).toFixed(2) + ' kW');
+      }
       lines.push('(steps at the device — not read along it)');
       return lines;
     }
@@ -3025,6 +3089,14 @@
       : FD.units.fmtFlow(Math.abs(d.flow), disp.flow, true)));
     lines.push('Vel   ' + (d.velocity === null ? '—'
       : FD.units.fmtVelocity(d.velocity, disp.length !== 'ft')));
+    /* Temperature varies along a pipe for the same reason pressure does, and
+     * the profile is EXPONENTIAL rather than straight: the driving difference
+     * to ambient shrinks as the water approaches it. Interpolating linearly
+     * between the two ends would read low near the inlet and high near the
+     * outlet, so the probe re-solves the same closed form the engine uses. */
+    if (d.temperature !== null && d.temperature !== undefined) {
+      lines.push('Temp  ' + d.temperature.toFixed(2) + ' \u00b0C');
+    }
     return lines;
   };
 
