@@ -298,16 +298,37 @@
 
   function other(p, nodeId) { return p.a === nodeId ? p.b : p.a; }
 
-  /* Drawn length of a pipe [m]. Horizontal pipes use plan distance plus any
-   * elevation difference; riser links are purely vertical. */
+  /* Drawn length of a pipe [m].
+   *
+   * A pipe in the layout is HORIZONTAL by rule (Michael, v0.7.8-dev): both its
+   * ends sit at the same z, and the only thing that changes level is a riser.
+   * So its length is the plan distance, full stop.
+   *
+   * The elevation term used to be included, and it is what turned a source's
+   * mis-stored 20.43 m "static pressure" into a 50 m run reading 54.01 m
+   * (debug/20260802-1.json). Removing it is not a workaround for that bug —
+   * the storage bug is fixed separately — it is the rule the layout was always
+   * drawn to, now stated.
+   *
+   * It holds forward, too: even once pipe gradients are modelled in v2 or v3,
+   * the length an engineer wants off a layout is the horizontal one. A plan
+   * pipe whose ends differ in elevation is therefore reported as a `SLOPED_PIPE`
+   * error rather than silently measured along its slope. */
   function pipeLength(m, p) {
     var na = node(m, p.a), nb = node(m, p.b);
     if (!na || !nb) return 0;
-    var dz = elevation(m, nb) - elevation(m, na);
-    if (p.kind === 'riser') return Math.abs(dz);
+    if (p.kind === 'riser') return Math.abs(elevation(m, nb) - elevation(m, na));
     var wa = worldXY(m, na), wb = worldXY(m, nb);
     var dx = wb.x - wa.x, dy = wb.y - wa.y;
-    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  /* Elevation difference across a plan pipe. Zero for every pipe that obeys the
+   * rule above; non-zero is the defect `SLOPED_PIPE` reports. */
+  function pipeRise(m, p) {
+    var na = node(m, p.a), nb = node(m, p.b);
+    if (!na || !nb || p.kind === 'riser') return 0;
+    return elevation(m, nb) - elevation(m, na);
   }
 
   function pipeBore(m, p) {
@@ -835,7 +856,8 @@
     addPipe: addPipe, pipe: pipe, removePipe: removePipe,
     flipPipe: flipPipe, isDirectional: isDirectional,
     mergeNodes: mergeNodes, dissolveNode: dissolveNode,
-    pipesAt: pipesAt, other: other, pipeLength: pipeLength, pipeBore: pipeBore,
+    pipesAt: pipesAt, other: other, pipeLength: pipeLength, pipeRise: pipeRise,
+    pipeBore: pipeBore,
 
     addRiser: addRiser, attachRiser: attachRiser, riserPipes: riserPipes,
     removeRiser: removeRiser, setRiserProps: setRiserProps,

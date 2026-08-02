@@ -106,6 +106,24 @@ From the ⚠️/❌ notes in `Human-Test.md`:
   panel~~ (v0.7.7-dev). Both are still on the calculation sheet, which is where
   a set of terminals can be read against each other.
 
+### Reported 2026-08-02 (second round) — done
+
+* ~~**Disallow vertically sloped pipes.**~~ v0.7.8-dev. Everything in the layout
+  runs level; only a riser changes height. `M.pipeLength` returns the plan
+  distance for any non-riser pipe and `M.pipeRise` reports the difference;
+  `SLOPED_PIPE` is an error. Michael's reasoning is worth keeping: even once
+  pipe gradients are modelled in v2 or v3, the length an engineer takes off a
+  layout is the horizontal one. This also retired the `plan = √(L² − rise²)`
+  solve added to `changeLength` the day before — with the rule in place, plan
+  and drawn length are the same number and the direct comparison is correct
+  again.
+* ~~**PROBE command under VIEW.**~~ v0.7.8-dev. Pressure, flow and velocity at
+  any point along a pipe. Pressure is the one that varies and is a straight line
+  between the node values (level pipe, constant flow, uniform bore ⟹ constant
+  loss per metre); a pump, valve or piece of equipment reports both sides and
+  the change across instead, because a device puts its whole change at one
+  point.
+
 ### Two defects found in `debug/20260802-1.json`, both fixed v0.7.7-dev
 
 Worth keeping because they are a good illustration of one wrong decision

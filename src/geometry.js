@@ -129,39 +129,6 @@
     return { moving: moving, torn: torn };
   }
 
-  /* The PLAN length that would give a pipe the requested DRAWN length.
-   *
-   * A pipe's length is 3D — plan distance plus the elevation difference
-   * between its ends, which is what M.pipeLength reports and what the property
-   * panel shows. Every edit here is a horizontal translation and elevations do
-   * not move, so what has to be solved for is
-   *
-   *     L² = plan² + rise²    ⟹    plan = √(L² − rise²)
-   *
-   * Comparing the requested 3D length against the plan length directly was a
-   * real bug, and a silent one. A source sitting 20.43 m above its outflow over
-   * a 50 m plan run reads 54.01 m; typing 50 back in came out as "already 50,
-   * nothing to do" — ok:true with an empty change list — so the field sprang
-   * back and the pipe could not be edited at all (debug/20260802-1.json).
-   *
-   * Returns { plan } or { error: {code, message} } when the requested length is
-   * shorter than the rise, which no horizontal move can reach. */
-  function planTarget(m, p, newLength) {
-    var na = M.node(m, p.a), nb = M.node(m, p.b);
-    if (!na || !nb) return { plan: newLength };
-    var rise = M.elevation(m, nb) - M.elevation(m, na);
-    if (Math.abs(rise) < 1e-9) return { plan: newLength, rise: 0 };
-    if (newLength <= Math.abs(rise) + 1e-9) {
-      return { error: {
-        code: 'SHORTER_THAN_RISE',
-        message: 'This pipe rises ' + Math.abs(rise).toFixed(2) + ' m between its ' +
-                 'ends, so it cannot be shorter than that. Level the two ends, or ' +
-                 'change one end’s elevation first.'
-      } };
-    }
-    return { plan: Math.sqrt(newLength * newLength - rise * rise), rise: rise };
-  }
-
   // -------------------------------------------------------- length change
   /* Attempt a rigid length change. Does NOT mutate on failure.
    *
@@ -188,10 +155,13 @@
                message: 'This pipe has no horizontal direction to extend along.' };
     }
 
-    var tgt = planTarget(m, p, newLength);
-    if (tgt.error) return { ok: false, code: tgt.error.code, message: tgt.error.message };
-
-    var delta = tgt.plan - dir.len;
+    /* Plan distance IS the pipe's length: a layout pipe is horizontal by rule
+     * and M.pipeLength no longer carries an elevation term (model.pipeLength).
+     * Before that rule this comparison was a real and silent bug — a sloped
+     * pipe reported "already that length, nothing to do" and could not be
+     * edited at all. It is correct now because the two are the same number,
+     * and `SLOPED_PIPE` catches any model where they are not. */
+    var delta = newLength - dir.len;
     if (Math.abs(delta) < 1e-9) return { ok: true, changes: [] };
 
     var comp = componentFrom(m, p.b, [p.id]);
@@ -250,10 +220,7 @@
 
     var dir = planDir(m, p);
     if (!dir) return { ok: false, message: 'This pipe has no horizontal direction.' };
-
-    var tgt = planTarget(m, p, newLength);
-    if (tgt.error) return { ok: false, code: tgt.error.code, message: tgt.error.message };
-    var delta = tgt.plan - dir.len;
+    var delta = newLength - dir.len;
     if (Math.abs(delta) < 1e-9) return { ok: true, changes: [] };
 
     var cyclePipes = pathBetween(m, p.a, p.b, [p.id]);

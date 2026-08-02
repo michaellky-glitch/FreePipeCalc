@@ -1162,6 +1162,27 @@
     // TRACE mode shows the background drawing's own controls instead
     if (app.view.tool === 'trace') { renderTraceProps(host); return; }
     if (app.showAnnotations) { renderAnnotationProps(host); return; }
+    if (app.view.tool === 'probe') {
+      host.appendChild(el('h3', '', 'Probe'));
+      host.appendChild(el('p', 'hint',
+        'Move along any pipe to read the pressure, flow and velocity at that ' +
+        'point. Click to pin the reading so you can take the mouse off the ' +
+        'drawing; Esc clears it.'));
+      host.appendChild(el('p', 'hint',
+        'Pressure is the one that varies: flow and velocity are the same at ' +
+        'every point of a uniform pipe, and are shown for completeness.'));
+      host.appendChild(el('p', 'hint',
+        'The pressure between two nodes is a straight line, because the pipe ' +
+        'is level and its friction loss per metre is constant. Fittings are ' +
+        'charged as equivalent length spread over the whole pipe, so where a ' +
+        'real fitting sits there is a small step the line averages out — the ' +
+        'node values themselves are exact.'));
+      host.appendChild(el('p', 'hint',
+        'A pump, valve or piece of equipment puts its whole pressure change at ' +
+        'one point, so probing one reports both sides and the change across it ' +
+        'rather than a value along it.'));
+      return;
+    }
     if (app.view.tool === 'align') {
       host.appendChild(el('h3', '', 'Align model'));
       host.appendChild(el('p', 'hint',
@@ -3413,7 +3434,7 @@
      * the sheet keeps rendering — but lighting the button up made it look as
      * though clicking VIEW had not taken effect. */
     var inView = (app.view && (app.view.tool === 'view' || app.view.tool === 'trace' ||
-                               app.view.tool === 'align'));
+                               app.view.tool === 'align' || app.view.tool === 'probe'));
     [].slice.call(document.querySelectorAll('[data-mode]')).forEach(function (b) {
       b.classList.toggle('active',
         !inView && b.dataset.mode === app.model.settings.calcMode);
@@ -3498,7 +3519,7 @@
          * in VIEW. setCalcMode carries the guards (a running pump needs a
          * curve; an outflow needs a required pressure). */
         if (app.view.tool === 'view' || app.view.tool === 'trace' ||
-            app.view.tool === 'align') {
+            app.view.tool === 'align' || app.view.tool === 'probe') {
           app.view.setTool('edit');
         }
         setCalcMode(b.dataset.mode);
@@ -3618,6 +3639,7 @@
       view:   'Drag any label to reposition it for printing · tick properties in the panel to show them on the drawing · TRACE adds a background drawing',
       align:  'Drag any node to move the WHOLE model · grid-snaps · Shift for free placement',
       trace:  'Ctrl+V a screen snip, or drag an image in · drag to move, corners to scale · set the scale, then lock it',
+      probe:  'Move along any pipe to read pressure, flow and velocity at that point · click to pin the reading · Esc clears it',
       riser:  'Click this floor\u2019s pipework to place or join a riser column',
       source: 'Click to place a source (tank, mains, or expansion vessel)',
       demand: 'Click to place a demand',
@@ -3632,7 +3654,7 @@
      * arranging the background you then draw over. */
     function syncToolGroups() {
       var inView = (app.view.tool === 'view' || app.view.tool === 'trace' ||
-                    app.view.tool === 'align');
+                    app.view.tool === 'align' || app.view.tool === 'probe');
       var setDraw = $('set-draw'), setView = $('set-view'), group = $('group-tools');
       if (setDraw) setDraw.hidden = inView;
       if (setView) setView.hidden = !inView;

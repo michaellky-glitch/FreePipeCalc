@@ -103,9 +103,14 @@ section('Model — geometry and level offsets');
   nodes[1].dz = -0.6;
   near('Elevation = level altitude + node offset', M.elevation(m, nodes[1]), 6.4, 1e-12);
 
-  // A pipe spanning an elevation change is longer than its plan distance
-  const L = M.pipeLength(m, m.pipes[0]);
-  near('Sloped pipe length includes rise', L, Math.hypot(10, 0.6), 1e-9);
+  /* A layout pipe's length is its PLAN distance, whatever the elevations of
+   * its ends. Pipes on a level run level; only a riser changes height, and the
+   * length an engineer takes off a layout is the horizontal one — which stays
+   * true when pipe gradients arrive in v2/v3. The 0.6 m offset above makes this
+   * pipe illegal, which is what SLOPED_PIPE reports; the length is still the
+   * plan 10 m and never sqrt(10^2 + 0.6^2). */
+  near('Length is the plan distance, not the slope', M.pipeLength(m, m.pipes[0]), 10, 1e-9);
+  near('...and the rise is reported separately', M.pipeRise(m, m.pipes[0]), -0.6, 1e-12);
 }
 
 section('Network — fitting detection from geometry');
@@ -656,7 +661,6 @@ section('Valves — check valve seats against reverse flow');
     const lo = M.addNode(m, hi.id, 0, 0);      // low tank
     const mid = M.addNode(m, hi.id, 10, 0);
     const high = M.addNode(m, hi.id, 30, 0);   // high tank
-    lo.dz = 0; high.dz = 25;                   // 25 m of head difference
 
     M.addPipe(m, lo.id, mid.id, { size: 'DN50' });
     M.addPipe(m, mid.id, high.id, useCheck ? {
@@ -664,8 +668,12 @@ section('Valves — check valve seats against reverse flow');
       valve: { type: 'check', kv: FD.valves.defaultKv('check', 52.48), opening: 100 }
     } : { size: 'DN50' });
 
-    M.setSource(m, lo.id);
-    M.setSource(m, high.id);
+    /* 25 m of head difference, stated as the high tank's own static pressure
+     * rather than by raising its node. Raising it would slope the pipe into
+     * it, which the layout rule forbids (SLOPED_PIPE) — and the source's
+     * pressure is what that number always meant. 998 * 9.81 * 25 Pa. */
+    M.setSource(m, lo.id, 0);
+    M.setSource(m, high.id, 998 * 9.81 * 25);
     return m;
   }
 
@@ -688,12 +696,11 @@ section('Valves — check valve seats against reverse flow');
   const m2 = M.create(), lv = m2.levels[0].id;
   const s = M.addNode(m2, lv, 0, 0), v1 = M.addNode(m2, lv, 10, 0),
         v2 = M.addNode(m2, lv, 11, 0), dd = M.addNode(m2, lv, 40, 0);
-  s.dz = 30;
   M.addPipe(m2, s.id, v1.id, { size: 'DN50' });
   M.addPipe(m2, v1.id, v2.id, { kind: 'valve', size: 'DN50',
     valve: { type: 'check', kv: FD.valves.defaultKv('check', 52.48), opening: 100 } });
   M.addPipe(m2, v2.id, dd.id, { size: 'DN50' });
-  M.setSource(m2, s.id);
+  M.setSource(m2, s.id, 998 * 9.81 * 30);   // 30 m of head, as a pressure
   M.setDemand(m2, dd.id, 0.004, 0);
   const fwd = NET.solveModel(m2);
   const fwdValve = fwd.network.links.find(l => l.kind === 'valve');
@@ -1224,30 +1231,25 @@ section('Source static pressure');
      res.pressure[b.t.id] < res.pressure[b.s.id],
      `${res.pressure[b.s.id]} then ${res.pressure[b.t.id]}`);
 
-  /* Elevation is now a separate matter, and still works. Raising the source
-   * 10 m does two things at once, and the hand answer has to account for both:
-   *
-   *   + rho.g.10 = 998 * 9.81 * 10 = 97 903.8 Pa of static head, and
-   *   - the extra friction in a pipe that is now longer, because its length is
-   *     3D: sqrt(50^2 + 10^2) = 50.9901951 m instead of 50 m.
-   *
-   * The flow is a fixed demand, so friction is proportional to length whatever
-   * the friction law — the extra is f_flat x (L_high/L_flat - 1). */
+  /* Elevation is a separate matter from pressure, and still feeds static head.
+   * Raising the source 10 m adds rho.g.10 = 998 * 9.81 * 10 = 97 903.8 Pa at
+   * the demand node below it — exactly, with no friction correction, because
+   * the pipe's length is its PLAN distance and does not change when one end
+   * moves in z. (Such a pipe is illegal under the layout rule; this is the
+   * arithmetic, checked on the model that breaks it.) */
   const fc = build(200e3, 0);
   const flat = NET.solveModel(fc.m);
   const rc = build(200e3, 10);
   const high = NET.solveModel(rc.m);
 
-  near('Raising it lengthens the pipe in 3D', M.pipeLength(rc.m, rc.p),
-       Math.sqrt(2500 + 100), 1e-9);
-
-  const fFlat = 200e3 - flat.pressure[fc.t.id];              // friction over 50 m
-  const extra = fFlat * (M.pipeLength(rc.m, rc.p) / 50 - 1);
-  near('Raising the source adds rho.g.dz, less the extra friction',
-       high.pressure[rc.t.id] - flat.pressure[fc.t.id],
-       RHO * G9 * 10 - extra, 1e-6);
+  near('Raising the source does NOT change the pipe length',
+       M.pipeLength(rc.m, rc.p), 50, 1e-12);
+  near('Raising the source adds exactly rho.g.dz downstream',
+       high.pressure[rc.t.id] - flat.pressure[fc.t.id], RHO * G9 * 10, 1e-6);
   near('The source node still reads its own stated pressure',
        high.pressure[rc.s.id], 200e3, 1);
+  ok('...and the sloped pipe it creates is reported',
+     NET.disconnections(rc.m).some(d => d.code === 'SLOPED_PIPE' && d.severity === 'error'));
 
   // A source with no stated pressure is still a valid datum at 0 gauge.
   near('Zero pressure is a datum, not an error',

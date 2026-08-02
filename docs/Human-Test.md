@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 740
+This is deliberately separate from the automated suites. Those cover 746
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-02 (v0.7.7-dev)
+Last updated: 2026-08-02 (v0.7.8-dev)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -89,6 +89,7 @@ known project has been done.
 | 4.10 | Every checkbox is now a switch | ⬜ | **New in v0.7.7-dev.** Panels, the annotations list, and HYDRAULIC. Verified in the DOM (no `input[type=checkbox]` left in any panel) and each one toggles the model. Two things to look at: does a column of switches read better than tick boxes at this density, and is the muted-vs-accent off/on state clear enough? It is deliberately NOT red/green — red is a fault everywhere else in this app. |
 | 4.11 | PRESSURE visualiser gradients along a pipe | ⬜ | **New in v0.7.7-dev.** Verified through the real render path: a plain pipe ramps between its two node colours, a pump/valve/equipment link gets a hard step at the symbol. Never seen as pixels — the legend, the disc-over-gradient contrast and whether the ramp is legible at working zoom are all yours. |
 | 4.12 | K factor on outflows, pumps and equipment | ⬜ | **New in v0.7.7-dev.** From the design values, in the model's display units, unit spelled out (`0.316 L/s/√kPa`). Hover gives the arithmetic and warns it is neither the sprinkler K nor a Kv. |
+| 4.13 | PROBE under VIEW | ⬜ | **New in v0.7.8-dev.** Verified through real pointer events: hover follows the pipe, click pins, Esc clears the pin (a second Esc leaves the tool). The readout box, the crosshair marker and whether a 24 px catch radius feels right are all yours. |
 
 ## 4A. TRACE mode
 
@@ -180,6 +181,8 @@ automated suites, but the *reading* is the part only you can sign off.
 | 6A.2 | Setting a source pressure no longer moves the node | ⬜ | It was stored as an elevation. `20260802-1.json` now loads with its pipe at exactly 50 m, not 54.01 m. |
 | 6A.3 | Pipe length is editable on a sloped pipe | ⬜ | `changeLength` was comparing a 3D length to a plan length. It now solves `plan = √(L² − rise²)` and refuses a length below the rise. |
 | 6A.4 | The migration dialog on loading an older file | ⬜ | **Please read it and say whether it explains itself.** It fires once per file and it is telling you pipe lengths have changed. |
+| 6A.5 | Sloped layout pipes are refused | ⬜ | **New in v0.7.8-dev.** A pipe whose ends differ in elevation is a `SLOPED_PIPE` error and takes the status chip red. Verified in-browser on the old `20260802-1.json` geometry. Worth checking against any model of yours that predates the rule — if one lights up, the pipe was being measured along its slope and its friction was overstated. |
+| 6A.6 | Pipe lengths after the rule change | ⬜ | **Please spot-check a model you know.** Any pipe whose ends were at the same elevation is unchanged to the last decimal. Only a pipe that was silently sloped moves — and that one was wrong before. |
 
 ---
 

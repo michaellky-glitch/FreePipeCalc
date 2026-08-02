@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-02 (v0.7.7-dev), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-02 (v0.7.8-dev), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,15 +21,15 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — six files, **740 assertions, all passing**.
+Tests: `node test/<name>.test.js` — six files, **746 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. Where things stand (v0.7.7-dev, 2026-08-02)
+## 2. Where things stand (v0.7.8-dev, 2026-08-02)
 
-Nothing is BROKEN. The engine is green at **740 assertions** and the repository
+Nothing is BROKEN. The engine is green at **746 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
 
 The big change since v0.5.0 is the **ASHRAE (2021) method**, now the default —
@@ -161,6 +161,16 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **A layout pipe is LEVEL** (v0.7.8-dev), and its length is the plan distance.
+  Michael's rule: only a riser changes height, and the length wanted off a
+  layout is the horizontal one — which stays true when pipe gradients arrive in
+  v2/v3. `M.pipeLength` no longer carries an elevation term; a pipe whose ends
+  differ in elevation is the `SLOPED_PIPE` **error**. This retires the
+  `plan = √(L² − rise²)` workaround added the day before: plan and drawn length
+  are now the same number.
+* **PROBE** (v0.7.8-dev) — a VIEW tool reading pressure, flow and velocity at
+  any point along a run. `ARCHITECTURE.md` §7A has why the pressure line is the
+  real profile and why a device is a step instead.
 * **Two defects found in `debug/20260802-1.json`** (v0.7.7-dev), both from one
   wrong decision. A source's static pressure was stored as the node's ELEVATION,
   which stretched every pipe on it in 3D — 50 m read as 54.01 m. And

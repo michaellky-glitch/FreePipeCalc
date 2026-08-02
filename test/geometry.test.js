@@ -274,68 +274,80 @@ section('TEST 3 — changing L2 altitude leaves L3 alone');
 }
 
 /* --------------------------------------------------------------------------
- * A pipe's length is 3D. Editing it must therefore solve for the PLAN length
- * that gives the requested DRAWN length, not compare the two directly.
+ * A pipe in the layout is LEVEL, and its length is the plan distance.
  *
- * Michael's debug/20260802-1.json is the case that exposed this: a source 20.43
- * m above its outflow over a 50 m plan run reads sqrt(50^2 + 20.43^2) = 54.01
- * m, and typing 50 back in reported "already 50, nothing to do" — so the field
- * sprang back and the pipe could not be edited at all.
+ * Michael's rule (v0.7.8-dev): everything drawn on a level runs horizontally at
+ * that level's z, and only a riser changes height. The length an engineer takes
+ * off a layout is the horizontal one, and that stays true when pipe gradients
+ * arrive in v2 or v3.
  *
- * Every expected number below is Pythagoras done by hand.
+ * Before the rule, `pipeLength` measured along the slope while `changeLength`
+ * compared against the plan distance — so a sloped pipe reported "already that
+ * length, nothing to do" and could not be edited at all. That is the symptom
+ * Michael hit in debug/20260802-1.json. Both sides now speak plan distance, and
+ * a sloped pipe is reported rather than measured either way.
  * ----------------------------------------------------------------------- */
-section('Length edits on a sloped pipe target the DRAWN (3D) length');
+section('Layout pipes are level, and edit on their plan length');
 {
   const build = (rise) => {
     const m = M.create();
-    const lv = m.levels[0];
+    const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0);
     const b = M.addNode(m, lv, 50, 0);
-    a.dz = rise;                       // a sits `rise` metres above b
+    a.dz = rise;                       // illegal if non-zero — that is the point
     const p = M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
     return { m, p, a, b };
   };
 
-  // sqrt(50^2 + 20^2) = sqrt(2900) = 53.8516480713450...
-  const t = build(20);
-  near('Drawn length is the 3D distance', M.pipeLength(t.m, t.p),
-       Math.sqrt(2500 + 400), 1e-9);
-
-  /* Asking for 50 m must MOVE something: the plan run has to come down to
-   * sqrt(50^2 - 20^2) = sqrt(2100) = 45.8257569495584 m. */
-  const r = G.changeLength(t.m, t.p.id, 50);
-  ok('The edit is applied, not swallowed', r.ok === true && r.changes.length === 1);
-  near('Drawn length is now exactly 50 m', M.pipeLength(t.m, t.p), 50, 1e-9);
-  near('...by shortening the PLAN run to sqrt(50^2 - 20^2)',
-       Math.abs(M.worldXY(t.m, t.b).x - M.worldXY(t.m, t.a).x),
-       Math.sqrt(2100), 1e-9);
-  near('The rise is untouched',
-       M.elevation(t.m, t.a) - M.elevation(t.m, t.b), 20, 1e-12);
-
-  // Lengthening works the same way: 80^2 - 20^2 = 6000
-  const t2 = build(20);
-  ok('Lengthening is applied', G.changeLength(t2.m, t2.p.id, 80).ok === true);
-  near('Drawn length is 80 m', M.pipeLength(t2.m, t2.p), 80, 1e-9);
-  near('Plan run is sqrt(80^2 - 20^2)',
-       Math.abs(M.worldXY(t2.m, t2.b).x - M.worldXY(t2.m, t2.a).x),
-       Math.sqrt(6000), 1e-9);
-
-  /* No horizontal move can make a pipe shorter than its own rise. Refused
-   * rather than silently landing somewhere else. */
-  const t3 = build(20);
-  const bad = G.changeLength(t3.m, t3.p.id, 15);
-  ok('Refuses a length shorter than the rise', bad.ok === false);
-  ok('...with a code that says why', bad.code === 'SHORTER_THAN_RISE', bad.code);
-  near('...and changes nothing', M.pipeLength(t3.m, t3.p), Math.sqrt(2900), 1e-9);
-
-  const t4 = build(20);
-  ok('Refuses a length exactly equal to the rise',
-     G.changeLength(t4.m, t4.p.id, 20).ok === false);
-
-  // A level pipe is unaffected: plan and drawn length are the same number.
   const flat = build(0);
-  ok('A level pipe still edits directly', G.changeLength(flat.m, flat.p.id, 37).ok === true);
+  near('A level pipe is its plan distance', M.pipeLength(flat.m, flat.p), 50, 1e-12);
+  ok('...and raises nothing',
+     !FD.network.disconnections(flat.m).some(d => d.code === 'SLOPED_PIPE'));
+  ok('Editing it is applied', G.changeLength(flat.m, flat.p.id, 37).ok === true);
   near('...to exactly the requested length', M.pipeLength(flat.m, flat.p), 37, 1e-9);
+
+  /* A 20 m rise across a 50 m plan run. The slope distance would be
+   * sqrt(50^2 + 20^2) = 53.8516480713450, and that number must NOT appear. */
+  const sloped = build(20);
+  near('A sloped pipe still reports its PLAN length',
+       M.pipeLength(sloped.m, sloped.p), 50, 1e-12);
+  ok('...and is not measured along the slope',
+     Math.abs(M.pipeLength(sloped.m, sloped.p) - Math.sqrt(2900)) > 3);
+  near('The rise is available separately', M.pipeRise(sloped.m, sloped.p), -20, 1e-12);
+
+  const issues = FD.network.disconnections(sloped.m).filter(d => d.code === 'SLOPED_PIPE');
+  ok('It is reported', issues.length === 1);
+  ok('...as an error, not a warning', issues[0].severity === 'error');
+  ok('...naming the pipe', issues[0].pipe === sloped.p.id);
+  near('...and carrying the rise', Math.abs(issues[0].rise), 20, 1e-12);
+
+  /* The edit that used to be swallowed. 50 -> 40 must move the far node by
+   * exactly 10 m in plan, whatever the elevations are doing. */
+  const r = G.changeLength(sloped.m, sloped.p.id, 40);
+  ok('Editing a sloped pipe is applied, not swallowed',
+     r.ok === true && r.changes.length === 1);
+  near('...to exactly the requested length', M.pipeLength(sloped.m, sloped.p), 40, 1e-9);
+  near('...by moving the far node 10 m in plan',
+       M.worldXY(sloped.m, sloped.b).x - M.worldXY(sloped.m, sloped.a).x, 40, 1e-9);
+  near('The rise is untouched by a length edit',
+       M.pipeRise(sloped.m, sloped.p), -20, 1e-12);
+
+  /* A length SHORTER than the rise is now perfectly ordinary — the two are
+   * unrelated numbers. It was refused while length was measured in 3D. */
+  const short = build(20);
+  ok('A length shorter than the rise is allowed',
+     G.changeLength(short.m, short.p.id, 5).ok === true);
+  near('...and lands exactly', M.pipeLength(short.m, short.p), 5, 1e-9);
+
+  // A riser is still purely vertical and still refuses a length edit.
+  const fixture = loadTest();
+  const riser = fixture.pipes.filter(x => x.kind === 'riser')[0] ||
+                (FD.model.riserPipes(fixture),
+                 fixture.pipes.filter(x => x.kind === 'riser')[0]);
+  if (riser) {
+    ok('A riser still refuses a typed length',
+       G.changeLength(fixture, riser.id, 4).code === 'RISER');
+  }
 }
 
 report();

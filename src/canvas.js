@@ -34,6 +34,9 @@
    * grid instead, planting the column next to the pipe rather than on it. */
   var RISER_NODE_PX = 24;
   var RISER_PIPE_PX = 20;
+  /* PROBE aims at a point ALONG a run rather than at the run itself, so it
+   * takes a wider catch than a snap does. */
+  var PROBE_PX = 24;
 
   function View(canvas, getModel, onChange) {
     this.canvas = canvas;
@@ -49,6 +52,10 @@
     this.draft = null;               // in-progress run: {points:[{x,y}], fromNode}
     this.cursor = null;              // world position of the pointer
     this.hover = null;               // {kind:'node'|'pipe', id}
+    /* PROBE: `probeHover` follows the pointer, `probe` is pinned by a click so
+     * the value can be read with the mouse out of the way. */
+    this.probe = null;
+    this.probeHover = null;
     this.selection = [];             // [{kind,id}]
     this.marquee = null;
     this.conflict = null;          // pipe ids highlighted red by a geometry conflict
@@ -566,6 +573,14 @@
         self.changed();
         return;
       }
+      /* PROBE: a click PINS the reading, so you can take the mouse off the
+       * drawing to write the number down. Clicking off any pipe clears it. */
+      if (self.tool === 'probe') {
+        var pp = self.pipeAt(w.x, w.y, PROBE_PX);
+        self.probe = pp ? { pipe: pp.pipe, t: pp.t, point: pp.point } : null;
+        self.render();
+        return;
+      }
       if (self.tool === 'pipe') { self.drawClick(w); return; }
       if (self.tool === 'source' || self.tool === 'demand') { self.deviceClick(w); return; }
       if (self.tool === 'pump') { self.pumpClick(w); return; }
@@ -791,6 +806,18 @@
         return;
       }
 
+      /* PROBE follows the pointer along whatever pipe it is over. A generous
+       * radius: you are aiming at a point ALONG a run, not at the run itself,
+       * and the pipe under the cursor is unambiguous at working zoom. */
+      if (self.tool === 'probe') {
+        var ph = self.pipeAt(w.x, w.y, PROBE_PX);
+        var same = (ph && self.probeHover && ph.pipe.id === self.probeHover.pipe.id &&
+                    Math.abs(ph.t - self.probeHover.t) < 1e-4);
+        self.probeHover = ph;
+        if (!same) self.render();
+        return;
+      }
+
       /* While a device tool is armed, track the pipe it would land in so the
        * canvas can show it. Without this the only feedback that you missed is
        * an error toast after the click. */
@@ -868,6 +895,9 @@
         if (self.calibrating) self.cancelCalibration();
         else if (self.lengthEntry) { self.lengthEntry = null; self.render(); }
         else if (self.draft) self.endDraft();
+        /* A pinned probe is dropped before the tool is, so Escape clears the
+         * reading you are finished with rather than the whole mode. */
+        else if (self.probe) { self.probe = null; self.render(); }
         else { self.setTool('edit'); }
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -951,6 +981,7 @@
   // --------------------------------------------------------------- draw
   View.prototype.setTool = function (tool) {
     if (this.draft) this.endDraft();
+    if (tool !== 'probe') { this.probe = null; this.probeHover = null; }
     this.tool = tool;
     this.calibrating = null;
     this.canvas.style.cursor = (tool === 'edit') ? 'default'
@@ -1389,6 +1420,7 @@
     this.drawFlipButton();
     this.drawScaleBar();
     this.drawTooltip();
+    this.drawProbe();
   };
 
   /* Highlight the pipe an in-line device would be inserted into, and mark the
@@ -2843,11 +2875,133 @@
                  FD.units.fmtFlow(Math.abs(q), m.settings.display.flow, true));
     });
 
+    void ctx;
+    this.drawInfoBox(lines, s.x, s.y);
+  };
+
+  /* ------------------------------------------------------------------ PROBE
+   *
+   * Read pressure, flow and velocity at any POINT along a run, rather than only
+   * at the nodes. Pressure is the one that varies — flow and velocity are
+   * constant along a uniform pipe — and it is the reason the tool exists: the
+   * calculation sheet gives you node values, and the question in front of an
+   * engineer is often "what is the pressure at the tee I have not drawn yet".
+   *
+   * Pressure at a fraction t along a pipe is a straight-line interpolation
+   * between its two end pressures, and that is the real profile, not a
+   * convenience:
+   *
+   *   - Both ends are at the same elevation, by the layout rule, so there is no
+   *     static term varying along the run.
+   *   - The flow is the same at every point of the pipe, and the bore is
+   *     uniform, so friction loss per metre is CONSTANT.
+   *
+   * The one caveat, and it is stated in the readout: fittings are charged as
+   * lumped equivalent length spread over the whole pipe, so where a real
+   * fitting sits there is a small step that the straight line averages out.
+   * The end values are exact either way.
+   *
+   * A DEVICE is the case where interpolating would be a lie — a pump, valve or
+   * piece of equipment puts its entire pressure change at one point. Those
+   * report both sides and the change across, and no interpolated value. */
+  View.prototype.probeData = function (hit) {
+    var m = this.getModel(), res = this.results;
+    if (!hit || !hit.pipe || !res || !res.pressure) return null;
+    var p = hit.pipe;
+    var pa = res.pressure[p.a], pb = res.pressure[p.b];
+    if (pa === undefined || pb === undefined) return null;
+
+    var q = res.flow[p.id];
+    var link = res.network && res.network.links
+      ? res.network.links.filter(function (l) { return l.id === p.id; })[0] : null;
+    var device = (p.kind === 'pump' || p.kind === 'valve' || p.kind === 'equip');
+
+    var out = {
+      pipe: p, t: hit.t, point: hit.point, device: device,
+      flow: q, pressureA: pa, pressureB: pb,
+      pressure: device ? null : pa + hit.t * (pb - pa),
+      velocity: null, distance: null
+    };
+    if (!device && link && link._d > 0 && q !== undefined) {
+      out.velocity = FD.hydraulics.velocity(q, link._d);
+    }
+    if (!device) out.distance = hit.t * M.pipeLength(m, p);
+    return out;
+  };
+
+  View.prototype.probeLines = function (d) {
+    var m = this.getModel(), disp = m.settings.display;
+    var lines = [];
+    if (d.device) {
+      var name = d.pipe.kind === 'pump' ? 'Pump' : d.pipe.kind === 'valve' ? 'Valve' : 'Equip';
+      lines.push(name + ' ' + (d.pipe.tag || d.pipe.id));
+      lines.push('In    ' + FD.units.fmtPressure(d.pressureA, disp.pressure, true));
+      lines.push('Out   ' + FD.units.fmtPressure(d.pressureB, disp.pressure, true));
+      lines.push('Delta ' + FD.units.fmtPressure(d.pressureB - d.pressureA, disp.pressure, true));
+      if (d.flow !== undefined) {
+        lines.push('Flow  ' + FD.units.fmtFlow(Math.abs(d.flow), disp.flow, true));
+      }
+      lines.push('(steps at the device — not read along it)');
+      return lines;
+    }
+    lines.push('Pipe ' + d.pipe.id + '  at ' +
+               FD.units.fmtLength(d.distance, disp.length, true) +
+               ' of ' + FD.units.fmtLength(M.pipeLength(m, d.pipe), disp.length, true));
+    lines.push('Press ' + FD.units.fmtPressure(d.pressure, disp.pressure, true));
+    lines.push('Flow  ' + (d.flow === undefined ? '—'
+      : FD.units.fmtFlow(Math.abs(d.flow), disp.flow, true)) + '   (whole pipe)');
+    lines.push('Vel   ' + (d.velocity === null ? '—'
+      : FD.units.fmtVelocity(d.velocity, disp.length !== 'ft')) + '   (whole pipe)');
+    return lines;
+  };
+
+  View.prototype.drawProbe = function () {
+    if (this.tool !== 'probe') return;
+    /* The pinned reading wins the box. A live hover still draws its marker, so
+     * you can see where a second click would land without losing the first. */
+    var pinned = this.probeData(this.probe);
+    var live = this.probeData(this.probeHover);
+    var ctx = this.ctx, self = this;
+
+    function marker(d, solid) {
+      var s = self.toScreen(d.point.x, d.point.y);
+      ctx.save();
+      ctx.strokeStyle = self.theme.select;
+      ctx.lineWidth = 1.5;
+      if (!solid) ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.arc(s.x, s.y, 6, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(s.x - 10, s.y); ctx.lineTo(s.x + 10, s.y);
+      ctx.moveTo(s.x, s.y - 10); ctx.lineTo(s.x, s.y + 10);
+      ctx.stroke();
+      ctx.restore();
+      return s;
+    }
+
+    if (live && (!pinned || live.pipe.id !== pinned.pipe.id ||
+                 Math.abs(live.t - pinned.t) > 1e-6)) {
+      marker(live, false);
+    }
+    var show = pinned || live;
+    if (!show) return;
+    var at = marker(show, !!pinned);
+    this.drawInfoBox(this.probeLines(show), at.x, at.y);
+  };
+
+  /* The dark readout box, shared by the node tooltip and the probe so the two
+   * cannot drift apart. Flips to stay on screen. */
+  View.prototype.drawInfoBox = function (lines, sx, sy) {
+    var ctx = this.ctx;
+    ctx.save();
     ctx.font = '11px ui-monospace, monospace';
-    var wid = Math.max.apply(null, lines.map(function (l) { return ctx.measureText(l).width; })) + 16;
+    ctx.textBaseline = 'alphabetic';
+    var wid = Math.max.apply(null, lines.map(function (l) {
+      return ctx.measureText(l).width;
+    })) + 16;
     var hgt = lines.length * 15 + 10;
-    var x = s.x + 16, y = s.y + 12;
-    if (x + wid > this.cssW) x = s.x - wid - 16;
+    var x = sx + 16, y = sy + 12;
+    if (x + wid > this.cssW) x = sx - wid - 16;
     if (y + hgt > this.cssH) y = this.cssH - hgt - 4;
 
     ctx.fillStyle = 'rgba(0,0,0,0.82)';
@@ -2860,6 +3014,7 @@
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'left';
     lines.forEach(function (l, i) { ctx.fillText(l, x + 8, y + 18 + i * 15); });
+    ctx.restore();
   };
 
   FD.View = View;

@@ -76,6 +76,7 @@
         <button class="btn" data-tool="trace" title="Paste or drag in a background drawing and trace over it">TRACE</button>
         <button class="btn" data-tool="align" title="Drag any node to move the WHOLE model — for putting a key node back on the grid">ALIGN</button>
         <button class="btn" id="btn-annotations" title="What is labelled on the drawing and on printed plans">ANNOTATIONS</button>
+        <button class="btn" data-tool="probe" title="Read pressure, flow and velocity at any point along a pipe — click to pin the reading, Esc to clear">PROBE</button>
         <span class="sep-inline"></span>
         <button class="btn" data-viz="flow" title="Colour pipes by flow rate">FLOW</button>
         <button class="btn" data-viz="velocity" title="Colour pipes by velocity, against the warning limit">VELOCITY</button>
@@ -185,28 +186,28 @@
      the query when resolving a file:// path, so double-clicking still works;
      over HTTP, changing the token forces a reload instead of a stale copy.
      Bump the token on release, or during development after editing a module. -->
-<script src="data/schedules.js?v=0.7.7-dev.1"></script>
-<script src="data/fittings.js?v=0.7.7-dev.1"></script>
-<script src="data/valves.js?v=0.7.7-dev.1"></script>
-<script src="data/ktable.js?v=0.7.7-dev.1"></script>
-<script src="data/pumps.js?v=0.7.7-dev.1"></script>
-<script src="src/units.js?v=0.7.7-dev.1"></script>
-<script src="src/hydraulics.js?v=0.7.7-dev.1"></script>
-<script src="src/solver.js?v=0.7.7-dev.1"></script>
-<script src="src/model.js?v=0.7.7-dev.1"></script>
-<script src="src/geometry.js?v=0.7.7-dev.1"></script>
-<script src="src/network.js?v=0.7.7-dev.1"></script>
-<script src="src/dialog.js?v=0.7.7-dev.1"></script>
-<script src="src/trace.js?v=0.7.7-dev.1"></script>
-<script src="src/canvas.js?v=0.7.7-dev.1"></script>
-<script src="src/printer.js?v=0.7.7-dev.1"></script>
-<script src="src/tools.js?v=0.7.7-dev.1"></script>
-<script src="src/docs.js?v=0.7.7-dev.1"></script>
-<script src="src/app.js?v=0.7.7-dev.1"></script>
+<script src="data/schedules.js?v=0.7.8-dev.1"></script>
+<script src="data/fittings.js?v=0.7.8-dev.1"></script>
+<script src="data/valves.js?v=0.7.8-dev.1"></script>
+<script src="data/ktable.js?v=0.7.8-dev.1"></script>
+<script src="data/pumps.js?v=0.7.8-dev.1"></script>
+<script src="src/units.js?v=0.7.8-dev.1"></script>
+<script src="src/hydraulics.js?v=0.7.8-dev.1"></script>
+<script src="src/solver.js?v=0.7.8-dev.1"></script>
+<script src="src/model.js?v=0.7.8-dev.1"></script>
+<script src="src/geometry.js?v=0.7.8-dev.1"></script>
+<script src="src/network.js?v=0.7.8-dev.1"></script>
+<script src="src/dialog.js?v=0.7.8-dev.1"></script>
+<script src="src/trace.js?v=0.7.8-dev.1"></script>
+<script src="src/canvas.js?v=0.7.8-dev.1"></script>
+<script src="src/printer.js?v=0.7.8-dev.1"></script>
+<script src="src/tools.js?v=0.7.8-dev.1"></script>
+<script src="src/docs.js?v=0.7.8-dev.1"></script>
+<script src="src/app.js?v=0.7.8-dev.1"></script>
 <script>
   window.FD.APP_NAME = 'FreePipeCalc';
   window.FD.APP_SHORT = 'FPC';
-  window.FD.VERSION = '0.7.7-dev';
+  window.FD.VERSION = '0.7.8-dev';
   window.FD.FORMAT_VERSION = 1;
   try {
     window.FD.initApp();

@@ -262,6 +262,25 @@ The canvas has three modes, plus a set of placement tools.
   called LAYOUT until v0.6.0-dev.) VIEW carries **TRACE** (arranging the
   background you draw over), **ALIGN**, and **ANNOTATIONS**.
 
+**PROBE** (v0.7.8-dev) reads pressure, flow and velocity at any *point* along a
+run rather than only at the nodes — the sheet gives node values, and the
+question in front of an engineer is often "what is the pressure at the tee I
+have not drawn yet". Hover follows the pointer, a click pins the reading so the
+mouse can come off the drawing, Esc clears it.
+
+Pressure between two nodes is a **straight line**, and that is the real profile
+rather than a convenience: both ends are at the same elevation by the rule
+above, so there is no static term varying along the run, and the flow and bore
+are constant along a pipe, so friction loss per metre is constant. The one
+caveat, stated in the panel: fittings are charged as lumped equivalent length
+spread over the whole pipe, so where a real fitting sits there is a small step
+the line averages out. The node values are exact either way.
+
+A **device** is where interpolating would be a lie — a pump, valve or piece of
+equipment puts its entire pressure change at one point — so probing one reports
+both sides and the change across it, and no value along it. This is the same
+distinction the PRESSURE visualiser makes between a ramp and a step.
+
 The ribbon has ONE tool section that swaps both its contents and its label with
 the mode: the placement tools under `DRAW` in EDIT, the drawing-arrangement
 tools under `VIEW` in VIEW. They are alternatives, not companions.
@@ -363,11 +382,27 @@ length equal to the altitude difference.
 Changing a pipe's length must never change any *other* pipe's length, so the far
 side translates rigidly (`src/geometry.js`). Three outcomes:
 
-**A pipe's length is 3D**, so the plan move has to be solved for, not assumed:
-`plan = √(L² − rise²)`. Comparing the requested length against the plan length
-directly was a real and silent bug — a sloped pipe reported "already that
-length, nothing to do" and could not be edited at all. A length below the pipe's
-own rise is refused (`SHORTER_THAN_RISE`); no horizontal move can reach it.
+### A layout pipe is LEVEL, and its length is the plan distance
+
+Michael's rule, v0.7.8-dev. Everything drawn on a level runs horizontally at
+that level's z; the only thing that changes height is a **riser**. So
+`M.pipeLength` returns the plan distance for any non-riser pipe, and
+`M.pipeRise` reports the elevation difference separately.
+
+It holds forward as well as backward: even once pipe gradients are modelled in
+v2 or v3, the length an engineer takes off a layout is the horizontal one.
+
+`pipeLength` used to include the elevation term, and the pair of bugs that came
+of it is instructive. A source's static pressure was stored as the node's
+elevation, so entering 200 kPa lifted the node 20.43 m and a 50 m run silently
+read 54.01 m — while `changeLength` compared the requested length against the
+*plan* distance and therefore reported "already 50, nothing to do". One wrong
+storage decision, two unrelated-looking symptoms, both silent. Now both sides
+speak plan distance and a pipe whose ends differ in elevation is an error
+(`SLOPED_PIPE`) rather than measured one way or the other — because *both*
+readings are wrong for such a pipe: along the slope overstates the run an
+engineer would take off, and the plan distance understates the friction in a
+pipe that really is sloped.
 
 * **Rigid move works.** Everything on the far side, across all levels, shifts by
   the same delta. A riser column whose attachments are *all* in the moving set
@@ -609,6 +644,7 @@ Codes worth knowing:
 | `COINCIDENT_NODES` | Two nodes in the same place, not joined. **Error.** The drawing looks continuous and the network is not. |
 | `ISLAND` | Pipework with no path to the rest of the network. **Error.** |
 | `ORPHAN_NODE` | A node with no pipe on it. |
+| `SLOPED_PIPE` | A layout pipe whose ends differ in elevation. **Error** — pipes on a level must be level; use a riser. |
 | `NO_RETURN_PATH` | A pump or equipment whose outlet can reach neither its own inlet nor any sink. **Error.** |
 | `NO_PUMP_CURVE` | SIMULATION with a running pump that has no curve. **Error** — a constant-head pump answers a different question. |
 | `PUMP_RUNOUT` | A pump past `settings.warn.pumpRunout` % of its design flow. |
@@ -744,7 +780,7 @@ invites entering numbers into the one being ignored.
 
 ## 15. Testing
 
-Six suites, 740 assertions, no dependencies:
+Six suites, 746 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -755,7 +791,7 @@ node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
 
-All 740 pass. The "Parallel pumps share in DESIGN" section of
+All 746 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change

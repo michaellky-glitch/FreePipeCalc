@@ -1441,6 +1441,38 @@
       });
     }
 
+    /* 3A. A pipe in the layout must be LEVEL.
+     *
+     * The rule (Michael, v0.7.8-dev): everything drawn on a level runs
+     * horizontally at that level's z, and the only thing that changes height is
+     * a riser. `M.pipeLength` therefore reports the plan distance, which is the
+     * length an engineer wants off a layout — and will still want once pipe
+     * gradients are modelled in v2 or v3.
+     *
+     * So a plan pipe whose ends sit at different elevations is a defect, and it
+     * has to be SAID rather than quietly measured one way or the other. Both
+     * readings are wrong for such a pipe: along the slope overstates the run an
+     * engineer would take off, and the plan distance understates the friction
+     * in a pipe that really is sloped. An error, not a warning.
+     *
+     * The case that produced this rule is worth keeping: a source's static
+     * pressure was stored as the node's elevation, so a 50 m run silently read
+     * 54.01 m (debug/20260802-1.json). That storage bug is fixed separately;
+     * this is the check that would have caught it in one look. */
+    m.pipes.forEach(function (p) {
+      if (p.kind === 'riser') return;
+      var rise = M.pipeRise(m, p);
+      if (Math.abs(rise) < 1e-6) return;
+      issues.push({
+        code: 'SLOPED_PIPE', pipe: p.id, nodes: [p.a, p.b], severity: 'error',
+        rise: rise,
+        message: 'Pipe ' + p.id + ' (' + p.a + ' → ' + p.b + ') rises ' +
+                 Math.abs(rise).toFixed(3) + ' m between its ends. Pipes in the ' +
+                 'layout must be level — use a riser to change height. Its ' +
+                 'length is being reported as the horizontal distance.'
+      });
+    });
+
     /* 4. Devices with nowhere for their flow to go.
      *
      * A pump or a chiller only passes flow if what leaves its outlet can get
