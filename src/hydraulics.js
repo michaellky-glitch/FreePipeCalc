@@ -232,12 +232,29 @@
       }
     },
 
+    /* Darcy-Weisbach, with the SAME K-factor fitting treatment as ASHRAE.
+     *
+     * Fittings were charged as equivalent length here until v0.8.1, and that was
+     * inconsistent on its own terms. ASHRAE Ch 22 states the velocity-head form,
+     * Δp = Kρ(V²/2) — Eq (7) — and tabulates K in Tables 3 to 6; Darcy-Weisbach
+     * is itself a velocity-head equation. Charging its fittings by an L/D
+     * equivalent length borrowed from a Hazen-Williams basis mixed two
+     * formulations for no reason (Michael, 2026-08-02).
+     *
+     * Pipe friction here is ALSO exponent 2, so the two terms COULD be folded
+     * into one resistance — unlike ASHRAE, where 1.852 and 2 cannot be added.
+     * They are still carried separately, through the same `rK` the ASHRAE path
+     * uses, so there is one code path for K fittings and the sheet can report
+     * the two contributions apart. Identical either way:
+     * r·Q² + rK·Q² = (r + rK)·Q². */
     DW: {
       key: 'DW',
       name: 'Darcy-Weisbach (BETA)',
       n: 2,
       available: true,
       experimental: true,
+      fittingMode: 'K',
+      source: '2021 ASHRAE Handbook — Fundamentals (SI), Ch 22, Eq (7) and Tables 3–6',
 
       /* r = 8·f·L / (π²·g·d⁵).
        * f needs Reynolds number, so ctx must carry the fluid properties and
@@ -264,7 +281,7 @@
 
       formula: function (ctx) {
         var ff = FRICTION_FACTORS[(ctx && ctx.frictionFactor)] || FRICTION_FACTORS.swameejain;
-        return 'hf = f · (L/d) · V²/2g       f from ' + ff.name;
+        return 'hf = f · (L/d) · V²/2g   +   Σ K · V²/2g       f from ' + ff.name;
       }
     }
   };

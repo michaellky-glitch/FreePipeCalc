@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-02 (v0.8.0), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-02 (v0.8.1), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,15 +21,15 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — six files, **777 assertions, all passing**.
+Tests: `node test/<name>.test.js` — six files, **802 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. Where things stand (v0.8.0, 2026-08-02)
+## 2. Where things stand (v0.8.1, 2026-08-02)
 
-Nothing is BROKEN. The engine is green at **777 assertions** and the repository
+Nothing is BROKEN. The engine is green at **802 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
 
 The big change since v0.5.0 is the **ASHRAE (2021) method**, now the default —
@@ -191,6 +191,25 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **Darcy-Weisbach charges fittings by K** (v0.8.1), from ASHRAE Ch 22 Eq (7)
+  and Tables 3–6, exactly as the ASHRAE method does. It was equivalent length,
+  which mixed two formulations — Darcy is itself a velocity-head equation. The
+  HYDRAULIC tab now shows the K table under Darcy as a consequence, which is
+  what Michael asked for; the equivalent-length table is Hazen-Williams only and
+  is still on the list to revisit.
+* **Every K value is checked against the printed page** (v0.8.1). Michael
+  supplied ASHRAE p.22.6; both tables are transcribed a second time into
+  `engine.test.js`, independently of `data/ktable.js`, and all 144 match. The
+  open question on the threaded 45° elbow column is CLOSED — it really is nearly
+  flat with size.
+* **The method dropdown was lying** (v0.8.1). It was hand-written with HW and DW
+  only while the default is ASHRAE, so a new model showed "Hazen-Williams" in a
+  box set to ASHRAE and picking either was a one-way door. Built from the
+  registry now.
+* **Fitting PD on the drawing was wrong under any K method** (v0.8.1), which
+  includes the default. It apportioned the pipe's loss by an equivalent-length
+  fraction of `_Leff` — and under K, `_Leff` has no fitting allowance in it at
+  all. It is now K·V²/2g directly.
 * **Darcy-Weisbach is unblocked** (v0.8.0). Swamee-Jain selected; BETA on the
   sheet, not "do not use". §2 below has the accuracy, which is measured rather
   than quoted — and the widely repeated "within 1%" turned out not to hold at

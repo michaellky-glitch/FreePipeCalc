@@ -106,6 +106,26 @@ From the ⚠️/❌ notes in `Human-Test.md`:
   panel~~ (v0.7.7-dev). Both are still on the calculation sheet, which is where
   a set of terminals can be read against each other.
 
+### Reported 2026-08-02 (fifth round) — done, v0.8.1
+
+* ~~**Darcy-Weisbach must charge fittings by the ASHRAE K method**~~, and the
+  HYDRAULIC tab must show the K table in place of the equivalent-length table.
+  Both done: `methods.DW.fittingMode` is now `'K'`, which drives the
+  calculation and the table shown from one place.
+* Found while doing it, all fixed in the same change:
+  * The **method dropdown was hand-written** with HW and DW only, while the
+    default is ASHRAE — so it displayed the wrong method on a new model and
+    could not get back to ASHRAE. Built from the registry now.
+  * **Fitting PD on the drawing was wrong under any K method**, the default
+    included. It scaled the pipe's loss by `EL/_Leff`, and under K `_Leff`
+    carries no fitting allowance. Now K·V²/2g directly, and it matches a hand
+    calculation to the last decimal.
+
+**Still open, by Michael's note:** the equivalent-length table itself needs
+revisiting. It is now Hazen-Williams only, and `FD.fittings.unsourced()` is
+empty, but the L/D basis has never had the same page-by-page check the K tables
+just had.
+
 ### Reported 2026-08-02 (fourth round) — done, released as v0.8.0
 
 * ~~HYDRAULIC formula rendering~~. `.formula-eq` was `display: flex`, which

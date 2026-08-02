@@ -1427,4 +1427,76 @@ section('Bullhead detection leaves ordinary tees alone');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * End to end: a Darcy-Weisbach network charges its fittings by K.
+ *
+ * Two pipes at a right angle, so the corner is one 90-degree elbow charged to
+ * the downstream pipe. Every number below is worked by hand from the ASHRAE
+ * table value and the bore.
+ * ----------------------------------------------------------------------- */
+section('Darcy-Weisbach network: fittings ride as a separate K term');
+{
+  const m = M.create();
+  m.settings.frictionMethod = 'DW';
+  m.settings.dw = { frictionFactor: 'swameejain', roughness_mm: 0.045, kSet: 'threaded' };
+  const lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0);
+  const c = M.addNode(m, lv, 10, 0);       // corner
+  const b = M.addNode(m, lv, 10, 10);
+  M.setSource(m, a.id, 400e3);
+  b.device = { kind: 'demand', flow: 0.010, reqPressure: 100e3, include: true };
+  const p1 = M.addPipe(m, a.id, c.id, { size: 'DN100', schedule: 'sch40' });
+  const p2 = M.addPipe(m, c.id, b.id, { size: 'DN100', schedule: 'sch40' });
+
+  const res = NET.solveModel(m);
+  ok('Solves', res.converged === true, JSON.stringify(res.errors));
+
+  const L1 = res.network.links.find(l => l.id === p1.id);
+  const L2 = res.network.links.find(l => l.id === p2.id);
+
+  ok('The corner is an elbow charged downstream',
+     (L2._types || []).indexOf('E90') >= 0, JSON.stringify(L2._types));
+  ok('The upstream pipe carries no fitting', (L1._types || []).length === 0);
+
+  /* Effective length is the DRAWN length: under a K method the fitting is not
+   * extra pipe. If this ever equals L + EL the two bases have been mixed. */
+  near('Effective length is the drawn length, with no L/D allowance',
+       L2._Leff, 10, 1e-9);
+  near('...as it is on the pipe with no fitting', L1._Leff, 10, 1e-9);
+
+  /* K for a threaded 90-degree elbow at DN100 is 0.70 (ASHRAE Table 3), and
+   * the resistance form is K/(2 g A^2) on the DN100 sch40 bore, 102.26 mm. */
+  const d = FD.schedules.size('sch40', 'DN100').id_mm / 1000;
+  const A = Math.PI * d * d / 4;
+  near('sumK is the tabulated 0.70', L2._sumK, 0.70, 1e-9);
+  near('rK is K/(2 g A^2)', L2.rK, 0.70 / (2 * 9.81 * A * A), 1e-9);
+  ok('The pipe with no fitting has no K term', !L1.rK);
+
+  /* The elbow's own contribution, by hand: K V^2/2g at the solved flow. */
+  const q = Math.abs(res.flow[p2.id]);
+  const V = q / A;
+  near('The elbow costs K V^2/2g',
+       FD.hydraulics.headloss(L2.rK, q, 2), 0.70 * V * V / (2 * 9.81), 1e-12);
+
+  /* Both terms are exponent 2 under Darcy, so the total is the folded form. */
+  near('Total link loss is (r + rK) Q^2',
+       FD.hydraulics.linkLoss(L2, q),
+       FD.hydraulics.headloss(L2.r + L2.rK, q, 2), 1e-15);
+
+  /* Flanged fittings are a different table, and the model must follow it. */
+  m.settings.dw.kSet = 'flanged';
+  const res2 = NET.solveModel(m);
+  const L2f = res2.network.links.find(l => l.id === p2.id);
+  near('Switching to flanged picks up Table 4', L2f._sumK, 0.31, 1e-9);
+  ok('...which is a lot less resistant', L2f.rK < L2.rK * 0.5);
+
+  /* Hazen-Williams on the same model must still use equivalent length: the
+   * fitting becomes extra LENGTH, so _Leff exceeds the drawn 10 m. */
+  m.settings.frictionMethod = 'HW';
+  const res3 = NET.solveModel(m);
+  const L2h = res3.network.links.find(l => l.id === p2.id);
+  ok('Hazen-Williams still folds the fitting into the length',
+     L2h._Leff > 10 && !L2h.rK, `${L2h._Leff}`);
+}
+
 report();

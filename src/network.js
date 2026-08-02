@@ -499,10 +499,14 @@
         link.n = 2;
         link.r = FD.hydraulics.equipmentR(p.equip.pdRated || 0, p.equip.qRated || 0, rho);
       } else if (method.fittingMode === 'K') {
-        /* ASHRAE: the pipe carries its own friction over the DRAWN length only,
-         * and the fittings ride alongside as a separate velocity-head term.
-         * Adding the two into one resistance is not available here — they have
-         * different exponents (1.852 against 2). */
+        /* ASHRAE and Darcy-Weisbach: the pipe carries its own friction over the
+         * DRAWN length only, and the fittings ride alongside as a separate
+         * velocity-head term, h = ΣK·V²/2g (Ch 22 Eq 7).
+         *
+         * Under ASHRAE the two CANNOT be added into one resistance — the
+         * exponents differ, 1.852 against 2. Under Darcy both are 2, so they
+         * could be; they are kept apart anyway so there is one code path and
+         * the sheet can report pipe and fittings separately. */
         link.r = method.r(L, d, p.C, ctx);
         link.rK = FD.hydraulics.fittingR(fits[p.id] ? fits[p.id].sumK : 0, d);
       } else {

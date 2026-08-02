@@ -2630,25 +2630,55 @@
     if (this.tool === 'view') this.labelHandle(x, y, w, h);
   };
 
-  /* Pressure drop attributable to the fittings charged at this node. Each
-   * fitting's EL rides on its downstream pipe, so the share is the pipe's loss
-   * scaled by the fraction of effective length the fittings contribute. */
+  /* Pressure drop attributable to the fittings charged at this node.
+   *
+   * How it is worked out depends on how the active method CHARGES fittings,
+   * and the two are not interchangeable:
+   *
+   *   K  (ASHRAE, Darcy-Weisbach) — the fitting loss is its own quantity,
+   *      K·V²/2g at the velocity in the pipe it is charged to. Direct.
+   *
+   *   EL (Hazen-Williams) — the fitting is extra LENGTH folded into the pipe's
+   *      resistance, so its share is the pipe's loss times the fraction of
+   *      effective length it contributes.
+   *
+   * Only the EL branch existed, and under a K method it divided by `_Leff`,
+   * which under K is the drawn length with no fitting allowance in it at all —
+   * so the answer was the pipe's own loss scaled by an unrelated ratio. That
+   * was wrong for ASHRAE, which is the DEFAULT method, from the day the K
+   * method landed. */
   View.prototype.fittingPDAt = function (nodeId) {
     var m = this.getModel(), res = this.results;
     if (!res || !res.network) return 0;
+    var method = FD.hydraulics.method(m.settings.frictionMethod);
+    var usesK = (method.fittingMode === 'K');
+    var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
+    var kSet = (m.settings.dw && m.settings.dw.kSet) || 'threaded';
     var fits = FD.network.fittingsAtNode(m, nodeId, res.flow, []);
     var total = 0;
     fits.forEach(function (f) {
       var link = res.network.links.find(function (l) { return l.id === f.pipe; });
-      if (!link || !link._Leff) return;
+      if (!link) return;
       var q = res.flow[link.id];
       if (q === undefined) return;
       var pipe = M.pipe(m, f.pipe);
       if (!pipe) return;
-      var el = FD.fittings.el(f.type, M.pipeBore(m, pipe) * 1000);
-      var loss = FD.units.headToPaWith(Math.abs(FD.hydraulics.linkLoss(link, q)),
-                                       m.settings.fluid && m.settings.fluid.density);
-      total += loss * (el / link._Leff);
+
+      if (usesK) {
+        if (!(link._d > 0)) return;
+        var nominal_mm = FD.schedules.nominalMm
+          ? FD.schedules.nominalMm(pipe.size) : link._d * 1000;
+        var K = FD.ktable.k(FD.fittings.ktableType(f.type), nominal_mm, kSet,
+                            m.settings.fittingK);
+        var v = FD.hydraulics.velocity(q, link._d);
+        total += FD.units.headToPaWith(K * v * v / (2 * 9.81), rho);
+        return;
+      }
+
+      if (!link._Leff) return;
+      var elen = FD.fittings.el(f.type, M.pipeBore(m, pipe) * 1000);
+      var loss = FD.units.headToPaWith(Math.abs(FD.hydraulics.linkLoss(link, q)), rho);
+      total += loss * (elen / link._Leff);
     });
     return total;
   };

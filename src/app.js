@@ -900,10 +900,13 @@
       } else {
         var ffKey = (m.settings.dw && m.settings.dw.frictionFactor) || 'swameejain';
         var ff = FD.hydraulics.frictionFactors[ffKey];
-        kv2('Formula', 'hf = f · (L/d) · V²/2g');
+        kv2('Formula', 'hf = f · (L/d) · V²/2g   +   Σ K · V²/2g');
         kv2('Friction factor', ff ? ff.name : ffKey);
         kv2('Roughness', ((m.settings.dw && m.settings.dw.roughness_mm) || 0.045) + ' mm');
-        kv2('Fittings', 'Equivalent length (L/D basis)');
+        /* K velocity heads, not equivalent length — Darcy is itself a
+         * velocity-head equation, so the two match (Ch 22 Eq 7). */
+        kv2('Fittings', 'K velocity heads (Ch 22 Eq 7), ' +
+            FD.ktable.sets[(m.settings.dw && m.settings.dw.kSet) || 'threaded'].name);
         kv2('NOTE', 'BETA. ' + (ffKey === 'swameejain'
           ? 'Swamee-Jain is an explicit fit to Colebrook-White, measured in the test ' +
             'suite against an independent iteration of Colebrook: within 0.9% over ' +
@@ -2935,8 +2938,17 @@
     // ======================================= 3. HYDRAULIC PARAMETERS
     h2('Hydraulic Parameters');
     var mg = grid();
+    /* Built from the method registry, not hand-listed.
+     *
+     * The hand-written list held HW and DW only, while the DEFAULT method is
+     * ASHRAE — so a new model showed "Hazen-Williams" in a box that was
+     * actually set to ASHRAE, and picking either option was a one-way door with
+     * no route back. Both faults come from restating in the UI something the
+     * engine already knows. */
     selField(mg, 'Calculation method',
-      [['HW', 'Hazen-Williams'], ['DW', 'Darcy-Weisbach (Experimental)']],
+      Object.keys(FD.hydraulics.methods)
+        .filter(function (k2) { return FD.hydraulics.methods[k2].available !== false; })
+        .map(function (k2) { return [k2, FD.hydraulics.methods[k2].name]; }),
       m.settings.frictionMethod, function (v) {
         pushUndo(); m.settings.frictionMethod = v; renderHydraulic(); redrawAll();
       });
@@ -3217,7 +3229,15 @@
 
     } else {
       h2('Fitting Coefficients K');
-      hint('Based on ASHRAE (2021) method: h = K · V²/2g (Ch 22 Eq 7).');
+      hint('ASHRAE (2021) Ch 22 Eq (7): Δp = K·ρ·V²/2, or h = K·V²/2g. ' +
+           'Used by both ASHRAE and Darcy-Weisbach — Darcy is itself a ' +
+           'velocity-head equation, so charging its fittings any other way ' +
+           'would mix two formulations.');
+      hint('Values are ASHRAE Tables 3 (threaded) and 4 (flanged/welded), which ' +
+           'both cite the Hydraulic Institute Engineering Data Book (1990). ' +
+           'Table 5 gives their range of variation: ±20–40% on a threaded ' +
+           'elbow, ±25% on a tee, and +200/−80% on a flanged check valve. ' +
+           'Override per project where it matters.');
       hint('Connection type: a DN25 threaded elbow is K = 1.5 where the flanged ' +
            'equivalent is 0.43.');
       var kg = grid();

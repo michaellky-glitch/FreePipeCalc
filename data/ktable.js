@@ -10,7 +10,13 @@
  * fittings). Both cite Engineering Data Book, Hydraulic Institute (1990).
  *
  * Transcribed 2026-07-31 from Michael's printed copy — the FIRST time this
- * data has had a verified source. Every value below was diffed against that
+ * data has had a verified source — and re-checked against the page itself on
+ * 2026-08-02, value by value, in `engine.test.js`. Both tables are transcribed
+ * a SECOND time into that test, independently of this file, so an edit here
+ * that drifts from the Handbook fails rather than propagating.
+ *
+ * These K values are what BOTH the ASHRAE method and Darcy-Weisbach use for
+ * fittings (Ch 22 Eq 7). Only Hazen-Williams charges equivalent length. Every value below was diffed against that
  * copy; 133 of 144 matched the previous guesses exactly, and the two columns
  * that did not are recorded here because both were wrong in the app:
  *
@@ -23,9 +29,12 @@
  *     engineering data" rule earning its keep — the invention was plausible,
  *     documented, flagged, and still off by 3.5x.
  *
- *     NOTE FOR REVIEW: the threaded 45° column behaves unlike the flanged one,
- *     where 45°/90° = 0.22/0.43 = 0.51, close to the L/D expectation. Flat and
- *     0.15 of the 90° at DN10 is worth a second look at the printed page.
+ *     REVIEWED AND CLOSED 2026-08-02. Michael supplied the page itself (p.22.6)
+ *     and the column reads 0.38 / 0.37 / 0.35 / 0.34 / 0.33 / 0.32 / 0.31 /
+ *     0.30 / 0.29 / 0.28 — flat, exactly as transcribed. It genuinely does
+ *     behave unlike the flanged column, and it is not a transcription slip.
+ *     Every value in both tables is now asserted against that page in
+ *     `engine.test.js`; 144 of 144 match.
  *
  *  2. Flanged/welded GATE VALVE was shifted one row: the app had 0.34 at DN40,
  *     ASHRAE has it at DN50, and so on down the column. Every size therefore

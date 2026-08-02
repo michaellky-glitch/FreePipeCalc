@@ -773,4 +773,118 @@ section('Darcy-Weisbach: Swamee-Jain against an iterated Colebrook');
      FD.model ? true : true);   // model defaults are asserted in model.test.js
 }
 
+/* --------------------------------------------------------------------------
+ * The K tables, checked against the printed page.
+ *
+ * Michael supplied 2021 ASHRAE Fundamentals (SI) Ch 22 p.22.6 — Table 3
+ * (threaded steel) and Table 4 (flanged welded steel), both citing the
+ * Hydraulic Institute Engineering Data Book (1990). The columns below are
+ * transcribed from that page INTO THIS TEST, independently of data/ktable.js,
+ * so a silent edit to the data — or a repeat of the invented 45-degree elbow
+ * column that was 250% wrong — fails here.
+ *
+ * Only the columns the app actually models are listed. The tables also carry
+ * 90-degree long-radius ells, return bends, angle valves and the three inlet
+ * types, none of which the app infers from geometry.
+ * ----------------------------------------------------------------------- */
+section('ASHRAE Ch 22 K tables, against the printed page');
+{
+  // Table 3 — threaded steel. DN: 10 15 20 25 32 40 50 65 80 100
+  const T3_DN = [10, 15, 20, 25, 32, 40, 50, 65, 80, 100];
+  const T3 = {
+    E90:     [2.5, 2.1, 1.7, 1.5, 1.3, 1.2, 1.0, 0.85, 0.80, 0.70],
+    E45:     [0.38, 0.37, 0.35, 0.34, 0.33, 0.32, 0.31, 0.30, 0.29, 0.28],
+    TRUN:    [0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90],
+    TBRANCH: [2.7, 2.4, 2.1, 1.8, 1.7, 1.6, 1.4, 1.3, 1.2, 1.1],
+    GLOBE:   [20, 14, 10, 9, 8.5, 8, 7, 6.5, 6, 5.7],
+    GATE:    [0.40, 0.33, 0.28, 0.24, 0.22, 0.19, 0.17, 0.16, 0.14, 0.12],
+    CHECK:   [8.0, 5.5, 3.7, 3.0, 2.7, 2.5, 2.3, 2.2, 2.1, 2.0]
+  };
+
+  // Table 4 — flanged / welded steel. DN: 25 32 40 50 65 80 100 150 200 250 300
+  const T4_DN = [25, 32, 40, 50, 65, 80, 100, 150, 200, 250, 300];
+  const T4 = {
+    E90:     [0.43, 0.41, 0.40, 0.38, 0.35, 0.34, 0.31, 0.29, 0.27, 0.25, 0.24],
+    E45:     [0.22, 0.22, 0.21, 0.20, 0.19, 0.18, 0.18, 0.17, 0.17, 0.16, 0.16],
+    TRUN:    [0.26, 0.25, 0.23, 0.20, 0.18, 0.17, 0.15, 0.12, 0.10, 0.09, 0.08],
+    TBRANCH: [1.0, 0.95, 0.90, 0.84, 0.79, 0.76, 0.70, 0.62, 0.58, 0.53, 0.50],
+    GLOBE:   [13, 12, 10, 9, 8, 7, 6.5, 6, 5.7, 5.7, 5.7],
+    CHECK:   [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+  };
+  /* Table 4 tabulates NO flanged gate valve below DN50 — the cells are dashes.
+   * The app's column was once shifted one row into those dashes, understating
+   * every size by 17-38%. Listed from DN50 so the shift cannot come back. */
+  const T4_GATE_DN = [50, 65, 80, 100, 150, 200, 250, 300];
+  const T4_GATE    = [0.34, 0.27, 0.22, 0.16, 0.10, 0.08, 0.06, 0.05];
+
+  let checked = 0, bad = [];
+  Object.keys(T3).forEach(t => T3_DN.forEach((dn, i) => {
+    const got = FD.ktable.k(t, dn, 'threaded', {});
+    checked++;
+    if (Math.abs(got - T3[t][i]) > 1e-9) bad.push(`threaded ${t}@DN${dn}: ${got} vs ${T3[t][i]}`);
+  }));
+  Object.keys(T4).forEach(t => T4_DN.forEach((dn, i) => {
+    const got = FD.ktable.k(t, dn, 'flanged', {});
+    checked++;
+    if (Math.abs(got - T4[t][i]) > 1e-9) bad.push(`flanged ${t}@DN${dn}: ${got} vs ${T4[t][i]}`);
+  }));
+  T4_GATE_DN.forEach((dn, i) => {
+    const got = FD.ktable.k('GATE', dn, 'flanged', {});
+    checked++;
+    if (Math.abs(got - T4_GATE[i]) > 1e-9) bad.push(`flanged GATE@DN${dn}: ${got} vs ${T4_GATE[i]}`);
+  });
+
+  ok(`All ${checked} tabulated K values match the printed page`,
+     bad.length === 0, bad.slice(0, 6).join(' | '));
+
+  /* The two entries with a history, called out individually so a regression
+   * names itself rather than hiding in the count above. */
+  near('Threaded 45 ell at DN10 is 0.38, not the 1.33 that was invented',
+       FD.ktable.k('E45', 10, 'threaded', {}), 0.38, 1e-12);
+  ok('...and the threaded 45 column really is nearly flat with size',
+     Math.abs(FD.ktable.k('E45', 10, 'threaded', {}) -
+              FD.ktable.k('E45', 100, 'threaded', {})) < 0.11,
+     'ASHRAE p.22.6 Table 3: 0.38 at DN10 down to 0.28 at DN100');
+  near('Flanged gate at DN100 is 0.16, not the 0.10 of the shifted column',
+       FD.ktable.k('GATE', 100, 'flanged', {}), 0.16, 1e-12);
+
+  // Threaded is far more resistant than flanged — the whole point of the choice.
+  ok('A DN25 threaded elbow is ~3.5x its flanged equivalent',
+     FD.ktable.k('E90', 25, 'threaded', {}) / FD.ktable.k('E90', 25, 'flanged', {}) > 3.4);
+}
+
+/* --------------------------------------------------------------------------
+ * Darcy-Weisbach charges fittings as K velocity heads, not equivalent length.
+ *
+ * Michael, 2026-08-02: use the ASHRAE Ch 22 Eq (7) K method under Darcy too.
+ * It is the consistent choice — Darcy is itself a velocity-head equation — and
+ * it is what makes the HYDRAULIC tab show the K table rather than the L/D one.
+ * ----------------------------------------------------------------------- */
+section('Darcy-Weisbach fittings use the K method');
+{
+  ok('DW is declared as a K method', FD.hydraulics.methods.DW.fittingMode === 'K');
+  ok('ASHRAE still is too', FD.hydraulics.methods.ASHRAE.fittingMode === 'K');
+  ok('Hazen-Williams still uses equivalent length',
+     FD.hydraulics.methods.HW.fittingMode === 'EL');
+
+  /* h = K V^2/2g expressed as a resistance: r_K = K / (2 g A^2), so that
+   * r_K Q^2 = K (Q/A)^2 / 2g. Hand-checked on a DN100 sch40 bore. */
+  const d = 0.10226, A = Math.PI * d * d / 4, K = 2.4, q = 0.020;
+  const rK = FD.hydraulics.fittingR(K, d);
+  near('fittingR is K/(2 g A^2)', rK, K / (2 * 9.81 * A * A), 1e-12);
+  const V = q / A;
+  near('...so it reproduces K V^2/2g at a stated flow',
+       FD.hydraulics.headloss(rK, q, 2), K * V * V / (2 * 9.81), 1e-12);
+
+  /* A link carrying both terms adds them. Under Darcy both exponents are 2,
+   * so this is also (r + rK) Q^2 — checked, because that equivalence is the
+   * reason the two can be kept apart without cost. */
+  const link = { r: 1000, rK: rK, n: 2 };
+  near('linkLoss adds the pipe and fitting terms',
+       FD.hydraulics.linkLoss(link, q), 1000 * q * q + rK * q * q, 1e-15);
+  near('...which under Darcy equals a single folded resistance',
+       FD.hydraulics.linkLoss(link, q),
+       FD.hydraulics.headloss(1000 + rK, q, 2), 1e-15);
+}
+
 report();

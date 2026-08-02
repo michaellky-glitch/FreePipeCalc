@@ -259,9 +259,18 @@ coefficients are — and `model.test.js` asserts it to 1e-8, along with the
 drawing-order independence that the original bug failed.
 
 **How fittings are charged depends on the method.** Under **ASHRAE (2021)** —
-the default — they are velocity heads, `h = K·V²/2g`, from the Ch 22 K tables
-(Eq 7), carried as a *separate quadratic term* on the link. Under **HW** and
-**DW** they are equivalent length, folded into the pipe's own resistance.
+the default — and under **Darcy-Weisbach** they are velocity heads,
+`h = K·V²/2g`, from the Ch 22 K tables (Eq 7), carried as a *separate quadratic
+term* on the link. Only **Hazen-Williams** charges equivalent length, folded
+into the pipe's own resistance.
+
+Darcy moved to K on 2026-08-02 at Michael's instruction, and it is the
+consistent choice: Darcy-Weisbach is itself a velocity-head equation, so
+charging its fittings by an L/D allowance borrowed from a Hazen-Williams basis
+mixed two formulations for no reason. Because Darcy's pipe exponent is also 2,
+the K term *could* be folded into the pipe resistance there; it is kept separate
+anyway so there is one code path for K fittings and the sheet can report pipe
+and fittings apart. `r·Q² + rK·Q² = (r + rK)·Q²` either way.
 
 Note that until 2026-07-31 the K tables were **dead data**: this document
 claimed Darcy charged velocity heads, but `headlossK` was never called and both
@@ -276,8 +285,13 @@ velocity.
 
 All L/D values and all K values are user-editable on the HYDRAULIC tab, because
 jurisdictions differ and the built-ins are a starting point, not an authority.
-Two K cells are flagged in `data/ktable.js` as not cleanly transcribed — read
-that comment before trusting them.
+
+**Every K value is now checked against the printed page.** Michael supplied
+ASHRAE p.22.6 on 2026-08-02; both tables are transcribed a second time into
+`engine.test.js`, independently of `data/ktable.js`, and all 144 tabulated
+values match. That closed the last open question on the threaded 45° elbow
+column — it really is nearly flat with size (0.38 → 0.28), unlike the flanged
+column, and is not a transcription slip.
 
 ---
 
@@ -830,13 +844,19 @@ and the fraction's own `vertical-align: middle` was ignored too. Superscripts
 and fractions are built on inline layout; do not put a flex container above
 them.
 
-Only the fitting table the active method actually uses is shown: equivalent
-lengths under Hazen-Williams, K coefficients under Darcy-Weisbach. Showing both
-invites entering numbers into the one being ignored.
+Only the fitting table the active method actually uses is shown: K coefficients
+under ASHRAE and Darcy-Weisbach, equivalent lengths under Hazen-Williams.
+Showing both invites entering numbers into the one being ignored.
+
+**The method list is built from the registry**, not hand-written. It was
+hand-written and held HW and DW only, while the default method is ASHRAE — so a
+new model showed "Hazen-Williams" in a box that was set to ASHRAE, and picking
+either option was a one-way door with no route back. Both faults came from
+restating in the UI something the engine already knows.
 
 ## 15. Testing
 
-Six suites, 777 assertions, no dependencies:
+Six suites, 802 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -847,7 +867,7 @@ node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
 
-All 777 pass. The "Parallel pumps share in DESIGN" section of
+All 802 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change
