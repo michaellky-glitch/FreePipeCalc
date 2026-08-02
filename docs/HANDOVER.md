@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-02 (v0.8.3), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-02 (v0.8.4), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,15 +21,15 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — six files, **826 assertions, all passing**.
+Tests: `node test/<name>.test.js` — six files, **820 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. Where things stand (v0.8.3, 2026-08-02)
+## 2. Where things stand (v0.8.4, 2026-08-02)
 
-Nothing is BROKEN. The engine is green at **826 assertions** and the repository
+Nothing is BROKEN. The engine is green at **820 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
 
 The big change since v0.5.0 is the **ASHRAE (2021) method**, now the default —
@@ -90,16 +90,27 @@ the numbers were updated, and it decomposes cleanly:
   30 × 0.10226 = 3.068 m to the printed 3.0 m, and a tee-branch from 6.136 m to
   6.1 m. Two independent sources agreeing to ~2% is a good sign for both.
 * **The straight-through tee went to ZERO** while its row was blank, then came
-  back when Michael supplied the Carrier values. The 3-floor duty went
-  41.95 → 39.49 → 41.92 m; the data centre's 1-pump head 271.2 → 263.7 → 269.7
-  kPa. That model has ELEVEN straight-through tees, which is why it swings
-  furthest on one row.
+  back when Michael supplied Carrier's values, and the default then moved to
+  Carrier throughout:
 
-**The round trip is the check.** Landing a shade below the original L/D figures
-is exactly the expected residue: Carrier's tee-run is within 0.25% of the old
-L/D value at DN100 (2.04 against 2.045 m) while NFPA's elbows and branches sit
-~2% under theirs. Three sources, two of them never fitted to the third, and the
-answer moves by under 1%.
+| Basis | 3-floor duty | Data centre, 1 pump |
+|---|---|---|
+| L/D ratios | 41.95 m | 271.2 kPa |
+| NFPA 13, tee-run blank | 39.49 m | 263.7 kPa |
+| NFPA 13 + Carrier tee-run | 41.92 m | 269.7 kPa |
+| All Carrier (**default**) | 41.96 m | 270.1 kPa |
+
+**The agreement is the check, not any one number.** Three published sources —
+and the L/D ratios they replaced — land within 1% of each other on both models,
+having never been fitted to one another. Carrier's tee-run is within 0.25% of
+the old L/D value at DN100 (2.04 against 2.045 m); Carrier's elbows and branches
+sit a little above NFPA's (3.05 against 3.0 m, 6.40 against 6.1). The data
+centre model swings furthest on the tee-run row because it has ELEVEN of them.
+
+None of these are hand calculations, and the test comments say so. What is
+hand-checkable is the conversion: Carrier is stored in feet and converted at
+`ft × 0.3048` to 2 dp, and that reproduces Michael's own metric conversion of
+the same table cell for cell.
 
 One test changed rather than being renumbered. `simulation.test.js` asserted
 that `PUMP_RUNOUT` fires on the N+1 failure case, and it passed only because the
@@ -221,13 +232,14 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
-* **Hazen-Williams equivalent length is NFPA 13 (2019) Table 27.2.3.1.1**
-  (v0.8.2), supplied by Michael. Metres against NOMINAL size, editable per cell,
-  Reset button, source named under the table. The old L/D ratio basis is gone.
-  **One row is not NFPA 13**: the straight-through tee comes from the Carrier
-  Design Handbook (Michael, v0.8.3), since NFPA has no such row. It carries an
-  asterisk, a note above the source line, and a line on the calculation sheet.
-  This moved every HW baseline twice; see §2B.
+* **Hazen-Williams equivalent length is a CHOICE OF THREE published tables**
+  (v0.8.2 → v0.8.4), all supplied by Michael: **Carrier Design Handbook Table 11
+  (the default)**, **NFPA 13 (2019) Table 27.2.3.1.1**, and **Custom**. Metres
+  against NOMINAL size; the old L/D ratio basis is gone. A published set is
+  read-only — Custom is how you change anything, and it seeds from whatever was
+  showing. NFPA has no straight-through tee row, so there it is Carrier's, with
+  an asterisk and a footnote. This moved every HW baseline three times in one
+  day; see §2B, where the movement is the interesting part.
 * **Darcy-Weisbach charges fittings by K** (v0.8.1), from ASHRAE Ch 22 Eq (7)
   and Tables 3–6, exactly as the ASHRAE method does. It was equivalent length,
   which mixed two formulations — Darcy is itself a velocity-head equation. The

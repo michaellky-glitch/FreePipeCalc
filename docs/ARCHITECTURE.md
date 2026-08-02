@@ -258,44 +258,54 @@ length, size, C and fittings must carry identical flow whatever the
 coefficients are — and `model.test.js` asserts it to 1e-8, along with the
 drawing-order independence that the original bug failed.
 
-### Equivalent length is NFPA 13, not an L/D ratio
+### Equivalent length: three tables, not an L/D ratio
 
 Hazen-Williams charged fittings on an L/D basis — `EL = (L/D) × bore`, with flat
-ratios from the spec — until 2026-08-02. It is now **NFPA 13 (2019) Table
-27.2.3.1.1**, supplied by Michael: an equivalent length in **metres against
-nominal size**, read straight off the page. Nothing is multiplied by a bore.
+ratios from the spec — until 2026-08-02. It now reads a published table of
+equivalent lengths in **metres against nominal size**. Nothing is multiplied by
+a bore. `settings.elSet` chooses between three:
 
-Three consequences worth knowing:
+| Set | Source | Notes |
+|---|---|---|
+| `carrier` | Carrier Design Handbook, Table 11 | **The default.** |
+| `nfpa13` | NFPA 13 (2019) Table 27.2.3.1.1 | Straight-through tee is Carrier's — NFPA has no such row. |
+| `custom` | user-defined | Seeded from whichever set was showing. |
 
-* **The lookup key changed from bore to designation.** Under a ratio the bore
+**A published set is READ-ONLY.** Every cell used to be editable in every mode,
+which meant a value could be typed over while the line underneath still read
+"Source: NFPA 13". Choose Custom to change anything; switching into Custom seeds
+every cell from what was on screen, and switching back to a published set drops
+the custom values rather than quietly applying them under someone else's name.
+
+Four things worth knowing:
+
+* **The lookup key is the designation, not the bore.** Under a ratio the bore
   was the *correct* key, because the answer was a multiple of it. Under a table
-  keyed on the size designation it is not — HDPE "110 mm" is an outside
-  diameter with a 90 mm bore, so keying on bore lands two rows off and reads 15%
-  low. Both `el()` and `ktable.k()` now take nominal.
-* **The metric column is stored**, not the feet column, because the model is
-  metric and imperial is a display conversion (§2.2). The two are the source's
-  own independent roundings of each other — 13 ft is printed as 4 m — so an
-  imperial display will *not* reproduce the page's feet numbers, and cannot.
-* **One row is not NFPA 13.** The straight-through tee comes from the **Carrier
-  Design Handbook** (Michael, 2026-08-02), because NFPA tabulates only "flow
-  turned 90°" — a sprinkler calculation does not need the run. That row carries
-  an asterisk in the table, a note above the source line, and a line in the
-  calculation-sheet appendix. A page headed by one source with a row from
-  another has to say so on the page.
+  keyed on the size designation it is not — HDPE "110 mm" is an outside diameter
+  with a 90 mm bore, so keying on bore lands two rows off. Both `el()` and
+  `ktable.k()` take nominal.
+* **Carrier is stored in FEET and converted**, because Table 11 is printed in
+  feet: `ft × 0.3048`, rounded to 2 dp. That reproduces Michael's own metric
+  conversion of the same table cell for cell, which `engine.test.js` asserts —
+  the app, the test's arithmetic and his spreadsheet all agreeing is what makes
+  the transcription trustworthy. **NFPA is stored in metres**, because that page
+  prints both columns and they are its own independent roundings of each other
+  (13 ft is printed as 4 m); the metric one is the number on the page in the
+  units this app works in. It follows that an imperial *display* cannot
+  reproduce either page's feet column, and cannot be made to.
+* **NFPA has no straight-through tee** — a sprinkler calculation does not need
+  one — so in that set the row is Carrier's, carrying an asterisk, a footnote
+  above the source line, and a line in the calculation-sheet appendix. A page
+  headed by one source with a row from another has to say so on the page.
+* **The app's table starts at DN25**, at Michael's instruction, so a smaller
+  pipe clamps to the DN25 figure and is overstated. Both printed tables do carry
+  smaller columns and the steel schedules go down to DN15.
 
-  A useful cross-check fell out of it: Carrier's own "T (Flow Thru)" column is
-  the same data as NFPA's "flow turned 90°" row at most sizes (5 ft and 60 ft at
-  the two ends), which makes "T (Straight)" unambiguously the run — and at DN100
-  Carrier's 2.04 m sits within 0.25% of the old L/D basis's 2.045 m, from two
-  sources never fitted to each other.
-
-What is deliberately *not* in the app's copy of the table: the 90° long-turn
-elbow, butterfly valve, gate valve, vane-type flow switch and swing check rows,
-and the ½ in and ¾ in columns. Valves are modelled by flow coefficient
-(`data/valves.js`), not equivalent length, and the app's table starts at 25 mm
-at Michael's instruction — so a pipe below DN25 clamps to the DN25 figure, which
-overstates it. The steel schedules do go down to DN15, so that is worth
-revisiting.
+Carrier's other columns — 90° long radius, 90° street, 45° street, 180°, and the
+two *reduced* straight-through cases — are not carried. The app infers a fitting
+from the angle between two pipes, so it cannot tell a street elbow from a
+standard one or know a tee's reduction ratio; offering those columns would
+invite a choice the geometry cannot support.
 
 **How fittings are charged depends on the method.** Under **ASHRAE (2021)** —
 the default — and under **Darcy-Weisbach** they are velocity heads,
@@ -895,7 +905,7 @@ restating in the UI something the engine already knows.
 
 ## 15. Testing
 
-Six suites, 826 assertions, no dependencies:
+Six suites, 820 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -906,7 +916,7 @@ node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
 
-All 826 pass. The "Parallel pumps share in DESIGN" section of
+All 820 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change

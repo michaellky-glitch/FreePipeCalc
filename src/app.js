@@ -892,18 +892,15 @@
         var kh = m.settings.hw;
         kv2('Formula', 'hf = ' + kh.A + ' · L · Q^' + kh.a +
                        ' / ( C^' + kh.b + ' · d^' + kh.e + ' )');
-        kv2('Fittings', 'Equivalent length — ' + FD.fittings.NFPA_SOURCE);
-        /* One row of that table is not from that table. A sheet that names a
-         * single source for a mixed one is misleading, so the exception is
-         * spelled out here as well as under the table it came from. */
-        kv2('NOTE', FD.fittings.EL_NOTE);
-        /* Any row the engineer has typed over is no longer either source. */
-        var editedRows = Object.keys(m.settings.fittingEL || {}).filter(function (t) {
-          return Object.keys(m.settings.fittingEL[t] || {}).length > 0;
-        });
-        if (editedRows.length) {
-          kv2('EDITED', editedRows.map(function (t) { return FD.fittings.label(t); })
-                .join(', ') + ' — values have been changed from the published table.');
+        var eset = FD.fittings.elSet(m.settings);
+        kv2('Fittings', 'Equivalent length — ' + eset.source);
+        /* Where one row of a table is not from that table, the sheet has to say
+         * so too. A sheet naming a single source for a mixed one is misleading,
+         * and the sheet is what gets issued. */
+        if (eset.note) kv2('NOTE', eset.note);
+        if (eset.key === 'custom') {
+          kv2('NOTE', 'Equivalent lengths are USER-DEFINED and are not a ' +
+                      'published table. Check them before issue.');
         }
         var defH = FD.hydraulics.HW_DEFAULTS;
         if (kh.A !== defH.A || kh.a !== defH.a || kh.b !== defH.b || kh.e !== defH.e) {
@@ -3194,52 +3191,84 @@
       hint('Used by Hazen-Williams only. Charged to the downstream pipe: a ' +
            'dividing tee to its outlets, a combining tee to its inlets.');
       hint('Read against NOMINAL size, in ' + lenUnitName + '. These are lengths ' +
-           'from the table, not L/D ratios — nothing is multiplied by a bore.');
+           'from a published table, not L/D ratios — nothing is multiplied by ' +
+           'a bore.');
 
-      /* Sizes below the first column clamp to it, which OVERSTATES them — the
-       * printed table does carry ½ in and ¾ in figures and this one starts at
-       * 25 mm. Worth saying, because the steel schedules go down to DN15. */
-      var smallest = FD.fittings.NFPA_DN[0];
-      if (FD.schedules.all(m.customSchedules)) {
-        host.appendChild(el('p', 'hint',
-          'The table starts at DN' + smallest + '. A smaller pipe is charged the ' +
-          'DN' + smallest + ' figure, which overstates it — the printed table does ' +
-          'give ½ in and ¾ in columns.'));
-      }
+      var elKey = FD.fittings.elSetKey(m.settings);
+      var elSet = FD.fittings.EL_SETS[elKey];
+
+      var esg = grid();
+      selField(esg, 'Equivalent length table',
+        Object.keys(FD.fittings.EL_SETS).map(function (k2) {
+          return [k2, FD.fittings.EL_SETS[k2].name];
+        }),
+        elKey, function (v) {
+          pushUndo();
+          /* Switching INTO custom seeds every cell from whatever was showing,
+           * so the engineer starts from the numbers they were just looking at
+           * rather than an empty grid. Switching back to a published set drops
+           * the custom values — they belong to 'custom', and silently applying
+           * them on top of a table labelled NFPA 13 would make the source line
+           * a lie. */
+          if (v === 'custom' && elKey !== 'custom') {
+            m.settings.fittingEL = FD.fittings.elSnapshot(elKey);
+          } else if (v !== 'custom') {
+            m.settings.fittingEL = {};
+          }
+          m.settings.elSet = v;
+          renderHydraulic(); redrawAll();
+        });
+
+      /* Sizes below the first column clamp to it, which OVERSTATES them — both
+       * printed tables do carry smaller columns and this one starts at 25 mm.
+       * Worth saying, because the steel schedules go down to DN15. */
+      var smallest = FD.fittings.EL_DN[0];
+      host.appendChild(el('p', 'hint',
+        'The table starts at DN' + smallest + '. A smaller pipe is charged the ' +
+        'DN' + smallest + ' figure, which overstates it — both published tables ' +
+        'do give smaller columns.'));
 
       var wrapEl = el('div', 'table-scroll');
       var elTable = el('table', 'sheet editable');
       var head = '<thead><tr><th class="txt">Fitting</th>';
-      FD.fittings.NFPA_DN.forEach(function (dn) { head += '<th>DN' + dn + '</th>'; });
+      FD.fittings.EL_DN.forEach(function (dn) { head += '<th>DN' + dn + '</th>'; });
       elTable.innerHTML = head + '</tr></thead>';
       var elBody = el('tbody');
+      var editable = (elKey === 'custom');
 
       FD.fittings.elTypes().forEach(function (t) {
         var tr = el('tr');
-        /* A row from a source other than NFPA 13 carries an asterisk, and the
-         * note under the table says which source. One row on this page is not
-         * from the table it is headed by, and that must be visible on the page
-         * rather than only in a comment. */
-        var alt = FD.fittings.EL_ALT_SOURCE[t];
+        /* A row from a source other than the one in the heading carries an
+         * asterisk, and the note under the table says which source. A page
+         * headed by one source with a row from another has to say so ON the
+         * page. */
+        var alt = elSet.alt && elSet.alt[t];
         var nameCell = el('td', 'txt', FD.fittings.label(t) + (alt ? ' *' : ''));
-        if (alt) nameCell.title = 'Source: ' + alt + ' — not NFPA 13.';
+        if (alt) nameCell.title = 'Source: ' + alt + ' — not ' + elSet.name + '.';
         tr.appendChild(nameCell);
-        FD.fittings.NFPA_DN.forEach(function (dn) {
+
+        var published = FD.fittings.publishedRow(t, elKey);
+        FD.fittings.EL_DN.forEach(function (dn, i) {
           var td = el('td');
-          var inp = el('input', 'cell-input'); inp.type = 'text';
           var ovRow = m.settings.fittingEL[t] || {};
           var stored = ovRow[dn];
-          var printed = FD.fittings.NFPA_EL[t][FD.fittings.NFPA_DN.indexOf(dn)];
+          var pub = published ? published[i] : null;
           var siNow = (stored === undefined || stored === null || stored === '')
-            ? printed : Number(stored);
-          inp.value = (siNow === null || siNow === undefined) ? '' : fmtLen(siNow);
-          if (siNow === null || siNow === undefined) {
-            inp.placeholder = '—';
-            td.className = 'dim';
-          } else if (stored !== undefined && stored !== null && stored !== '') {
-            inp.title = 'Edited. The printed value is ' + fmtLen(printed) + '.';
-            td.className = 'edited';
+            ? pub : Number(stored);
+
+          if (!editable) {
+            /* A published table is READ-ONLY. It used to be editable in every
+             * mode, which meant a value could be typed over while the line
+             * underneath still said "Source: NFPA 13". Choose Custom to change
+             * anything. */
+            td.appendChild(document.createTextNode(
+              (siNow === null || siNow === undefined) ? '—' : fmtLen(siNow)));
+            tr.appendChild(td);
+            return;
           }
+
+          var inp = el('input', 'cell-input'); inp.type = 'text';
+          inp.value = (siNow === null || siNow === undefined) ? '' : fmtLen(siNow);
           inp.addEventListener('change', function () {
             var raw = inp.value.trim();
             pushUndo();
@@ -3262,17 +3291,24 @@
       wrapEl.appendChild(elTable);
       host.appendChild(wrapEl);
 
-      /* Michael's wording, verbatim. */
-      host.appendChild(el('p', 'hint source-line', FD.fittings.EL_NOTE));
-      host.appendChild(el('p', 'hint source-line', 'Source: ' + FD.fittings.NFPA_SOURCE));
+      /* Michael's wording, verbatim, on the set it belongs to. */
+      if (elSet.note) {
+        host.appendChild(el('p', 'hint source-line', elSet.note));
+      }
+      host.appendChild(el('p', 'hint source-line', 'Source: ' + elSet.source));
 
-      var resetEL = el('button', 'btn', 'Reset to ' + FD.fittings.NFPA_SOURCE);
-      resetEL.addEventListener('click', function () {
-        pushUndo(); m.settings.fittingEL = {};
-        renderHydraulic(); redrawAll();
-        toast('Equivalent lengths reset to ' + FD.fittings.NFPA_SOURCE + '.');
-      });
-      host.appendChild(resetEL);
+      if (editable) {
+        var resetEL = el('button', 'btn', 'Reset to ' +
+          FD.fittings.EL_SETS[FD.fittings.DEFAULT_EL_SET].name);
+        resetEL.addEventListener('click', function () {
+          pushUndo();
+          m.settings.fittingEL = FD.fittings.elSnapshot(FD.fittings.DEFAULT_EL_SET);
+          renderHydraulic(); redrawAll();
+          toast('Custom values reset to ' +
+                FD.fittings.EL_SETS[FD.fittings.DEFAULT_EL_SET].name + '.');
+        });
+        host.appendChild(resetEL);
+      }
 
     } else {
       h2('Fitting Coefficients K');

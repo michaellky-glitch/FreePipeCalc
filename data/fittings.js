@@ -83,77 +83,123 @@
     EXIT:   { ld: 35, code: 'EXT',  label: 'Exit to atmosphere' }
   };
 
-  /* ---------------------------------------------------- NFPA 13 equivalent length
+  /* ------------------------------------------ equivalent-length tables
    *
-   * SOURCE: NFPA 13 (2019), Table 27.2.3.1.1 "Equivalent Schedule 40 Steel Pipe
-   * Length Chart". Supplied by Michael 2026-08-02 and transcribed from that
-   * page; re-transcribed independently into engine.test.js so a drift here
-   * fails a test.
+   * THREE sets, chosen on the HYDRAULIC tab (settings.elSet):
    *
-   * This REPLACES the L/D basis for Hazen-Williams. The table gives an
-   * equivalent length in metres directly against NOMINAL size — it is not a
-   * ratio — so nothing is multiplied by a bore. The metric column is stored,
-   * not the feet column: the model is metric throughout and imperial is a
-   * display conversion (spec §2). Note the two are the source's own roundings
-   * of each other (13 ft is printed as 4 m), so converting one into the other
-   * would not reproduce the page.
+   *   'carrier' — Carrier Design Handbook, Table 11. THE DEFAULT.
+   *   'nfpa13'  — NFPA 13 (2019) Table 27.2.3.1.1, with the straight-through
+   *               tee taken from Carrier because NFPA has no such row.
+   *   'custom'  — unlocked, seeded from whichever set was showing.
    *
-   * WHAT IS NOT HERE, and why (Michael, 2026-08-02):
+   * All of them give an equivalent length against NOMINAL size. None is a
+   * ratio: nothing is multiplied by a bore.
    *
-   *   - 90° long-turn elbow, butterfly valve, gate valve, vane-type flow
-   *     switch and swing check are all in the printed table and are left out.
-   *     The app does not infer any of them from geometry, and VALVES are
-   *     modelled by flow coefficient (Kv, data/valves.js), not by equivalent
-   *     length. Carrying rows the calculation cannot reach would invite
-   *     entering numbers into something that is being ignored.
+   * -------------------------------------------------------------- METRIC
+   * Carrier Table 11 is printed in FEET ("Fitting Losses in Equivalent Feet of
+   * Pipe"), so the feet are stored and the metres derived — ft x 0.3048,
+   * rounded to 2 dp. That reproduces Michael's own metric conversion of the
+   * same table EXACTLY, cell for cell, which is asserted in engine.test.js.
+   * Storing a hand-typed metric column instead would have been a second
+   * transcription with nothing to check it against.
    *
-   *   - Sizes below 25 mm. The printed table has ½ in (15 mm) and ¾ in (20 mm)
-   *     columns; the app's table starts at 25 mm at Michael's instruction.
-   *     A pipe smaller than 25 mm therefore CLAMPS to the 25 mm value, which
-   *     overstates it — NFPA gives 0.3 m for a 15 mm 90° elbow against 0.6 m at
-   *     25 mm. The steel schedules do offer DN15 and DN20, so this is worth
-   *     revisiting; the UI says so rather than leaving it to be discovered.
-   *
-   *   - Tee or cross with flow STRAIGHT THROUGH. NFPA 13 charges only "flow
-   *     turned 90°" and has no row for the run, because a sprinkler
-   *     calculation does not need one. That row therefore comes from a
-   *     DIFFERENT SOURCE — the Carrier Design Handbook, supplied by Michael
-   *     2026-08-02 — and is marked with an asterisk in the UI and named in a
-   *     note above the NFPA source line. It is the one row on the page that is
-   *     not NFPA 13, and it must stay visibly so. */
-  var NFPA_DN = [25, 32, 40, 50, 65, 80, 90, 100, 125, 150, 200, 250, 300];
+   * NFPA 13 prints BOTH a feet and a metre column, and they are the source's
+   * own independent roundings of each other (13 ft is printed as 4 m). There
+   * the printed METRIC column is stored, because that is the number on the page
+   * in the units this app works in.
+   */
+  var EL_DN = [25, 32, 40, 50, 65, 80, 90, 100, 125, 150, 200, 250, 300];
 
-  /* Metres, in NFPA_DN order. `null` = not tabulated / awaiting a value. */
-  var NFPA_EL = {
-    // 45° elbow
+  /* Carrier Design Handbook, Table 11 — "Fitting Losses in Equivalent Feet of
+   * Pipe", screwed / welded / flanged / flared / brazed connections. Supplied
+   * by Michael 2026-08-02. In FEET, in EL_DN order (1" ... 12").
+   *
+   * Column mapping, and it is not guesswork — Michael also supplied a metric
+   * extract of this same table, and these four columns reproduce it exactly:
+   *   E90     <- "Smooth Bend Elbows, 90 deg Std"
+   *   E45     <- "Smooth Bend Elbows, 45 deg Std"
+   *   TBRANCH <- "Smooth Bend Tees, Flow-Thru Branch"
+   *   TRUN    <- "Smooth Bend Tees, Straight-Thru Flow, No Reduction"
+   *
+   * The table's other columns — 90 deg Long Rad, 90 deg Street, 45 deg Street,
+   * 180 deg Std, and the two REDUCED straight-through cases — are not carried.
+   * The app infers a fitting from the angle between two pipes, so it cannot
+   * tell a street elbow from a standard one or know a tee's reduction ratio;
+   * offering the columns would invite a choice the geometry cannot support. */
+  var CARRIER_FT = {
+    E90:     [2.6, 3.3, 4.0, 5.0, 6.0, 7.5, 9.0, 10, 13, 16, 20, 25, 30],
+    E45:     [1.3, 1.7, 2.1, 2.6, 3.2, 4.0, 4.7, 5.2, 6.5, 7.9, 10, 13, 16],
+    TBRANCH: [5.0, 7.0, 8.0, 10, 12, 15, 18, 21, 25, 30, 40, 50, 60],
+    TRUN:    [1.7, 2.3, 2.6, 3.3, 4.1, 5.0, 5.9, 6.7, 8.2, 10, 13, 16, 19]
+  };
+
+  var FT_TO_M = 0.3048;
+  function ftToM(ft) { return Math.round(ft * FT_TO_M * 100) / 100; }
+
+  var CARRIER_M = (function () {
+    var out = {};
+    Object.keys(CARRIER_FT).forEach(function (t) {
+      out[t] = CARRIER_FT[t].map(ftToM);
+    });
+    return out;
+  })();
+
+  /* NFPA 13 (2019) Table 27.2.3.1.1, printed METRIC column, in EL_DN order.
+   *
+   * The printed table also carries a 90 deg long-turn elbow, a butterfly valve,
+   * a gate valve, a vane-type flow switch and a swing check, and 1/2 in and
+   * 3/4 in columns. None is carried: valves are modelled by flow coefficient
+   * (data/valves.js), not equivalent length, and the app's table starts at
+   * 25 mm at Michael's instruction — so a pipe below DN25 clamps to the DN25
+   * figure, which overstates it. */
+  var NFPA_M = {
     E45:     [0.3, 0.3, 0.6, 0.6, 0.9, 0.9, 0.9, 1.2, 1.5, 2.1, 2.7, 3.3, 4.0],
-    // 90° standard elbow
     E90:     [0.6, 0.9, 1.2, 1.5, 1.8, 2.1, 2.4, 3.0, 3.7, 4.3, 5.5, 6.7, 8.2],
-    // Tee or cross (flow turned 90°)
     TBRANCH: [1.5, 1.8, 2.4, 3.0, 3.7, 4.6, 5.2, 6.1, 7.6, 9.1, 10.7, 15.2, 18.3],
-    /* Tee or cross, flow STRAIGHT THROUGH — Carrier Design Handbook, not
-     * NFPA 13. Supplied by Michael 2026-08-02, in metres as given. NFPA has no
-     * such row: a sprinkler calculation does not need one.
-     *
-     * Sanity check on the mapping, worth recording. Carrier's own
-     * "T (Flow Thru)" column is the SAME data as NFPA's "flow turned 90°" row
-     * at most sizes — 1.52 against 1.5 m at DN25, 18.29 against 18.3 at DN300,
-     * i.e. 5 ft and 60 ft in both — so Carrier's "T (Straight)" is
-     * unambiguously the run, and it is the smaller of the two throughout. */
-    TRUN:    [0.52, 0.70, 0.79, 1.01, 1.25, 1.52, 1.80, 2.04, 2.50, 3.05, 3.96, 4.88, 5.79]
+    /* NFPA 13 has NO straight-through tee — a sprinkler calculation does not
+     * need one — so this row is Carrier's even in the NFPA set, and is starred
+     * and footnoted in the UI. It is the one row on that page from another
+     * source, and that has to be visible on the page. */
+    TRUN:    CARRIER_M.TRUN
   };
 
-  var NFPA_SOURCE = 'NFPA 13 (2019) Table 27.2.3.1.1';
-
-  /* Rows whose values do NOT come from NFPA_SOURCE, and where they do come
-   * from. The UI asterisks these and names the source. */
-  var EL_ALT_SOURCE = {
-    TRUN: 'Carrier Design Handbook'
+  var EL_SETS = {
+    carrier: {
+      key: 'carrier',
+      name: 'Carrier Design Handbook',
+      source: 'Carrier Design Handbook, Table 11 — Fitting Losses in ' +
+              'Equivalent Feet of Pipe (converted to metric)',
+      data: CARRIER_M,
+      alt: {}
+    },
+    nfpa13: {
+      key: 'nfpa13',
+      name: 'NFPA 13',
+      source: 'NFPA 13 (2019) Table 27.2.3.1.1',
+      data: NFPA_M,
+      alt: { TRUN: 'Carrier Design Handbook' },
+      note: 'Note: Equivalent Length for Straight-Through tees taken from ' +
+            'Carrier Design Handbook as not required for NFPA calculations'
+    },
+    custom: {
+      key: 'custom',
+      name: 'Custom',
+      source: 'User-defined',
+      data: null,          // supplied entirely by settings.fittingEL
+      alt: {}
+    }
   };
 
-  /* All four tee variants read the same two NFPA rows: the table gives one
-   * "flow turned 90°" figure and does not split dividing from combining, the
-   * same position ASHRAE Tables 3/4 take (see ktableType). */
+  var DEFAULT_EL_SET = 'carrier';
+
+  function elSetKey(settings) {
+    var k = settings && settings.elSet;
+    return EL_SETS[k] ? k : DEFAULT_EL_SET;
+  }
+
+  /* All four tee variants read the same two rows: these tables give one
+   * straight-through and one branch figure and do not split dividing from
+   * combining, the same position ASHRAE Tables 3/4 take (see ktableType). */
   function elTableType(type) {
     switch (type) {
       case 'TRUN': case 'TRUN_DIV': case 'TRUN_CONV': return 'TRUN';
@@ -165,13 +211,13 @@
   /* Interpolate a row against nominal size, clamping at both ends. Same shape
    * as ktable's interpolation, deliberately — a size between two tabulated
    * columns has to land somewhere, and clamping outside the table is what the
-   * K tables already do. A `null` cell reads as "not charged". */
+   * K tables already do. */
   function elLookup(row, dn_mm) {
     if (!row) return 0;
     var pts = [];
-    for (var i = 0; i < NFPA_DN.length; i++) {
+    for (var i = 0; i < EL_DN.length; i++) {
       if (row[i] !== null && row[i] !== undefined && row[i] !== '') {
-        pts.push([NFPA_DN[i], Number(row[i])]);
+        pts.push([EL_DN[i], Number(row[i])]);
       }
     }
     if (!pts.length) return 0;
@@ -188,18 +234,29 @@
     return last[1];
   }
 
-  /* The user's edits, merged over the printed values. `overrides` is
-   * settings.fittingEL — { type: { dn: metres, ... }, ... }. */
-  function elRow(type, overrides) {
-    var key = elTableType(type);
-    var base = NFPA_EL[key];
-    if (!base) return null;
-    var ov = overrides && overrides[key];
+  /* The published row for a fitting under the active set, before any custom
+   * values. Null for a set that has no published data (custom). */
+  function publishedRow(type, setKey) {
+    var set = EL_SETS[setKey] || EL_SETS[DEFAULT_EL_SET];
+    if (!set.data) return null;
+    return set.data[elTableType(type)] || null;
+  }
+
+  /* The row actually used: published, with settings.fittingEL over the top.
+   *
+   * CUSTOM is not a fourth table — it is whatever the engineer typed, seeded
+   * from the set that was showing when they switched to it. So in custom mode
+   * a missing cell has no published value to fall back to and reads as zero;
+   * the UI seeds every cell on the switch so that does not arise in practice. */
+  function elRow(type, settings) {
+    var key = elSetKey(settings);
+    var base = publishedRow(type, key);
+    var ov = settings && settings.fittingEL && settings.fittingEL[elTableType(type)];
     if (!ov) return base;
-    return NFPA_DN.map(function (dn, i) {
+    return EL_DN.map(function (dn, i) {
       var v = ov[dn];
-      if (v === undefined || v === null || v === '') return base[i];
-      return isFinite(Number(v)) ? Number(v) : base[i];
+      if (v === undefined || v === null || v === '') return base ? base[i] : null;
+      return isFinite(Number(v)) ? Number(v) : (base ? base[i] : null);
     });
   }
 
@@ -217,19 +274,36 @@
     types: LD,
     unsourced: unsourced,
 
-    NFPA_DN: NFPA_DN,
-    NFPA_EL: NFPA_EL,
-    NFPA_SOURCE: NFPA_SOURCE,
-    EL_ALT_SOURCE: EL_ALT_SOURCE,
-    EL_NOTE: 'Note: Equivalent Length for Straight-Through tees taken from ' +
-             'Carrier Design Handbook as not required for NFPA calculations',
+    EL_DN: EL_DN,
+    EL_SETS: EL_SETS,
+    DEFAULT_EL_SET: DEFAULT_EL_SET,
+    CARRIER_FT: CARRIER_FT,
+    elSetKey: elSetKey,
     elTableType: elTableType,
     elRow: elRow,
+    publishedRow: publishedRow,
 
-    /* Which fittings the equivalent-length table actually offers, in the order
-     * they are shown. Valves are absent on purpose — they are modelled by flow
-     * coefficient, not equivalent length. */
+    /* Which fittings the equivalent-length table offers, in display order.
+     * Valves are absent on purpose — they are modelled by flow coefficient,
+     * not equivalent length. */
     elTypes: function () { return ['E45', 'E90', 'TBRANCH', 'TRUN']; },
+
+    /* The active set's descriptor: name, source line, per-row alternate
+     * sources and the footnote, if any. */
+    elSet: function (settings) { return EL_SETS[elSetKey(settings)]; },
+
+    /* Every published cell of a set, as { type: { dn: metres } } — for seeding
+     * CUSTOM from whatever was showing, and for the Reset button. */
+    elSnapshot: function (setKey) {
+      var out = {};
+      var set = EL_SETS[setKey] || EL_SETS[DEFAULT_EL_SET];
+      if (!set.data) return out;
+      Object.keys(set.data).forEach(function (t) {
+        out[t] = {};
+        EL_DN.forEach(function (dn, i) { out[t][dn] = set.data[t][i]; });
+      });
+      return out;
+    },
 
     /* Equivalent length in metres for one fitting of `type` on a pipe of
      * NOMINAL size `nominal_mm`.
@@ -240,20 +314,11 @@
      * Under the old L/D basis the bore was correct, because the answer was a
      * multiple of it; under a table keyed on designation it is not.
      *
-     * `overrides` is settings.fittingEL. */
-    el: function (type, nominal_mm, overrides) {
-      var v = elLookup(elRow(type, overrides), nominal_mm);
+     * `settings` carries elSet and fittingEL; null means the default set with
+     * no custom values. */
+    el: function (type, nominal_mm, settings) {
+      var v = elLookup(elRow(type, settings), nominal_mm);
       return isFinite(v) ? v : 0;
-    },
-
-    /* Printed NFPA values as a fresh table, for the Reset button. */
-    defaultEL: function () {
-      var out = {};
-      Object.keys(NFPA_EL).forEach(function (t) {
-        out[t] = {};
-        NFPA_DN.forEach(function (dn, i) { out[t][dn] = NFPA_EL[t][i]; });
-      });
-      return out;
     },
 
     /* Default L/D values as a plain object. The L/D basis is superseded by the

@@ -114,8 +114,12 @@ From the ⚠️/❌ notes in `Human-Test.md`:
 
 * ~~**The straight-through tee row**~~ — supplied by Michael from the **Carrier
   Design Handbook** and wired in at v0.8.3, since NFPA 13 has no such row. It is
-  the one row on the page from a different source, so it carries an asterisk, a
-  note above the source line, and a line in the calculation-sheet appendix.
+  the one row on the NFPA page from a different source, so it carries an
+  asterisk, a note above the source line, and a line in the calculation-sheet
+  appendix.
+* ~~**Three tables to choose from**~~ (v0.8.4): Carrier Design Handbook Table 11
+  (default), NFPA 13, and Custom. Published sets are read-only; Custom unlocks
+  them and seeds from whatever was showing.
 
 **OPEN, and waiting on Michael:**
 

@@ -186,17 +186,26 @@ section('Network — tee run/branch by flow direction (spec §3.3)');
      byPipe[pW.id] === undefined, JSON.stringify(byPipe));
 
   // Equivalent length actually reaches the right pipes
-  /* Equivalent length is now NFPA 13 Table 27.2.3.1.1, keyed on NOMINAL size.
-   * These pipes are DN50, where the printed tee-branch figure is 3.0 m. */
+  /* Equivalent length comes from the active table, keyed on NOMINAL size.
+   * These pipes are DN50, and the default set is Carrier Design Handbook
+   * Table 11: a tee-branch is 10 ft = 3.05 m, a straight-through 3.3 ft =
+   * 1.01 m. */
   const els = NET.fittingsByPipe(m, res.flow, []);
   const nominal = FD.schedules.nominalMm(pN.size);
-  near('The branch is charged its NFPA figure', els[pN.id].el,
-       FD.fittings.el('TBRANCH', nominal), 1e-12);
-  near('...which at DN50 is 3.0 m', els[pN.id].el, 3.0, 1e-12);
-  /* The straight-through run comes from the Carrier Design Handbook, NFPA 13
-   * having no row for it. At DN50 that is 1.01 m, against the branch's 3.0. */
-  near('The run is charged its Carrier figure', els[pE.id].el, 1.01, 1e-12);
+  ok('The default table is Carrier', FD.fittings.elSet(m.settings).key === 'carrier');
+  near('The branch is charged the table figure', els[pN.id].el,
+       FD.fittings.el('TBRANCH', nominal, m.settings), 1e-12);
+  near('...which at DN50 is 3.05 m', els[pN.id].el, 3.05, 1e-12);
+  near('The run is charged 1.01 m', els[pE.id].el, 1.01, 1e-12);
   ok('...which is well under the branch', els[pE.id].el < els[pN.id].el);
+
+  /* Switching table changes the calculation, and only the calculation. */
+  m.settings.elSet = 'nfpa13';
+  const els2 = NET.fittingsByPipe(m, NET.solveModel(m).flow, []);
+  near('Switching to NFPA 13 charges its branch figure', els2[pN.id].el, 3.0, 1e-12);
+  near('...while the run stays Carrier, NFPA having no such row',
+       els2[pE.id].el, 1.01, 1e-12);
+  m.settings.elSet = 'carrier';
 }
 
 section('Network — the second pass actually changes the answer');

@@ -71,10 +71,16 @@
         specificHeat: 4187             // J/(kg·K) — not implemented
       },
 
-      /* Fitting equivalent lengths, in METRES against nominal size, from
-       * NFPA 13 (2019) Table 27.2.3.1.1. Editable; empty means "use the
-       * printed value". Used by Hazen-Williams only — ASHRAE and Darcy charge
-       * fittings as K velocity heads instead. */
+      /* Which equivalent-length table Hazen-Williams reads: 'carrier' (Carrier
+       * Design Handbook Table 11, the default), 'nfpa13' (NFPA 13 Table
+       * 27.2.3.1.1, with the straight-through tee from Carrier because NFPA has
+       * no such row), or 'custom'. Only Hazen-Williams uses any of them —
+       * ASHRAE and Darcy charge fittings as K velocity heads. */
+      elSet: 'carrier',
+
+      /* Custom equivalent lengths, in METRES against nominal size:
+       * { type: { dn: metres } }. Written when the set is 'custom', seeded
+       * from whichever published set was showing at the time. */
       fittingEL: {},
 
       /* SUPERSEDED by fittingEL. The old L/D ratio basis, kept so a model saved

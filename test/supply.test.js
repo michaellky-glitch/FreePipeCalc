@@ -46,24 +46,25 @@ section('Pump auto-sizes on every solve');
    * and 0.074 m — 0.165 m in total against a 0.197 m rise in duty, the
    * remainder being the flow redistribution that follows.
    *
-   * 41.95 -> 39.49 the same day, when Hazen-Williams moved to the NFPA 13
-   * equivalent-length table, and then 39.49 -> 41.92 when Michael supplied the
-   * straight-through tee row from the Carrier Design Handbook. The round trip
-   * is the interesting part, because it is a three-way agreement:
+   * Then the equivalent-length basis changed three times in one day, and the
+   * duty went 41.95 -> 39.49 -> 41.92 -> 41.96 m. The whole excursion is under
+   * 6%, and it ends 0.01 m from where the old L/D ratios had it:
    *
-   *   - elbow and branch: at DN100 the 90 deg elbow goes from 30 x 0.10226 =
-   *     3.068 m to NFPA's printed 3.0 m, and the tee-branch from 6.136 m to
-   *     6.1 m. About 2% apart.
-   *   - straight-through tee: the old L/D basis gave 20 x 0.10226 = 2.045 m at
-   *     DN100 and Carrier gives 2.04 m. 0.25% apart, from two sources that were
-   *     never fitted to each other.
+   *   39.49  NFPA 13, straight-through tee row blank and charging nothing
+   *   41.92  NFPA 13 + the Carrier straight-through row
+   *   41.96  all Carrier (the default set from v0.8.4)
    *
-   * So the duty lands 0.03 m below where the L/D basis had it, and every step
-   * of that 0.03 is accounted for. RECORDED, not hand-calculated — but the fact
-   * that it came back is itself the check. */
-  near('...to the index duty at design flow', pump.pump.head, 41.92, 0.1);
+   * The last step is small because Carrier's elbows and branches sit only a
+   * little above NFPA's — 3.05 against 3.0 m for a DN100 elbow, 6.40 against
+   * 6.1 for a branch — and this model's 13 elbows and 8 branches add about
+   * 3 m of equivalent length against ~340 m of pipe.
+   *
+   * That three published sources land within 1% of each other, and of the L/D
+   * basis they replaced, is the useful fact here. RECORDED, not hand
+   * calculated; the agreement is the check. */
+  near('...to the index duty at design flow', pump.pump.head, 41.96, 0.1);
   near('Selection duty applies the margin on top',
-       pump.pump.head * (1 + m.settings.pumpSafetyPct / 100), 46.11, 0.15);
+       pump.pump.head * (1 + m.settings.pumpSafetyPct / 100), 46.15, 0.15);
   ok('Every demand is met', !res.actual, res.actual ? JSON.stringify(res.actual.unmet) : 'met');
 
   // Re-solving must be stable, not creep upward each time
@@ -197,7 +198,7 @@ section('Restoring the source to L1 fixes everything');
   ok('No pressure-driven fallback needed (everything is met)', !res.actual);
 
   near('Pump carries the whole demand', Math.abs(res.flow[pump.id]), 0.1, 1e-9);
-  near('Pump sized to the index duty at design flow', pump.pump.head, 41.92, 0.1);
+  near('Pump sized to the index duty at design flow', pump.pump.head, 41.96, 0.1);
 
   m.nodes.filter(n => n.device && n.device.kind === 'demand').forEach(n => {
     ok(`${n.id} meets its requirement`,

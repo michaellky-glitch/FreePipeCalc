@@ -276,7 +276,7 @@
          * multiplier; the NFPA 13 table is keyed on the designation instead. */
         var nominal_mm = FD.schedules.nominalMm
           ? FD.schedules.nominalMm(p.size) : bore_mm;
-        byPipe[p.id].el += FD.fittings.el(f.type, nominal_mm, m.settings.fittingEL);
+        byPipe[p.id].el += FD.fittings.el(f.type, nominal_mm, m.settings);
         byPipe[p.id].sumK += FD.ktable.k(FD.fittings.ktableType(f.type),
                                          nominal_mm, kSet, m.settings.fittingK);
         byPipe[p.id].types.push(f.type);
