@@ -61,10 +61,16 @@ section('Pump auto-sizes on every solve');
    *
    * That three published sources land within 1% of each other, and of the L/D
    * basis they replaced, is the useful fact here. RECORDED, not hand
-   * calculated; the agreement is the check. */
-  near('...to the index duty at design flow', pump.pump.head, 41.96, 0.1);
+   * calculated; the agreement is the check.
+   *
+   * 41.96 -> 41.99 at v0.9.0, when the two Hazen-Williams entries were
+   * collapsed into one. The survivor derives its flow-form constants from the
+   * printed velocity form (A = 6.819(4/pi)^1.852 = 10.6663) where the retired
+   * one carried the rounded published 10.67. 0.035% on the constant, 0.08% on
+   * the duty — the rounding baked into 10.67, and nothing else. */
+  near('...to the index duty at design flow', pump.pump.head, 41.99, 0.05);
   near('Selection duty applies the margin on top',
-       pump.pump.head * (1 + m.settings.pumpSafetyPct / 100), 46.15, 0.15);
+       pump.pump.head * (1 + m.settings.pumpSafetyPct / 100), 46.19, 0.08);
   ok('Every demand is met', !res.actual, res.actual ? JSON.stringify(res.actual.unmet) : 'met');
 
   // Re-solving must be stable, not creep upward each time
@@ -198,7 +204,7 @@ section('Restoring the source to L1 fixes everything');
   ok('No pressure-driven fallback needed (everything is met)', !res.actual);
 
   near('Pump carries the whole demand', Math.abs(res.flow[pump.id]), 0.1, 1e-9);
-  near('Pump sized to the index duty at design flow', pump.pump.head, 41.96, 0.1);
+  near('Pump sized to the index duty at design flow', pump.pump.head, 41.99, 0.05);
 
   m.nodes.filter(n => n.device && n.device.kind === 'demand').forEach(n => {
     ok(`${n.id} meets its requirement`,

@@ -806,8 +806,8 @@
      * the wrong equation in laminar flow" warning applies to it too. Testing
      * for 'HW' alone silently dropped the warning the moment ASHRAE became the
      * default — the flow regime does not care which fitting basis is used. */
-    var meth = m.settings.frictionMethod || 'ASHRAE';
-    var usingHW = (meth === 'HW' || meth === 'ASHRAE');
+    var meth = m.settings.frictionMethod || 'HW';
+    var usingHW = (meth !== 'DW');
 
     net.links.forEach(function (l) {
       if (l.kind !== 'pipe' || l._virtual) return;

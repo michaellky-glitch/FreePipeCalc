@@ -36,11 +36,13 @@
        * SIMULATION: the pump curve is the input, outflow becomes a resistance
        * derived from its design point, and flow is the result. */
       calcMode: 'design',           // 'design' | 'simulation'
-      /* Default is the 2021 ASHRAE Ch 22 method: Hazen-Williams pipe friction
-       * with velocity-head (K) fitting losses, both sourced from the Handbook.
-       * 'HW' keeps the older equivalent-length fitting basis (spec §3.3);
-       * 'DW' is Darcy, still experimental. */
-      frictionMethod: 'ASHRAE',     // 'ASHRAE' | 'HW' | 'DW'
+      /* Two methods, and the fitting basis follows the method:
+       *   'HW' — Hazen-Williams (ASHRAE Ch 22 Eq 6) with equivalent-length
+       *          fittings from the table chosen on the HYDRAULIC tab.
+       *   'DW' — Darcy-Weisbach (BETA) with K velocity-head fittings (Eq 7).
+       * There was a third, 'ASHRAE', which was the same equation as 'HW' with
+       * the other fitting basis; it is migrated to 'HW' on load. */
+      frictionMethod: 'HW',         // 'HW' | 'DW'
       systemType: 'open',           // 'open' | 'closed' (spec §3.4)
 
       /* Hazen-Williams coefficients, user-editable. Jurisdictions differ on
@@ -814,6 +816,11 @@
     m.risers = obj.risers || [];
     m.activeLevel = obj.activeLevel || (m.levels[0] && m.levels[0].id);
     m._seq = obj._seq || rebuildSeq(m);
+    /* 'ASHRAE' was Hazen-Williams with K fittings; the two Hazen-Williams
+     * entries were collapsed into one in v0.8.5 and it charges equivalent
+     * length. Rewritten rather than left to fall through `method()`, so the
+     * saved file and the UI agree about what was used. */
+    if (m.settings.frictionMethod === 'ASHRAE') m.settings.frictionMethod = 'HW';
     m.migrations = migrateSourcePressure(m);
     return m;
   }

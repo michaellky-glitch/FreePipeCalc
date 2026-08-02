@@ -576,6 +576,11 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
    *   269.7 / 258.9 / 254.5 / 250.8   NFPA 13 + the Carrier straight-through row
    *   270.1 / 259.3 / 254.9 / 251.2   all Carrier (the default set from v0.8.4)
    *
+   * And 270.1 / 259.3 / 255.0 / 251.2 at v0.9.0, when the two Hazen-Williams
+   * entries were collapsed into one: the survivor derives its constants from
+   * the printed velocity form (10.6663) rather than carrying the rounded
+   * published 10.67. Sub-0.1%, and visible only in the third pump.
+   *
    * This model has ELEVEN straight-through tees, which is why it swings
    * furthest on that one row. The end point is within 0.5% of where the L/D
    * ratios had it, from a published table that was never fitted to them.
@@ -592,7 +597,7 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
    * calculations — the hand-calculable statement about this fix is the symmetry
    * assertion in model.test.js, which needs no coefficient at all. */
   const file = __dirname + '/fixtures/data_centre_redundant_ring_main.pnet (fixed).json';
-  const expectHead = { 1: 270.1, 2: 259.3, 3: 254.9, 4: 251.2 };   // kPa
+  const expectHead = { 1: 270.1, 2: 259.3, 3: 255.0, 4: 251.2 };   // kPa
 
   [1, 2, 3, 4].forEach(n => {
     const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));

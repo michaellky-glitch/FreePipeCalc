@@ -106,6 +106,25 @@ From the ⚠️/❌ notes in `Human-Test.md`:
   panel~~ (v0.7.7-dev). Both are still on the calculation sheet, which is where
   a set of terminals can be read against each other.
 
+### Reported 2026-08-02 (seventh round) — done, released as v0.9.0
+
+* ~~**Only two calculation methods**~~: `Hazen-Williams (ASHRAE with Equivalent
+  Lengths)` and `Darcy-Weisbach (BETA)`. The fitting basis follows the method.
+* ~~Clamp DN15 and DN20 to DN25~~ — confirmed, and now asserted.
+* ~~Rename to `Tee (Branch)` and `Tee (Straight)`~~.
+* ~~Bullhead = the same equivalent length as `Tee (Branch)`~~ — it already was,
+  because a bullhead charges both legs as branches; now asserted so it stays
+  that way.
+* ~~Trim the HYDRAULIC copy~~ on both tables to what Michael asked to keep.
+
+**One thing to be aware of.** The K source line now reads "ASHRAE Handbook —
+Fundamentals, Pipe Sizing, Table 1 (threaded) and Table 2", which is the wording
+Michael asked for. The values in the app are transcribed from the page he
+supplied, which is headed **Ch 22 Tables 3 and 4** (p.22.6), and every cell is
+asserted against that page in `engine.test.js`. The citation and the provenance
+notes therefore disagree about the table numbers. Left as asked; worth a word
+before anything is issued.
+
 ### Reported 2026-08-02 (sixth round) — done, v0.8.2
 
 * ~~**Hazen-Williams equivalent length becomes NFPA 13 (2019) Table
@@ -123,11 +142,9 @@ From the ⚠️/❌ notes in `Human-Test.md`:
 
 **OPEN, and waiting on Michael:**
 
-* **Sizes below DN25 clamp to the DN25 figure, which overstates them.** The
-  app's table starts at 25 mm at Michael's instruction, but the printed table
-  does carry ½ in (15 mm) and ¾ in (20 mm) columns, and the steel schedules go
-  down to DN15. A DN15 90° elbow is charged 0.6 m where NFPA gives 0.3 m. Two
-  columns would fix it; worth asking.
+* ~~**Sizes below DN25**~~ — **CONFIRMED by Michael 2026-08-02**: clamp DN15 and
+  DN20 to the DN25 figure. It is the conservative direction and there is a test
+  asserting it for both published sets, so it cannot drift back.
 * **An imperial display cannot reproduce the page's feet column.** The stored
   value is the printed METRIC one, and the two columns are the source's own
   independent roundings of each other (13 ft is printed as 4 m). So a model set

@@ -32,7 +32,7 @@
   /* ASHRAE Ch 22 Eq (6), as PRINTED — velocity form.
    *     Δh = K · L · (V/C)^a · (1/D)^e
    * The flow-form coefficients used by the solver are derived from these; see
-   * methods.ASHRAE.derive. */
+   * methods.HW.derive. */
   var ASHRAE_DEFAULTS = { K: 6.819, a: 1.852, e: 1.167 };
 
   // ------------------------------------------------- Hazen-Williams defaults
@@ -152,19 +152,27 @@
      * 0.035 % and 0.012 %). Verified against ASHRAE 2026-07-31, so the HW entry
      * below and this one compute pipe loss identically.
      *
-     * FITTINGS are charged as velocity heads from the Ch 22 K tables, Eq (7),
-     * which is what separates this from the plain HW entry. ASHRAE presents the
-     * K method as its primary formulation and equivalent length as the
-     * alternative; the K tables also cover far more fittings than the
-     * equivalent-length tables do (Table 27 is 90° elbows only).
+     * FITTINGS are charged as EQUIVALENT LENGTH, from the table chosen on the
+     * HYDRAULIC tab (Carrier Design Handbook, NFPA 13, or custom — see
+     * data/fittings.js).
+     *
+     * There were THREE methods until v0.8.5 — this one with K fittings, a
+     * second Hazen-Williams with equivalent length, and Darcy. The first two
+     * computed pipe loss IDENTICALLY (to 0.035%, being two roundings of the
+     * same ASHRAE equation) and differed only in how they charged fittings, so
+     * the menu offered what looked like two different equations and was really
+     * one equation and two fitting bases. Collapsed to two at Michael's
+     * instruction: Hazen-Williams charges equivalent length, Darcy-Weisbach
+     * charges K velocity heads, and the fitting basis follows the method
+     * instead of being a third thing to pick.
      */
-    ASHRAE: {
-      key: 'ASHRAE',
-      name: 'ASHRAE (2021) — Hazen-Williams, K fittings',
+    HW: {
+      key: 'HW',
+      name: 'Hazen-Williams (ASHRAE with Equivalent Lengths)',
       n: 1.852,
       available: true,
       experimental: false,
-      fittingMode: 'K',
+      fittingMode: 'EL',
       defaults: HW_DEFAULTS,
       source: '2021 ASHRAE Handbook — Fundamentals (SI), Ch 22, Eq (6) and (7)',
 
@@ -191,44 +199,16 @@
 
       r: function (L_eff, d, C, ctx) {
         if (!(d > 0) || !(C > 0)) return 0;
-        var k = methods.ASHRAE.derive(ctx);
+        var k = methods.HW.derive(ctx);
         return k.A * L_eff / (Math.pow(C, k.b) * Math.pow(d, k.e));
       },
       exponent: function (ctx) {
-        return methods.ASHRAE.derive(ctx).a;
+        return methods.HW.derive(ctx).a;
       },
       formula: function (ctx) {
         var k = (ctx && ctx.ashrae) || ASHRAE_DEFAULTS;
         return 'Δh = ' + k.K + ' · L · (V/C)^' + k.a + ' · (1/D)^' + k.e +
-               '   +   Σ K · V²/2g';
-      }
-    },
-
-    HW: {
-      key: 'HW',
-      name: 'Hazen-Williams (equivalent-length fittings)',
-      n: 1.852,
-      available: true,
-      experimental: false,
-      fittingMode: 'EL',
-      defaults: HW_DEFAULTS,
-
-      /* ctx.hw carries the (possibly user-edited) coefficients. */
-      r: function (L_eff, d, C, ctx) {
-        var k = (ctx && ctx.hw) || HW_DEFAULTS;
-        if (!(d > 0) || !(C > 0)) return 0;
-        return k.A * L_eff / (Math.pow(C, k.b) * Math.pow(d, k.e));
-      },
-
-      exponent: function (ctx) {
-        var k = (ctx && ctx.hw) || HW_DEFAULTS;
-        return k.a;
-      },
-
-      formula: function (ctx) {
-        var k = (ctx && ctx.hw) || HW_DEFAULTS;
-        return 'hf = ' + k.A + ' · L · Q^' + k.a +
-               ' / ( C^' + k.b + ' · d^' + k.e + ' )';
+               '   (fittings as equivalent length)';
       }
     },
 

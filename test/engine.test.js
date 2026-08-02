@@ -10,7 +10,22 @@ const HW_N = 1.852;
 const RHO_G = 998 * 9.81;
 
 // Independent re-implementation of Hazen-Williams for cross-checking.
+/* Hazen-Williams head loss by hand, from the constants ASHRAE Ch 22 Eq (6)
+ * PRINTS — 6.819, 1.852, 1.167 in the velocity form — reduced to the flow form
+ * by V = 4Q/(pi.d^2):
+ *     A = 6.819 * (4/pi)^1.852 = 10.6663      e = 1.167 + 2*1.852 = 4.8710
+ * That is what the app derives, so it is what a hand check has to use.
+ *
+ * `hwHeadPublished` uses the ROUNDED flow-form values the Handbook also prints
+ * (10.67 and 4.8704). The two are the same equation to about 0.15%, and the
+ * gap between them is the rounding baked into 10.67 — asserted below rather
+ * than assumed. */
 function hwHead(L, d, C, Q) {
+  const A = 6.819 * Math.pow(4 / Math.PI, 1.852);
+  const e = 1.167 + 2 * 1.852;
+  return A * L * Math.pow(Q, HW_N) / (Math.pow(C, HW_N) * Math.pow(d, e));
+}
+function hwHeadPublished(L, d, C, Q) {
   return 10.67 * L * Math.pow(Q, HW_N) / (Math.pow(C, HW_N) * Math.pow(d, 4.8704));
 }
 
@@ -191,6 +206,26 @@ section('Equivalent length — Custom, and the lookup key');
   ok('Interpolates between DN100 and DN125', mid > 3.05 && mid < 3.96, String(mid));
 
   ok('Unknown fitting type contributes no length', F.el('NOPE', 50, carrier) === 0);
+
+  /* Sizes below the table clamp to its first column, deliberately (Michael,
+   * 2026-08-02): DN15 and DN20 are charged the DN25 figure. Both printed
+   * tables do carry smaller columns, so this is a decision, not an oversight,
+   * and it is conservative — a DN15 elbow is charged more than either page
+   * gives it. */
+  ['carrier', 'nfpa13'].forEach(k => {
+    const at25 = F.el('E90', 25, { elSet: k });
+    ok(k + ': DN15 clamps to the DN25 figure', F.el('E90', 15, { elSet: k }) === at25);
+    ok(k + ': DN20 clamps to it as well', F.el('E90', 20, { elSet: k }) === at25);
+  });
+
+  /* A BULLHEAD tee is charged the same equivalent length as a branch tee
+   * (Michael, 2026-08-02), and it already was: at a bullhead nothing passes
+   * straight through, so both legs are charged as branches (see
+   * network.isBullhead) and every branch variant reads the same row. */
+  ['TBRANCH', 'TBRANCH_DIV', 'TBRANCH_CONV'].forEach(t => {
+    near('Bullhead legs read the tee-branch row: ' + t,
+         F.el(t, 100, carrier), F.el('TBRANCH', 100, carrier), 1e-12);
+  });
   ok('The table offers only the fittings the app infers',
      JSON.stringify(F.elTypes()) === JSON.stringify(['E45', 'E90', 'TBRANCH', 'TRUN']));
 
@@ -222,9 +257,17 @@ section('Hazen-Williams');
 {
   const d = 0.05248, C = 120, L = 100, Q = 0.005;
   const r = FD.hydraulics.methods.HW.r(L, d, C);
-  const expected = hwHead(L, d, C, Q);           // ≈ 14.07 m
+  const expected = hwHead(L, d, C, Q);           // 14.1505 m
   near('hf for 100 m DN50 @ 5 L/s (hand calc)', FD.hydraulics.headloss(r, Q, HW_N), expected);
-  near('...and that value is ≈14.13 m', expected, 14.130, 0.005);
+  /* Worked through: A = 6.819(4/pi)^1.852 = 10.66631, e = 4.871,
+   * hf = 10.66631 x 100 x 0.005^1.852 / (120^1.852 x 0.05248^4.871). */
+  near('...and that value is 14.1505 m', expected, 14.1505, 0.001);
+  /* The Handbook's own rounded flow-form constants give the same answer to
+   * 0.15%. That gap IS the rounding in 10.67, not an error in either. */
+  const pub = hwHeadPublished(L, d, C, Q);
+  ok('...within 0.2% of the published 10.67 / 4.8704 form',
+     Math.abs(expected - pub) / pub < 0.002,
+     `derived ${expected.toFixed(4)} m, published ${pub.toFixed(4)} m`);
 
   ok('Head loss is odd in Q (reverses sign)',
      Math.abs(FD.hydraulics.headloss(r, -Q, HW_N) + expected) < 1e-9);
@@ -249,16 +292,40 @@ section('Hazen-Williams');
      FD.hydraulics.methods.DW.experimental === true &&
      /BETA/.test(FD.hydraulics.methods.DW.name));
 
-  // Editable coefficients must actually feed through
+  /* TWO methods, not three. The two Hazen-Williams entries computed pipe loss
+   * identically and differed only in how they charged fittings, so the menu
+   * offered what looked like two equations and was one equation with two
+   * fitting bases. Collapsed 2026-08-02; the fitting basis now follows the
+   * method. */
+  ok('Exactly two calculation methods are offered',
+     JSON.stringify(Object.keys(FD.hydraulics.methods)) === JSON.stringify(['HW', 'DW']),
+     JSON.stringify(Object.keys(FD.hydraulics.methods)));
+  ok('Hazen-Williams charges equivalent length',
+     FD.hydraulics.methods.HW.fittingMode === 'EL');
+  ok('Darcy-Weisbach charges K velocity heads',
+     FD.hydraulics.methods.DW.fittingMode === 'K');
+  ok('...and is named for what it is',
+     /Hazen-Williams \(ASHRAE with Equivalent Lengths\)/.test(FD.hydraulics.methods.HW.name));
+  // An older model saved as 'ASHRAE' still resolves.
+  ok('The retired ASHRAE key resolves to Hazen-Williams',
+     FD.hydraulics.method('ASHRAE').key === 'HW');
+
+  /* The editable coefficients are the PRINTED velocity-form ones — K, a and e
+   * of Eq (6) — and the flow-form constants are derived from them on every
+   * call. So an edit on the HYDRAULIC tab has to reach the solve through the
+   * derivation, not past it. (They used to be the flow-form A/b/e of a second
+   * Hazen-Williams entry, which is the one that was retired.) */
   const rDefault = FD.hydraulics.methods.HW.r(L, d, C, null);
-  const rCustom = FD.hydraulics.methods.HW.r(L, d, C, { hw: { A: 21.34, a: 1.852, b: 1.852, e: 4.8704 } });
-  near('Doubling the leading coefficient A doubles r', rCustom, rDefault * 2, 1e-6);
-  const rExp = FD.hydraulics.methods.HW.r(L, d, C, { hw: { A: 10.67, a: 1.852, b: 1.852, e: 5 } });
-  ok('Changing the diameter exponent changes r', Math.abs(rExp - rDefault) > 1e-6);
-  near('Default context matches ASHRAE constants',
-       FD.hydraulics.methods.HW.r(L, d, C, { hw: FD.hydraulics.HW_DEFAULTS }), rDefault, 1e-12);
-  near('Exponent honours the edited flow exponent',
-       FD.hydraulics.exponent('HW', { hw: { A: 10.67, a: 1.9, b: 1.852, e: 4.8704 } }), 1.9, 1e-12);
+  const dbl = FD.hydraulics.methods.HW.r(L, d, C, { ashrae: { K: 13.638, a: 1.852, e: 1.167 } });
+  near('Doubling the printed leading coefficient doubles r', dbl, rDefault * 2, 1e-6);
+  const rExp = FD.hydraulics.methods.HW.r(L, d, C, { ashrae: { K: 6.819, a: 1.852, e: 1.3 } });
+  ok('Changing the printed diameter exponent changes r',
+     Math.abs(rExp - rDefault) > 1e-6);
+  near('Default context matches the ASHRAE constants',
+       FD.hydraulics.methods.HW.r(L, d, C, { ashrae: FD.hydraulics.ASHRAE_DEFAULTS }),
+       rDefault, 1e-12);
+  near('The exponent honours the edited velocity exponent',
+       FD.hydraulics.exponent('HW', { ashrae: { K: 6.819, a: 1.9, e: 1.167 } }), 1.9, 1e-12);
 }
 
 section('Reynolds number and flow regime');
@@ -660,34 +727,37 @@ section('Linear algebra');
      FD.solver.solveLinear([[1, 2], [2, 4]], [1, 2]) === null);
 }
 
-section('ASHRAE (2021) method — Hazen-Williams pipe + K fittings');
+section('Hazen-Williams (ASHRAE) pipe friction, and the K fitting term');
 {
-  /* 2021 ASHRAE Fundamentals Ch 22. Pipe friction is Eq (6), algebraically the
-   * same Hazen-Williams already in use; fittings are Eq (7), K velocity heads,
-   * carried as a SEPARATE quadratic term. */
-  const A = FD.hydraulics.methods.ASHRAE;
-  const HWm = FD.hydraulics.methods.HW;
-  ok('ASHRAE method exists and is not experimental', !!A && A.experimental === false);
-  ok('...and charges fittings by K', A.fittingMode === 'K');
-  ok('...where plain Hazen-Williams charges equivalent length', HWm.fittingMode === 'EL');
+  /* 2021 ASHRAE Fundamentals Ch 22. Pipe friction is Eq (6); the K fitting
+   * term is Eq (7), carried as a SEPARATE quadratic term and used by
+   * Darcy-Weisbach. */
+  const A = FD.hydraulics.methods.HW;
+  ok('Hazen-Williams exists and is not experimental', !!A && A.experimental === false);
+  ok('...and charges equivalent length', A.fittingMode === 'EL');
+  ok('Darcy-Weisbach is the one that charges K',
+     FD.hydraulics.methods.DW.fittingMode === 'K');
 
   const d = 0.0525, C = 120, L = 100;
-  /* ASHRAE derives its flow-form constants from the PRINTED velocity-form ones
-   * (6.819 / 1.852 / 1.167), where the HW entry carries the rounded published
-   * flow-form values (10.67 / 4.8704). They therefore agree to the rounding of
-   * those published numbers — about 0.15% — rather than exactly. Asserting
-   * equality would be asserting that 10.67 is exact, which it is not. */
-  const rA = A.r(L, d, C), rH = HWm.r(L, d, C);
-  ok('ASHRAE pipe friction matches Hazen-Williams to published rounding',
-     Math.abs(rA - rH) / rH < 0.002, 'diff ' + (Math.abs(rA - rH) / rH * 100).toFixed(3) + '%');
+  /* The constants are DERIVED from the printed velocity-form ones
+   * (6.819 / 1.852 / 1.167) rather than carrying the rounded published
+   * flow-form values (10.67 / 4.8704). The two agree to the rounding of those
+   * published numbers — about 0.15% — which is the check worth making;
+   * asserting equality would be asserting that 10.67 is exact. */
+  const kH = FD.hydraulics.HW_DEFAULTS;
+  const rA = A.r(L, d, C);
+  const rPublished = kH.A * L / (Math.pow(C, kH.b) * Math.pow(d, kH.e));
+  ok('Derived pipe friction matches the published rounding',
+     Math.abs(rA - rPublished) / rPublished < 0.002,
+     'diff ' + (Math.abs(rA - rPublished) / rPublished * 100).toFixed(3) + '%');
   // ...and equals the exact derivation, which is the point of deriving it.
   const kA = FD.hydraulics.ASHRAE_DEFAULTS;
   const exactA = kA.K * Math.pow(4 / Math.PI, kA.a);
   const exactE = kA.e + 2 * kA.a;
-  near('ASHRAE A is derived, not hard-coded', A.derive({}).A, exactA, 1e-12);
-  near('ASHRAE d-exponent is derived', A.derive({}).e, exactE, 1e-12);
+  near('A is derived, not hard-coded', A.derive({}).A, exactA, 1e-12);
+  near('The d-exponent is derived', A.derive({}).e, exactE, 1e-12);
   near('...and that A is 10.6663', exactA, 10.6663, 1e-3);
-  near('ASHRAE exponent is the HW exponent', A.exponent(), 1.852, 1e-12);
+  near('The exponent is 1.852', A.exponent(), 1.852, 1e-12);
 
   /* Fitting term against Eq (7) by hand: h = K·V²/2g, so K=1 at V=1 m/s
    * costs 1/(2·9.81) = 0.050968 m. */
@@ -993,9 +1063,9 @@ section('ASHRAE Ch 22 K tables, against the printed page');
 section('Darcy-Weisbach fittings use the K method');
 {
   ok('DW is declared as a K method', FD.hydraulics.methods.DW.fittingMode === 'K');
-  ok('ASHRAE still is too', FD.hydraulics.methods.ASHRAE.fittingMode === 'K');
-  ok('Hazen-Williams still uses equivalent length',
+  ok('Hazen-Williams uses equivalent length instead',
      FD.hydraulics.methods.HW.fittingMode === 'EL');
+  ok('...and those are the only two', Object.keys(FD.hydraulics.methods).length === 2);
 
   /* h = K V^2/2g expressed as a resistance: r_K = K / (2 g A^2), so that
    * r_K Q^2 = K (Q/A)^2 / 2g. Hand-checked on a DN100 sch40 bore. */

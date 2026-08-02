@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-02 (v0.8.4), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-02 (v0.9.0), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,15 +21,15 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — six files, **820 assertions, all passing**.
+Tests: `node test/<name>.test.js` — six files, **834 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. Where things stand (v0.8.4, 2026-08-02)
+## 2. Where things stand (v0.9.0, 2026-08-02)
 
-Nothing is BROKEN. The engine is green at **820 assertions** and the repository
+Nothing is BROKEN. The engine is green at **834 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
 
 The big change since v0.5.0 is the **ASHRAE (2021) method**, now the default —
@@ -232,6 +232,13 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **TWO calculation methods, not three** (v0.9.0). `Hazen-Williams (ASHRAE with
+  Equivalent Lengths)` and `Darcy-Weisbach (BETA)`. The two Hazen-Williams
+  entries computed pipe loss identically — two roundings of the same equation,
+  0.035% apart — and differed only in how they charged fittings, so the menu
+  offered what looked like two equations and was one equation with two fitting
+  bases. The fitting basis now follows the method. `'ASHRAE'` in a saved file
+  migrates to `'HW'`.
 * **Hazen-Williams equivalent length is a CHOICE OF THREE published tables**
   (v0.8.2 → v0.8.4), all supplied by Michael: **Carrier Design Handbook Table 11
   (the default)**, **NFPA 13 (2019) Table 27.2.3.1.1**, and **Custom**. Metres
@@ -371,7 +378,13 @@ printing on real paper; the light theme.
   first two digits.
 * `Previous Version/` holds archived releases (v0.2 → v0.6), gitignored.
 
-## 9. Next version
+## 9. Next version — v0.10, the THERMAL MODULE
+
+**v0.9.0 is the line Michael drew.** Everything above is the hydraulics, and it
+is where he wanted it: two methods, three equivalent-length tables, K tables
+checked against the page, Darcy out of the blocked list. The next version is a
+new capability rather than more of this one, and Michael is writing the prompt
+for it.
 
 `ROADMAP.md` has the detail. The headline is **heating and cooling power**:
 `Q = ṁ·Cp·ΔT`. The groundwork is in the model already —

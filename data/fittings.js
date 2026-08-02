@@ -47,8 +47,8 @@
      * more than an order of magnitude across it. No flat number can be right
      * everywhere; these are placeholders that keep the model structurally
      * correct and the ordering sensible until a sourced set is entered. */
-    TRUN:    { ld: 20, code: 'T-run',  label: 'Tee, straight through' },
-    TBRANCH: { ld: 60, code: 'T-br',   label: 'Tee, branch' },
+    TRUN:    { ld: 20, code: 'T-run',  label: 'Tee (Straight)' },
+    TBRANCH: { ld: 60, code: 'T-br',   label: 'Tee (Branch)' },
     /* Diverting and combining tees are NOT given different coefficients.
      *
      * Michael's decision, 2026-07-31, and it follows the source: 2021 ASHRAE
@@ -67,13 +67,13 @@
      * its outlets and a combining tee to its inlets. That is a separate, real
      * correction (a combining tee used to charge nothing to its branch inflow,
      * where most of the loss is) and it stands. */
-    TRUN_DIV:    { ld: 20, code: 'T-run-d', label: 'Tee, dividing — through run',
+    TRUN_DIV:    { ld: 20, code: 'T-run-d', label: 'Tee (Straight) — dividing',
                    sourced: true },
-    TBRANCH_DIV: { ld: 60, code: 'T-br-d',  label: 'Tee, dividing — to branch',
+    TBRANCH_DIV: { ld: 60, code: 'T-br-d',  label: 'Tee (Branch) — dividing',
                    sourced: true },
-    TRUN_CONV:   { ld: 20, code: 'T-run-c', label: 'Tee, combining — through run',
+    TRUN_CONV:   { ld: 20, code: 'T-run-c', label: 'Tee (Straight) — combining',
                    sourced: true },
-    TBRANCH_CONV:{ ld: 60, code: 'T-br-c',  label: 'Tee, combining — from branch',
+    TBRANCH_CONV:{ ld: 60, code: 'T-br-c',  label: 'Tee (Branch) — combining',
                    sourced: true },
     // Not auto-detected in v1, but the table carries them for future use.
     GATE:   { ld: 8,  code: 'GV',   label: 'Gate valve, open' },

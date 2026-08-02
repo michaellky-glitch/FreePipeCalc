@@ -193,6 +193,9 @@ section('Network — tee run/branch by flow direction (spec §3.3)');
   const els = NET.fittingsByPipe(m, res.flow, []);
   const nominal = FD.schedules.nominalMm(pN.size);
   ok('The default table is Carrier', FD.fittings.elSet(m.settings).key === 'carrier');
+  ok('The default method is Hazen-Williams with equivalent lengths',
+     m.settings.frictionMethod === 'HW' &&
+     FD.hydraulics.methods.HW.fittingMode === 'EL');
   near('The branch is charged the table figure', els[pN.id].el,
        FD.fittings.el('TBRANCH', nominal, m.settings), 1e-12);
   near('...which at DN50 is 3.05 m', els[pN.id].el, 3.05, 1e-12);

@@ -875,23 +875,13 @@
       }
       kv2('Method', meth.name);
       if (meth.source) kv2('Source', meth.source);
-      if (m.settings.frictionMethod === 'ASHRAE') {
+      if (m.settings.frictionMethod !== 'DW') {
         var ka = m.settings.ashrae || FD.hydraulics.ASHRAE_DEFAULTS;
         var der = meth.derive({ ashrae: ka });
         kv2('Formula (as printed)',
             'Δh = ' + ka.K + ' · L · (V/C)^' + ka.a + ' · (1/D)^' + ka.e);
         kv2('Solved as', 'Δh = ' + der.A.toFixed(4) + ' · L · Q^' + der.a +
                          ' / ( C^' + der.b + ' · d^' + der.e.toFixed(4) + ' )');
-        kv2('Fittings', 'K velocity heads (Ch 22 Eq 7), ' +
-            FD.ktable.sets[(m.settings.dw && m.settings.dw.kSet) || 'threaded'].name);
-        var defA = FD.hydraulics.ASHRAE_DEFAULTS;
-        if (ka.K !== defA.K || ka.a !== defA.a || ka.e !== defA.e) {
-          kv2('NOTE', 'Constants have been EDITED from the ASHRAE defaults.');
-        }
-      } else if (m.settings.frictionMethod === 'HW') {
-        var kh = m.settings.hw;
-        kv2('Formula', 'hf = ' + kh.A + ' · L · Q^' + kh.a +
-                       ' / ( C^' + kh.b + ' · d^' + kh.e + ' )');
         var eset = FD.fittings.elSet(m.settings);
         kv2('Fittings', 'Equivalent length — ' + eset.source);
         /* Where one row of a table is not from that table, the sheet has to say
@@ -902,8 +892,8 @@
           kv2('NOTE', 'Equivalent lengths are USER-DEFINED and are not a ' +
                       'published table. Check them before issue.');
         }
-        var defH = FD.hydraulics.HW_DEFAULTS;
-        if (kh.A !== defH.A || kh.a !== defH.a || kh.b !== defH.b || kh.e !== defH.e) {
+        var defA = FD.hydraulics.ASHRAE_DEFAULTS;
+        if (ka.K !== defA.K || ka.a !== defA.a || ka.e !== defA.e) {
           kv2('NOTE', 'Constants have been EDITED from the ASHRAE defaults.');
         }
       } else {
@@ -2983,13 +2973,12 @@
     var fbox = el('div', 'formula-box');
     var eq = el('div', 'formula-eq');
 
-    var isASHRAE = (m.settings.frictionMethod === 'ASHRAE');
-    if (isASHRAE) {
+    if (!isDW) {
       /* Shown in ASHRAE's own VELOCITY form, with the printed constants
        * editable, so an engineer spot-checking against Ch 22 Eq (6) sees the
        * numbers that are on the page rather than a flow-form rearrangement.
        * The solver derives its coefficients from these — see
-       * hydraulics.methods.ASHRAE.derive — so editing them here really does
+       * hydraulics.methods.HW.derive — so editing them here really does
        * change the calculation. */
       var ka = m.settings.ashrae || FD.hydraulics.ASHRAE_DEFAULTS;
       function setA(field) {
@@ -3017,21 +3006,16 @@
       eq.appendChild(sup(coefInput(ka.e, setA('e'), 'Diameter exponent')));
       fbox.appendChild(eq);
 
-      var eq2 = el('div', 'formula-eq');
-      eq2.appendChild(el('span', 'fop', '+'));
-      eq2.appendChild(el('span', 'fop', ' Σ '));
-      eq2.appendChild(el('span', 'fvar', 'K'));
-      eq2.appendChild(el('span', 'fop', '·'));
-      eq2.appendChild(fraction([el('span', 'fvar', 'V'), sup(document.createTextNode('2'))],
-                               [document.createTextNode('2'), el('span', 'fvar', 'g')]));
-      fbox.appendChild(eq2);
-
+      /* No second line. This method charges fittings as EQUIVALENT LENGTH —
+       * they enter through L, not as a separate velocity-head term — so the
+       * "+ Σ K·V²/2g" that used to sit here belonged to a different method. */
       var legA = el('div', 'formula-legend');
-      var der = FD.hydraulics.methods.ASHRAE.derive({ ashrae: ka });
+      var der = FD.hydraulics.methods.HW.derive({ ashrae: ka });
       legA.innerHTML =
-        '<b>Δh</b> head loss (m) &nbsp;·&nbsp; <b>L</b> length (m) &nbsp;·&nbsp; ' +
+        '<b>Δh</b> head loss (m) &nbsp;·&nbsp; <b>L</b> effective length (m), ' +
+        'drawn length plus fitting equivalent lengths &nbsp;·&nbsp; ' +
         '<b>V</b> velocity (m/s) &nbsp;·&nbsp; <b>C</b> roughness coefficient &nbsp;·&nbsp; ' +
-        '<b>D</b> inner diameter (m) &nbsp;·&nbsp; <b>K</b> fitting coefficient<br>' +
+        '<b>D</b> inner diameter (m)<br>' +
         'Solved as Δh = ' + der.A.toFixed(4) + ' · L · Q<sup>' + der.a +
         '</sup> / ( C<sup>' + der.b + '</sup> · d<sup>' + der.e.toFixed(4) +
         '</sup> ), derived from the above by V = 4Q/πD².';
@@ -3046,42 +3030,6 @@
         toast('Reset to the 2021 ASHRAE Ch 22 constants.');
       });
       host.appendChild(resetA);
-
-    } else if (!isDW) {
-      var k = m.settings.hw;
-      eq.appendChild(el('span', 'fvar', 'h'));
-      eq.appendChild(el('sub', '', 'f'));
-      eq.appendChild(el('span', 'fop', '='));
-      eq.appendChild(fraction(
-        [coefInput(k.A, function (v) { pushUndo(); m.settings.hw.A = v; renderHydraulic(); redrawAll(); },
-                   'Leading coefficient'),
-         document.createTextNode(' · '), el('span', 'fvar', 'L'),
-         document.createTextNode(' · '), el('span', 'fvar', 'Q'),
-         sup(coefInput(k.a, function (v) { pushUndo(); m.settings.hw.a = v; renderHydraulic(); redrawAll(); },
-                       'Flow exponent'))],
-        [el('span', 'fvar', 'C'),
-         sup(coefInput(k.b, function (v) { pushUndo(); m.settings.hw.b = v; renderHydraulic(); redrawAll(); },
-                       'C-factor exponent')),
-         document.createTextNode(' · '), el('span', 'fvar', 'd'),
-         sup(coefInput(k.e, function (v) { pushUndo(); m.settings.hw.e = v; renderHydraulic(); redrawAll(); },
-                       'Diameter exponent'))]
-      ));
-      fbox.appendChild(eq);
-      var leg = el('div', 'formula-legend');
-      leg.innerHTML = '<b>h<sub>f</sub></b> head loss (m) &nbsp;·&nbsp; ' +
-        '<b>L</b> effective length (m) &nbsp;·&nbsp; <b>Q</b> flow (m³/s) &nbsp;·&nbsp; ' +
-        '<b>C</b> roughness coefficient &nbsp;·&nbsp; <b>d</b> inner diameter (m)';
-      fbox.appendChild(leg);
-      host.appendChild(fbox);
-
-      var reset = el('button', 'btn', 'Reset to ASHRAE SI defaults');
-      reset.addEventListener('click', function () {
-        pushUndo();
-        m.settings.hw = Object.assign({}, FD.hydraulics.HW_DEFAULTS);
-        renderHydraulic(); redrawAll();
-        toast('Hazen-Williams coefficients reset to ASHRAE SI.');
-      });
-      host.appendChild(reset);
 
     } else {
       eq.appendChild(el('span', 'fvar', 'h'));
@@ -3188,11 +3136,7 @@
      * invites entering numbers into the one that is being ignored. */
     if (!usesK) {
       h2('Fitting equivalent lengths');
-      hint('Used by Hazen-Williams only. Charged to the downstream pipe: a ' +
-           'dividing tee to its outlets, a combining tee to its inlets.');
-      hint('Read against NOMINAL size, in ' + lenUnitName + '. These are lengths ' +
-           'from a published table, not L/D ratios — nothing is multiplied by ' +
-           'a bore.');
+      hint('Read against NOMINAL size, in ' + lenUnitName + '.');
 
       var elKey = FD.fittings.elSetKey(m.settings);
       var elSet = FD.fittings.EL_SETS[elKey];
@@ -3218,15 +3162,6 @@
           m.settings.elSet = v;
           renderHydraulic(); redrawAll();
         });
-
-      /* Sizes below the first column clamp to it, which OVERSTATES them — both
-       * printed tables do carry smaller columns and this one starts at 25 mm.
-       * Worth saying, because the steel schedules go down to DN15. */
-      var smallest = FD.fittings.EL_DN[0];
-      host.appendChild(el('p', 'hint',
-        'The table starts at DN' + smallest + '. A smaller pipe is charged the ' +
-        'DN' + smallest + ' figure, which overstates it — both published tables ' +
-        'do give smaller columns.'));
 
       var wrapEl = el('div', 'table-scroll');
       var elTable = el('table', 'sheet editable');
@@ -3312,17 +3247,7 @@
 
     } else {
       h2('Fitting Coefficients K');
-      hint('ASHRAE (2021) Ch 22 Eq (7): Δp = K·ρ·V²/2, or h = K·V²/2g. ' +
-           'Used by both ASHRAE and Darcy-Weisbach — Darcy is itself a ' +
-           'velocity-head equation, so charging its fittings any other way ' +
-           'would mix two formulations.');
-      hint('Values are ASHRAE Tables 3 (threaded) and 4 (flanged/welded), which ' +
-           'both cite the Hydraulic Institute Engineering Data Book (1990). ' +
-           'Table 5 gives their range of variation: ±20–40% on a threaded ' +
-           'elbow, ±25% on a tee, and +200/−80% on a flanged check valve. ' +
-           'Override per project where it matters.');
-      hint('Connection type: a DN25 threaded elbow is K = 1.5 where the flanged ' +
-           'equivalent is 0.43.');
+      hint('ASHRAE (2021) Ch 22 Eq (7): Δp = K·ρ·V²/2, or h = K·V²/2g.');
       var kg = grid();
       selField(kg, 'Connection type',
         Object.keys(FD.ktable.sets).map(function (kk) { return [kk, FD.ktable.sets[kk].name]; }),
@@ -3336,13 +3261,7 @@
       var kBody = el('tbody');
       ['E90', 'E45', 'TRUN', 'TBRANCH', 'GATE', 'GLOBE', 'CHECK'].forEach(function (t) {
         var tr = el('tr');
-        var nameCell = el('td', 'txt', FD.fittings.label(t));
-        if (FD.ktable.isDerived(t, m.settings.dw.kSet)) {
-          nameCell.appendChild(el('span', 'flag', ' derived'));
-          nameCell.title = 'Not transcribed from the table — derived from the 90° elbow. ' +
-                           'See the provenance note in data/ktable.js.';
-        }
-        tr.appendChild(nameCell);
+        tr.appendChild(el('td', 'txt', FD.fittings.label(t)));
         [25, 50, 100].forEach(function (dn) {
           tr.appendChild(el('td', 'dim', FD.ktable.k(t, dn, m.settings.dw.kSet, null).toFixed(3)));
         });
@@ -3364,12 +3283,18 @@
       });
       kTable.appendChild(kBody);
       host.appendChild(kTable);
+      /* Michael's wording, verbatim. The provenance detail that used to follow
+       * it — the ±20/40% range of variation, and the history of the threaded
+       * 45° elbow column — lives in data/ktable.js and ARCHITECTURE §7 instead.
+       *
+       * Worth knowing when reading this line: the values in the app are
+       * transcribed from the page Michael supplied on 2026-08-02, which is
+       * headed Ch 22 Tables 3 and 4 (p.22.6). The citation here says Tables 1
+       * and 2 because that is the wording he asked for. Both are asserted
+       * cell-by-cell in engine.test.js against that page. */
       host.appendChild(el('p', 'legend',
-        'K source: ASHRAE Handbook — Fundamentals, Pipe Sizing, Table 1 (threaded) and ' +
-        'Table 2 (flanged/welded), transcribed from two independent copies. The threaded ' +
-        '45° elbow row is DERIVED from the 90° value — both copies returned a column ' +
-        'identical to the 90° elbow, which is physically wrong. ASHRAE notes threaded 90° ' +
-        'elbows vary ±20% above 2 in and ±40% below, so treat all of this as indicative.'));
+        'K source: ASHRAE Handbook — Fundamentals, Pipe Sizing, Table 1 (threaded) ' +
+        'and Table 2'));
     }
 
     // ------------------------------------------------------- warnings

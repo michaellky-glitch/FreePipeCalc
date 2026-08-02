@@ -63,6 +63,27 @@ already (spec Q12 notes).
 
 ### 2.3 The friction method is swappable
 
+**Two methods, and the fitting basis follows the method** (v0.9.0):
+
+| Key | Name | Pipe friction | Fittings |
+|---|---|---|---|
+| `HW` | Hazen-Williams (ASHRAE with Equivalent Lengths) | ASHRAE Ch 22 Eq (6) | equivalent length |
+| `DW` | Darcy-Weisbach (BETA) | Swamee-Jain friction factor | K velocity heads, Eq (7) |
+
+There were three until then: this one with K fittings, a second Hazen-Williams
+with equivalent length, and Darcy. The first two computed pipe loss
+*identically* — they were two roundings of the same ASHRAE equation, 0.035%
+apart — and differed only in how they charged fittings. So the menu offered what
+looked like two equations and was really one equation and two fitting bases.
+Collapsed at Michael's instruction; `'ASHRAE'` in a saved file migrates to
+`'HW'` on load.
+
+The survivor keeps the **printed velocity-form constants** (6.819 / 1.852 /
+1.167) and derives the flow form from them, rather than carrying the rounded
+published 10.67 / 4.8704. An engineer checking against the Handbook sees the
+numbers on the page, and editing them reaches the solve.
+
+
 The solver asks a link for a resistance `r` and an exponent `n` such that
 `h = r·|Q|^(n−1)·Q`. Hazen-Williams and Darcy-Weisbach both satisfy it.
 
@@ -297,9 +318,10 @@ Four things worth knowing:
   one — so in that set the row is Carrier's, carrying an asterisk, a footnote
   above the source line, and a line in the calculation-sheet appendix. A page
   headed by one source with a row from another has to say so on the page.
-* **The app's table starts at DN25**, at Michael's instruction, so a smaller
-  pipe clamps to the DN25 figure and is overstated. Both printed tables do carry
-  smaller columns and the steel schedules go down to DN15.
+* **The app's table starts at DN25** and smaller pipes clamp to that column —
+  confirmed by Michael, 2026-08-02, so DN15 and DN20 are charged the DN25
+  figure. Both printed tables do carry smaller columns, so this is a decision
+  rather than an oversight, and it is the conservative direction.
 
 Carrier's other columns — 90° long radius, 90° street, 45° street, 180°, and the
 two *reduced* straight-through cases — are not carried. The app infers a fitting
@@ -307,19 +329,21 @@ from the angle between two pipes, so it cannot tell a street elbow from a
 standard one or know a tee's reduction ratio; offering those columns would
 invite a choice the geometry cannot support.
 
-**How fittings are charged depends on the method.** Under **ASHRAE (2021)** —
-the default — and under **Darcy-Weisbach** they are velocity heads,
-`h = K·V²/2g`, from the Ch 22 K tables (Eq 7), carried as a *separate quadratic
-term* on the link. Only **Hazen-Williams** charges equivalent length, folded
-into the pipe's own resistance.
+**How fittings are charged follows the method.** **Darcy-Weisbach** charges
+velocity heads, `h = K·V²/2g`, from the Ch 22 K tables (Eq 7), carried as a
+*separate quadratic term* on the link. **Hazen-Williams** charges equivalent
+length, folded into the pipe's own resistance.
 
-Darcy moved to K on 2026-08-02 at Michael's instruction, and it is the
-consistent choice: Darcy-Weisbach is itself a velocity-head equation, so
-charging its fittings by an L/D allowance borrowed from a Hazen-Williams basis
-mixed two formulations for no reason. Because Darcy's pipe exponent is also 2,
-the K term *could* be folded into the pipe resistance there; it is kept separate
-anyway so there is one code path for K fittings and the sheet can report pipe
-and fittings apart. `r·Q² + rK·Q² = (r + rK)·Q²` either way.
+That pairing is the consistent one: Darcy-Weisbach is itself a velocity-head
+equation, so charging its fittings by an equivalent length borrowed from a
+Hazen-Williams basis mixed two formulations for no reason. Because Darcy's pipe
+exponent is also 2, the K term *could* be folded into the pipe resistance; it is
+kept separate anyway so there is one code path for K fittings and the sheet can
+report pipe and fittings apart. `r·Q² + rK·Q² = (r + rK)·Q²` either way.
+
+**A bullhead tee is charged as a branch on both legs**, in either basis. Nothing
+passes straight through one, so neither leg is a run (§7 "A bullhead tee has no
+run"), and every branch variant reads the same table row.
 
 Note that until 2026-07-31 the K tables were **dead data**: this document
 claimed Darcy charged velocity heads, but `headlossK` was never called and both
@@ -905,7 +929,7 @@ restating in the UI something the engine already knows.
 
 ## 15. Testing
 
-Six suites, 820 assertions, no dependencies:
+Six suites, 834 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -916,7 +940,7 @@ node test/closed.test.js     closed circuits, off pumps, equipment, tags
 node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 ```
 
-All 820 pass. The "Parallel pumps share in DESIGN" section of
+All 834 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change
