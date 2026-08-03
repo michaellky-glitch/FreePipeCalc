@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-02 (v0.10.1), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-03 (v0.10.2), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -27,7 +27,7 @@ Tests: `node test/<name>.test.js` — seven files, **979 assertions, all passing
 
 ---
 
-## 2. Where things stand (v0.10.1, 2026-08-02)
+## 2. Where things stand (v0.10.2, 2026-08-03)
 
 Nothing is BROKEN. The engine is green at **979 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
@@ -277,6 +277,12 @@ remembering as evidence for the "never invent" rule:
 ## 5. Conventions that must not be undone
 
 These were each arrived at by getting it wrong first.
+
+**UI text is terse.** A control gets a label; anything more goes behind a 🛈,
+briefly. The audience are Building Services Engineers who do not need a function
+explained to them. Long explanatory paragraphs in a panel are a bug, not
+documentation — the reasoning belongs in these files, where it costs no one a
+scroll. Michael's instruction, 2026-08-03, and it applies to every new control.
 
 **Never invent engineering data.** An unsourced L/D size-correction was written
 and then removed because *"an invented correction is not defensible to a checking

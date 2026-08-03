@@ -1170,6 +1170,18 @@ sibling file is blocked by the same rule that rules out ES modules. That is not
 a bug to fix; the tab detects it and says so, pointing at the files on disk.
 Serving the folder over HTTP makes it work.
 
+## 17A. UI text is terse
+
+A control gets a label. If a note is genuinely required it goes behind a 🛈
+hover, and it is brief even there. The audience are Building Services Engineers
+and they do not need a function explained to them.
+
+Long explanatory paragraphs in a panel are a **bug**, not documentation. The
+reasoning belongs in these files, where it costs no one a scroll — which is
+also why the comments in the source are as long as they are. Michael's
+instruction, 2026-08-03; roughly 40 lines of panel prose came out of THERMAL,
+the fluid selector, the schedule table and the device panels at v0.10.2.
+
 ## 17. If you are changing something
 
 * Adding a source file? Add it to `index.html`. If an engine test needs it, add
