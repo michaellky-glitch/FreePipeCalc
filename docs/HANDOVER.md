@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-03 (v0.10.2), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-03 (v0.10.3), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,15 +21,15 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **979 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1009 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. Where things stand (v0.10.2, 2026-08-03)
+## 2. Where things stand (v0.10.3, 2026-08-03)
 
-Nothing is BROKEN. The engine is green at **979 assertions** and the repository
+Nothing is BROKEN. The engine is green at **1009 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
 
 The big change since v0.5.0 is the **ASHRAE (2021) method**, now the default —
@@ -315,6 +315,11 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **Two EQUIPMENT TYPES** (v0.10.3) — Source / Sink and Heat Exchanger, split
+  on what you know at design, with capacity, ΔT and temperature limits and the
+  binding one reported. Replaces the dT/dQ modes. `ARCHITECTURE.md` §18.
+* **Valve opening is the full 0–100% range** in 1% steps (v0.10.3). It snapped
+  to five positions, which is not how a regulating valve is set.
 * **THE THERMAL MODULE** (v0.10.0) — the headline. `src/thermal.js` carries
   temperature along the solved flows: heat loss through insulation, mixing at
   junctions, and equipment duty from `Q = ṁ·Cp·ΔT`. New THERMAL tab, fluid
@@ -466,6 +471,38 @@ printing on real paper; the light theme.
   it is done, advancing the 0.7.x patch number; he will say when to move the
   first two digits.
 * `Previous Version/` holds archived releases (v0.2 → v0.6), gitignored.
+
+## 9A. NEXT: variable-speed pumps
+
+Michael's realisation, 2026-08-03, and it is the right one: a setpoint is only
+meaningful if something can modulate to reach it. His case — a waterside
+economizer with a T limit of 18 °C (ambient) and a setpoint of 25 °C — is a
+pump ramping *down* to hold 25, because less flow means more residence time and
+a closer approach to the air.
+
+**It breaks the one-way structure.** Everything so far is: solve hydraulics,
+then carry temperature along the answer, with no path back. A pump whose speed
+depends on a temperature closes that loop, so `solveModel` gains an outer
+iteration — guess speed, solve hydraulics, solve thermal, compare against the
+setpoint, adjust.
+
+Three things to get right, all of which this codebase has already learnt once:
+
+1. **Adjust on a stable quantity.** `autoSizePumps` is the precedent: it
+   iterates solve-and-adjust, converges from either side, and rolls back a step
+   that bought nothing. The equivalent trap here is chasing a setpoint using
+   the temperature error a pass is itself producing.
+2. **Say which pump serves which setpoint.** An explicit link on the pump —
+   "VSD, hold [equipment]'s setpoint" — rather than inferring it. Inferring
+   would break the moment two setpoints exist.
+3. **The direction is not obvious.** More flow does not always mean closer to
+   setpoint; on a heat exchanger it is the opposite of what it is on a source.
+   The control has to work from the sign of the error against the sign of
+   dT_out/dṁ, or find itself ramping the wrong way.
+
+Worth noting the payoff: with VSD in place, the SIMULATION question from
+2026-08-02 largely answers itself. A coil holding its leaving temperature by
+modulating flow *is* the controlled-coil case, solved rather than assumed.
 
 ## 9. Next version
 

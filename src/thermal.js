@@ -202,14 +202,83 @@
   }
 
   /* The duty a piece of equipment states, in watts, signed. Used for ranking
-   * above and for the dQ mode below. `C` is ṁ·Cp when a ΔT has to be turned
-   * into a duty. */
+   * which machine to pin a datum at, and nothing else — the real duty comes
+   * out of `equipOutlet` with its limits applied. */
   function statedDuty(m, p, res, C) {
     var e = p.equip || {};
-    if (e.thermalMode === 'dT') {
-      return (e.dT || 0) * C;
-    }
+    if (e.equipType === 'source') return Math.abs(e.qMax || 0);
+    if (e.thermalMode === 'dT') return (e.dT || 0) * C;
     return e.duty || 0;                  // watts, signed
+  }
+
+  /* ===================================================== EQUIPMENT TYPES
+   *
+   * Two, split on WHAT YOU KNOW AT DESIGN (Michael, 2026-08-03):
+   *
+   *   SOURCE / SINK   chiller, boiler, cooling tower.
+   *                   You state a LEAVING TEMPERATURE and the machine
+   *                   modulates its duty to hold it. Limited by capacity
+   *                   (qMax), by the maximum difference it can work across
+   *                   (dTMax), and by the temperature it physically cannot
+   *                   pass (tLimit — a tower cannot go below wet bulb).
+   *
+   *   HEAT EXCHANGER  AHU, FCU, plate HX.
+   *                   You state a LOAD and the temperature follows. Limited by
+   *                   dTMax and tLimit; there is no capacity limit because the
+   *                   duty IS the stated quantity.
+   *
+   * Sign is inferred, never selected: a setpoint below the inlet is cooling.
+   * qMax and dTMax are magnitudes.
+   *
+   * Q_load, ΔT and ṁ are locked by Q = ṁ·Cp·ΔT, so at design the exchanger
+   * takes any two and derives the third. The UI does that; the engine only
+   * ever sees the duty.
+   *
+   * Returns { tOut, limit } where `limit` names the binding constraint, or
+   * null when the machine is doing what it was asked. That name is the useful
+   * output — "CH-01 limited by ΔT_max" is the sentence an engineer wants. */
+  function equipOutlet(e, tIn, C) {
+    var lim = null;
+
+    function clampToLimit(t, from) {
+      /* A machine cannot take the fluid PAST its physical limit — a tower
+       * cannot cool below wet bulb, an economizer cannot go below ambient.
+       * Applied on whichever side the machine is working from. */
+      if (e.tLimit === undefined || e.tLimit === null || e.tLimit === '') return t;
+      var L = Number(e.tLimit);
+      if (!isFinite(L)) return t;
+      if (from > L && t < L) { lim = 'T limit'; return L; }
+      if (from < L && t > L) { lim = 'T limit'; return L; }
+      return t;
+    }
+
+    if (e.equipType === 'source') {
+      var set = Number(e.tSet);
+      if (!isFinite(set)) return { tOut: tIn, limit: null };
+      var want = set - tIn;                       // the ΔT it would like
+      var got = want;
+
+      var dTMax = Math.abs(Number(e.dTMax));
+      if (isFinite(dTMax) && dTMax > 0 && Math.abs(got) > dTMax) {
+        got = (got < 0 ? -1 : 1) * dTMax;
+        lim = 'ΔT max';
+      }
+      var qMax = Math.abs(Number(e.qMax));
+      if (isFinite(qMax) && qMax > 0 && C > 0 && Math.abs(got * C) > qMax) {
+        got = (got < 0 ? -1 : 1) * qMax / C;
+        lim = 'Capacity';
+      }
+      return { tOut: clampToLimit(tIn + got, tIn), limit: lim };
+    }
+
+    /* HEAT EXCHANGER — the load is stated, the temperature follows. */
+    var dT = (C > 0) ? (Number(e.duty) || 0) / C : 0;
+    var dTx = Math.abs(Number(e.dTMax));
+    if (isFinite(dTx) && dTx > 0 && Math.abs(dT) > dTx) {
+      dT = (dT < 0 ? -1 : 1) * dTx;
+      lim = 'ΔT max';
+    }
+    return { tOut: clampToLimit(tIn + dT, tIn), limit: lim };
   }
 
   /* Solve. Returns null when there is nothing to say — no flow anywhere. */
@@ -292,9 +361,7 @@
         return pipeOutlet(tIn, prm.ambient, c.UperM, c.L, c.mdot, cp);
       }
       if (p.kind === 'equip' && p.equip && !p.equip.off) {
-        var e = p.equip;
-        if (e.thermalMode === 'dT') return tIn + (e.dT || 0);
-        return tIn + (c.C > 0 ? (e.duty || 0) / c.C : 0);
+        return equipOutlet(p.equip, tIn, c.C).tOut;
       }
       /* Pumps, valves, isolated equipment: straight through. */
       return tIn;
@@ -337,53 +404,117 @@
         return { a: e, b: prm.ambient * (1 - e) };
       }
       if (p.kind === 'equip' && p.equip && !p.equip.off) {
+        /* Piecewise linear: which branch applies depends on the inlet
+         * temperature, which is what the solve is for. The ACTIVE SET is
+         * frozen for this pass — `c.active` — and the outer loop below
+         * re-solves until it stops changing. Freezing it is the whole trick,
+         * and it is the same lesson check-valve seating taught (ARCHITECTURE
+         * §6): decide from a stable quantity, not from the answer you are
+         * computing, or it oscillates. */
         var eq = p.equip;
-        if (eq.thermalMode === 'dT') return { a: 1, b: (eq.dT || 0) };
-        return { a: 1, b: (c.C > 0 ? (eq.duty || 0) / c.C : 0) };
+        var act = c.active;
+        if (act === 'setpoint') return { a: 0, b: Number(eq.tSet) };
+        if (act === 'tlimit') return { a: 0, b: Number(eq.tLimit) };
+        if (act === 'dtmax') return { a: 1, b: c.activeDT };
+        if (act === 'capacity') return { a: 1, b: c.activeDT };
+        /* Load-led with nothing binding: a constant duty. */
+        return { a: 1, b: (c.C > 0 ? (Number(eq.duty) || 0) / c.C : 0) };
       }
       return { a: 1, b: 0 };                              // pump, valve
     }
 
-    var A = [], bvec = [];
-    for (var r = 0; r < N; r++) {
-      A.push(new Array(N).fill(0));
-      bvec.push(0);
-    }
-    ids.forEach(function (id, i) {
-      if (ref.refs[id] !== undefined) {          // a known temperature
-        A[i][i] = 1; bvec[i] = ref.refs[id];
-        return;
+    /* ---- ACTIVE SET -----------------------------------------------------
+     *
+     * A clamp makes the system piecewise linear: which branch of an equipment
+     * relation applies depends on its inlet temperature, which is what the
+     * solve produces. So the active set is FROZEN, the (now linear) system is
+     * solved exactly, the set is recomputed from the answer, and it repeats
+     * until nothing changes.
+     *
+     * This is the same shape of problem as check-valve seating, and it carries
+     * the same trap (ARCHITECTURE §6): decide from a STABLE quantity, not from
+     * the answer being computed. Here the deciding quantity is the inlet
+     * temperature, which the previous pass fixes — so a pass cannot flip a
+     * limit on the strength of a duty it is itself producing. It settles in
+     * two or three passes; the cap exists so a pathological model reports
+     * rather than hangs. */
+    function assembleAndSolve() {
+      var A = [], bvec = [];
+      for (var r = 0; r < N; r++) {
+        A.push(new Array(N).fill(0));
+        bvec.push(0);
       }
-      var arriving = inTo[id];
-      if (!arriving || !arriving.length) {
-        /* Nothing feeds it — a dead end off the flowing network. Hold it at
-         * the seed rather than leaving the row singular. */
-        A[i][i] = 1; bvec[i] = seed;
-        return;
-      }
-      var den = 0;
-      arriving.forEach(function (c) { den += c.mdot; });
-      if (!(den > 0)) { A[i][i] = 1; bvec[i] = seed; return; }
+      ids.forEach(function (id, i) {
+        if (ref.refs[id] !== undefined) {
+          A[i][i] = 1; bvec[i] = ref.refs[id];
+          return;
+        }
+        var arriving = inTo[id];
+        if (!arriving || !arriving.length) { A[i][i] = 1; bvec[i] = seed; return; }
+        var den = 0;
+        arriving.forEach(function (c) { den += c.mdot; });
+        if (!(den > 0)) { A[i][i] = 1; bvec[i] = seed; return; }
 
-      A[i][i] = 1;
-      arriving.forEach(function (c) {
-        var co = outletCoef(c);
-        var w = c.mdot / den;
-        A[i][index[c.from]] -= w * co.a;
-        bvec[i] += w * co.b;
+        A[i][i] = 1;
+        arriving.forEach(function (c) {
+          var co = outletCoef(c);
+          var w = c.mdot / den;
+          A[i][index[c.from]] -= w * co.a;
+          bvec[i] += w * co.b;
+        });
       });
-    });
+      return FD.solver.solveLinear(A, bvec);
+    }
 
-    var solved = FD.solver.solveLinear(A, bvec);
-    var singular = !solved;
-    if (solved) {
+    /* Which branch each equipment link is on, from the inlet temperature the
+     * last pass produced. Returns a fingerprint so a repeat can be detected. */
+    function refreshActiveSet() {
+      var sig = [];
+      carriers.forEach(function (c) {
+        var p = c.pipe;
+        if (p.kind !== 'equip' || !p.equip || p.equip.off) return;
+        var e = p.equip;
+        var tIn = T[c.from];
+        var r2 = equipOutlet(e, tIn, c.C);
+        c.activeDT = r2.tOut - tIn;
+        c.limit = r2.limit;
+        if (e.equipType === 'source') {
+          c.active = r2.limit === 'T limit' ? 'tlimit'
+                   : r2.limit === 'ΔT max' ? 'dtmax'
+                   : r2.limit === 'Capacity' ? 'capacity'
+                   : 'setpoint';
+        } else {
+          c.active = r2.limit === 'T limit' ? 'tlimit'
+                   : r2.limit === 'ΔT max' ? 'dtmax'
+                   : null;
+        }
+        sig.push(c.pipe.id + ':' + c.active);
+      });
+      return sig.join('|');
+    }
+
+    var MAX_SETS = 30;
+    var solved = null, singular = false, sig = refreshActiveSet(), passes = 0;
+    for (var pass = 0; pass < MAX_SETS; pass++) {
+      passes = pass + 1;
+      solved = assembleAndSolve();
+      if (!solved) { singular = true; break; }
       ids.forEach(function (id, i) {
         if (isFinite(solved[i])) T[id] = solved[i];
       });
-    } else {
-      /* Singular only when the temperature genuinely is not determined — no
-       * reference and no tie to ambient anywhere, which referenceNodes is
-       * supposed to have pinned. Reported rather than papered over. */
+      var next = refreshActiveSet();
+      if (next === sig) break;
+      sig = next;
+    }
+    if (!singular && passes >= MAX_SETS) {
+      warnings.push({
+        code: 'THERMAL_LIMIT_OSCILLATION',
+        message: 'Which equipment limit binds kept changing over ' + MAX_SETS +
+                 ' passes. The last answer is reported; check for two machines ' +
+                 'fighting for the same setpoint.'
+      });
+    }
+    if (singular) {
       warnings.push({
         code: 'THERMAL_SINGULAR',
         message: 'The temperature field has no unique solution: nothing sets a ' +
@@ -392,10 +523,11 @@
       });
     }
     var converged = !singular;
-    var iterations = 1;
+    var iterations = passes;
 
     // ---- report per link ----
     var links = {};
+    var limited = [];
     var pipeLoss = 0, equipDuty = 0;
     carriers.forEach(function (c) {
       var tIn = T[c.from];
@@ -408,8 +540,15 @@
       links[c.pipe.id] = {
         kind: c.pipe.kind, tIn: tIn, tOut: tOut, dT: tOut - tIn,
         qW: qW, mdot: c.mdot, C: c.C,
-        UperM: c.UperM, length: c.L
+        UperM: c.UperM, length: c.L,
+        /* Which constraint stopped it doing what it was asked, or null. This
+         * is the useful output of the whole limit machinery: "CH-01 limited by
+         * ΔT max" beats an unexplained leaving temperature. */
+        limit: (c.limit === undefined ? null : c.limit)
       };
+      if (c.limit) {
+        limited.push({ pipe: c.pipe.id, tag: c.pipe.tag || null, limit: c.limit });
+      }
       if (c.pipe.kind === 'pipe' || c.pipe.kind === 'riser') pipeLoss += qW;
       else if (c.pipe.kind === 'equip') equipDuty += qW;
     });
@@ -430,6 +569,14 @@
      * conditional on a system that cannot exist. The band is adjustable: what
      * counts as absurd depends on the service, and the default ±50 °C suits
      * chilled water rather than LTHW. */
+    limited.forEach(function (L) {
+      warnings.push({
+        code: 'EQUIP_LIMITED', pipe: L.pipe, limit: L.limit,
+        message: (L.tag || L.pipe) + ' is limited by ' + L.limit +
+                 ' and is not reaching its setpoint.'
+      });
+    });
+
     var errors = [];
     var outside = [];
     Object.keys(T).forEach(function (id) {
@@ -459,6 +606,7 @@
       temperature: T,
       links: links,
       floating: !!ref.floating,
+      limited: limited,
       /* At steady state everything put in has to come out. For a floating
        * system this IS the convergence criterion in physical terms, and it is
        * worth reporting: a residual that is not near zero means the iteration

@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 979
+This is deliberately separate from the automated suites. Those cover 1009
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-02 (v0.10.1)
+Last updated: 2026-08-03 (v0.10.3)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -208,6 +208,17 @@ sets need Michael's eye before anything is issued.
 | 4E.4 | Equipment: Hydraulics header, thermal dropdown | ⬜ | "Solve Q from ΔT" / "Solve ΔT from Q". |
 | 4E.5 | **A 100 kW load with no heat rejection** | ⬜ | **Your test case, and it found a real design fault.** The datum pinning would have held the loop at the flow temperature and reported a system that never warms. Ambient is a reference, so a pin is now only used when there is no source *and* no ambient coupling. The loop settles where the pipes shed exactly what the load puts in — 63–64 °C for 100 kW into 800 m of bare DN100, energy balance closing to 0 W. |
 | 4E.6 | Runaway guard | ⬜ | Your alternative, kept alongside the equilibrium rather than instead of it. Outside the band it is an **error**, clears `converged`, and takes the status chip — but the temperatures are still reported, because the answer is not wrong, it is implausible, and hiding it leaves nothing to diagnose from. |
+
+## 4F. Equipment types (v0.10.3)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| 4F.1 | Source / Sink and Heat Exchanger | ⬜ | Setpoint-led and load-led. Verified against hand calculations: a 100 kW chiller asked for 6 °C from an 18 °C inlet leaves at 13.21 °C and reports "Limited by Capacity". |
+| 4F.2 | Capacity vs ΔT max | ⬜ | Both are needed and bind in different places — the same machine swaps from capacity-limited to ΔT-limited at a quarter of the flow. Worth confirming that matches your plant data. |
+| 4F.3 | T limit | ⬜ | Your economizer case: setpoint 25 °C, limit 18 °C. Holds 25; asked for 12 it reaches 18 and stops, reporting "T limit". |
+| 4F.4 | Load ↔ ΔT are locked | ⬜ | Both boxes offered on an exchanger; each rewrites the other at the rated flow. The model stores duty. |
+| 4F.5 | Valve opening 0–100%, 1% steps | ⬜ | Slider plus a typed box. The Kv curve is still tabulated at the quarter points and interpolated between them — **that interpolation is a shape, not measured data**, same caveat as the Kv values themselves. |
+| 4F.6 | **Variable-speed pumps** | ⬜ | **NOT BUILT.** Your realisation that setpoints need pump modulation is right, and it is the next significant piece — see HANDOVER §9. |
 
 ## 5. Output
 

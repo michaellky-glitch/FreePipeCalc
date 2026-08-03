@@ -1941,72 +1941,98 @@
     host.appendChild(del);
   }
 
-  /* Equipment's thermal side: Q = ṁ·Cp·ΔT, entered from whichever end you
-   * know.
+  /* Equipment's thermal side.
    *
-   * ONE toggle serves DESIGN and SIMULATION, which is worth knowing because it
-   * looked like two features when it was asked for:
+   * TWO TYPES, split on what you know at design (Michael, 2026-08-03):
    *
-   *   ΔT  — state the temperature difference. Duty follows, and in SIMULATION
-   *         it FLOATS with flow. This is a coil under control, holding its
-   *         leaving temperature.
-   *   Q   — state the duty. ΔT follows, and in SIMULATION the duty is HELD as
-   *         flow changes. This is a fixed load: IT equipment, a process, an
-   *         electric heater.
+   *   Source / Sink   chiller, boiler, tower. State a leaving temperature;
+   *                   duty follows, limited by capacity, ΔT and a physical
+   *                   temperature limit.
+   *   Heat Exchanger  AHU, FCU, HX. State a load; temperature follows,
+   *                   limited by ΔT and the same temperature limit.
    *
-   * Those two are not a pair of approximations picked for convenience. They
-   * are the asymptotes of the real effectiveness model,
-   * Q = ṁCp(T_in−T_sec)(1−e^(−UA/ṁCp)): at high flow it tends to constant
-   * duty, at low flow to constant ΔT. So they bracket the truth and each is
-   * exact for a real class of plant. */
+   * On an exchanger Q, ΔT and ṁ are locked by Q = ṁ·Cp·ΔT, so both are offered
+   * and each rewrites the other — the model stores the duty, so the engine
+   * only ever sees one quantity. */
   function renderEquipThermal(host, p) {
     var m = app.model;
     var e = p.equip;
-    if (e.thermalMode !== 'dT' && e.thermalMode !== 'dQ') e.thermalMode = 'dT';
-    var byDT = (e.thermalMode === 'dT');
-
-    host.appendChild(el('h3', 'sub', 'Thermal'));
-
-    /* A dropdown rather than a slider (Michael, 2026-08-02). A two-state
-     * switch reads as on/off, and neither of these is off — they are two ways
-     * of stating the same equation, and the labels have to say which is being
-     * solved FOR. */
-    var modeSel = el('select');
-    [['dT', 'Solve Q from ΔT'], ['dQ', 'Solve ΔT from Q']].forEach(function (o) {
-      var opt = el('option', '', o[1]); opt.value = o[0];
-      if (o[0] === e.thermalMode) opt.selected = true;
-      modeSel.appendChild(opt);
-    });
-    field(host, 'Mode', modeSel).addEventListener('change', function () {
-      pushUndo();
-      e.thermalMode = modeSel.value;
-      renderProperties(); changed();
-    });
-
-    var d = m.settings.display;
-    if (byDT) {
-      var tIn = el('input'); tIn.type = 'text';
-      tIn.value = (e.dT !== undefined ? e.dT : 0);
-      field(host, 'Temperature difference (K)', tIn)
-        .addEventListener('change', function () {
-          var v = FD.units.parse(tIn.value);
-          if (isFinite(v)) { pushUndo(); e.dT = v; changed(); }
-          else { tIn.value = e.dT || 0; }
-        });
-    } else {
-      var qIn = el('input'); qIn.type = 'text';
-      qIn.value = ((e.duty || 0) / 1000);
-      field(host, 'Duty (kW)', qIn)
-        .addEventListener('change', function () {
-          var v = FD.units.parse(qIn.value);
-          if (isFinite(v)) { pushUndo(); e.duty = v * 1000; changed(); }
-          else { qIn.value = (e.duty || 0) / 1000; }
-        });
+    if (e.equipType !== 'source' && e.equipType !== 'exchanger') {
+      e.equipType = 'exchanger';
     }
-    var sgn = el('p', 'hint', '− removes heat · + adds it. ');
-    infoMark(sgn, 'About the fluid, not the room. A CHW coil is + : the room ' +
-                  'is cooled, the water warmed.');
-    host.appendChild(sgn);
+    var isSource = (e.equipType === 'source');
+
+    var th = el('h3', 'sub', 'Thermal');
+    infoMark(th, '− removes heat from the fluid, + adds it. A CHW coil is +.');
+    host.appendChild(th);
+
+    var typeSel = el('select');
+    [['source', 'Source / Sink'], ['exchanger', 'Heat Exchanger']].forEach(function (o) {
+      var opt = el('option', '', o[1]); opt.value = o[0];
+      if (o[0] === e.equipType) opt.selected = true;
+      typeSel.appendChild(opt);
+    });
+    field(host, 'Type', typeSel).addEventListener('change', function () {
+      pushUndo(); e.equipType = typeSel.value; renderProperties(); changed();
+    });
+
+    function num(label, get, set, hoverText) {
+      var i = el('input'); i.type = 'text';
+      var v = get();
+      i.value = (v === undefined || v === null || v === '') ? '' : v;
+      var f = field(host, label, i);
+      if (hoverText) infoMark(f.parentNode.querySelector('label'), hoverText);
+      i.addEventListener('change', function () {
+        var raw = i.value.trim();
+        pushUndo();
+        if (raw === '') set(undefined);
+        else {
+          var n = FD.units.parse(raw);
+          if (!isFinite(n)) { renderProperties(); return; }
+          set(n);
+        }
+        renderProperties(); changed();
+      });
+      return i;
+    }
+
+    if (isSource) {
+      num('Setpoint (°C)', function () { return e.tSet; },
+          function (v) { e.tSet = v; });
+      num('Q max (kW)',
+          function () { return e.qMax === undefined ? '' : e.qMax / 1000; },
+          function (v) { e.qMax = (v === undefined ? undefined : v * 1000); },
+          'Capacity. Binds at high flow. Blank = unlimited.');
+      num('ΔT max (K)', function () { return e.dTMax; },
+          function (v) { e.dTMax = v; },
+          'Largest difference it can work across. Binds at low flow.');
+      num('T limit (°C)', function () { return e.tLimit; },
+          function (v) { e.tLimit = v; },
+          'Temperature it cannot pass — wet bulb on a tower, ambient on an ' +
+          'economizer.');
+    } else {
+      /* Q and ΔT are the same statement at the rated flow. Both offered; each
+       * rewrites the other, and the model stores the duty. */
+      num('Load (kW)',
+          function () { return e.duty === undefined ? '' : e.duty / 1000; },
+          function (v) { e.duty = (v === undefined ? undefined : v * 1000); });
+      var C = M.equipRatedC(m, p);
+      num('ΔT at design (K)',
+          function () {
+            return C > 0 ? Math.round(M.equipDTFromDuty(m, p, e.duty || 0) * 1000) / 1000 : '';
+          },
+          function (v) {
+            e.duty = (v === undefined) ? undefined : M.equipDutyFromDT(m, p, v);
+          },
+          'Locked to the load by Q = ṁ·Cp·ΔT at the design flow. Setting ' +
+          'either rewrites the other.');
+      num('ΔT max (K)', function () { return e.dTMax; },
+          function (v) { e.dTMax = v; },
+          'Caps the difference at part load, so duty falls off instead.');
+      num('T limit (°C)', function () { return e.tLimit; },
+          function (v) { e.tLimit = v; },
+          'Temperature it cannot pass — entering air on a coil.');
+    }
 
     var res = app.results;
     var link = res && res.thermal && res.thermal.links[p.id];
@@ -2016,9 +2042,8 @@
       tb.ro('Outlet', link.tOut.toFixed(2) + ' °C');
       tb.ro('ΔT', (link.dT >= 0 ? '+' : '') + link.dT.toFixed(2) + ' K');
       tb.ro('Duty', (link.qW >= 0 ? '+' : '') + (link.qW / 1000).toFixed(2) + ' kW');
-      tb.ro('Mass flow', link.mdot.toFixed(3) + ' kg/s');
+      if (link.limit) tb.ro('Limited by', link.limit);
     }
-    void d;
   }
 
   /* Valves are sized by flow coefficient. Kv and Cv are the same number in
@@ -2046,34 +2071,41 @@
       renderProperties(); changed();
     });
 
-    /* Opening as a SLIDER snapped to the five documented positions. A dropdown
-     * hid the fact that this is a continuum being sampled, and made comparing
-     * positions a menu-open away; a slider shows travel at a glance, which is
-     * what "how far open is that valve" means. */
+    /* Opening is the full range in 1% steps (Michael, 2026-08-03). It snapped
+     * to five positions, which is not how a regulating valve is set — a
+     * balancing valve lands wherever it lands. The Kv curve is still tabulated
+     * at the quarter points and interpolated between them.
+     *
+     * A slider with a typed box beside it: the slider shows travel at a
+     * glance, the box sets an exact figure without hunting for it. */
     if (t.adjustable) {
       var openWrap = el('div', 'field');
-      var openLbl = el('label', '', 'Opening');
-      openWrap.appendChild(openLbl);
+      openWrap.appendChild(el('label', '', 'Opening (%)'));
+      var openRow = el('div', 'slider-row');
       var slider = el('input');
-      slider.type = 'range'; slider.min = '0'; slider.max = '100'; slider.step = '25';
+      slider.type = 'range'; slider.min = '0'; slider.max = '100'; slider.step = '1';
       slider.value = String(v.opening === undefined ? 100 : v.opening);
-      var readout = el('span', 'hint', slider.value + '% open' +
-                       (Number(slider.value) === 0 ? ' (shut)' : ''));
-      slider.addEventListener('input', function () {
-        readout.textContent = slider.value + '% open' +
-          (Number(slider.value) === 0 ? ' (shut)' : '');
-      });
-      slider.addEventListener('change', function () {
-        pushUndo(); v.opening = parseInt(slider.value, 10);
-        renderProperties(); changed();
-      });
-      openWrap.appendChild(slider);
-      openWrap.appendChild(readout);
+      var box = el('input', 'cell-input tiny-num');
+      box.type = 'text'; box.value = slider.value;
+      function setOpen(val, rerender) {
+        var n = Math.max(0, Math.min(100, Math.round(Number(val))));
+        if (!isFinite(n)) return;
+        slider.value = String(n); box.value = String(n);
+        if (rerender) { pushUndo(); v.opening = n; renderProperties(); changed(); }
+      }
+      slider.addEventListener('input', function () { box.value = slider.value; });
+      slider.addEventListener('change', function () { setOpen(slider.value, true); });
+      box.addEventListener('change', function () { setOpen(box.value, true); });
+      openRow.appendChild(slider);
+      openRow.appendChild(box);
+      openWrap.appendChild(openRow);
+      if (Number(slider.value) === 0) {
+        openWrap.appendChild(el('span', 'hint', 'Shut.'));
+      }
       host.appendChild(openWrap);
     } else {
       host.appendChild(el('p', 'hint',
-        'A check valve is not user-positioned — it opens with forward flow and ' +
-        'seats against reverse flow automatically.'));
+        'Opens with forward flow, seats against reverse. Not user-positioned.'));
     }
 
     /* ONE coefficient, not both. Kv and Cv are the same quantity in different

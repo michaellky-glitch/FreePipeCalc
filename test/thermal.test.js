@@ -202,59 +202,50 @@ section('Equipment: dT and dQ are the same equation read two ways');
   const flow = 0.005;
   const C = RHO * flow * CP;              // 20893.13 W/K
 
-  // --- dT mode: state the difference, the duty follows ---
+  // --- a HEAT EXCHANGER: state the load, the temperature follows ---
   {
-    const t = withEquip({ thermalMode: 'dT', dT: 6 }, flow);
+    const t = withEquip({ equipType: 'exchanger', duty: C * 6 }, flow);
     const res = NET.solveModel(t.m);
     const link = res.thermal.links[t.e.id];
-    near('dT mode holds the stated difference', link.dT, 6, 1e-9);
-    near('...and the duty is mdot.Cp.dT', link.qW, C * 6, 1e-6);
+    near('The stated load is delivered', link.qW, C * 6, 1e-6);
+    near('...and the difference is Q/(mdot.Cp)', link.dT, 6, 1e-9);
     near('...which is 125.36 kW', link.qW / 1000, 125.359, 0.01);
-    ok('A positive dT adds heat to the fluid', link.qW > 0);
+    ok('A positive load adds heat to the fluid', link.qW > 0);
 
-    /* Halve the flow and the difference is UNCHANGED — that is what dT mode
-     * means — so the duty halves. This is the controlled-coil case. */
-    const half = withEquip({ thermalMode: 'dT', dT: 6 }, flow / 2);
+    /* Halve the flow and the DUTY is unchanged — that is what load-led means —
+     * so the difference doubles. */
+    const half = withEquip({ equipType: 'exchanger', duty: C * 6 }, flow / 2);
     const halfLink = NET.solveModel(half.m).thermal.links[half.e.id];
-    near('At half flow the difference is unchanged', halfLink.dT, 6, 1e-9);
-    near('...so the duty halves', halfLink.qW, link.qW / 2, Math.abs(link.qW) * 1e-6);
+    near('At half flow the load is unchanged', halfLink.qW, C * 6, 1e-6);
+    near('...so the difference doubles', halfLink.dT, 12, 1e-6);
   }
 
-  // --- dQ mode: state the duty, the difference follows ---
+  // A negative load is a chiller-side exchanger: the water leaves colder.
   {
-    const duty = -125359;                 // W, negative: a chiller
-    const t = withEquip({ thermalMode: 'dQ', duty: duty }, flow);
-    const res = NET.solveModel(t.m);
-    const link = res.thermal.links[t.e.id];
-    near('dQ mode holds the stated duty', link.qW, duty, 1e-6);
-    near('...and the difference is Q/(mdot.Cp)', link.dT, duty / C, 1e-9);
-    near('...which is -6.0 K', link.dT, -6, 1e-3);
-    ok('A negative duty removes heat, so the water leaves colder',
-       link.tOut < link.tIn);
-
-    /* Halve the flow and the DUTY is unchanged — that is what dQ mode means —
-     * so the difference doubles. This is the fixed-load case. */
-    const half = withEquip({ thermalMode: 'dQ', duty: duty }, flow / 2);
-    const halfLink = NET.solveModel(half.m).thermal.links[half.e.id];
-    near('At half flow the duty is unchanged', halfLink.qW, duty, 1e-6);
-    near('...so the difference doubles', halfLink.dT, link.dT * 2, 1e-6);
+    const duty = -125359;
+    const t = withEquip({ equipType: 'exchanger', duty: duty }, flow);
+    const link = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('A negative load is held too', link.qW, duty, 1e-6);
+    near('...and the difference is -6.0 K', link.dT, -6, 1e-3);
+    ok('...so the water leaves colder', link.tOut < link.tIn);
   }
 
-  /* The two modes AGREE at the design point, which is the check that they are
-   * one equation and not two. A dT of 6 K and a duty of mdot.Cp.6 must give
-   * identical temperatures at the same flow. */
+  /* Q, ΔT and ṁ are LOCKED by Q = ṁ·Cp·ΔT, so stating a ΔT at design is the
+   * same statement as stating the duty it implies at the rated flow. The model
+   * helpers do that conversion, and it must round-trip exactly. */
   {
-    const byDT = withEquip({ thermalMode: 'dT', dT: 6 }, flow);
-    const byDQ = withEquip({ thermalMode: 'dQ', duty: C * 6 }, flow);
-    const l1 = NET.solveModel(byDT.m).thermal.links[byDT.e.id];
-    const l2 = NET.solveModel(byDQ.m).thermal.links[byDQ.e.id];
-    near('The two modes agree at the design point', l2.tOut, l1.tOut, 1e-9);
-    near('...on duty as well', l2.qW, l1.qW, 1e-6);
+    const t = withEquip({ equipType: 'exchanger', duty: 0 }, flow);
+    const duty = M.equipDutyFromDT(t.m, t.e, 6);
+    near('A stated ΔT converts to the duty it means', duty, C * 6, 1e-6);
+    near('...and back again', M.equipDTFromDuty(t.m, t.e, duty), 6, 1e-12);
+    t.e.equip.duty = duty;
+    near('...and the solve agrees',
+         NET.solveModel(t.m).thermal.links[t.e.id].dT, 6, 1e-9);
   }
 
   // Isolated equipment does nothing thermally.
   {
-    const t = withEquip({ thermalMode: 'dT', dT: 6, off: true }, flow);
+    const t = withEquip({ equipType: 'exchanger', duty: C * 6, off: true }, flow);
     const res = NET.solveModel(t.m);
     ok('Isolated equipment is out of the circuit entirely',
        res.thermal === null || res.thermal.links[t.e.id] === undefined);
@@ -335,9 +326,9 @@ section('A closed circuit pins its own reference temperature');
   const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
   pump.pump = { mode: 'auto', head: 5 };
   const chiller = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
-  chiller.equip = { qRated: 0.010, pdRated: 40e3, thermalMode: 'dQ', duty: -100000 };
+  chiller.equip = { qRated: 0.010, pdRated: 40e3, equipType: 'exchanger', duty: -100000 };
   const coil = M.addPipe(m, n[2].id, n[3].id, { kind: 'equip' });
-  coil.equip = { qRated: 0.010, pdRated: 30e3, thermalMode: 'dQ', duty: 100000 };
+  coil.equip = { qRated: 0.010, pdRated: 30e3, equipType: 'exchanger', duty: 100000 };
   M.addPipe(m, n[3].id, back.id, { size: 'DN50', schedule: 'sch40' });
   M.addPipe(m, back.id, n[0].id, { size: 'DN50', schedule: 'sch40' });
   m.pipes.forEach(p => { p.insulation_mm = 0; });
@@ -543,7 +534,7 @@ section('A 100 kW load with no heat rejection finds its own equilibrium');
     const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
     pump.pump = { mode: 'auto', head: 10 };
     const load = M.addPipe(m, b.id, c.id, { kind: 'equip' });
-    load.equip = { qRated: 0.020, pdRated: 50e3, thermalMode: 'dQ', duty: loadW };
+    load.equip = { qRated: 0.020, pdRated: 50e3, equipType: 'exchanger', duty: loadW };
     /* Bare pipework, so it can actually reject heat. Out and back. */
     const out = M.addPipe(m, c.id, d.id, { size: 'DN100', schedule: 'sch40' });
     const ret = M.addPipe(m, d.id, a.id, { size: 'DN100', schedule: 'sch40' });
@@ -645,7 +636,7 @@ section('Temperatures outside the plausible band are an error');
     const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
     pump.pump = { mode: 'auto', head: 10 };
     const load = M.addPipe(m, b.id, c.id, { kind: 'equip' });
-    load.equip = { qRated: 0.020, pdRated: 50e3, thermalMode: 'dQ', duty: loadW };
+    load.equip = { qRated: 0.020, pdRated: 50e3, equipType: 'exchanger', duty: loadW };
     const out = M.addPipe(m, c.id, d.id, { size: 'DN100', schedule: 'sch40' });
     const ret = M.addPipe(m, d.id, a.id, { size: 'DN100', schedule: 'sch40' });
     var t = (ins === undefined) ? 50 : ins;
@@ -716,6 +707,161 @@ section('Temperatures outside the plausible band are an error');
   lthw.settings.thermal.tempMax = 120;
   ok('...and is accepted once the band matches the service',
      !(NET.solveModel(lthw).errors || []).some(e => e.code === 'THERMAL_LIMIT'));
+}
+
+/* --------------------------------------------------------------------------
+ * SOURCE / SINK: state a leaving temperature, the duty follows.
+ *
+ * A chiller, boiler or cooling tower modulates to hold its setpoint, limited by
+ * three things that bind in different places:
+ *
+ *   capacity  qMax   — binds at HIGH flow, where a small ΔT is still a big duty
+ *   ΔT max    dTMax  — binds at LOW flow, where a small duty is still a big ΔT
+ *   T limit   tLimit — the temperature it physically cannot pass: a tower
+ *                      cannot go below wet bulb, an economizer below ambient
+ *
+ * Which one binds is reported, because "CH-01 limited by ΔT max" is the
+ * sentence an engineer wants rather than an unexplained leaving temperature.
+ * ----------------------------------------------------------------------- */
+section('Source / Sink holds a setpoint until a limit binds');
+{
+  function plant(equip, flow, inletT) {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: inletT, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), j = M.addNode(m, lv, 1, 0);
+    const k = M.addNode(m, lv, 2, 0), b = M.addNode(m, lv, 3, 0);
+    M.setSource(m, a.id, 600e3); a.device.temperature = inletT;
+    b.device = { kind: 'demand', flow: flow, reqPressure: 100e3, include: true };
+    M.addPipe(m, a.id, j.id, { size: 'DN50', schedule: 'sch40' });
+    const e = M.addPipe(m, j.id, k.id, { kind: 'equip' });
+    e.equip = Object.assign({ qRated: flow, pdRated: 20e3, equipType: 'source' }, equip);
+    M.addPipe(m, k.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(p => { if (p.kind !== 'equip') p.insulation_mm = 0; });
+    return { m, e };
+  }
+
+  const flow = 0.005;
+  const C = RHO * flow * CP;               // 20893.13 W/K
+
+  /* Unconstrained: it simply reaches the setpoint. Inlet 18, setpoint 6, so
+   * ΔT = -12 K and Q = -12 x 20893.13 = -250.7 kW. */
+  {
+    const t = plant({ tSet: 6 }, flow, 18);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('It reaches the setpoint', l.tOut, 6, 1e-9);
+    near('...and the duty is whatever that took', l.qW, -12 * C, 1e-6);
+    near('...which is -250.7 kW', l.qW / 1000, -250.716, 0.01);
+    ok('Sign is inferred: a setpoint below inlet is cooling', l.qW < 0);
+    ok('Nothing is limiting it', l.limit === null || l.limit === undefined);
+  }
+
+  /* CAPACITY. The same duty asked of a 100 kW machine: it can only manage
+   * 100 kW, so ΔT = -100000/20893.13 = -4.786 K and it leaves at 13.21 C. */
+  {
+    const t = plant({ tSet: 6, qMax: 100000 }, flow, 18);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('Capacity caps the duty', l.qW, -100000, 1e-6);
+    near('...so it misses the setpoint', l.tOut, 18 - 100000 / C, 1e-9);
+    near('...leaving at 13.21 C', l.tOut, 13.2129, 1e-3);
+    ok('...and says which limit bound it', l.limit === 'Capacity', String(l.limit));
+  }
+
+  /* ΔT MAX. A machine that cannot work across more than 8 K leaves at 10 C,
+   * whatever its capacity. */
+  {
+    const t = plant({ tSet: 6, qMax: 1e9, dTMax: 8 }, flow, 18);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('The difference is capped', l.dT, -8, 1e-9);
+    near('...so it leaves at 10 C', l.tOut, 10, 1e-9);
+    near('...at a duty of -167.1 kW', l.qW, -8 * C, 1e-6);
+    ok('...reported as the ΔT limit', l.limit === 'ΔT max', String(l.limit));
+  }
+
+  /* Both set: whichever is tighter wins. At this flow, 8 K is 167 kW, so a
+   * 100 kW machine is capacity-limited even though ΔT would allow more. */
+  {
+    const t = plant({ tSet: 6, qMax: 100000, dTMax: 8 }, flow, 18);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    ok('The tighter of the two binds', l.limit === 'Capacity', String(l.limit));
+    near('...at 100 kW', l.qW, -100000, 1e-6);
+  }
+  {
+    /* Quarter the flow and the SAME machine becomes ΔT-limited: 8 K is now
+     * only 41.8 kW, well inside its 100 kW. This is why both limits exist. */
+    const t = plant({ tSet: 6, qMax: 100000, dTMax: 8 }, flow / 4, 18);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    ok('At a quarter flow the ΔT limit binds instead', l.limit === 'ΔT max',
+       String(l.limit));
+    near('...at 41.8 kW', l.qW, -8 * C / 4, 1);
+  }
+
+  /* T LIMIT — Michael's waterside economizer. Ambient 18 C is the floor it
+   * cannot pass; the setpoint of 25 C is above it, so the setpoint governs and
+   * the limit does nothing. */
+  {
+    const t = plant({ tSet: 25, tLimit: 18, qMax: 1e9 }, flow, 30);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('It holds the setpoint, which is inside the limit', l.tOut, 25, 1e-9);
+    ok('...so nothing binds', l.limit === null || l.limit === undefined);
+  }
+  {
+    /* Ask the same economizer for 12 C against an 18 C ambient and it cannot:
+     * it gets to 18 and stops. That is the second law, not a control choice. */
+    const t = plant({ tSet: 12, tLimit: 18, qMax: 1e9 }, flow, 30);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('It cannot pass its physical limit', l.tOut, 18, 1e-9);
+    ok('...and says so', l.limit === 'T limit', String(l.limit));
+    ok('...having still done real work', l.qW < 0);
+  }
+
+  /* A BOILER is the same machine with the signs the other way up: setpoint
+   * above inlet, positive duty, and the limits behave identically. */
+  {
+    const t = plant({ tSet: 80, qMax: 1e9, dTMax: 15 }, flow, 60);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('Heating is capped by the same ΔT limit', l.dT, 15, 1e-9);
+    near('...leaving at 75 C', l.tOut, 75, 1e-9);
+    ok('...with a positive duty', l.qW > 0);
+    ok('...reported the same way', l.limit === 'ΔT max');
+  }
+
+  /* The active set settles rather than oscillating — the check-valve lesson.
+   * Two plants in series, each with a different limit, must reach a fixed
+   * point in a handful of passes. */
+  {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: 30, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i, 0));
+    M.setSource(m, n[0].id, 800e3); n[0].device.temperature = 30;
+    n[5].device = { kind: 'demand', flow: flow, reqPressure: 100e3, include: true };
+    M.addPipe(m, n[0].id, n[1].id, { size: 'DN50', schedule: 'sch40' });
+    const e1 = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
+    e1.equip = { qRated: flow, pdRated: 20e3, equipType: 'source',
+                 tSet: 6, qMax: 100000 };
+    M.addPipe(m, n[2].id, n[3].id, { size: 'DN50', schedule: 'sch40' });
+    const e2 = M.addPipe(m, n[3].id, n[4].id, { kind: 'equip' });
+    e2.equip = { qRated: flow, pdRated: 20e3, equipType: 'source',
+                 tSet: 6, dTMax: 3 };
+    M.addPipe(m, n[4].id, n[5].id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(p => { if (p.kind !== 'equip') p.insulation_mm = 0; });
+
+    const res = NET.solveModel(m);
+    const th = res.thermal;
+    ok('Two limited plants in series settle',
+       !th.warnings.some(w => w.code === 'THERMAL_LIMIT_OSCILLATION'));
+    ok('...in a handful of passes', th.iterations <= 5, String(th.iterations));
+    ok('The first is capacity-limited', th.links[e1.id].limit === 'Capacity');
+    ok('The second is ΔT-limited', th.links[e2.id].limit === 'ΔT max');
+    near('...dropping exactly 3 K', th.links[e2.id].dT, -3, 1e-9);
+    /* And the two together are still just Q = C.dT, link by link. */
+    near('Duty and difference agree on the first',
+         th.links[e1.id].qW, th.links[e1.id].C * th.links[e1.id].dT, 1e-6);
+  }
 }
 
 report();

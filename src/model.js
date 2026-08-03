@@ -815,6 +815,24 @@
     return m.settings.fluid;
   }
 
+  /* Q_load, ΔT and ṁ are locked by Q = ṁ·Cp·ΔT. At design the rated flow is
+   * known, so stating any two gives the third — and the ENGINE only ever sees
+   * the duty, so there is one quantity to solve with rather than two ways of
+   * saying the same thing.
+   *
+   * The rated flow, not the solved flow: ΔT stated at design means "at design
+   * flow", and deriving from a part-load flow would silently restate it. */
+  function equipRatedC(m, p) {
+    var f = FD.fluids.resolve(m.settings);
+    var q = (p.equip && p.equip.qRated) || 0;
+    return f.density * q * f.specificHeat;         // W/K
+  }
+  function equipDutyFromDT(m, p, dT) { return equipRatedC(m, p) * dT; }
+  function equipDTFromDuty(m, p, duty) {
+    var C = equipRatedC(m, p);
+    return C > 0 ? duty / C : 0;
+  }
+
   function clearDevice(m, nodeId) {
     var n = node(m, nodeId);
     if (n) n.device = null;
@@ -890,6 +908,7 @@
      * length. Rewritten rather than left to fall through `method()`, so the
      * saved file and the UI agree about what was used. */
     if (m.settings.frictionMethod === 'ASHRAE') m.settings.frictionMethod = 'HW';
+    migrateEquipThermal(m);
     m.migrations = migrateSourcePressure(m);
     return m;
   }
@@ -903,6 +922,23 @@
    * it reports what it did rather than doing it quietly. A source whose `dz`
    * is genuinely an elevation cannot be told apart from one carrying a
    * pressure, because until now the panel offered no way to set the former. */
+  /* Equipment had two thermal MODES — state ΔT, or state Q — which v0.10.3
+   * replaced with two TYPES: Source/Sink (state a leaving temperature) and
+   * Heat Exchanger (state a load). Both old modes were load-led, so both
+   * become an exchanger; a stated ΔT is converted to the duty it means at the
+   * rated flow, which is the same number said the other way. */
+  function migrateEquipThermal(m) {
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'equip' || !p.equip) return;
+      var e = p.equip;
+      if (!e.equipType) e.equipType = 'exchanger';
+      if (e.thermalMode === 'dT' && e.duty === undefined && e.dT !== undefined) {
+        e.duty = equipDutyFromDT(m, p, Number(e.dT) || 0);
+      }
+      delete e.thermalMode;
+    });
+  }
+
   function migrateSourcePressure(m) {
     var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
     var notes = [];
@@ -974,6 +1010,10 @@
 
     setSource: setSource, setDemand: setDemand, clearDevice: clearDevice,
     applyFluidPreset: applyFluidPreset,
+    equipRatedC: equipRatedC,
+    equipDutyFromDT: equipDutyFromDT,
+    equipDTFromDuty: equipDTFromDuty,
+    migrateEquipThermal: migrateEquipThermal,
     migrateSourcePressure: migrateSourcePressure,
 
     toJSON: toJSON, fromJSON: fromJSON

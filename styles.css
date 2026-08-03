@@ -377,6 +377,11 @@ table.sheet td.dim  { color: var(--text-mute); }
 .kv .k { color: var(--text-mute); }
 .kv .v { font-variant-numeric: tabular-nums; text-align: right; }
 
+/* Slider with an exact-entry box beside it. */
+.slider-row { display: flex; align-items: center; gap: 8px; }
+.slider-row input[type=range] { flex: 1; min-width: 0; }
+.tiny-num { width: 4.5em; flex: none; text-align: right; }
+
 /* A published value that cannot be typed over — a named fluid's properties.
    Reads as a field so the form keeps its shape, but plainly not an input. */
 .locked-value {

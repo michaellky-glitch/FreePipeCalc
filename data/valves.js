@@ -63,7 +63,30 @@
     }
   };
 
-  var OPENINGS = [0, 25, 50, 75, 100];
+  /* Opening is a FULL RANGE, 0-100% in 1% steps (Michael, 2026-08-03). It was
+   * five fixed positions, which is not how a regulating valve is set: a
+   * balancing valve lands wherever it lands, and quoting the nearest 25% throws
+   * away most of the adjustment. The curves above are still tabulated at the
+   * quarter points — that is the shape of the data — and anything between them
+   * is interpolated. */
+  var CURVE_POINTS = [0, 25, 50, 75, 100];
+
+  /* Fraction of full-open Kv at any opening, linear between the tabulated
+   * quarter points and clamped outside them. */
+  function openFraction(curve, opening) {
+    var x = Number(opening);
+    if (!isFinite(x)) return 1;
+    if (x <= 0) return curve[0];
+    if (x >= 100) return curve[100];
+    for (var i = 1; i < CURVE_POINTS.length; i++) {
+      var lo = CURVE_POINTS[i - 1], hi = CURVE_POINTS[i];
+      if (x <= hi) {
+        var t = (x - lo) / (hi - lo);
+        return curve[lo] + t * (curve[hi] - curve[lo]);
+      }
+    }
+    return curve[100];
+  }
 
   /* Resistance high enough that a shut valve passes no meaningful flow, but
    * still FINITE — an infinite resistance would make the solver matrix
@@ -73,7 +96,8 @@
 
   FD.valves = {
     types: TYPES,
-    openings: OPENINGS,
+    curvePoints: CURVE_POINTS,
+    openFraction: openFraction,
     CLOSED_R: CLOSED_R,
 
     type: function (key) { return TYPES[key] || TYPES.gate; },
@@ -92,12 +116,11 @@
       return Math.round(A * v * 3600 * 10) / 10; // m³/h
     },
 
-    /* Effective Kv at a given opening percentage. */
+    /* Effective Kv at any opening percentage, 0-100. */
     effectiveKv: function (typeKey, kv, opening) {
       var t = this.type(typeKey);
-      var f = t.curve[opening];
-      if (f === undefined) f = t.curve[100];
-      return kv * f;
+      var o = (opening === undefined || opening === null) ? 100 : Number(opening);
+      return kv * openFraction(t.curve, Math.max(0, Math.min(100, o)));
     },
 
     /* Head-basis resistance for h = r·|Q|·Q, Q in m³/s. */

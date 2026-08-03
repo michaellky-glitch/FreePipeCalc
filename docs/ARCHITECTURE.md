@@ -976,6 +976,55 @@ the energy balance **69 kW** out. That is not a tolerance to tune — it is the
 wrong method for a linear problem. Solving it also retires "did it converge?",
 which was never a physical question here.
 
+### Two equipment types, split on what you know at design
+
+Michael's, 2026-08-03. The solver only ever needs `Q = f(T_in, ṁ)`, so the
+question is not what a machine *is* — the tag already says that — but which
+quantity you can state.
+
+| Type | State | Follows | Limits |
+|---|---|---|---|
+| **Source / Sink** — chiller, boiler, tower | leaving temperature | duty | capacity, ΔT max, T limit |
+| **Heat Exchanger** — AHU, FCU, plate HX | load | temperature | ΔT max, T limit |
+
+Three things about the limits are worth knowing:
+
+* **Capacity and ΔT max both matter**, because they bind in different places.
+  At high flow a small ΔT is still a big duty, so capacity binds; at low flow a
+  small duty is still a big ΔT, so ΔT max binds. The tests demonstrate the same
+  machine swapping from one to the other at a quarter of the flow.
+* **T limit is the second law**, not a control choice. A tower cannot go below
+  wet bulb, an economizer below ambient. It is also the *secondary temperature
+  in disguise* — on a coil it is the entering air — which means an effectiveness
+  model, if it is ever wanted, is one more field on the same type rather than a
+  restructure.
+* **Which limit bound it is reported**, per link and as an `EQUIP_LIMITED`
+  warning. "CH-01 is limited by Capacity and is not reaching its setpoint" is
+  the sentence worth having; a leaving temperature that silently misses its
+  setpoint is not.
+
+Sign is inferred, never selected: a setpoint below the inlet is cooling. `qMax`
+and `dTMax` are magnitudes.
+
+On an exchanger, **Q, ΔT and ṁ are locked** by `Q = ṁ·Cp·ΔT`, so the panel
+offers both and each rewrites the other at the rated flow. The model stores the
+duty; the engine only ever sees one quantity.
+
+### The active set — and the check-valve lesson, again
+
+A limit makes the system **piecewise** linear: which branch of an equipment
+relation applies depends on its inlet temperature, which is what the solve
+produces. So the active set is **frozen**, the now-linear system is solved
+exactly, the set is recomputed from the answer, and it repeats until nothing
+changes. Two or three passes in practice, capped at 30 with a
+`THERMAL_LIMIT_OSCILLATION` warning.
+
+Freezing it is the whole trick, and it is the same trap check-valve seating
+taught (§6): **decide from a stable quantity, not from the answer being
+computed.** The deciding quantity here is the inlet temperature that the
+previous pass fixed, so a pass cannot flip a limit on the strength of a duty it
+is itself producing.
+
 ### One toggle serves DESIGN and SIMULATION
 
 It looked like two features when it was asked for. It is one:
@@ -1053,7 +1102,7 @@ sheet**, which is the thing that gets issued.
 
 ## 15. Testing
 
-Seven suites, 979 assertions, no dependencies:
+Seven suites, 1009 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -1065,7 +1114,7 @@ node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 node test/thermal.test.js    heat loss, mixing, equipment duty, fluid data
 ```
 
-All 979 pass. The "Parallel pumps share in DESIGN" section of
+All 1009 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change
