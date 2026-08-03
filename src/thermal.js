@@ -30,19 +30,17 @@
  *          T_out = T_amb + (T_in − T_amb)·exp( −U'·L / (ṁ·Cp) )
  *      U' is the loss per metre per kelvin, from the insulation geometry.
  *
- *   3. EQUIPMENT adding or removing heat, in one of two modes. The SAME
- *      toggle serves DESIGN and SIMULATION, which is worth knowing because it
- *      looked like two features:
- *          dT mode — ΔT is the stated quantity.  Q = ṁ·Cp·ΔT follows.
- *                    In SIMULATION this is the coil under perfect control:
- *                    ΔT held, duty floats with flow.
- *          dQ mode — Q is the stated quantity.   ΔT = Q/(ṁ·Cp) follows.
- *                    In SIMULATION this is a fixed load — IT equipment, a
- *                    process, an electric heater: duty held, ΔT floats.
- *      Those two are not arbitrary. They are the asymptotes of the real
- *      effectiveness model, Q = ṁCp(T_in−T_sec)(1−e^(−UA/ṁCp)): at high flow
- *      it tends to constant duty, at low flow to constant ΔT. So they bracket
- *      the truth, and each is exact for a real class of plant.
+ *   3. EQUIPMENT adding or removing heat, as one of two TYPES — see
+ *      `equipOutlet` below and ARCHITECTURE §18. Split on what you know at
+ *      design:
+ *          SOURCE / SINK   chiller, boiler, tower. State a LEAVING
+ *                          TEMPERATURE; duty follows, limited by capacity,
+ *                          ΔT max and a physical temperature limit.
+ *          HEAT EXCHANGER  AHU, FCU, plate HX. State a LOAD; temperature
+ *                          follows, limited by ΔT max and the same limit.
+ *      (Until v0.10.3 this was a dT/dQ toggle instead. Both were load-led, so
+ *      both became an exchanger; a stated ΔT converts to the duty it means at
+ *      the rated flow, and `migrateEquipThermal` does that on load.)
  *
  * Pumps and valves pass temperature straight through — Michael's instruction,
  * 2026-08-02. A pump does put its shaft work into the water, but at typical
