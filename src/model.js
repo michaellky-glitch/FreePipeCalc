@@ -967,21 +967,81 @@
    * the control loop (network.js) when the pump follows a setpoint, and can be
    * set by hand for a pump that is simply run slow.
    *
+   * SPEED APPLIES IN SIMULATION ONLY, and this is the whole of the rule — it is
+   * not a UI nicety, it is where the physics is (Michael, 2026-08-03).
+   *
+   * At part load a pump rides DOWN THE SYSTEM CURVE: less flow, and less head,
+   * by n and n². That only happens where the flow is free to respond, which is
+   * SIMULATION. In DESIGN the demands IMPOSE the flow, and `autoSizePumps`
+   * holds the rated duty on top of that — so scaling the head there does not
+   * slow anything down. The sizer simply specifies a bigger pump to overcome
+   * the throttling it has been given, and the reported duty goes UP as the
+   * speed comes down: 44.8 m at 100% became 179.4 m at 50% on Michael's own
+   * model, with the flow pinned at 20.00 L/s throughout. Exactly backwards.
+   *
+   * That is the same "two controllers on one actuator" conflict that made the
+   * control loop SIMULATION-only in v0.11.1 (ARCHITECTURE §17C). The loop was
+   * fenced off then and a hand-typed speed was not, which left the conflict
+   * reachable through the one door still open.
+   *
+   * The stored speed is KEPT rather than cleared, so switching back to
+   * SIMULATION restores it. It is only ignored.
+   *
    * Everything that reads a pump curve must go through `pumpCurve`, or the
    * drawing, the panel and the sheet will each report the RATED curve while the
    * solver runs a scaled one — the same class of mistake as reading `link.r`
    * without the fittings (HANDOVER §2). */
-  function pumpSpeed(p) {
+  function pumpSpeed(m, p) {
     if (!p || !p.pump) return 1;
     if (p.pump.mode === 'off') return 0;
+    if (!m || !m.settings || m.settings.calcMode !== 'simulation') return 1;
     var s = Number(p.pump.speed);
     if (!isFinite(s) || s <= 0) return 1;
     return Math.min(1, s);
   }
 
-  function pumpCurve(p) {
+  /* True when a speed is stored but is not being applied, which is the one
+   * state worth explaining on the panel: the number is there and does nothing. */
+  function pumpSpeedIgnored(m, p) {
+    if (!p || !p.pump || p.pump.mode === 'off') return false;
+    var s = Number(p.pump.speed);
+    if (!isFinite(s) || s <= 0 || s >= 1) return false;
+    return !m || !m.settings || m.settings.calcMode !== 'simulation';
+  }
+
+  /* THE HEAD THIS PUMP IS ACTUALLY DEVELOPING, at flow q.
+   *
+   * ONE definition, because three separate readouts have each disagreed with
+   * the solver at least once: the drawing did in v0.8.0, the panel and the
+   * calculation sheet did until v0.11.3.
+   *
+   * The rule is "report what the solve used", and it splits on mode:
+   *
+   *   SIMULATION  the curve IS the input, so the head is the (speed-scaled)
+   *               curve read at the solved flow. That point is the intersection
+   *               with the system curve, so as speed falls the pump rides DOWN
+   *               the system curve — Q by n, H by n².
+   *
+   *   DESIGN      the solver runs on `pump.head`, and the curve is not in the
+   *               calculation at all. Reading the curve here reports a head the
+   *               answer never used.
+   *
+   * That second case is the one Michael caught (2026-08-03). In DESIGN the flow
+   * is IMPOSED by the demands, so it does not fall when the pump slows — and a
+   * curve read at an unchanged flow gives a HIGHER head as the pump backs off,
+   * which is the opposite of riding down the system curve. A pump curve falls
+   * with flow, so reading it at a reduced flow always reads UP; that only
+   * describes a real machine when the flow reduced because the curve moved. */
+  function pumpHead(m, p, q) {
+    if (!p || !p.pump || p.pump.mode === 'off') return 0;
+    var sim = m && m.settings && m.settings.calcMode === 'simulation';
+    if (sim && p.pump.curve) return FD.pumps.head(pumpCurve(m, p), Math.abs(q || 0));
+    return p.pump.head || 0;
+  }
+
+  function pumpCurve(m, p) {
     if (!p || !p.pump || !p.pump.curve) return null;
-    var s = pumpSpeed(p);
+    var s = pumpSpeed(m, p);
     if (!(s > 0)) return null;
     return FD.pumps.atSpeed(p.pump.curve, s);
   }
@@ -1223,6 +1283,7 @@
     applyFluidPreset: applyFluidPreset,
     controlOf: controlOf, canControl: canControl, setControl: setControl,
     pumpSpeed: pumpSpeed, pumpCurve: pumpCurve,
+    pumpSpeedIgnored: pumpSpeedIgnored, pumpHead: pumpHead,
     controlRoute: controlRoute, deviceMid: deviceMid,
     equipRatedC: equipRatedC,
     equipDutyFromDT: equipDutyFromDT,

@@ -182,6 +182,210 @@ section('Affinity laws: a pump curve at part speed');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * AT PART LOAD A PUMP RIDES DOWN THE SYSTEM CURVE  (Michael, 2026-08-03)
+ *
+ * The operating point is the INTERSECTION of the speed-scaled pump curve with
+ * the system curve. On a closed circuit the system is H = R·Q² through the
+ * origin, and the intersection then satisfies the affinity laws exactly:
+ *
+ *     Q2/Q1 = n2/n1        H2/H1 = (n2/n1)²
+ *
+ * so head must go DOWN with speed, not up.
+ *
+ * THE FAILURE THIS GUARDS AGAINST is reading the RATED curve at the reduced
+ * flow. A pump curve FALLS with flow, so evaluating it further left always
+ * reads a HIGHER head — the exact opposite of the truth. On the fitted curve
+ * in `debug/20260803-1.json` the two answers diverge hard:
+ *
+ *     n      Q L/s    correct H    rated-curve-at-Q
+ *     1.00   20.000     44.85 m        44.85 m
+ *     0.80   15.982     28.72 m        50.12 m      <- rises
+ *     0.50    9.964     11.24 m        56.70 m      <- rises further
+ *
+ * Both columns are "the pump curve evaluated at the solved flow". Only one of
+ * them is the machine.
+ * ----------------------------------------------------------------------- */
+section('Part load rides down the system curve, not up the pump curve');
+{
+  /* A CLOSED circuit: pump + equipment, no source, no demand. The system curve
+   * is then a pure R·Q² through the origin, which is the case where the
+   * affinity laws hold exactly for the operating point. */
+  function circuit(curve, speed) {
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const c = M.addNode(m, lv, 2, 0);
+    const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+    pump.pump = { mode: 'fixed', head: 30, curve: curve, speed: speed };
+    const eq = M.addPipe(m, b.id, c.id, { kind: 'equip' });
+    eq.equip = { qRated: 0.020, pdRated: 200e3, equipType: 'exchanger', duty: 0 };
+    M.addPipe(m, c.id, a.id, { size: 'DN150', schedule: 'sch40' });
+    const res = NET.solveModel(m);
+    return { m, pump, res, q: Math.abs(res.flow[pump.id]),
+             h: res.simulation.pumps[0].head };
+  }
+
+  /* Michael's own fitted curve — b = 1.55, NOT the default 2, which is where a
+   * "just scale H0" shortcut would come apart. */
+  const fitted = { H0: 62.78610963990971, a: 7733.048499512283, b: 1.55072,
+                   Qd: 0.02, Hd: 44.85, source: 'fitted' };
+
+  [P.singlePoint(30, 0.020), fitted].forEach((cv, ci) => {
+    const label = ci ? "Michael's fitted curve (b = 1.55)" : 'single-point curve (b = 2)';
+    const full = circuit(cv, 1);
+
+    [0.9, 0.8, 0.7, 0.6, 0.5].forEach(n => {
+      const part = circuit(cv, n);
+      near(`${label}: at ${(n * 100).toFixed(0)}% speed the flow is n× full`,
+           part.q / full.q, n, 0.002 * n);
+      near(`${label}: ...and the head is n² × full`,
+           part.h / full.h, n * n, 0.004 * n * n);
+      ok(`${label}: ...so head fell rather than rose`, part.h < full.h,
+         `${full.h.toFixed(3)} -> ${part.h.toFixed(3)} m`);
+    });
+
+    /* THE WRONG ANSWER, computed here so the test states what it is guarding
+     * against rather than merely asserting the right one. */
+    const half = circuit(cv, 0.5);
+    const wrong = P.head(cv, half.q);          // RATED curve at the reduced flow
+    ok(`${label}: reading the rated curve at that flow would read HIGHER`,
+       wrong > full.h,
+       `correct ${half.h.toFixed(2)} m, rated-curve-at-Q ${wrong.toFixed(2)} m, ` +
+       `full speed ${full.h.toFixed(2)} m`);
+    ok(`${label}: ...and the app does not do that`,
+       Math.abs(half.h - wrong) > 1,
+       `${half.h.toFixed(2)} vs ${wrong.toFixed(2)}`);
+  });
+
+  /* WITH STATIC LIFT the operating point must NOT follow n and n².
+   *
+   * This is the test that shows the app is SOLVING the intersection rather than
+   * applying the affinity laws to the answer. The affinity laws map points on
+   * the PUMP curve; the operating point only inherits them when the system
+   * curve passes through the origin. Add a static lift and the system curve no
+   * longer does: flow falls faster than n, head falls slower than n² because it
+   * is approaching the static head, and below some speed the pump cannot lift
+   * at all.
+   *
+   * Hand check on the direction: at 70% speed, Q/Q1 = 0.43 (below 0.70) and
+   * H/H1 = 0.65 (above 0.49). Both inequalities are the wrong way round for a
+   * naive affinity mapping, and both are right.
+   */
+  {
+    function lift(n) {
+      const m = M.create();
+      m.settings.calcMode = 'simulation';
+      const lv = m.levels[0].id;
+      const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+      const c = M.addNode(m, lv, 2, 0);
+      a.device = { kind: 'source', head: 0 };
+      c.dz = 20;                                   // 20 m of static lift
+      c.device = { kind: 'demand', flow: 0.020, reqPressure: 100e3, include: true };
+      const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+      pump.pump = { mode: 'fixed', head: 40, curve: P.singlePoint(40, 0.020), speed: n };
+      M.addPipe(m, b.id, c.id, { size: 'DN100', schedule: 'sch40' });
+      const res = NET.solveModel(m);
+      return { q: Math.abs(res.flow[pump.id]), h: res.simulation.pumps[0].head };
+    }
+    const f = lift(1), p7 = lift(0.7);
+    ok('With static lift the flow falls FASTER than speed',
+       p7.q / f.q < 0.7 - 0.05, (p7.q / f.q).toFixed(4));
+    ok('...and the head falls SLOWER than speed squared',
+       p7.h / f.h > 0.49 + 0.05, (p7.h / f.h).toFixed(4));
+    ok('...because it is approaching the 20 m static head', p7.h > 20,
+       p7.h.toFixed(2) + ' m');
+    ok('...but it still FALLS, which is the whole point', p7.h < f.h,
+       `${f.h.toFixed(2)} -> ${p7.h.toFixed(2)} m`);
+    ok('...monotonically all the way down',
+       [1, 0.9, 0.8, 0.7].map(lift).every((v, i, arr) => i === 0 || v.h < arr[i - 1].h),
+       [1, 0.9, 0.8, 0.7].map(n => lift(n).h.toFixed(2)).join(' -> '));
+  }
+
+  /* THE REPORTED head must be the same number, wherever it is read from. The
+   * panel, the drawing and the calculation sheet all go through M.pumpHead. */
+  {
+    const t = circuit(fitted, 0.6);
+    near('M.pumpHead agrees with the simulation report',
+         M.pumpHead(t.m, t.pump, t.q), t.h, 1e-9);
+    near('...and with the scaled curve read at the solved flow',
+         M.pumpHead(t.m, t.pump, t.q),
+         P.head(P.atSpeed(fitted, 0.6), t.q), 1e-9);
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * SPEED IS A SIMULATION QUANTITY  (Michael, 2026-08-03)
+ *
+ * In DESIGN the demands IMPOSE the flow and `autoSizePumps` holds the rated
+ * duty on top of that, so a speed there cannot slow anything down. What it did
+ * instead was make the sizer specify a bigger pump to overcome the throttling
+ * it had been handed — on Michael's own model, 44.8 m at 100% speed became
+ * 179.4 m at 50%, with the flow pinned at 20.00 L/s the whole way.
+ *
+ * That is the same "two controllers on one actuator" conflict that made the
+ * control loop SIMULATION-only in v0.11.1. The loop was fenced off then and a
+ * hand-typed speed was not.
+ * ----------------------------------------------------------------------- */
+section('A typed speed does nothing in DESIGN, and is not silent about it');
+{
+  function sized(speed, mode) {
+    const m = M.create();
+    m.settings.calcMode = mode || 'design';
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const c = M.addNode(m, lv, 2, 0);
+    M.setSource(m, a.id, 0);
+    c.device = { kind: 'demand', flow: 0.010, reqPressure: 100e3, include: true };
+    const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 10, speed: speed };
+    M.addPipe(m, b.id, c.id, { size: 'DN100', schedule: 'sch40' });
+    const res = NET.solveModel(m);
+    return { m, pump, res, q: Math.abs(res.flow[pump.id]), head: pump.pump.head };
+  }
+
+  const full = sized(1);
+  const slow = sized(0.5);
+
+  near('The sized duty is the same at 50% speed as at 100%',
+       slow.head, full.head, 1e-9);
+  ok('...rather than being inflated to overcome its own throttling',
+     slow.head < full.head * 1.01,
+     `${full.head.toFixed(2)} m -> ${slow.head.toFixed(2)} m`);
+  near('The demand is met either way, because DESIGN imposes it',
+       slow.q, 0.010, 1e-9);
+
+  ok('The stored speed is kept, not wiped', slow.pump.pump.speed === 0.5);
+  near('...but it reads as full speed, because that is what was calculated',
+       M.pumpSpeed(slow.m, slow.pump), 1, 1e-12);
+  ok('...and the panel is told to explain why',
+     M.pumpSpeedIgnored(slow.m, slow.pump) === true);
+
+  /* The same pump in SIMULATION does apply it — the flag is about the mode,
+   * not about the pump. */
+  {
+    const m = sized(0.5).m;
+    m.settings.calcMode = 'simulation';
+    const p2 = m.pipes.filter(x => x.kind === 'pump')[0];
+    near('In SIMULATION the same speed is applied', M.pumpSpeed(m, p2), 0.5, 1e-12);
+    ok('...and nothing needs explaining', M.pumpSpeedIgnored(m, p2) === false);
+  }
+
+  /* In DESIGN the reported head is the one the solver used — the fixed head,
+   * NOT the curve. The curve is not in a DESIGN calculation at all. */
+  {
+    const t = sized(1);
+    t.pump.pump.curve = P.singlePoint(30, 0.020);
+    near('DESIGN reports the head the solve ran on, not the curve',
+         M.pumpHead(t.m, t.pump, t.q), t.pump.pump.head, 1e-12);
+    ok('...which is a different number from the curve at that flow',
+       Math.abs(P.head(t.pump.pump.curve, t.q) - t.pump.pump.head) > 1,
+       `curve ${P.head(t.pump.pump.curve, t.q).toFixed(2)} m, ` +
+       `solved ${t.pump.pump.head.toFixed(2)} m`);
+  }
+}
+
 section('Curve fitting');
 {
   // Points generated FROM a known curve must fit back to it exactly.

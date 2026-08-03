@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1161
+This is deliberately separate from the automated suites. Those cover 1212
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-03 (v0.11.2)
+Last updated: 2026-08-04 (v0.11.3)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -201,6 +201,20 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 4F. PART LOAD / VFD reporting (v0.11.3)
+
+Your catch. The engine was already solving the intersection correctly — what
+was wrong was what got reported. Swept in the live app on your own model.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| PL.1 | Panel "Actual pressure" falls at part load | ⬜ | Read back live across 100→50% on your fitted curve: 439.1 → 356.0 → 281.4 → 215.5 → 158.4 → 110.1 kPa. H/H1 matched n² to four decimals. |
+| PL.2 | Panel, drawing plate and calculation sheet all agree | ⬜ | All three now call `M.pumpHead()`. They disagreed before: the plate was right, the panel and sheet read the curve in DESIGN. |
+| PL.3 | A typed VFD % in DESIGN no longer inflates the sized duty | ⬜ | Was 44.8 m at 100% → 179.4 m at 50%, flow pinned at 20.00 L/s. Now unchanged at 44.8 m. |
+| PL.4 | 🛈 appears on VFD speed when a stored speed is being ignored | ⬜ | Only in DESIGN, and only when a speed below 100% is actually stored. Reads: "Speed applies in SIMULATION only…". |
+| PL.5 | Stale "Design pressure" after a bad DESIGN solve | ⬜ | **Noticed, not fixed.** Your model still showed `Design pressure 12791.88 m` in SIMULATION — that is `hDesign` recorded by the last DESIGN solve, before the AHU was corrected. It refreshes on the next DESIGN solve. Say if you want it blanked instead when it is stale. |
+| PL.6 | Does the part-load picture look right on a job? | ⬜ | **The engineering judgement.** The numbers are hand-checkable (H ∝ n², and correctly NOT n² once there is static lift) but whether the whole reading is what you expect is your call. |
 
 ## 4C. SETPOINT CONTROL — variable-speed pumps (v0.11.1)
 

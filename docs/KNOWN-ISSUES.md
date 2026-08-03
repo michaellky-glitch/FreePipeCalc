@@ -8,6 +8,18 @@ is, why it is deferred, and where the fix would go.
 
 ## Open
 
+### A pump's "Design pressure" can be stale after a bad DESIGN solve
+
+`recordDesignPoint` writes `pump.hDesign` on every DESIGN solve and never
+invalidates it. So a model that was sized once against wrong data keeps showing
+that duty in its Design box — including in SIMULATION, where nothing re-sizes.
+Seen on `debug/20260803-1.json`: the panel still read `12791.88 m` after the AHU
+that caused it had been corrected, until the next DESIGN solve.
+
+Harmless in that it self-corrects, and the Actual box beside it is always right.
+Deferred pending Michael's call on what he would rather see — a blanked figure,
+or a marker saying the design point predates the current model.
+
 ### A positive capacity on a cooling machine now refuses to cool
 
 **Check this if an older model comes back with a machine doing nothing.**

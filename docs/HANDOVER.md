@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1161 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1212 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,18 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **PART LOAD RIDES DOWN THE SYSTEM CURVE** (v0.11.3) — Michael's catch. The
+  ENGINE was right: on a closed circuit the solved operating point satisfies
+  Q ∝ n and H ∝ n² to four decimals, and with static lift it correctly does
+  NOT. What was wrong was the REPORTING. The panel and the calculation sheet
+  read the pump curve in **DESIGN** too, where the solver runs on `pump.head`
+  and the curve is not in the calculation — and because DESIGN imposes the
+  flow, a curve read at an unchanged flow walks UP as the pump backs off
+  (44.85 → 50.12 → 56.70 m on his own curve). Separately, a typed speed in
+  DESIGN made `autoSizePumps` inflate the rated duty to overcome its own
+  throttling: 44.8 m at 100% became 179.4 m at 50%. Both fixed —
+  `M.pumpHead()` is now the single definition of "the head this pump is
+  developing", and speed applies in SIMULATION only. `ARCHITECTURE.md` §17C.
 * **THE 12 791 m PUMP** (v0.11.2) — `debug/20260803-1.json`. Not a solver
   defect: an AHU rated 0.8 L/s at 200 kPa was carrying 20 L/s, which by the
   square law is 125 000 kPa across it and 99.8% of the pump duty. Its design

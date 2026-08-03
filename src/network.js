@@ -432,7 +432,7 @@
          * which is why this goes through M.pumpCurve rather than reading
          * p.pump.curve. Scaling the curve is the only place speed enters the
          * hydraulics; nothing in the solver knows about it. */
-        var pc = M.pumpCurve(p);
+        var pc = M.pumpCurve(m, p);
         link.kind = 'pump';
         link.curve = pc;
         link.head = FD.pumps.head(pc, flows ? (flows[p.id] || 0) : 0);
@@ -456,8 +456,9 @@
         /* Head falls as the square of speed — the same affinity law that scales
          * a curve, applied to the fixed head that stands in for one. A speed
          * typed on a pump must not be silently ignored just because there is no
-         * curve behind it. Absent, `pumpSpeed` returns 1 and this is a no-op. */
-        var ps = M.pumpSpeed(p);
+         * curve behind it. In DESIGN `pumpSpeed` returns 1 and this is a
+         * no-op — speed belongs to SIMULATION, see M.pumpSpeed. */
+        var ps = M.pumpSpeed(m, p);
         link.head = (p.pump.head || 0) * ps * ps;
         if (autoRef && (p.pump.head || 0) > 0) {
           /* LINEAR droop, H = Hd + k(Qref - Q), not the quadratic single-point
@@ -1211,7 +1212,7 @@
         pipe: p, kind: 'pump', quantity: 'speed',
         min: (isFinite(lo) && lo > 0 && lo < 1) ? lo : CTRL_DEFAULTS.minSpeed,
         step: 0.001,
-        get: function () { return M.pumpSpeed(p); },
+        get: function () { return M.pumpSpeed(m, p); },
         set: function (x) { p.pump.speed = x; },
         label: function (x) { return Math.round(x * 100) + '% speed'; }
       };
@@ -2075,10 +2076,10 @@
        * `pctOfDesign` follows the scaled duty point deliberately: runout is
        * about where on its own curve a pump is sitting, and at reduced speed
        * that curve is the scaled one. */
-      var curve = M.pumpCurve(p);
+      var curve = M.pumpCurve(m, p);
       var off = !p.pump || p.pump.mode === 'off';
       var row = { pipe: p.id, tag: p.tag || null, mode: p.pump && p.pump.mode,
-                  speed: p.pump ? M.pumpSpeed(p) : 1,
+                  speed: p.pump ? M.pumpSpeed(m, p) : 1,
                   flow: off ? 0 : q,
                   /* A stopped pump develops no head. Reading its curve at
                    * Q = 0 would report shutoff head, which is what it WOULD

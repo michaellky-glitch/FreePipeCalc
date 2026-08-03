@@ -990,6 +990,62 @@ auto-sized, and there `autoSizePumps` is already driving the same actuator
 towards the rated flow. Two controllers on one actuator is not a system with an
 answer. **DESIGN sizes; SIMULATION controls.**
 
+### Part load rides down the SYSTEM curve
+
+Worth stating plainly, because getting it wrong looks plausible. The operating
+point is the **intersection** of the speed-scaled pump curve with the system
+curve. On a closed circuit the system is `H = R·Q²` through the origin, and the
+intersection then inherits the affinity laws exactly — `Q ∝ n`, `H ∝ n²`. Head
+goes **down** at part load.
+
+The mistake that is easy to make is reading the **rated** curve at the reduced
+flow. A pump curve *falls* with flow, so evaluating it further left always reads
+a **higher** head — the exact opposite. On the fitted curve in
+`debug/20260803-1.json`:
+
+| n | Q (L/s) | correct H | rated curve at that Q |
+|---|---|---|---|
+| 1.00 | 20.000 | 44.85 m | 44.85 m |
+| 0.80 | 15.982 | 28.72 m | **50.12 m** |
+| 0.50 | 9.964 | 11.24 m | **56.70 m** |
+
+Both columns are "the pump curve evaluated at the solved flow"; only one is the
+machine. Michael caught this on 2026-08-03 — the panel and the calculation sheet
+were reading the curve in **DESIGN**, where the solver runs on `pump.head` and
+the curve is not in the calculation at all, so the flow does not fall when the
+pump slows and the reported head walks up.
+
+`M.pumpHead(m, p, q)` is now the single definition, and the panel, the drawing
+and the sheet all call it. Three separate readouts have disagreed with the
+solver at least once each; one function is the fix.
+
+**With static lift the operating point does NOT follow n and n²**, and there is
+a test asserting exactly that. The affinity laws map points on the *pump* curve;
+the operating point only inherits them when the system curve passes through the
+origin. Add a 20 m lift and at 70% speed the flow falls to 43% (faster than n)
+while the head only falls to 65% (slower than n², because it is approaching the
+static head). Both inequalities are the wrong way round for a naive affinity
+mapping, and both are right — which is the evidence that the app is solving the
+intersection rather than scaling the answer.
+
+### Speed applies in SIMULATION only
+
+Not a UI nicety — it is where the physics is. A pump can only ride down the
+system curve where the **flow is free to respond**. In DESIGN the demands impose
+the flow and `autoSizePumps` holds the rated duty on top of that, so scaling the
+head there slows nothing: the sizer simply specifies a bigger pump to overcome
+the throttling it was handed. On Michael's own model, **44.8 m at 100% speed
+became 179.4 m at 50%**, with the flow pinned at 20.00 L/s throughout. Exactly
+backwards.
+
+That is the same "two controllers on one actuator" conflict that made the
+control loop SIMULATION-only in v0.11.1. The loop was fenced off then and a
+hand-typed speed was not, which left the conflict reachable through the one door
+still open. `M.pumpSpeed(m, p)` returns 1 outside SIMULATION; the stored speed is
+kept rather than cleared, so switching back restores it, and
+`M.pumpSpeedIgnored` drives a 🛈 on the panel so a number that is doing nothing
+says so.
+
 ### Speed is an affinity scaling of the curve, and nothing else
 
 `Q ∝ N`, `H ∝ N²`, so `H_s(Q) = s²·H(Q/s)`. Substituted into the stored form
@@ -1291,7 +1347,7 @@ sheet**, which is the thing that gets issued.
 
 ## 15. Testing
 
-Seven suites, 1161 assertions, no dependencies:
+Seven suites, 1212 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

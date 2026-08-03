@@ -2668,13 +2668,8 @@
            * head the calculation did not use. A stopped pump develops nothing —
            * reading its curve at Q = 0 would give shutoff head, the opposite of
            * the truth. */
-          var pOff = obj.pump.mode === 'off';
           var pq = Math.abs((res && res.flow[obj.id]) || 0);
-          var pSp = M.pumpSpeed(obj);
-          var hNow = pOff ? 0
-            : (m.settings.calcMode === 'simulation' && obj.pump.curve)
-              ? FD.pumps.head(M.pumpCurve(obj), pq)
-              : (obj.pump.head || 0) * pSp * pSp;
+          var hNow = M.pumpHead(m, obj, pq);
           lines.push('H ' + FD.units.fmtPressure(
             FD.units.headToPaWith(hNow, m.settings.fluid.density), d.pressure, true));
         }
@@ -2682,7 +2677,7 @@
          * Shown at 100% too (Michael, 2026-08-03) — "is this pump on full?" is
          * a question you ask of a pump that is NOT modulating just as often. */
         if (flags.vfd && obj.pump && obj.pump.mode !== 'off') {
-          lines.push('VFD ' + Math.round(M.pumpSpeed(obj) * 100) + '%');
+          lines.push('VFD ' + Math.round(M.pumpSpeed(m, obj) * 100) + '%');
         }
         if (flags.pd) {
           var link = res.network && res.network.links.find(function (l) { return l.id === obj.id; });

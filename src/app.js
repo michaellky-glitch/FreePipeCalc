@@ -723,13 +723,12 @@
         .map(function (p) {
           var off = !p.pump || p.pump.mode === 'off';
           var q = res && res.flow ? Math.abs(res.flow[p.id] || 0) : null;
-          /* The curve AS RUN. At part speed the rated curve is not the one
-           * this pump is on, and the sheet must not disagree with the solve. */
-          var pc = M.pumpCurve(p);
-          var hd = off ? 0 : (pc ? FD.pumps.head(pc, q || 0)
-            : ((p.pump && p.pump.head) || 0) * M.pumpSpeed(p) * M.pumpSpeed(p));
+          /* The head the SOLVE used — M.pumpHead has the one definition, and
+           * the sheet must not disagree with the panel or the drawing. */
+          var pc = M.pumpCurve(m, p);
+          var hd = off ? 0 : M.pumpHead(m, p, q || 0);
           var design = pc ? pc.Qd : null;
-          var sp = M.pumpSpeed(p);
+          var sp = M.pumpSpeed(m, p);
           var r2 = row((p.tag || p.id) + (off ? ' (off)' : '') +
                        (!off && sp < 0.999 ? ' (' + Math.round(sp * 100) + '% speed)' : ''),
                        off ? 0 : q, design, headToPa(hd), null);
@@ -818,8 +817,8 @@
        * is the picture a VSD family is always drawn as, and showing only the
        * rated curve would put the operating point nowhere near it. */
       var c = withCurve.pump.curve;
-      var cRun = M.pumpCurve(withCurve) || c;
-      var pumpSp = M.pumpSpeed(withCurve);
+      var cRun = M.pumpCurve(m, withCurve) || c;
+      var pumpSp = M.pumpSpeed(m, withCurve);
       var qNow = res && res.flow ? Math.abs(res.flow[withCurve.id] || 0) : 0;
       var qMax = Math.max(FD.pumps.maxFlow(c) || 0, qNow * 1.2);
       var W = 420, H = 200, PAD = 34;
@@ -2358,11 +2357,12 @@
       /* A stopped pump develops no head. Reading its curve at Q = 0 would
        * report shutoff head, which is what it WOULD make if it were running.
        * With no curve the pump IS its fixed head — what the solver used. */
-      var sp = M.pumpSpeed(p);
-      var cRun = M.pumpCurve(p);
-      var hNow = pOff ? 0
-               : qNow === null ? null
-               : cRun ? FD.pumps.head(cRun, qNow) : (p.pump.head || 0) * sp * sp;
+      var sp = M.pumpSpeed(m, p);
+      /* M.pumpHead, not the curve directly. In DESIGN the solver runs on the
+       * fixed head and the curve is not in the calculation — reading it here
+       * reported a head the answer never used, and one that RISES as the pump
+       * backs off because a curve read at a lower flow always reads up. */
+      var hNow = pOff ? 0 : qNow === null ? null : M.pumpHead(m, p, qNow);
       ro('Actual flow', qNow === null ? '—' : FD.units.fmtFlow(qNow, fu, true));
       ro('Actual pressure', hNow === null ? '—'
          : FD.units.fmtPressure(headToPa(hNow), pu, true));
@@ -2375,9 +2375,16 @@
       if (!pOff) {
         var ctl = app.results && app.results.controls;
         var dev = ctl ? ctl.devices.filter(function (x) { return x.pipe === p.id; })[0] : null;
-        ro('VFD speed', Math.round(sp * 100) + '%' +
+        var vrow = ro('VFD speed', Math.round(sp * 100) + '%' +
            (dev ? ' — holding ' + (dev.equipTag || dev.equip) +
                   (dev.state === 'at-min' ? ' (at minimum)' : '') : ''));
+        /* A stored speed that is not being applied is the one state worth
+         * explaining: the number is on the pump and does nothing. */
+        if (M.pumpSpeedIgnored(m, p)) {
+          infoMark(vrow, 'Speed applies in SIMULATION only. In DESIGN the ' +
+                         'demands impose the flow, so slowing the pump cannot ' +
+                         'reduce it — the sizer would just specify a bigger pump.');
+        }
       }
       if (c && c.fit) {
         /* A bad fit must be visible. A manufacturer curve that does not take

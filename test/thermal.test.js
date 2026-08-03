@@ -987,7 +987,7 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
     ok('...so it leaves WARM of its 25 C setpoint', l.tOut > 25.5,
        l.tOut.toFixed(2) + ' C');
     near('...having done exactly its 250 kW', l.qW, -250000, 1);
-    ok('The pump is at full speed', M.pumpSpeed(t.pump) === 1);
+    ok('The pump is at full speed', M.pumpSpeed(t.m, t.pump) === 1);
   }
 
   // ---- 2. CONTROLLED: the pump ramps DOWN and the setpoint is held.
@@ -996,7 +996,7 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
   {
     ok('Solves with a control link', res.converged === true,
        JSON.stringify(res.errors));
-    const speed = M.pumpSpeed(controlled.pump);
+    const speed = M.pumpSpeed(controlled.m, controlled.pump);
 
     /* THE DIRECTION. Down, not up. */
     ok('The pump ramped DOWN', speed < 1, (speed * 100).toFixed(1) + '%');
@@ -1046,7 +1046,7 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
     controlled.pump.pump.speed = 0.31;         // as if a previous solve had
     const again = NET.solveModel(controlled.m);
     near('Re-solving from a different starting speed lands in the same place',
-         M.pumpSpeed(controlled.pump), res.controls.devices[0].value, 2e-3);
+         M.pumpSpeed(controlled.m, controlled.pump), res.controls.devices[0].value, 2e-3);
     near('...and on the same flow', Math.abs(again.flow[controlled.eq.id]),
          Math.abs(res.flow[controlled.eq.id]), 1e-6);
   }
@@ -1057,7 +1057,7 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
      * quarter of the full-speed flow, so the drive bottoms out. */
     const t = economizer({ link: 'pump', equip: { qMax: -60000 } });
     const r = NET.solveModel(t.m);
-    near('The pump sits on its minimum speed', M.pumpSpeed(t.pump), 0.25, 1e-9);
+    near('The pump sits on its minimum speed', M.pumpSpeed(t.m, t.pump), 0.25, 1e-9);
     const l = r.thermal.links[t.eq.id];
     ok('...and the machine is still warm of setpoint', l.tOut > 25.5,
        l.tOut.toFixed(2) + ' C');
@@ -1081,8 +1081,8 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
     const l = r.thermal.links[t.eq.id];
     near('The machine is pinned 2 K below inlet', l.tOut, 28, 1e-9);
     ok('...by its ΔT limit', l.limit === 'ΔT max', String(l.limit));
-    ok('The pump stayed at full speed', M.pumpSpeed(t.pump) === 1,
-       String(M.pumpSpeed(t.pump)));
+    ok('The pump stayed at full speed', M.pumpSpeed(t.m, t.pump) === 1,
+       String(M.pumpSpeed(t.m, t.pump)));
     ok('...reported as at-max', r.controls.devices[0].state === 'at-max',
        r.controls.devices[0].state);
     ok('...with a warning saying backing off would not help',
@@ -1097,7 +1097,7 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
     ok('Solves', r.converged === true, JSON.stringify(r.errors));
     ok('The valve closed down', t.valve.valve.opening < 100,
        t.valve.valve.opening + '%');
-    ok('...and the pump was left alone', M.pumpSpeed(t.pump) === 1);
+    ok('...and the pump was left alone', M.pumpSpeed(t.m, t.pump) === 1);
     const l = r.thermal.links[t.eq.id];
     near('The setpoint is held', l.tOut, 25, 0.05);
     /* The SAME closed form: the settled flow does not care what throttled it.
@@ -1125,7 +1125,7 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
                            equip: { equipType: 'exchanger', duty: -100000,
                                     tSet: undefined } });
     const r = NET.solveModel(t.m);
-    ok('The pump is left at full speed', M.pumpSpeed(t.pump) === 1);
+    ok('The pump is left at full speed', M.pumpSpeed(t.m, t.pump) === 1);
     ok('CONTROL_NO_SETPOINT is raised',
        r.warnings.some(w => w.code === 'CONTROL_NO_SETPOINT'),
        JSON.stringify(r.warnings.map(w => w.code)));
@@ -1136,7 +1136,7 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
     const t = economizer({ link: 'pump', mode: 'design' });
     const r = NET.solveModel(t.m);
     ok('No control report in DESIGN', r.controls === null);
-    ok('...and the pump is untouched', M.pumpSpeed(t.pump) === 1);
+    ok('...and the pump is untouched', M.pumpSpeed(t.m, t.pump) === 1);
     const plain = NET.solveModel(economizer({ link: null, mode: 'design' }).m);
     near('...so the answer is identical to the same model with no link',
          r.flow[t.eq.id], plain.flow[t.eq.id], 1e-12);
