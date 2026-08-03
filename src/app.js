@@ -1759,8 +1759,8 @@
 
     /* ---- thermal: insulation ----
      * A pipe's OWN thickness always wins, including 0 for a bare pipe — a
-     * blank falls back to the default for its size. That distinction matters:
-     * a deliberately uninsulated pipe must not silently pick up 30 mm. */
+     * blank falls back to its schedule. That distinction matters: a
+     * deliberately uninsulated pipe must not silently pick up 50 mm. */
     var nominal = FD.schedules.nominalMm ? FD.schedules.nominalMm(p.size) : 0;
     var insDefault = FD.schedules.insulationFor(p.schedule, p.size, nominal,
                                                m.settings.insulation);
@@ -1829,8 +1829,7 @@
       tb.ro('Outlet', tl.tOut.toFixed(2) + ' °C');
       tb.ro('Gain / loss', (tl.qW >= 0 ? '+' : '') + tl.qW.toFixed(1) + ' W');
       tb.ro('Loss coefficient', (tl.UperM || 0).toFixed(3) + ' W/(m·K)');
-      tb.box.appendChild(el('p', 'hint',
-        'Positive gains heat from the room, negative loses it to the room.'));
+      tb.box.appendChild(el('p', 'hint', '+ gains from the room · − loses to it.'));
     }
 
     var del = el('button', 'btn danger', 'Delete pipe');
@@ -2004,9 +2003,10 @@
           else { qIn.value = (e.duty || 0) / 1000; }
         });
     }
-    host.appendChild(el('p', 'hint',
-      'Negative removes heat from the fluid, positive adds it. A chilled-water ' +
-      'coil is POSITIVE — the room is cooled, the water is warmed.'));
+    var sgn = el('p', 'hint', '− removes heat · + adds it. ');
+    infoMark(sgn, 'About the fluid, not the room. A CHW coil is + : the room ' +
+                  'is cooled, the water warmed.');
+    host.appendChild(sgn);
 
     var res = app.results;
     var link = res && res.thermal && res.thermal.links[p.id];
@@ -3098,22 +3098,18 @@
     var fluid = FD.fluids.resolve(m.settings);
 
     // ------------------------------------------------- 1. sign convention
-    h2('Heat flow');
-    var sign = el('div', 'notice info-notice');
-    sign.appendChild(el('p', 'notice-head', 'Sign convention'));
-    sign.appendChild(el('p', '',
-      'Every duty on this tab and on the calculation sheet is about the FLUID. ' +
-      'A negative Q removes heat from the fluid — a chiller, or a hot pipe ' +
-      'losing to the room. A positive Q adds heat to it — a boiler, or a ' +
-      'chilled-water coil picking up room load. So a cooling coil reads ' +
-      'POSITIVE: the room is being cooled, and the water is being warmed.'));
-    host.appendChild(sign);
+    var sh = el('h2', '', 'Sign');
+    infoMark(sh, 'Q is about the fluid. −Q removes heat from it (chiller, hot ' +
+                 'pipe losing). +Q adds heat to it (boiler, CHW coil).');
+    host.appendChild(sh);
+    host.appendChild(el('p', 'hint', '−Q removes heat from the fluid · +Q adds it. ' +
+                                     'A CHW coil is +.'));
 
     // ------------------------------------------------- 2. fluid (read-only)
-    h2('Fluid');
-    hint('Chosen on the HYDRAULIC tab, because the same properties set density ' +
-         'and therefore every pressure. Shown here because specific heat is ' +
-         'what Q = ṁ·Cp·ΔT runs on.');
+    var fh = el('h2', '', 'Fluid');
+    infoMark(fh, 'Set on HYDRAULIC — the same properties drive density. Shown ' +
+                 'here for Cp.');
+    host.appendChild(fh);
     var fb = readoutBox(host, null);
     fb.ro('Fluid', fluid.name);
     fb.ro('Specific heat', fluid.specificHeat.toFixed(0) + ' J/(kg·K)');
@@ -3121,10 +3117,10 @@
     fb.ro('Properties quoted at', fluid.refTemp.toFixed(1) + ' °C');
     if (!fluid.verified) {
       var fw = el('div', 'notice warn-notice');
-      fw.appendChild(el('p', '',
-        fluid.name + ': these properties are NOT verified against a printed ' +
-        'table. Specific heat scales every duty on this tab linearly — a Cp ' +
-        'that is 5% out puts every kW 5% out. Check it before issuing anything.'));
+      var fp = el('p', '', fluid.name + ': properties unverified. Check before issue.');
+      infoMark(fp, 'Not transcribed from a printed table. Cp scales every duty ' +
+                   'linearly — 5% out on Cp is 5% out on every kW.');
+      fw.appendChild(fp);
       host.appendChild(fw);
     }
 
@@ -3137,10 +3133,11 @@
     numField(g1, 'System flow temperature', th.supplyTemp,
       function (v) { m.settings.thermal.supplyTemp = v; renderThermal(); redrawAll(); },
       '(°C)');
-    hint('Ambient is what a pipe exchanges heat with. The flow temperature is ' +
-         'the reference: a source without its own temperature holds it, and a ' +
-         'sealed circuit — which has no source, so nothing states a temperature ' +
-         'at all — has it pinned at the outlet of whatever moves the most heat.');
+    var ch = el('p', 'hint', 'Flow temperature is the reference. ');
+    infoMark(ch, 'A source without its own temperature holds it. A sealed ' +
+                 'circuit — no source, no ambient exchange — has it pinned at ' +
+                 'the outlet of whatever moves the most heat.');
+    host.appendChild(ch);
 
     h2('Insulation');
     var g2 = grid();
@@ -3150,10 +3147,10 @@
     numField(g2, 'Outside surface coefficient', th.surfaceCoeff,
       function (v) { m.settings.thermal.surfaceCoeff = v; renderThermal(); redrawAll(); },
       '(W/m²·K)');
-    host.appendChild(el('p', 'hint',
-      'A surface coefficient of 0 means ADIABATIC — no exchange with the room ' +
-      'at all. It is the only way to say that, and it is what makes a sealed ' +
-      'circuit need a pinned reference temperature.'));
+    var ah = el('p', 'hint', 'h = 0 means adiabatic. ');
+    infoMark(ah, 'No exchange with the room at all — the only way to say that, ' +
+                 'and what makes a sealed circuit need a pinned reference.');
+    host.appendChild(ah);
 
     h2('Plausibility band');
     var g3 = grid();
@@ -3163,38 +3160,33 @@
     numField(g3, 'Maximum temperature', th.tempMax,
       function (v) { m.settings.thermal.tempMax = v; renderThermal(); redrawAll(); },
       '(°C)');
-    host.appendChild(el('p', 'hint',
-      'A temperature outside this band is reported as an ERROR rather than ' +
-      'printed. The solve itself is exact and nothing runs away numerically — ' +
-      'but a load with nowhere to go settles somewhere ridiculous, and that is ' +
-      'a statement about the design rather than the arithmetic.'));
+    var pb = el('p', 'hint', 'Outside the band is an error, not a printed value. ');
+    infoMark(pb, 'The solve is exact — but a load with nowhere to go settles ' +
+                 'somewhere ridiculous, which is about the design, not the ' +
+                 'arithmetic.');
+    host.appendChild(pb);
     if ((th.tempMax || 0) <= 60) {
-      var bw = el('div', 'notice info-notice');
-      bw.appendChild(el('p', '',
-        'The band suits CHILLED water. An LTHW circuit at 80 °C flow will trip ' +
-        'it — raise the maximum to match the service.'));
-      host.appendChild(bw);
+      host.appendChild(el('p', 'hint', 'Suits chilled water. LTHW at 80 °C ' +
+                                       'flow will trip it — raise the maximum.'));
     }
-    hint('Loss per metre is 1 / [ ln(r₀/rᵢ)/(2πk) + 1/(2πr₀h) ] — the ' +
-         'insulation and the outside air film in series. Insulation sits on the ' +
-         'pipe’s OUTSIDE diameter, so rᵢ is the pipe OD, not the bore.');
+    var uh = el('p', 'hint', 'U′ = 1 / [ ln(r₀/rᵢ)/(2πk) + 1/(2πr₀h) ]. ');
+    infoMark(uh, 'Insulation and outside film in series. rᵢ is the pipe OD — ' +
+                 'insulation wraps the outside, not the bore.');
+    host.appendChild(uh);
 
     /* THICKNESS lives on the schedule, not here (v0.10.1). It is a physical
      * property of the pipe alongside bore and outside diameter, and having it
      * in a table of its own meant looking in two places for one pipe. */
-    host.appendChild(el('p', 'hint',
-      'Thickness is set on the HYDRAULIC tab, in the schedule’s own size table ' +
-      '— 25 mm below DN50 and 50 mm from DN50 up unless it is changed there. ' +
-      'Any individual pipe can override it, including 0 for a bare pipe.'));
+    var th2 = el('p', 'hint', 'Thickness: HYDRAULIC ▸ schedule table. ');
+    infoMark(th2, '25 mm below DN50, 50 mm from DN50 up. Any pipe overrides ' +
+                  'it, including 0 for bare.');
+    host.appendChild(th2);
 
-    /* h₀ is a DEFAULT, not sourced data, and it is a big lever on a bare pipe:
-     * with no insulation it is the entire resistance. Said out loud. */
     var hw = el('div', 'notice warn-notice');
-    hw.appendChild(el('p', '',
-      'The outside surface coefficient is a DEFAULT (8 W/m²·K, still indoor ' +
-      'air), not a value read off a table. On an insulated pipe it is a small ' +
-      'part of the resistance; on a BARE pipe it is the whole of it, and the ' +
-      'answer is only as good as this number.'));
+    var hp = el('p', '', 'Surface coefficient is a default, not sourced. ');
+    infoMark(hp, 'On a bare pipe it is the ENTIRE resistance, so the answer is ' +
+                 'only as good as this number.');
+    hw.appendChild(hp);
     host.appendChild(hw);
 
     /* What the current schedule's thicknesses actually cost, so the two
@@ -3358,16 +3350,12 @@
     fluidField('Specific heat capacity Cp', 'specificHeat', '(J/kg·K)', 0);
     fluidField('Properties quoted at', 'temperature', '(°C)', 1);
 
-    if (!fEditable) {
-      hint('Published properties for ' + fDef.name + ', so they are read-only. ' +
-           'Choose Custom to enter your own.');
-    }
+    if (!fEditable) hint('Read-only. Choose Custom to enter your own.');
     if (fDef.verified === false) {
       var fnote = el('div', 'notice warn-notice');
-      fnote.appendChild(el('p', '', fDef.source));
-      fnote.appendChild(el('p', '',
-        'Specific heat scales every thermal duty LINEARLY, so this matters ' +
-        'more on the THERMAL tab than it does here.'));
+      var fnp = el('p', '', fDef.name + ': properties unverified. Check before issue. ');
+      infoMark(fnp, fDef.source + ' Cp scales every thermal duty linearly.');
+      fnote.appendChild(fnp);
       host.appendChild(fnote);
     }
 
@@ -3631,16 +3619,13 @@
     schWrap.appendChild(schTable);
     host.appendChild(schWrap);
 
-    host.appendChild(el('p', 'hint',
-      'Dimensions are the published ones and are read-only — copy the schedule ' +
-      'to change them. Insulation is editable: blank takes the default, 25 mm ' +
-      'below DN50 and 50 mm from DN50 up. A pipe can override it individually, ' +
-      'including 0 for a bare pipe.'));
+    var sch1 = el('p', 'hint', 'Insulation is editable; dimensions are not. ');
+    infoMark(sch1, 'Blank takes the default: 25 mm below DN50, 50 mm from DN50 ' +
+                   'up. A pipe overrides it, including 0 for bare. Copy the ' +
+                   'schedule to change dimensions.');
+    host.appendChild(sch1);
     host.appendChild(el('p', 'legend',
-      'Source: ' + (isCustom ? 'custom schedule, entered by the user.'
-                             : cur.name + ', published dimensions.') +
-      ' C factor and roughness are properties of the schedule and the model, ' +
-      'not of an individual size.'));
+      'Source: ' + (isCustom ? 'custom schedule.' : cur.name + ', published dimensions.')));
     host.appendChild(el('p', 'legend',
       'Note: Custom schedules are stored in model & browser storage. ' +
       'Recommend to keep an offline copy.'));
