@@ -964,16 +964,133 @@ the same line, which is what keeps the route orthogonal however it is dragged.
 Toggled by CONTROL LINKS in the VIEW group. On by default — a hidden control
 relationship is a surprise waiting to happen.
 
-**Nothing acts on it yet.** The link is recorded and drawn; making a pump
-actually modulate to hold the setpoint is the variable-speed-pump work in
-`HANDOVER.md` §9A.
+**Something acts on it now** — §17C. Recording and drawing was v0.11.0; the
+modulation is v0.11.1.
+
+## 17C. Setpoint control — variable-speed pumps and modulating valves
+
+New in v0.11.1. A pump or globe valve carrying a control link (§17B) modulates
+to hold the linked equipment's leaving temperature. `runControls()` in
+`network.js`, wrapped around the solve the way `autoSizePumps` is.
+
+**This is the only place temperature feeds back into the hydraulics.**
+Everywhere else the flows are solved first and the temperature is carried along
+them (§18), one way, no path back. A pump whose speed depends on a temperature
+closes that loop, so `solveModel` gained an outer iteration. The hydraulic core
+was split out as `solveCore()` so a trial setting can be evaluated without also
+paying for the critical path, the pressure-driven second pass and the simulation
+report.
+
+### SIMULATION only, and that is not a shortcut
+
+In DESIGN the flows are **imposed** — a demand node states the flow it takes —
+so modulating a pump or a valve cannot move them and a controller has nothing to
+do. The one DESIGN case where flow does follow head is a closed circuit being
+auto-sized, and there `autoSizePumps` is already driving the same actuator
+towards the rated flow. Two controllers on one actuator is not a system with an
+answer. **DESIGN sizes; SIMULATION controls.**
+
+### Speed is an affinity scaling of the curve, and nothing else
+
+`Q ∝ N`, `H ∝ N²`, so `H_s(Q) = s²·H(Q/s)`. Substituted into the stored form
+`H = H0 − a·Q^b` that comes out in the *same* form —
+
+    H0' = s²·H0        a' = a·s^(2−b)        b' = b
+
+— which is why `FD.pumps.atSpeed()` can do the whole job on the curve and the
+solver never learns that speed exists. A fixed head (no curve) is scaled by `s²`
+by the same law. **Everything that reads a curve must go through
+`M.pumpCurve(p)`**, or the drawing, the panel and the sheet will each report the
+rated curve while the solver runs a scaled one — the same class of mistake as
+reading `link.r` without the fittings (`HANDOVER.md` §2).
+
+The affinity laws are textbook similarity relations, not fitted here. Efficiency
+is deliberately not scaled: the app carries no power curve, so there is nothing
+to be wrong about.
+
+### Three things this had to get right
+
+**1. The direction is not assumed.** More flow moves some machines towards their
+setpoint and others away from it. Nothing hard-codes a sign. Because an actuator
+cannot go past rated speed or fully open, the only question is whether *backing
+off* helps, and that is answered by **perturbation**: back off a little,
+re-solve, compare. If the error gets worse, the device is already doing all it
+can and says so (`CONTROL_AT_LIMIT`). A machine capped by ΔT max is the case
+that catches a hard-coded sign — its leaving temperature does not depend on flow
+at all, so a naive controller winds the pump to its floor for no benefit.
+
+**2. The error is read from a finished solve.** The modulation is frozen for the
+whole of a core solve and its thermal pass, so no pass ever chases an error it is
+itself producing. That is the check-valve lesson (§6) and the frozen-active-set
+lesson (§18) in a third place.
+
+**3. The search is bracketed, not Newton.** A source/sink holds its setpoint
+*exactly* once it is no longer limited, so the error is non-zero above some
+speed and identically zero below it — a derivative of zero over half the range,
+which a secant method divides by. Secant steps are used only to find *a* setting
+that meets the setpoint; the answer is then bisected out as the **highest**
+setting that still meets it, which is where a real controller comes to rest.
+
+Two thresholds, and they are different things. `control.tol` (0.05 K) is the
+**deadband** — how far off setpoint is worth modulating for at all. The search
+itself resolves the boundary to a micro-kelvin, which is safe *by construction*
+rather than by luck, because that boundary is a genuine step. Stopping at the
+edge of the deadband instead was tried first and is subtly wrong: it leaves the
+machine a whole `tol` short — 1% of the flow on a 5 K duty — and still reporting
+`EQUIP_LIMITED` while the controller claims to be holding setpoint.
+
+### The floor, and reporting it
+
+`control.minSpeed` defaults to 0.25 and `control.minOpening` to 10%. Real drives
+are not run below roughly a quarter speed, and a pump at no flow makes the
+thermal solve singular, so the floor is a numerical necessity as much as a plant
+one. All three settings are **defaults a user can change, not transcribed data**,
+and they are on the THERMAL tab.
+
+Sitting on a floor is reported, never hidden: *"PMP-01 is at its minimum speed
+(25% speed) and ECO-01 is still 2.5 K above its 25.0 °C setpoint"* — the same
+shape as `EQUIP_LIMITED`.
+
+### Written against the actuator, not against a pump
+
+`actuatorFor()` returns a `{ min, step, get, set, label }` over a fraction of
+full travel, so one search serves a pump's speed and a globe valve's position.
+A valve's step is a whole **percent** — that is what the panel offers and what a
+valve is actually set to — so it settles at or just under the boundary rather
+than on it. On the test rig that is 0.7% of flow; a pump, resolved to 0.1% of
+speed, lands on the hand figure exactly.
+
+### Every solve starts from full
+
+Warm-starting from the previous answer would be cheaper and is wrong: the search
+only ever probes downward, so a device that once ramped down could never ramp
+back up when the load returned, and the reported answer would depend on edit
+history rather than on the model. A controlled globe valve's opening is
+therefore an **output** — the panel says so beside the slider.
+
+### Reported
+
+`res.controls = { devices: [...], sweeps, solves, tol }`, one entry per
+controlled device with its target, what it actually achieved, the value it
+settled at and a `state` of `on` / `at-min` / `at-max` / `no-flow` /
+`unsettled`. Speed appears on the pump's info plate (`N 54%`), in the Actual box
+of its panel with the machine it is holding, on the Device Flow row, and on the
+pump-curve chart as a solid scaled curve with the rated one dashed behind it.
+
+Several controllers are settled in turn and the sweep repeated, because one
+device's modulation moves every other device's inlet temperature. Two or three
+sweeps in practice; still moving after four is `CONTROL_UNSETTLED`.
+
+A link to a machine that states no setpoint — a heat exchanger states a *load* —
+raises `CONTROL_NO_SETPOINT` rather than doing nothing quietly.
 
 ## 18. The thermal module
 
 New in v0.10.0. `src/thermal.js` runs AFTER the hydraulic solve and reads its
-flows, because temperature is carried by the water. It feeds nothing back:
-fluid properties are held at one temperature, so a warmer pipe does not change
-its own friction. That is a real simplification, recorded in `KNOWN-ISSUES.md`
+flows, because temperature is carried by the water. It feeds nothing back
+*except through a control link*: fluid properties are held at one temperature,
+so a warmer pipe does not change its own friction, and the only path from a
+temperature to a flow is a modulating pump or valve (§17C). That is a real simplification, recorded in `KNOWN-ISSUES.md`
 rather than hidden.
 
 ### Sign convention
@@ -1141,7 +1258,7 @@ sheet**, which is the thing that gets issued.
 
 ## 15. Testing
 
-Seven suites, 1032 assertions, no dependencies:
+Seven suites, 1111 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

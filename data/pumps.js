@@ -56,6 +56,42 @@
     return curve ? curve.H0 : 0;
   }
 
+  /* The same pump at a fraction `s` of rated speed — the affinity laws.
+   *
+   *     Q ∝ N        H ∝ N²        so   H_s(Q) = s²·H(Q/s)
+   *
+   * Substituted into H = H0 − a·Q^b that comes out in the SAME form, which is
+   * the whole reason the scaling can be done on the stored curve rather than
+   * anywhere in the solver:
+   *
+   *     H_s(Q) = s²·[ H0 − a·(Q/s)^b ] = s²·H0 − a·s^(2−b)·Q^b
+   *
+   * so  H0' = s²·H0,  a' = a·s^(2−b),  b' = b  — and the duty point rides the
+   * affinity parabola to (s·Qd, s²·Hd), which is where it has to be.
+   *
+   * Sanity checks, both hand-verifiable: at s = 1 nothing moves; and for the
+   * default b = 2 the exponent term is s⁰ = 1, so `a` is unchanged and the
+   * curve simply drops — which is the familiar picture of a VSD family.
+   *
+   * The affinity laws are textbook, not fitted here: they are the similarity
+   * relations for a fixed impeller, exact for the ideal machine and the basis
+   * of every published VSD family. Efficiency is NOT scaled — the app does not
+   * carry a power curve, so there is nothing to be wrong about. */
+  function atSpeed(curve, s) {
+    if (!curve) return null;
+    if (!(s > 0)) return null;                 // a stopped pump is not a curve
+    if (Math.abs(s - 1) < 1e-12) return curve;
+    return {
+      H0: curve.H0 * s * s,
+      a: curve.a * Math.pow(s, 2 - curve.b),
+      b: curve.b,
+      Hd: (curve.Hd || 0) * s * s,
+      Qd: (curve.Qd || 0) * s,
+      speed: s,
+      source: curve.source
+    };
+  }
+
   /* Least-squares fit of H = H0 − a·Q^b to pasted points.
    *
    * b enters non-linearly, so it is swept over a plausible range and, for each
@@ -284,6 +320,7 @@
     slope: slope,
     maxFlow: maxFlow,
     shutoffHead: shutoffHead,
+    atSpeed: atSpeed,
     fit: fit,
     parseCurve: parseCurve,
     table: table

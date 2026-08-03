@@ -82,6 +82,106 @@ section('Three-point quadratic (TOOLS ▸ Generic Pump Curve)');
      P.quadWarnings(bad, 1000).some(w => /RISES/.test(w)));
 }
 
+/* --------------------------------------------------------------------------
+ * THE AFFINITY LAWS — the same pump at part speed.
+ *
+ *     Q ∝ N        H ∝ N²        so    H_s(Q) = s²·H(Q/s)
+ *
+ * Substituted into the stored form H = H0 − a·Q^b that stays in the SAME form,
+ * which is why the scaling is done once on the curve and the solver never
+ * learns about speed at all:
+ *
+ *     H_s(Q) = s²[H0 − a(Q/s)^b] = s²·H0 − a·s^(2−b)·Q^b
+ *
+ * The identity itself is what is tested here, not the algebra as written in
+ * the source: the expectations below evaluate s²·H(Q/s) directly.
+ * ----------------------------------------------------------------------- */
+section('Affinity laws: a pump curve at part speed');
+{
+  const c = P.singlePoint(30, 0.020);          // H0 = 40, a = 25000, b = 2
+
+  ok('Full speed returns the curve untouched', P.atSpeed(c, 1) === c);
+  ok('A stopped pump is not a curve', P.atSpeed(c, 0) === null);
+  ok('No curve, no scaled curve', P.atSpeed(null, 0.5) === null);
+
+  /* THE identity, at several speeds and several flows, against s².H(Q/s)
+   * computed here rather than read out of the module. */
+  [0.9, 0.75, 0.5, 0.3].forEach(s => {
+    const cs = P.atSpeed(c, s);
+    [0.002, 0.008, 0.015, 0.020].forEach(q => {
+      near(`H at ${(s * 100).toFixed(0)}% speed, ${q * 1000} L/s is s².H(Q/s)`,
+           P.head(cs, q), s * s * P.head(c, q / s), 1e-12);
+    });
+  });
+
+  /* The duty point rides the affinity parabola to (s.Qd, s².Hd). At half
+   * speed that is 10 L/s at 7.5 m — a quarter of 30 m. */
+  {
+    const cs = P.atSpeed(c, 0.5);
+    near('Design flow scales with speed', cs.Qd, 0.010, 1e-15);
+    near('Design head scales with speed squared', cs.Hd, 7.5, 1e-12);
+    near('...and the curve really passes through it', P.head(cs, 0.010), 7.5, 1e-12);
+    near('Shutoff head scales with speed squared', P.shutoffHead(cs), 10, 1e-12);
+    near('Maximum flow scales with speed', P.maxFlow(cs), 0.020, 1e-15);
+    /* For the default b = 2 the exponent term is s⁰, so `a` does not move at
+     * all and the family is a set of parallel-looking parabolas. */
+    near('With b = 2 the curvature is unchanged', cs.a, c.a, 1e-9);
+  }
+
+  /* b ≠ 2 is where a naive "just scale H0" would go wrong, so it is checked
+   * against the same identity. */
+  {
+    const c3 = { H0: 50, a: 4e6, b: 3, Qd: 0.015, Hd: 50 - 4e6 * Math.pow(0.015, 3) };
+    const cs = P.atSpeed(c3, 0.6);
+    near('a is scaled by s^(2−b) when b ≠ 2', cs.a, 4e6 * Math.pow(0.6, -1), 1e-6);
+    near('...and the identity still holds',
+         P.head(cs, 0.009), 0.36 * P.head(c3, 0.015), 1e-9);
+  }
+
+  /* END TO END. Against a purely quadratic system, R·Q², the operating point
+   * is where s²H0 − aQ² = RQ² (b = 2, so `a` is unchanged), giving
+   *
+   *     Q = s·sqrt(H0/(a+R))
+   *
+   * i.e. the flow falls in exact proportion to speed. The model's terminal is
+   * exactly quadratic; its 1 m of DN100 pipe is Hazen-Williams at 1.852 and
+   * worth well under a percent, so the ratio lands just off exactly s. */
+  {
+    function rig(speed) {
+      const m = M.create();
+      m.settings.calcMode = 'simulation';
+      const lv = m.levels[0];
+      const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+      const cN = M.addNode(m, lv, 2, 0);
+      a.device = { kind: 'source', head: 0 };
+      cN.device = { kind: 'demand', flow: 0.020, reqPressure: 200e3 };
+      const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+      pump.pump = { mode: 'fixed', head: 30, curve: P.singlePoint(30, 0.020),
+                    speed: speed };
+      M.addPipe(m, b.id, cN.id, { size: 'DN100', schedule: 'sch40' });
+      const res = NET.solveModel(m);
+      return { res, q: Math.abs(res.flow[pump.id]), pump };
+    }
+    const full = rig(1);
+    [0.8, 0.6, 0.4].forEach(s => {
+      const part = rig(s);
+      const ratio = part.q / full.q;
+      ok(`At ${(s * 100).toFixed(0)}% speed the flow is ${(s * 100).toFixed(0)}% of full`,
+         Math.abs(ratio - s) < 0.005 * s,
+         `ratio ${ratio.toFixed(5)}, expected ~${s}`);
+    });
+    /* And the reported head is read off the SCALED curve, not the rated one —
+     * the mistake that would have every panel and the drawing disagreeing with
+     * the solver. */
+    const half = rig(0.5);
+    near('Reported head is the scaled curve at the solved flow',
+         half.res.simulation.pumps[0].head,
+         P.head(P.atSpeed(half.pump.pump.curve, 0.5), half.q), 1e-9);
+    near('...and the reported speed is the one it ran at',
+         half.res.simulation.pumps[0].speed, 0.5, 1e-12);
+  }
+}
+
 section('Curve fitting');
 {
   // Points generated FROM a known curve must fit back to it exactly.

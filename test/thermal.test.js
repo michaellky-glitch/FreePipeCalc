@@ -864,4 +864,239 @@ section('Source / Sink holds a setpoint until a limit binds');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * VARIABLE-SPEED CONTROL — Michael's waterside economizer, 2026-08-03.
+ *
+ * Source at 30 C -> pump -> economizer -> pipe -> terminal, in SIMULATION.
+ * The pipework is ADIABATIC (surfaceCoeff 0), so the only thermal element in
+ * the model is the machine and every number below can be done by hand.
+ *
+ * The economizer is a source/sink: setpoint 25 C, T limit 18 C (the ambient it
+ * cannot pass), and a finite capacity. At full speed the flow is more than that
+ * capacity can cool by 5 K, so it is capacity-limited and leaves WARM of
+ * setpoint. Backing the pump off gives fewer kilograms to cool for the same
+ * watts, which is a bigger drop — so the pump must ramp DOWN. If it ramps up,
+ * the sign handling is wrong.
+ *
+ * THE CLOSED FORM, and it is the assertion that matters. At the settled point
+ * the machine sits exactly on its capacity boundary: the duty it needs is the
+ * duty it has.
+ *
+ *     Q_cap = C.dT = rho.q.cp.(30-25)
+ *  -> q     = Q_cap / (5.rho.cp)
+ *
+ * rho.cp = 998 x 4187 = 4 178 626 J/(m3.K), so 5 K is 20 893 130 J/m3 and a
+ * 250 kW machine settles at
+ *
+ *     250 000 / 20 893 130 = 0.01196565 m3/s = 11.966 L/s
+ *
+ * — independent of the pump, of its curve, and of the pipework. Nothing in
+ * that line was read out of the code.
+ * ----------------------------------------------------------------------- */
+section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
+{
+  const P = FD.pumps;
+
+  /* `link` is 'pump', 'valve' or null (no control link at all). */
+  function economizer(opts) {
+    opts = opts || {};
+    const m = M.create();
+    m.settings.calcMode = opts.mode || 'simulation';
+    /* Adiabatic pipework: the machine is the only thermal element. */
+    m.settings.thermal = { ambient: 18, supplyTemp: 30, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const c = M.addNode(m, lv, 2, 0), d = M.addNode(m, lv, 3, 0);
+    const e = M.addNode(m, lv, 4, 0);
+    a.device = { kind: 'source', head: 0, temperature: 30 };
+    e.device = { kind: 'demand', flow: 0.020, reqPressure: 200e3, include: true };
+
+    const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+    pump.pump = { mode: 'fixed', head: 30, curve: P.singlePoint(30, 0.020) };
+    const eq = M.addPipe(m, b.id, c.id, { kind: 'equip' });
+    eq.equip = Object.assign({
+      qRated: 0.020, pdRated: 20e3, equipType: 'source',
+      tSet: 25, tLimit: 18, qMax: 250000
+    }, opts.equip || {});
+    const valve = M.addPipe(m, c.id, d.id, { kind: 'valve' });
+    valve.valve = { type: 'globe', kv: 40, opening: 100 };
+    M.addPipe(m, d.id, e.id, { size: 'DN100', schedule: 'sch40' });
+    m.pipes.forEach(p => { p.insulation_mm = 0; });
+
+    if (opts.link === 'pump') M.setControl(m, pump, eq.id);
+    if (opts.link === 'valve') M.setControl(m, valve, eq.id);
+    return { m, pump, eq, valve };
+  }
+
+  const RHOCP = RHO * CP;                      // 4 178 626 J/(m3.K)
+
+  // ---- 1. UNCONTROLLED: it misses the setpoint, and says why.
+  {
+    const t = economizer({ link: null });
+    const res = NET.solveModel(t.m);
+    ok('Solves without a control link', res.converged === true,
+       JSON.stringify(res.errors));
+    ok('Nothing to report — no control link', res.controls === null);
+    const l = res.thermal.links[t.eq.id];
+    ok('The economizer is capacity-limited', l.limit === 'Capacity', String(l.limit));
+    ok('...so it leaves WARM of its 25 C setpoint', l.tOut > 25.5,
+       l.tOut.toFixed(2) + ' C');
+    near('...having done exactly its 250 kW', l.qW, -250000, 1);
+    ok('The pump is at full speed', M.pumpSpeed(t.pump) === 1);
+  }
+
+  // ---- 2. CONTROLLED: the pump ramps DOWN and the setpoint is held.
+  const controlled = economizer({ link: 'pump' });
+  const res = NET.solveModel(controlled.m);
+  {
+    ok('Solves with a control link', res.converged === true,
+       JSON.stringify(res.errors));
+    const speed = M.pumpSpeed(controlled.pump);
+
+    /* THE DIRECTION. Down, not up. */
+    ok('The pump ramped DOWN', speed < 1, (speed * 100).toFixed(1) + '%');
+    ok('...and is off its minimum, so this is a real answer not a floor',
+       speed > 0.25 + 1e-9, String(speed));
+
+    const l = res.thermal.links[controlled.eq.id];
+    near('The setpoint is held', l.tOut, 25, 1e-6);
+    ok('...so nothing is limiting it any more',
+       l.limit === null || l.limit === undefined, String(l.limit));
+
+    /* The closed form: q = Q_cap / (5.rho.cp). The controller comes to rest on
+     * the boundary itself, not on the edge of a deadband, so this is exact to
+     * the resolution of the actuator (0.1% of speed). */
+    const qHand = 250000 / (5 * RHOCP);
+    near('The settled flow is the capacity boundary, by hand',
+         Math.abs(res.flow[controlled.eq.id]), qHand, qHand * 2e-3);
+    near('...which is 11.966 L/s', qHand * 1000, 11.9656, 1e-3);
+    near('...and the duty is still the full 250 kW', l.qW, -250000, 250);
+
+    /* Flow really did fall — the control is doing work, not agreeing with a
+     * coincidence. */
+    const free = NET.solveModel(economizer({ link: null }).m);
+    ok('Controlled flow is well below the uncontrolled flow',
+       Math.abs(res.flow[controlled.eq.id]) < Math.abs(free.flow[free.network &&
+         controlled.eq.id]) * 0.9,
+       `${(Math.abs(res.flow[controlled.eq.id]) * 1000).toFixed(2)} vs ` +
+       `${(Math.abs(free.flow[controlled.eq.id]) * 1000).toFixed(2)} L/s`);
+
+    // ---- the report
+    const rep = res.controls;
+    ok('A control report is produced', !!rep && rep.devices.length === 1);
+    const d = rep.devices[0];
+    ok('It names the pump and the machine',
+       d.pipe === controlled.pump.id && d.equip === controlled.eq.id);
+    ok('...the quantity being modulated', d.quantity === 'speed');
+    near('...the target', d.target, 25, 1e-12);
+    near('...and the value it settled at', d.value, speed, 1e-12);
+    ok('...reported as on setpoint', d.state === 'on', d.state);
+    ok('No control warning was raised',
+       !res.warnings.some(w => /^CONTROL_/.test(w.code)),
+       JSON.stringify(res.warnings.filter(w => /^CONTROL_/.test(w.code))));
+  }
+
+  // ---- 3. The answer does not depend on what the last solve left behind.
+  {
+    controlled.pump.pump.speed = 0.31;         // as if a previous solve had
+    const again = NET.solveModel(controlled.m);
+    near('Re-solving from a different starting speed lands in the same place',
+         M.pumpSpeed(controlled.pump), res.controls.devices[0].value, 2e-3);
+    near('...and on the same flow', Math.abs(again.flow[controlled.eq.id]),
+         Math.abs(res.flow[controlled.eq.id]), 1e-6);
+  }
+
+  // ---- 4. THE FLOOR. A machine too small to hold setpoint at minimum speed.
+  {
+    /* 60 kW wants q = 60000/20893130 = 2.872 L/s, which is well under a
+     * quarter of the full-speed flow, so the drive bottoms out. */
+    const t = economizer({ link: 'pump', equip: { qMax: 60000 } });
+    const r = NET.solveModel(t.m);
+    near('The pump sits on its minimum speed', M.pumpSpeed(t.pump), 0.25, 1e-9);
+    const l = r.thermal.links[t.eq.id];
+    ok('...and the machine is still warm of setpoint', l.tOut > 25.5,
+       l.tOut.toFixed(2) + ' C');
+    const w = r.warnings.filter(x => x.code === 'CONTROL_AT_LIMIT')[0];
+    ok('CONTROL_AT_LIMIT is raised', !!w);
+    ok('...naming the minimum and the shortfall',
+       !!w && /minimum speed/.test(w.message) && /above/.test(w.message),
+       w && w.message);
+    ok('...reported as at-min', r.controls.devices[0].state === 'at-min');
+  }
+
+  // ---- 5. THE SIGN IS NOT ASSUMED: backing off must be shown to help.
+  {
+    /* A machine capped by ΔT max leaves at tIn - dTMax whatever the flow, so
+     * slowing the pump changes NOTHING about its leaving temperature. A
+     * controller that simply "ramps down towards a setpoint" would wind this
+     * pump to its floor for no benefit. The perturbation catches it. */
+    const t = economizer({ link: 'pump',
+                           equip: { qMax: 1e9, dTMax: 2 } });
+    const r = NET.solveModel(t.m);
+    const l = r.thermal.links[t.eq.id];
+    near('The machine is pinned 2 K below inlet', l.tOut, 28, 1e-9);
+    ok('...by its ΔT limit', l.limit === 'ΔT max', String(l.limit));
+    ok('The pump stayed at full speed', M.pumpSpeed(t.pump) === 1,
+       String(M.pumpSpeed(t.pump)));
+    ok('...reported as at-max', r.controls.devices[0].state === 'at-max',
+       r.controls.devices[0].state);
+    ok('...with a warning saying backing off would not help',
+       r.warnings.some(w => w.code === 'CONTROL_AT_LIMIT' &&
+                            /not bring it closer/.test(w.message)));
+  }
+
+  // ---- 6. A GLOBE VALVE is the same problem with a different actuator.
+  {
+    const t = economizer({ link: 'valve' });
+    const r = NET.solveModel(t.m);
+    ok('Solves', r.converged === true, JSON.stringify(r.errors));
+    ok('The valve closed down', t.valve.valve.opening < 100,
+       t.valve.valve.opening + '%');
+    ok('...and the pump was left alone', M.pumpSpeed(t.pump) === 1);
+    const l = r.thermal.links[t.eq.id];
+    near('The setpoint is held', l.tOut, 25, 0.05);
+    /* The SAME closed form: the settled flow does not care what throttled it.
+     *
+     * It lands a little UNDER, and must. A globe valve's position is a whole
+     * percent — that is what the panel offers and what a valve is actually set
+     * to — so the search cannot resolve the boundary more finely than one
+     * percent of travel, and it always stops on the side that MEETS the
+     * setpoint. 0.7% of flow is one percent of this valve's travel; a pump,
+     * whose speed is resolved to 0.1%, lands on the hand figure exactly. */
+    const qHandV = 250000 / (5 * RHOCP);
+    const qV = Math.abs(r.flow[t.eq.id]);
+    ok('The settled flow is at or under the hand-calculated boundary',
+       qV <= qHandV + 1e-9, `${qV} vs ${qHandV}`);
+    ok('...and within one percent of valve travel of it',
+       qV > qHandV * 0.985, `${((qV / qHandV - 1) * 100).toFixed(2)}%`);
+    ok('The report names the opening', r.controls.devices[0].quantity === 'opening');
+    ok('...and the position is a whole percent',
+       t.valve.valve.opening === Math.round(t.valve.valve.opening));
+  }
+
+  // ---- 7. A link to a machine with no setpoint controls nothing, and says so.
+  {
+    const t = economizer({ link: 'pump',
+                           equip: { equipType: 'exchanger', duty: -100000,
+                                    tSet: undefined } });
+    const r = NET.solveModel(t.m);
+    ok('The pump is left at full speed', M.pumpSpeed(t.pump) === 1);
+    ok('CONTROL_NO_SETPOINT is raised',
+       r.warnings.some(w => w.code === 'CONTROL_NO_SETPOINT'),
+       JSON.stringify(r.warnings.map(w => w.code)));
+  }
+
+  // ---- 8. DESIGN does not control — the flows there are imposed, not solved.
+  {
+    const t = economizer({ link: 'pump', mode: 'design' });
+    const r = NET.solveModel(t.m);
+    ok('No control report in DESIGN', r.controls === null);
+    ok('...and the pump is untouched', M.pumpSpeed(t.pump) === 1);
+    const plain = NET.solveModel(economizer({ link: null, mode: 'design' }).m);
+    near('...so the answer is identical to the same model with no link',
+         r.flow[t.eq.id], plain.flow[t.eq.id], 1e-12);
+  }
+}
+
 report();

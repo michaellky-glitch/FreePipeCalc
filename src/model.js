@@ -101,6 +101,23 @@
         tempMax: 50                    // °C
       },
 
+      /* Setpoint control — how far a linked pump or globe valve is allowed to
+       * modulate, and how close to the setpoint counts as arrived. All three
+       * are DEFAULTS a user can change, not transcribed data.
+       *
+       * `minSpeed` is the VSD floor. Real drives are not run below roughly a
+       * quarter speed, and a pump at no flow makes the thermal solve singular,
+       * so the floor is a numerical necessity as much as a plant one. Sitting
+       * on it is REPORTED rather than hidden — see CONTROL_AT_LIMIT.
+       *
+       * `tol` is in kelvin. 0.05 K is far tighter than any real sensor and
+       * loose enough that the search stops in a handful of solves. */
+      control: {
+        minSpeed: 0.25,                // fraction of rated pump speed
+        minOpening: 10,                // % open, globe valve
+        tol: 0.05                      // K
+      },
+
       /* Which equivalent-length table Hazen-Williams reads: 'carrier' (Carrier
        * Design Handbook Table 11, the default), 'nfpa13' (NFPA 13 Table
        * 27.2.3.1.1, with the straight-through tee from Carrier because NFPA has
@@ -853,6 +870,31 @@
     return (c && c.equip) ? c : null;
   }
 
+  /* ------------------------------------------------------ pump speed
+   *
+   * `pump.speed` is a fraction of rated speed, 1 when absent. It is written by
+   * the control loop (network.js) when the pump follows a setpoint, and can be
+   * set by hand for a pump that is simply run slow.
+   *
+   * Everything that reads a pump curve must go through `pumpCurve`, or the
+   * drawing, the panel and the sheet will each report the RATED curve while the
+   * solver runs a scaled one — the same class of mistake as reading `link.r`
+   * without the fittings (HANDOVER §2). */
+  function pumpSpeed(p) {
+    if (!p || !p.pump) return 1;
+    if (p.pump.mode === 'off') return 0;
+    var s = Number(p.pump.speed);
+    if (!isFinite(s) || s <= 0) return 1;
+    return Math.min(1, s);
+  }
+
+  function pumpCurve(p) {
+    if (!p || !p.pump || !p.pump.curve) return null;
+    var s = pumpSpeed(p);
+    if (!(s > 0)) return null;
+    return FD.pumps.atSpeed(p.pump.curve, s);
+  }
+
   function canControl(p) {
     if (!p) return false;
     if (p.kind === 'pump') return true;
@@ -943,6 +985,8 @@
     m.settings.fluid = Object.assign(defaultSettings().fluid, (obj.settings || {}).fluid || {});
     m.settings.thermal = Object.assign(defaultSettings().thermal,
                                        (obj.settings || {}).thermal || {});
+    m.settings.control = Object.assign(defaultSettings().control,
+                                       (obj.settings || {}).control || {});
     /* Per schedule AND per size, so a shallow merge would replace a whole
      * schedule's row when the file only edited one size of it. */
     m.settings.insulation = {};
@@ -1087,6 +1131,7 @@
     setSource: setSource, setDemand: setDemand, clearDevice: clearDevice,
     applyFluidPreset: applyFluidPreset,
     controlOf: controlOf, canControl: canControl, setControl: setControl,
+    pumpSpeed: pumpSpeed, pumpCurve: pumpCurve,
     controlRoute: controlRoute, deviceMid: deviceMid,
     equipRatedC: equipRatedC,
     equipDutyFromDT: equipDutyFromDT,

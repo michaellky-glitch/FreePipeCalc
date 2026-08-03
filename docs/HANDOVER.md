@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1032 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1111 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,9 +315,15 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **SETPOINT CONTROL** (v0.11.1) — the control link now DOES something. A
+  linked pump changes speed and a linked globe valve changes position until the
+  machine holds its setpoint. This is the only place temperature feeds back into
+  the hydraulics. SIMULATION only, because in DESIGN the flows are imposed by
+  the demands and a controller has nothing to move. `ARCHITECTURE.md` §17C, and
+  §9A below for how the four traps turned out.
 * **CONTROL LINKS** (v0.11.0) — a pump or globe valve records which equipment's
-  setpoint it follows, drawn as a dashed green orthogonal route. **Recorded and
-  drawn only; nothing acts on it yet.** `ARCHITECTURE.md` §17B.
+  setpoint it follows, drawn as a dashed green orthogonal route.
+  `ARCHITECTURE.md` §17B.
 * **Two EQUIPMENT TYPES** (v0.10.3) — Source / Sink and Heat Exchanger, split
   on what you know at design, with capacity, ΔT and temperature limits and the
   binding one reported. Replaces the dT/dQ modes. `ARCHITECTURE.md` §18.
@@ -475,74 +481,56 @@ printing on real paper; the light theme.
   first two digits.
 * `Previous Version/` holds archived releases (v0.2 → v0.6), gitignored.
 
-## 9A. NEXT: variable-speed pumps — START HERE
+## 9A. Variable-speed pumps — DONE, v0.11.1
 
-This is the next piece and everything is in place for it except the control
-itself. Read `ARCHITECTURE.md` §17B first, then this.
+Landed 2026-08-03. `ARCHITECTURE.md` §17C has the design; this is what a reader
+of the old §9A needs to know about how it turned out.
 
-**What already exists.** A pump or globe valve carries
-`control = { equip, axis, mid }`, set by the Control button and drawn as a
-dashed green route. `M.controlOf(p)` returns it. The equipment carries `tSet`,
-`qMax`, `dTMax`, `tLimit`, and `res.thermal.links[id].limit` already reports
-which constraint bound it.
+**All four traps were real, and one of them was not on the list.**
 
-**What is missing.** Nothing reads `control` during a solve. A linked pump does
-not change speed; a linked globe valve does not change position.
+* **The direction.** Not assumed anywhere. Because an actuator cannot exceed
+  rated speed or fully open, the sign question reduces to *"does backing off
+  help?"*, and that is answered by perturbing and re-solving. Michael's
+  economizer ramps DOWN to 54% and holds 25.0 °C. A machine capped by ΔT max is
+  the counter-case — its leaving temperature does not depend on flow at all —
+  and the perturbation correctly leaves that pump at full speed instead of
+  winding it to the floor for nothing. Both are tests.
+* **A stable quantity.** The modulation is frozen for a whole core solve plus
+  its thermal pass, so no pass chases an error it is itself producing.
+* **The floor.** `control.minSpeed`, default 0.25, on the THERMAL tab, and
+  sitting on it raises `CONTROL_AT_LIMIT` naming the machine and the shortfall.
+* **One loop for both actuators.** `actuatorFor()` is a `{min, step, get, set}`
+  over a fraction of full travel; the search never asks whether it is driving a
+  pump or a valve.
 
-**The shape of the work.**
+**The trap that was not on the list, and it cost the most time.** Newton and
+secant methods are the wrong family here. A source/sink holds its setpoint
+*exactly* once it is unlimited, so the error is non-zero above some speed and
+identically **zero** below it — a flat half-range that a secant step divides by.
+The search now uses secant steps only to find *a* setting that meets the
+setpoint, then **bisects** for the highest setting that still does. Related: the
+first version stopped at the edge of the 0.05 K deadband, which looks fine and
+leaves the machine a whole tolerance short — 1% of flow on a 5 K duty — and
+still reporting `EQUIP_LIMITED` while the controller claims to be holding
+setpoint. Bisecting to the true boundary fixed both.
 
-Michael's realisation, 2026-08-03, and it is the right one: a setpoint is only
-meaningful if something can modulate to reach it. His case — a waterside
-economizer with a T limit of 18 °C (ambient) and a setpoint of 25 °C — is a
-pump ramping *down* to hold 25, because less flow means more residence time and
-a closer approach to the air.
+**How it is verified.** `test/thermal.test.js`, section "Variable-speed
+control". The economizer settles where its duty equals its capacity, so the
+flow has a closed form that involves neither the pump nor the pipework:
 
-**It breaks the one-way structure.** Everything so far is: solve hydraulics,
-then carry temperature along the answer, with no path back. A pump whose speed
-depends on a temperature closes that loop, so `solveModel` gains an outer
-iteration — guess speed, solve hydraulics, solve thermal, compare against the
-setpoint, adjust.
+    q = Q_cap / (ΔT·ρ·cp)  =  250 000 / (5 × 998 × 4187)  =  11.966 L/s
 
-Three things to get right, all of which this codebase has already learnt once:
+and the controlled model lands on it. Affinity scaling is checked in
+`simulation.test.js` against `s²·H(Q/s)` evaluated in the test rather than
+against the algebra as written in `data/pumps.js`.
 
-1. **Adjust on a stable quantity.** `autoSizePumps` is the precedent: it
-   iterates solve-and-adjust, converges from either side, and rolls back a step
-   that bought nothing. The equivalent trap here is chasing a setpoint using
-   the temperature error a pass is itself producing.
-2. ~~Say which pump serves which setpoint.~~ **Done** — that is the control
-   link, v0.11.0.
-3. **The direction is not obvious.** More flow does not always mean closer to
-   setpoint; on a heat exchanger it is the opposite of what it is on a source.
-   Do not hard-code a sign. Perturb: solve at the current speed and again at a
-   slightly higher one, and use the sign of the change in the controlled
-   temperature. Two extra solves per adjustment is cheap next to getting it
-   backwards, and the app already runs several solves per edit.
-4. **A pump has a floor.** Real VSDs do not go below roughly 25–30% speed, and
-   a pump at zero flow makes the thermal solve singular. Give the control a
-   minimum and report when it is sitting on it — "P-01 at minimum speed, CH-01
-   still 2.1 K above setpoint" is the useful sentence, the same shape as the
-   `EQUIP_LIMITED` warning that already exists.
-5. **A globe valve is the same problem with a different actuator.** Modulating
-   position rather than speed; the outer loop is identical, only the quantity
-   being adjusted differs. Write the loop against "the thing being modulated"
-   rather than against a pump, or it will need writing twice.
-
-**Where to put it.** `solveModel` in `src/network.js`, around the existing solve
-— `autoSizePumps` sits in the same place and is the model to copy. The thermal
-pass is already the last thing before the result is returned, so the loop wraps
-both: solve hydraulics → solve thermal → read the controlled temperature →
-adjust → repeat.
-
-**How to know it works.** The test to write first is Michael's economizer:
-T limit 18 °C, setpoint 25 °C, and a pump that must ramp DOWN to hold it. If the
-control ramps up, the sign handling is wrong. `test/thermal.test.js` has the
-plant rig to build on.
-
-Worth noting the payoff: with VSD in place, the SIMULATION question from
-2026-08-02 largely answers itself. A coil holding its leaving temperature by
-modulating flow *is* the controlled-coil case, solved rather than assumed.
+**Unsigned by Michael** — everything visual. See `Human-Test.md` §4C.
 
 ## 9. Next version
+
+With setpoint control in place (§9A), the SIMULATION question from 2026-08-02
+largely answers itself: a coil holding its leaving temperature by modulating
+flow IS the controlled-coil case, solved rather than assumed.
 
 The thermal module landed in v0.10.0. What is NOT in it, in the order it would
 most likely be wanted:

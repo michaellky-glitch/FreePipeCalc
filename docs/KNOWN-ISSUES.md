@@ -8,6 +8,28 @@ is, why it is deferred, and where the fix would go.
 
 ## Open
 
+### `actualDelivery` diverges in SIMULATION when a terminal is short
+
+`src/network.js` — the pressure-driven second pass returns flows of order
+**1e10 m³/s** and pressures of order **1e27 Pa** on a simulation model whose
+terminal cannot be met. Reproduced on master at 30672e5, so this is not new in
+v0.11.1: source at 0 gauge, pump curve `singlePoint(8.8, 0.0108)`, an equipment
+link and 4 m of DN100 to a demand node asking 20 L/s at 200 kPa.
+
+The pass pins each deficient terminal at the pressure it *requires* and reads
+the net inflow. In SIMULATION that terminal is already represented by a virtual
+`__out_` link, so pinning the host node fights the virtual link instead of
+replacing it, and the solver runs away down an unbounded branch. In DESIGN
+there is no virtual link and the same code behaves.
+
+It surfaces as the bracketed "actual" figures beside the demand-driven answer,
+which is a display path — the primary numbers are unaffected. **Setpoint
+control (§17C) makes it much easier to hit**, because a controlled pump
+routinely reduces flow until a terminal is short. Fix would be in
+`actualDelivery`: in SIMULATION the terminal is already pressure-driven, so the
+whole second pass is redundant there and should return `null` rather than
+re-deriving it.
+
 ### The `testrun-*.js` walkthroughs OVERWRITE files in `examples/`
 
 `test/testrun-3floor.js` and `test/testrun-datacentre.js` regenerate the

@@ -426,10 +426,16 @@
 
       if (p.kind === 'pump' && p.pump && p.pump.mode !== 'off' && simulating && p.pump.curve) {
         /* SIMULATION: the curve is the input. The solver finds where it meets
-         * the system — that IS the operating point, for the whole network. */
+         * the system — that IS the operating point, for the whole network.
+         *
+         * At part speed it is the AFFINITY-SCALED curve that meets the system,
+         * which is why this goes through M.pumpCurve rather than reading
+         * p.pump.curve. Scaling the curve is the only place speed enters the
+         * hydraulics; nothing in the solver knows about it. */
+        var pc = M.pumpCurve(p);
         link.kind = 'pump';
-        link.curve = p.pump.curve;
-        link.head = FD.pumps.head(p.pump.curve, flows ? (flows[p.id] || 0) : 0);
+        link.curve = pc;
+        link.head = FD.pumps.head(pc, flows ? (flows[p.id] || 0) : 0);
       } else if (p.kind === 'pump' && p.pump && p.pump.mode === 'off') {
         /* An OFF pump is isolated, not an open pipe.
          *
@@ -447,7 +453,12 @@
         link._pumpOff = true;
       } else if (p.kind === 'pump' && p.pump) {
         link.kind = 'pump';
-        link.head = p.pump.head || 0;
+        /* Head falls as the square of speed — the same affinity law that scales
+         * a curve, applied to the fixed head that stands in for one. A speed
+         * typed on a pump must not be silently ignored just because there is no
+         * curve behind it. Absent, `pumpSpeed` returns 1 and this is a no-op. */
+        var ps = M.pumpSpeed(p);
+        link.head = (p.pump.head || 0) * ps * ps;
         if (autoRef && (p.pump.head || 0) > 0) {
           /* LINEAR droop, H = Hd + k(Qref - Q), not the quadratic single-point
            * shape. Two reasons, both found the hard way:
@@ -464,9 +475,9 @@
            *
            * In H0 - a·Q^b terms that is b = 1, a = k, H0 = Hd + k·Qref, so the
            * existing curve machinery handles it unchanged. */
-          var k = autoSlope > 0 ? autoSlope : (p.pump.head / autoRef);
-          link.curve = { H0: p.pump.head + k * autoRef, a: k, b: 1,
-                         Qd: autoRef, Hd: p.pump.head, source: 'implicit-droop' };
+          var k = autoSlope > 0 ? autoSlope : (link.head / autoRef);
+          link.curve = { H0: link.head + k * autoRef, a: k, b: 1,
+                         Qd: autoRef, Hd: link.head, source: 'implicit-droop' };
           link._implicitCurve = true;
         }
       } else if (p.kind === 'valve' && p.valve) {
@@ -634,10 +645,14 @@
    * again. Converges in one or two passes; if the assignment keeps flipping we
    * keep the last result and warn rather than looping forever.
    */
-  function solveModel(m, maxPasses) {
-    /* 3 is plenty for tee reassignment alone; check valves can need another
-     * round or two to seat, so the ceiling is a little higher. */
-    maxPasses = maxPasses || 5;
+  /* The HYDRAULIC CORE: everything needed to answer "what does the network do
+   * at the settings currently on the model", and nothing that exists only for
+   * reporting. Split out of solveModel so the control loop below can evaluate a
+   * trial pump speed or valve position without paying for the critical path,
+   * the pressure-driven second pass and the simulation report each time.
+   *
+   * Returns { res, net, passes, sizing, stable }. */
+  function solveCore(m, maxPasses) {
     var net = build(m, null);
     var res = FD.solver.solve(net);
     var passes = 1, stable = false, prev = signature(net, res);
@@ -713,6 +728,30 @@
           res.pumpBalance = { share: share, pumps: parallel.length };
         }
       }
+    }
+
+    return { res: res, net: net, passes: passes, sizing: sizing, stable: stable };
+  }
+
+  function solveModel(m, maxPasses) {
+    /* 3 is plenty for tee reassignment alone; check valves can need another
+     * round or two to seat, so the ceiling is a little higher. */
+    maxPasses = maxPasses || 5;
+
+    var core = solveCore(m, maxPasses);
+
+    /* CONTROL: a pump or globe valve that follows a setpoint modulates here,
+     * which is the one place in the app where temperature feeds back into the
+     * hydraulics. It re-runs the core several times and leaves the settled
+     * modulation on the model, so everything below sees a single consistent
+     * answer. §17C. */
+    var controls = runControls(m, core, maxPasses);
+    if (controls.acted) core = controls.core;
+
+    var net = core.net, res = core.res, passes = core.passes, sizing = core.sizing;
+    res.controls = controls.report;
+    if (controls.warnings.length) {
+      res.warnings = (res.warnings || []).concat(controls.warnings);
     }
 
     /* An omitted device is out of the circuit, so its flow is exactly zero —
@@ -1113,6 +1152,322 @@
      * autoSizePumps. The equipment must see its rated flow; the margin is
      * reported as the duty head to select against. */
     return { resolved: true, res: cur, iterations: i, mode: 'flow', target: target };
+  }
+
+  /* =============================================== SETPOINT CONTROL (VSD)
+   *
+   * A pump or globe valve carrying a control link modulates to hold the linked
+   * equipment's leaving temperature. This is the ONE place in the app where
+   * temperature feeds back into the hydraulics: everywhere else the flows are
+   * solved first and the temperature is carried along them (§18).
+   *
+   * SIMULATION ONLY, and that is not a shortcut. In DESIGN the flows are
+   * IMPOSED — a demand node states the flow it takes — so modulating a pump or
+   * a valve cannot move them and there is nothing for a controller to do. The
+   * one DESIGN case where flow does follow head is a closed circuit being
+   * auto-sized, and there `autoSizePumps` is already driving the same actuator
+   * towards the rated flow; two controllers on one actuator is not a system
+   * with an answer. So: DESIGN sizes, SIMULATION controls.
+   *
+   * THREE things this had to get right, all of which this codebase has learnt
+   * once already:
+   *
+   * 1. THE DIRECTION IS NOT ASSUMED. More flow moves some machines towards
+   *    their setpoint and others away from it, so nothing here hard-codes a
+   *    sign. Because an actuator cannot go past fully open or rated speed, the
+   *    only question is whether BACKING OFF helps, and that is answered by
+   *    perturbation: back off a little, re-solve, compare. If it makes the
+   *    error worse, the device is already doing all it can and says so.
+   *
+   * 2. THE ERROR IS READ FROM A FINISHED SOLVE. The modulation is frozen for
+   *    the whole of a core solve and its thermal pass, so no pass is ever
+   *    chasing an error it is itself producing. That is the check-valve lesson
+   *    (§6) and the frozen-active-set lesson (§18) in a third place.
+   *
+   * 3. THE SEARCH IS BRACKETED, NOT NEWTON. A source/sink holds its setpoint
+   *    exactly once it is no longer limited, so the error is non-zero above
+   *    some speed and identically zero below it — a derivative of zero over
+   *    half the range, which a secant method divides by. Secant steps are used
+   *    only to find a value that meets the setpoint; the answer is then
+   *    bisected out as the HIGHEST setting that still meets it, which is where
+   *    a real controller comes to rest.
+   *
+   * The settled value is left on the model (`pump.speed`, `valve.opening`) and
+   * reported in `res.controls`. Every controlled device is reset to full before
+   * the search, so the answer depends on the model and not on what the last
+   * solve happened to leave behind.
+   */
+  var CTRL_DEFAULTS = { minSpeed: 0.25, minOpening: 10, tol: 0.05 };
+
+  /* The thing being modulated, described so the loop never asks whether it is
+   * a pump or a valve (HANDOVER §9A, trap 5). `x` is always a fraction of full
+   * travel, so one search serves both. */
+  function actuatorFor(m, p) {
+    var cfg = (m.settings && m.settings.control) || {};
+    if (p.kind === 'pump' && p.pump) {
+      var lo = Number(cfg.minSpeed);
+      return {
+        pipe: p, kind: 'pump', quantity: 'speed',
+        min: (isFinite(lo) && lo > 0 && lo < 1) ? lo : CTRL_DEFAULTS.minSpeed,
+        step: 0.001,
+        get: function () { return M.pumpSpeed(p); },
+        set: function (x) { p.pump.speed = x; },
+        label: function (x) { return Math.round(x * 100) + '% speed'; }
+      };
+    }
+    if (p.kind === 'valve' && p.valve) {
+      /* A globe valve's opening is a whole percentage — that is what the panel
+       * offers and what a real valve is set to — so the search resolution is a
+       * percent, not a float. Bisecting past it would be inventing precision
+       * the actuator does not have. */
+      var lv = Number(cfg.minOpening);
+      lv = (isFinite(lv) && lv > 0 && lv < 100) ? lv : CTRL_DEFAULTS.minOpening;
+      return {
+        pipe: p, kind: 'valve', quantity: 'opening',
+        min: lv / 100,
+        step: 0.01,
+        get: function () {
+          var o = Number(p.valve.opening);
+          return (isFinite(o) ? Math.min(100, Math.max(0, o)) : 100) / 100;
+        },
+        set: function (x) { p.valve.opening = Math.round(x * 100); },
+        label: function (x) { return Math.round(x * 100) + '% open'; }
+      };
+    }
+    return null;
+  }
+
+  function runControls(m, core, maxPasses) {
+    var warnings = [];
+    var out = { acted: false, core: core, report: null, warnings: warnings };
+    if (!FD.thermal) return out;
+    if (m.settings.calcMode !== 'simulation') return out;
+
+    var pairs = [];
+    m.pipes.forEach(function (p) {
+      var c = M.controlOf(p);
+      if (!c) return;
+      var eq = M.pipe(m, c.equip);
+      if (!eq || eq.kind !== 'equip' || !eq.equip || eq.equip.off) return;
+      var act = actuatorFor(m, p);
+      if (!act) return;
+      var set = Number(eq.equip.tSet);
+      if (!isFinite(set)) {
+        /* A heat exchanger states a LOAD, not a leaving temperature (§18), so
+         * there is no setpoint to hold and nothing to modulate towards. Said
+         * out loud, because a drawn control link that does nothing is exactly
+         * the surprise the link was added to avoid. */
+        warnings.push({
+          code: 'CONTROL_NO_SETPOINT', pipe: p.id, equip: eq.id,
+          message: (p.tag || p.id) + ' is linked to ' + (eq.tag || eq.id) +
+                   ', which states no setpoint, so it has nothing to control to.'
+        });
+        return;
+      }
+      pairs.push({ act: act, equip: eq, target: set, result: null });
+    });
+    if (!pairs.length) {
+      return { acted: false, core: core, report: null, warnings: warnings };
+    }
+
+    /* TWO thresholds, and they are different things.
+     *
+     * `tol` is the DEADBAND: how far off setpoint is worth modulating for at
+     * all. A real controller has one, and without it the search chases solver
+     * round-off.
+     *
+     * `EPS` is what "meets the setpoint" means once the search is running, and
+     * it is essentially zero. That is safe here BY CONSTRUCTION rather than by
+     * luck: only a source/sink carries a setpoint, and a source/sink that is no
+     * longer limited holds its setpoint EXACTLY — the error is not small, it is
+     * identically zero. So the boundary is a genuine step, and bisecting to a
+     * micro-kelvin resolves it rather than hunting an asymptote.
+     *
+     * Stopping at the edge of the deadband instead was tried first and is
+     * subtly wrong: it leaves the machine a whole `tol` short, which is 1% of
+     * the flow on a 5 K duty, and leaves it still reporting EQUIP_LIMITED while
+     * the controller claims to be holding setpoint. */
+    var tolCfg = Number((m.settings.control || {}).tol);
+    var tol = (isFinite(tolCfg) && tolCfg > 0) ? tolCfg : CTRL_DEFAULTS.tol;
+    var EPS = 1e-7;                            // K — "on setpoint" for the search
+    var MAX_SOLVES = 60;
+    var solves = 0;
+
+    function evaluate() {
+      solves++;
+      var c = solveCore(m, maxPasses);
+      c.thermal = FD.thermal.solve(m, c.res);
+      return c;
+    }
+    function errorOf(c, pair) {
+      var l = c.thermal && c.thermal.links && c.thermal.links[pair.equip.id];
+      if (!l || !isFinite(l.tOut)) return null;
+      return l.tOut - pair.target;
+    }
+    function quantise(act, x) {
+      var q = Math.round(x / act.step) * act.step;
+      return Math.max(act.min, Math.min(1, q));
+    }
+
+    /* Start every controlled device at full travel. Warm-starting from the last
+     * answer would be cheaper and is wrong: the search only ever probes
+     * DOWNWARD, so a device that once ramped down could never ramp back up when
+     * the load returned, and the reported answer would depend on edit history
+     * rather than on the model. */
+    var needReset = pairs.some(function (pr) { return Math.abs(pr.act.get() - 1) > 1e-9; });
+    pairs.forEach(function (pr) { pr.act.set(1); });
+    var cur;
+    if (needReset) {
+      cur = evaluate();
+    } else {
+      cur = core;
+      if (!cur.thermal) cur.thermal = FD.thermal.solve(m, cur.res);
+    }
+
+    /* Settle ONE device, holding every other where it is. */
+    function seek(pair) {
+      var act = pair.act;
+      var x0 = act.get();
+      var e0 = errorOf(cur, pair);
+      if (e0 === null) return { state: 'no-flow', x: x0, error: null, moved: false };
+      if (Math.abs(e0) <= tol) return { state: 'on', x: x0, error: e0, moved: false };
+
+      // --- does backing off help? The sign question, answered not assumed.
+      var probe = quantise(act, x0 - Math.max(act.step, 0.05));
+      if (!(probe < x0 - 1e-12)) {
+        return { state: 'at-min', x: x0, error: e0, moved: false };
+      }
+      act.set(probe);
+      var trial = evaluate();
+      var e1 = errorOf(trial, pair);
+      if (e1 === null || !(Math.abs(e1) < Math.abs(e0) - 1e-12)) {
+        /* No better. Put it back — and note that `cur` is still the answer at
+         * x0, so restoring the model costs nothing to re-solve. */
+        act.set(x0);
+        return { state: 'at-max', x: x0, error: e0, moved: false };
+      }
+
+      // --- descend until something meets the setpoint, or the floor is reached
+      var xPrev = x0, ePrev = e0, x = probe, e = e1, c = trial;
+      var met = null, guard = 0;
+      while (guard++ < 14 && solves < MAX_SOLVES) {
+        if (Math.abs(e) <= EPS) { met = x; cur = c; break; }
+        if (x <= act.min + 1e-12) {
+          cur = c;
+          /* On the floor. Inside the deadband is still "holding setpoint" —
+           * it just cannot be held any more tightly than this. */
+          return { state: Math.abs(e) <= tol ? 'on' : 'at-min',
+                   x: x, error: e, moved: true };
+        }
+        var den = e - ePrev, nx;
+        nx = (Math.abs(den) > 1e-12) ? x - e * (x - xPrev) / den : x - 0.1;
+        // the search only descends, and always by at least one step
+        if (!isFinite(nx) || nx >= x - act.step) nx = x - Math.max(act.step, 0.1);
+        nx = quantise(act, nx);
+        xPrev = x; ePrev = e;
+        x = nx;
+        act.set(x);
+        c = evaluate();
+        e = errorOf(c, pair);
+        if (e === null) { cur = c; return { state: 'no-flow', x: x, error: null, moved: true }; }
+      }
+      if (met === null) {
+        cur = c;
+        return { state: Math.abs(e) <= tol ? 'on' : 'unsettled',
+                 x: x, error: e, moved: true };
+      }
+
+      /* --- the answer is the HIGHEST setting that still meets the setpoint.
+       * Everything below `met` meets it too — a source/sink that is no longer
+       * limited holds its setpoint at any lower flow — but a controller comes
+       * to rest where it stops seeing an error, which is the boundary. */
+      var a = met, b = xPrev, best = cur;      // a meets it, b does not
+      while (b - a > act.step + 1e-12 && solves < MAX_SOLVES) {
+        var mid = quantise(act, (a + b) / 2);
+        if (!(mid > a + 1e-12) || !(mid < b - 1e-12)) break;
+        act.set(mid);
+        var mc = evaluate();
+        var me = errorOf(mc, pair);
+        if (me !== null && Math.abs(me) <= EPS) { a = mid; best = mc; }
+        else b = mid;
+      }
+      act.set(a);
+      cur = best;
+      return { state: 'on', x: a, error: errorOf(best, pair),
+               moved: Math.abs(a - x0) > 1e-9 };
+    }
+
+    /* Several controllers are settled in turn and the sweep repeated, because
+     * one device's modulation moves every other device's inlet temperature.
+     * Two or three sweeps in practice; if it is still moving after that, say so
+     * rather than reporting a number that is still travelling. */
+    var acted = false, moving = true, sweep = 0;
+    while (moving && sweep < 4 && solves < MAX_SOLVES) {
+      moving = false; sweep++;
+      pairs.forEach(function (pair) {
+        var r = seek(pair);
+        pair.result = r;
+        if (r.moved) { moving = true; acted = true; }
+      });
+    }
+    if (moving) {
+      warnings.push({
+        code: 'CONTROL_UNSETTLED',
+        message: 'The controlled devices were still moving after ' + sweep +
+                 ' sweeps. The last answer is reported; check whether two ' +
+                 'devices are working against each other on the same setpoint.'
+      });
+    }
+
+    var devices = pairs.map(function (pair) {
+      var r = pair.result || {};
+      var l = cur.thermal && cur.thermal.links && cur.thermal.links[pair.equip.id];
+      var d = {
+        pipe: pair.act.pipe.id, tag: pair.act.pipe.tag || null,
+        kind: pair.act.kind, quantity: pair.act.quantity,
+        equip: pair.equip.id, equipTag: pair.equip.tag || null,
+        target: pair.target,
+        actual: l && isFinite(l.tOut) ? l.tOut : null,
+        error: r.error === undefined ? null : r.error,
+        value: pair.act.get(), min: pair.act.min,
+        state: r.state || 'on'
+      };
+      var name = d.tag || d.pipe, eqName = d.equipTag || d.equip;
+      var off = (d.error === null) ? null :
+        Math.abs(d.error).toFixed(1) + ' K ' + (d.error > 0 ? 'above' : 'below');
+      if (d.state === 'at-min') {
+        warnings.push({
+          code: 'CONTROL_AT_LIMIT', pipe: d.pipe, equip: d.equip,
+          message: name + ' is at its minimum ' + pair.act.quantity + ' (' +
+                   pair.act.label(d.value) + ') and ' + eqName + ' is still ' +
+                   off + ' its ' + pair.target.toFixed(1) + ' °C setpoint.'
+        });
+      } else if (d.state === 'at-max') {
+        warnings.push({
+          code: 'CONTROL_AT_LIMIT', pipe: d.pipe, equip: d.equip,
+          message: name + ' is at full ' + pair.act.quantity + ' and ' + eqName +
+                   ' is ' + off + ' its ' + pair.target.toFixed(1) +
+                   ' °C setpoint — backing off would not bring it closer.'
+        });
+      } else if (d.state === 'no-flow') {
+        warnings.push({
+          code: 'CONTROL_NO_FLOW', pipe: d.pipe, equip: d.equip,
+          message: eqName + ' carries no flow, so ' + name + ' has nothing to ' +
+                   'control to.'
+        });
+      }
+      return d;
+    });
+
+    return {
+      /* Always true once there is anything to control: `cur` is the solve that
+       * matches the model as it now stands, and `core` may have been computed
+       * with the modulation the previous solve left behind. */
+      acted: true, moved: acted,
+      core: cur,
+      warnings: warnings,
+      report: { devices: devices, sweeps: sweep, solves: solves, tol: tol }
+    };
   }
 
   // -------------------------------------------------- supply-side warnings
@@ -1665,9 +2020,17 @@
 
     var pumps = m.pipes.filter(function (p) { return p.kind === 'pump'; }).map(function (p) {
       var q = Math.abs(res.flow[p.id] || 0);
-      var curve = p.pump && p.pump.curve;
+      /* The curve AS RUN, not as rated. At part speed those are different, and
+       * reporting the rated one here would have the sheet and the panel
+       * disagreeing with the solver about the same pump.
+       *
+       * `pctOfDesign` follows the scaled duty point deliberately: runout is
+       * about where on its own curve a pump is sitting, and at reduced speed
+       * that curve is the scaled one. */
+      var curve = M.pumpCurve(p);
       var off = !p.pump || p.pump.mode === 'off';
       var row = { pipe: p.id, tag: p.tag || null, mode: p.pump && p.pump.mode,
+                  speed: p.pump ? M.pumpSpeed(p) : 1,
                   flow: off ? 0 : q,
                   /* A stopped pump develops no head. Reading its curve at
                    * Q = 0 would report shutoff head, which is what it WOULD

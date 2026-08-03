@@ -723,11 +723,16 @@
         .map(function (p) {
           var off = !p.pump || p.pump.mode === 'off';
           var q = res && res.flow ? Math.abs(res.flow[p.id] || 0) : null;
-          var hd = off ? 0 : (p.pump && p.pump.curve
-            ? FD.pumps.head(p.pump.curve, q || 0) : (p.pump && p.pump.head) || 0);
-          var design = p.pump && p.pump.curve ? p.pump.curve.Qd : null;
-          var r2 = row((p.tag || p.id) + (off ? ' (off)' : ''), off ? 0 : q, design,
-                       headToPa(hd), null);
+          /* The curve AS RUN. At part speed the rated curve is not the one
+           * this pump is on, and the sheet must not disagree with the solve. */
+          var pc = M.pumpCurve(p);
+          var hd = off ? 0 : (pc ? FD.pumps.head(pc, q || 0)
+            : ((p.pump && p.pump.head) || 0) * M.pumpSpeed(p) * M.pumpSpeed(p));
+          var design = pc ? pc.Qd : null;
+          var sp = M.pumpSpeed(p);
+          var r2 = row((p.tag || p.id) + (off ? ' (off)' : '') +
+                       (!off && sp < 0.999 ? ' (' + Math.round(sp * 100) + '% speed)' : ''),
+                       off ? 0 : q, design, headToPa(hd), null);
           return r2;
         });
       if (pumpRows.length) groups.push({ title: 'Pumps', rows: pumpRows });
@@ -808,7 +813,13 @@
         secCurve.appendChild(el('p', 'hint', 'No pump has a curve set.'));
         return;
       }
+      /* Two curves when the pump is running slow: the RATED one faint, the one
+       * it is actually on solid, with the operating point on the latter. That
+       * is the picture a VSD family is always drawn as, and showing only the
+       * rated curve would put the operating point nowhere near it. */
       var c = withCurve.pump.curve;
+      var cRun = M.pumpCurve(withCurve) || c;
+      var pumpSp = M.pumpSpeed(withCurve);
       var qNow = res && res.flow ? Math.abs(res.flow[withCurve.id] || 0) : 0;
       var qMax = Math.max(FD.pumps.maxFlow(c) || 0, qNow * 1.2);
       var W = 420, H = 200, PAD = 34;
@@ -826,23 +837,33 @@
                                       stroke: 'currentColor', 'stroke-width': 1, opacity: .5 }));
       svg.appendChild(svgEl('line', { x1: PAD, y1: 8, x2: PAD, y2: H - PAD,
                                       stroke: 'currentColor', 'stroke-width': 1, opacity: .5 }));
-      var pts = [];
-      for (var i = 0; i <= 40; i++) {
-        var q = qMax * i / 40;
-        pts.push(X(q).toFixed(1) + ',' + Y(Math.max(0, FD.pumps.head(c, q))).toFixed(1));
+      function curvePts(cc) {
+        var pts = [];
+        for (var i = 0; i <= 40; i++) {
+          var q = qMax * i / 40;
+          pts.push(X(q).toFixed(1) + ',' + Y(Math.max(0, FD.pumps.head(cc, q))).toFixed(1));
+        }
+        return pts.join(' ');
       }
-      svg.appendChild(svgEl('polyline', { points: pts.join(' '), fill: 'none',
+      if (pumpSp < 0.999) {
+        svg.appendChild(svgEl('polyline', { points: curvePts(c), fill: 'none',
+                                            stroke: 'currentColor', 'stroke-width': 1,
+                                            'stroke-dasharray': '4 3', opacity: .45 }));
+      }
+      svg.appendChild(svgEl('polyline', { points: curvePts(cRun), fill: 'none',
                                           stroke: 'currentColor', 'stroke-width': 2 }));
       // the operating point the system actually settled at
-      var op = svgEl('circle', { cx: X(qNow), cy: Y(FD.pumps.head(c, qNow)), r: 4,
+      var hNow = FD.pumps.head(cRun, qNow);
+      var op = svgEl('circle', { cx: X(qNow), cy: Y(hNow), r: 4,
                                  fill: 'currentColor' });
       svg.appendChild(op);
-      var lbl = svgEl('text', { x: X(qNow) + 7, y: Y(FD.pumps.head(c, qNow)) - 6,
+      var lbl = svgEl('text', { x: X(qNow) + 7, y: Y(hNow) - 6,
                                 'font-size': 11, fill: 'currentColor' });
       lbl.textContent = FD.units.fmtFlow(qNow, d.flow, true) + ' @ ' +
-                        FD.units.fmtPressure(headToPa(FD.pumps.head(c, qNow)), d.pressure, true);
+                        FD.units.fmtPressure(headToPa(hNow), d.pressure, true);
       svg.appendChild(lbl);
-      secCurve.appendChild(el('p', 'hint', withCurve.tag || withCurve.id));
+      secCurve.appendChild(el('p', 'hint', (withCurve.tag || withCurve.id) +
+        (pumpSp < 0.999 ? ' — ' + Math.round(pumpSp * 100) + '% speed (rated curve dashed)' : '')));
       secCurve.appendChild(svg);
     })();
 
@@ -2141,6 +2162,14 @@
       if (Number(slider.value) === 0) {
         openWrap.appendChild(el('span', 'hint', 'Shut.'));
       }
+      /* A controlled valve's position is an OUTPUT. Say so beside the slider,
+       * or setting it by hand looks like a bug when the next solve moves it. */
+      if (M.controlOf(p) && m.settings.calcMode === 'simulation') {
+        var vh = el('span', 'hint', 'Set by the control link. ');
+        infoMark(vh, 'The valve modulates to hold its linked setpoint, so this ' +
+                     'position is written by the solve.');
+        openWrap.appendChild(vh);
+      }
       host.appendChild(openWrap);
     } else {
       host.appendChild(el('p', 'hint',
@@ -2296,12 +2325,24 @@
       /* A stopped pump develops no head. Reading its curve at Q = 0 would
        * report shutoff head, which is what it WOULD make if it were running.
        * With no curve the pump IS its fixed head — what the solver used. */
+      var sp = M.pumpSpeed(p);
+      var cRun = M.pumpCurve(p);
       var hNow = pOff ? 0
                : qNow === null ? null
-               : c ? FD.pumps.head(c, qNow) : (p.pump.head || 0);
+               : cRun ? FD.pumps.head(cRun, qNow) : (p.pump.head || 0) * sp * sp;
       ro('Actual flow', qNow === null ? '—' : FD.units.fmtFlow(qNow, fu, true));
       ro('Actual pressure', hNow === null ? '—'
          : FD.units.fmtPressure(headToPa(hNow), pu, true));
+      /* Speed is shown only when it is not full — a line reading "100%" on
+       * every pump in the job is noise (§17A). Where it IS shown, say what set
+       * it: a number the engineer did not type needs a reason beside it. */
+      if (!pOff && sp < 0.999) {
+        var ctl = app.results && app.results.controls;
+        var dev = ctl ? ctl.devices.filter(function (x) { return x.pipe === p.id; })[0] : null;
+        ro('Speed', Math.round(sp * 100) + '%' +
+           (dev ? ' — holding ' + (dev.equipTag || dev.equip) +
+                  (dev.state === 'at-min' ? ' (at minimum)' : '') : ''));
+      }
       if (c && c.fit) {
         /* A bad fit must be visible. A manufacturer curve that does not take
          * this form should be the engineer's problem to see, not a silent
@@ -3246,6 +3287,30 @@
       host.appendChild(el('p', 'hint', 'Suits chilled water. LTHW at 80 °C ' +
                                        'flow will trip it — raise the maximum.'));
     }
+    /* SETPOINT CONTROL. Terse, per §17A: three fields, one hint line, the rest
+     * behind the 🛈. */
+    h2('Setpoint control');
+    var ctl = m.settings.control || (m.settings.control =
+      { minSpeed: 0.25, minOpening: 10, tol: 0.05 });
+    var g4 = grid();
+    numField(g4, 'Minimum pump speed', Math.round((ctl.minSpeed || 0.25) * 100),
+      function (v) {
+        m.settings.control.minSpeed = Math.min(100, Math.max(1, v)) / 100;
+        renderThermal(); redrawAll();
+      }, '(%)');
+    numField(g4, 'Minimum valve opening', ctl.minOpening,
+      function (v) {
+        m.settings.control.minOpening = Math.min(100, Math.max(1, v));
+        renderThermal(); redrawAll();
+      }, '(%)');
+    numField(g4, 'Deadband', ctl.tol,
+      function (v) { m.settings.control.tol = v; renderThermal(); redrawAll(); },
+      '(K)');
+    var ch = el('p', 'hint', 'SIMULATION only. Sitting on a minimum is reported. ');
+    infoMark(ch, 'In DESIGN the flows are imposed by the demands, so there is ' +
+                 'nothing for a controller to move.');
+    host.appendChild(ch);
+
     var uh = el('p', 'hint', 'U′ = 1 / [ ln(r₀/rᵢ)/(2πk) + 1/(2πr₀h) ]. ');
     infoMark(uh, 'Insulation and outside film in series. rᵢ is the pipe OD — ' +
                  'insulation wraps the outside, not the bore.');

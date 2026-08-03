@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1009
+This is deliberately separate from the automated suites. Those cover 1111
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-03 (v0.10.3)
+Last updated: 2026-08-03 (v0.11.1)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -180,7 +180,28 @@ app cannot source for itself.
 | **TD.2** | Set the outside surface coefficient | 8 W/m²·K is a default, not sourced. On an insulated pipe it is a small part of the resistance; on a **bare** pipe it is the whole of it. |
 | **TD.3** | Set the plausibility band per service | Defaults to ±50 °C, which suits chilled water and **trips on any LTHW system** — the test suite demonstrates this at 80 °C flow. Adjustable on THERMAL. |
 | **TD.4** | Confirm the insulation rule | 25 mm below DN50, 50 mm from DN50 up, per size on the schedule. His rule, so not flagged — but worth confirming it is the one he meant, including that DN50 itself takes 50. |
+| **TD.6** | **Set the VSD minimum speed** (THERMAL ▸ Setpoint control) | Defaults to 25%. Real drives vary — 25–30% is the usual range, but it is a plant decision and the app cannot source it. Sitting on the floor is reported rather than hidden. Minimum valve opening (10%) and the deadband (0.05 K) are on the same panel. |
+| **TD.7** | **Judge whether a controlled pump should also be allowed in DESIGN** | It is SIMULATION-only today, because in DESIGN the demands impose the flows and a controller cannot move them. That reasoning is in `ARCHITECTURE.md` §17C — worth confirming it matches how he would expect to use it. |
 | **TD.5** | Rule on the Critical Radius tool's temperature inputs | It takes ambient and fluid temperature as asked, but **r_cr = k/h contains no temperature**. They are used for heat loss and surface temperature instead. See 4E.1. |
+
+## 4C. SETPOINT CONTROL — variable-speed pumps (v0.11.1)
+
+The engine side is covered by 47 new assertions, including Michael's economizer
+against a closed-form flow. **Nothing below has been rendered to pixels** — the
+preview browser has a 0×0 viewport, so every item here is about appearance and
+is unsigned. The DOM was driven and read back, so the wiring is known good; how
+it *looks* is not.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| 4C.1 | Pump info plate shows `N 54%` when modulating | ⬜ | Only when off full speed — "100%" on every pump is clutter. Line added below `H`. |
+| 4C.2 | Pump panel Actual box: `Speed  54% — holding ECO-01` | ⬜ | Read back from the live DOM, so the text is right; the layout is not checked. Says `(at minimum)` when on the floor. |
+| 4C.3 | Device Flow row reads `PMP-01 (54% speed)` | ⬜ | Read back live. |
+| 4C.4 | Pump-curve chart: scaled curve solid, rated curve dashed behind it | ⬜ | **The one to judge.** Two polylines confirmed present; whether the dashed rated curve reads clearly at 45% opacity is a visual call. Caption says "54% speed (rated curve dashed)". |
+| 4C.5 | Controlled globe valve: "Set by the control link" beside the slider | ⬜ | The position is now an OUTPUT — without this line, setting it by hand looks like a bug when the next solve moves it. Not exercised in the browser; logic is a one-line `M.controlOf` guard. |
+| 4C.6 | THERMAL ▸ Setpoint control: three fields | ⬜ | Minimum pump speed (%), minimum valve opening (%), deadband (K). Values read back as 25 / 10 / 0.05. |
+| 4C.7 | `CONTROL_AT_LIMIT` wording on the sheet | ⬜ | "PMP-01 is at its minimum speed (25% speed) and ECO-01 is still 2.5 K above its 25.0 °C setpoint." Engine-tested; not seen in the warnings panel. |
+| 4C.8 | Does 54% look right for that economizer? | ⬜ | **The engineering judgement.** The flow it settles at is hand-checkable (11.97 L/s for a 250 kW machine across 5 K) but whether the whole picture is what he would expect on a job is his call. |
 
 ## 4D. THERMAL module (v0.10.0)
 

@@ -2670,12 +2670,16 @@
            * the truth. */
           var pOff = obj.pump.mode === 'off';
           var pq = Math.abs((res && res.flow[obj.id]) || 0);
+          var pSp = M.pumpSpeed(obj);
           var hNow = pOff ? 0
             : (m.settings.calcMode === 'simulation' && obj.pump.curve)
-              ? FD.pumps.head(obj.pump.curve, pq)
-              : (obj.pump.head || 0);
+              ? FD.pumps.head(M.pumpCurve(obj), pq)
+              : (obj.pump.head || 0) * pSp * pSp;
           lines.push('H ' + FD.units.fmtPressure(
             FD.units.headToPaWith(hNow, m.settings.fluid.density), d.pressure, true));
+          /* A modulating pump reads its speed on the plate. Only when it is
+           * off full — "100%" on every pump is clutter. */
+          if (!pOff && pSp < 0.999) lines.push('N ' + Math.round(pSp * 100) + '%');
         }
         if (flags.pd) {
           var link = res.network && res.network.links.find(function (l) { return l.id === obj.id; });
