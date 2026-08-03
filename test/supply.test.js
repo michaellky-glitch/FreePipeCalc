@@ -434,4 +434,97 @@ section('Open / closed detection');
      NET.detectSystemType(allOff).type === 'none');
 }
 
+/* --------------------------------------------------------------------------
+ * EQUIPMENT FAR OFF ITS RATING — the diagnosis missing from debug/20260803-1
+ *
+ * Equipment carries a fixed characteristic r = ΔP_rated/(ρg·Q_rated²), so its
+ * pressure drop goes as the SQUARE of how far the flow sits from the rating.
+ *
+ * Michael's model sized a pump to 12 791 m — 1252 bar — and nothing said why.
+ * The cause was an AHU rated 0.8 L/s at 200 kPa carrying 20 L/s:
+ *
+ *     r     = 200 000 / (998 × 9.81 × 0.0008²) = 3.1919e7  m/(m³/s)²
+ *     h     = r·Q²  = 3.1919e7 × 0.020²        = 12 767.6 m
+ *     ratio = 0.020 / 0.0008 = 25×,  and 25² = 625× the rated 200 kPa
+ *
+ * 12 767.6 of the 12 791 m — 99.8% of the pump duty — was that one machine.
+ * The arithmetic was right; the app simply never mentioned it.
+ * ----------------------------------------------------------------------- */
+section('Equipment carrying far more than its rating is called out');
+{
+  const RHO = 998, G = 9.81;
+
+  function rig(qRated) {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const c = M.addNode(m, lv, 2, 0), d = M.addNode(m, lv, 3, 0);
+    M.setSource(m, a.id, 0);
+    d.device = { kind: 'demand', flow: 0.020, reqPressure: 100e3, include: true };
+    const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 10 };
+    const eq = M.addPipe(m, b.id, c.id, { kind: 'equip' });
+    eq.tag = 'AHU-1';
+    eq.equip = { qRated: qRated, pdRated: 200e3, equipType: 'exchanger', duty: 50000 };
+    M.addPipe(m, c.id, d.id, { size: 'DN100', schedule: 'sch40' });
+    return { m, pump, eq };
+  }
+
+  // The hand figures above, independent of anything the app computes.
+  const r = 200e3 / (RHO * G * 0.0008 * 0.0008);
+  near('AHU resistance from its own design point', r, 3.1919e7, 1e4);
+  near('...gives 12 767.6 m at 20 L/s', r * 0.020 * 0.020, 12767.6, 0.5);
+
+  {
+    const t = rig(0.0008);                       // 25× under-rated, as saved
+    const res = NET.solveModel(t.m);
+    const w = res.warnings.filter(x => x.code === 'EQUIP_OFF_RATING')[0];
+    ok('EQUIP_OFF_RATING is raised', !!w,
+       JSON.stringify(res.warnings.map(x => x.code)));
+    near('...with the ratio it actually ran at', w && w.ratio, 25, 0.1);
+    ok('...naming the machine and both flows', !!w &&
+       /AHU-1/.test(w.message) && /0\.80 L\/s/.test(w.message) &&
+       /20\.00 L\/s/.test(w.message), w && w.message);
+    ok('...and the pressure drop that follows from it',
+       !!w && /125000 kPa/.test(w.message), w && w.message);
+
+    /* The pump duty really is dominated by that one machine — which is the
+     * whole point of the warning. */
+    const h = t.pump.pump.head;
+    ok('The sized head is in the thousands of metres', h > 12000 && h < 13500,
+       h.toFixed(1) + ' m');
+    ok('...and the AHU accounts for essentially all of it',
+       (r * 0.020 * 0.020) / h > 0.99, ((r * 0.02 * 0.02) / h).toFixed(4));
+  }
+
+  {
+    // Correctly rated, so nothing to say, and a sane duty.
+    const t = rig(0.020);
+    const res = NET.solveModel(t.m);
+    ok('A machine at its rating raises nothing',
+       !res.warnings.some(x => x.code === 'EQUIP_OFF_RATING'));
+    ok('...and the pump duty is ordinary', t.pump.pump.head < 60,
+       t.pump.pump.head.toFixed(2) + ' m');
+  }
+
+  {
+    // Under-flow is called out too: 4x under is 1/16 of the rated drop.
+    const t = rig(0.100);
+    const res = NET.solveModel(t.m);
+    const w = res.warnings.filter(x => x.code === 'EQUIP_OFF_RATING')[0];
+    ok('Running well UNDER the rating is called out as well', !!w);
+    ok('...and reads as a fraction rather than a multiple',
+       !!w && /1\/5\.0 its rating/.test(w.message), w && w.message);
+  }
+
+  {
+    // The threshold is a setting, like velocity and friction rate.
+    const t = rig(0.0008);
+    t.m.settings.warn.equipFlowRatio = 0;
+    const res = NET.solveModel(t.m);
+    ok('Zero disables the check',
+       !res.warnings.some(x => x.code === 'EQUIP_OFF_RATING'));
+  }
+}
+
 report();

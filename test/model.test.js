@@ -1660,4 +1660,138 @@ section('Control links');
   ok('A control link survives save and load', M.controlOf(g2).equip === t.eq.id);
 }
 
+/* --------------------------------------------------------------------------
+ * DESIGN FLOW, LOAD AND ΔT ARE ONE EQUATION  —  Q = ṁ·Cp·ΔT
+ *
+ * Only two of the three are ever independent. Michael's rule, 2026-08-03:
+ * editing one recomputes the one you touched LEAST recently, holding the other.
+ *
+ * This is not a convenience. Always rewriting the same partner is what produced
+ * `debug/20260803-1.json`: a 50 kW coil given a 15 K ΔT had its design flow
+ * silently rewritten from 20 to 0.8 L/s, and the pump was then sized to push
+ * 20 L/s through a machine rated for 0.8. Equipment ΔP goes as the square of
+ * the flow ratio, so 25× flow is 625× the drop, and the pump came out at
+ * 12 791 m — 1252 bar, and every step of it arithmetically correct.
+ *
+ * ρ·Cp = 998 × 4187 = 4 178 626 J/(m³·K) throughout, so:
+ *     20 L/s across 15 K   = 0.020 × 4 178 626 × 15 = 1 253 587.8 W
+ *     50 kW across 15 K    = 50 000 / (4 178 626 × 15) = 7.9770e-4 m³/s
+ *     50 kW at 20 L/s      = 50 000 / (0.020 × 4 178 626) = 0.598 K
+ * ----------------------------------------------------------------------- */
+section('Design flow, load and ΔT: the third value follows');
+{
+  const RHOCP = 998 * 4187;
+
+  function coil() {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const p = M.addPipe(m, a.id, b.id, { kind: 'equip' });
+    p.equip = { qRated: 0.020, pdRated: 200e3, equipType: 'exchanger', duty: 50000 };
+    return { m, p, e: p.equip };
+  }
+  const dTof = (t) => M.equipDTFromDuty(t.m, t.p, t.e.duty || 0);
+
+  /* MICHAEL'S SEQUENCE, and the one that matters: set flow, set load, then
+   * change ΔT — and the FLOW moves, because the load is the newer statement. */
+  {
+    const t = coil();
+    M.setEquipTrio(t.m, t.p, 'qRated', 0.020);
+    M.setEquipTrio(t.m, t.p, 'duty', 50000);
+    near('Flow then load: ΔT follows', dTof(t), 50000 / (0.020 * RHOCP), 1e-12);
+    near('...which is 0.598 K', dTof(t), 0.5980, 1e-3);
+    ok('...and the flow is untouched', t.e.qRated === 0.020);
+
+    const moved = M.setEquipTrio(t.m, t.p, 'dT', 15);
+    ok('Changing ΔT next moves the FLOW', moved === 'qRated', String(moved));
+    near('...to 50 kW across 15 K', t.e.qRated, 50000 / (15 * RHOCP), 1e-15);
+    near('...which is 0.7977 L/s', t.e.qRated * 1000, 0.79771, 1e-4);
+    near('The load is held at what was last stated', t.e.duty, 50000, 1e-9);
+    near('...and ΔT really is 15 K now', dTof(t), 15, 1e-9);
+  }
+
+  /* The other order. Set the load, then the flow, then change ΔT — now the LOAD
+   * moves, because the flow is the newer statement. This is the case the old
+   * panel always did, and it is still right when it is what you asked for. */
+  {
+    const t = coil();
+    M.setEquipTrio(t.m, t.p, 'duty', 50000);
+    M.setEquipTrio(t.m, t.p, 'qRated', 0.020);
+    const moved = M.setEquipTrio(t.m, t.p, 'dT', 15);
+    ok('Load then flow: changing ΔT moves the LOAD', moved === 'duty', String(moved));
+    near('...to 20 L/s across 15 K', t.e.duty, 0.020 * RHOCP * 15, 1e-6);
+    near('...which is 1253.6 kW', t.e.duty / 1000, 1253.5878, 1e-3);
+    ok('...and the flow is held', t.e.qRated === 0.020);
+  }
+
+  /* Editing the FLOW when ΔT was the previous statement holds ΔT and moves the
+   * load — the same rule read from the third corner. */
+  {
+    const t = coil();
+    M.setEquipTrio(t.m, t.p, 'qRated', 0.020);
+    M.setEquipTrio(t.m, t.p, 'dT', 10);
+    near('ΔT of 10 K at 20 L/s is 835.7 kW', t.e.duty / 1000, 835.7252, 1e-3);
+    const moved = M.setEquipTrio(t.m, t.p, 'qRated', 0.010);
+    ok('Editing flow next moves the LOAD', moved === 'duty', String(moved));
+    near('...halving it with the flow', t.e.duty / 1000, 417.8626, 1e-3);
+    near('...because ΔT was held at 10 K', dTof(t), 10, 1e-9);
+  }
+
+  /* Editing the LOAD when the flow was the previous statement leaves both and
+   * lets ΔT follow — nothing is rewritten, which is the quiet case. */
+  {
+    const t = coil();
+    M.setEquipTrio(t.m, t.p, 'dT', 10);
+    M.setEquipTrio(t.m, t.p, 'qRated', 0.020);
+    const moved = M.setEquipTrio(t.m, t.p, 'duty', 100000);
+    ok('Flow held, ΔT follows the new load', moved === 'dT', String(moved));
+    ok('...the flow is untouched', t.e.qRated === 0.020);
+    near('...and ΔT is 100 kW at 20 L/s', dTof(t), 100000 / (0.020 * RHOCP), 1e-12);
+    near('...which is 1.196 K', dTof(t), 1.19657, 1e-4);
+  }
+
+  /* An unedited machine behaves as the panel always did: ΔT rewrites the load.
+   * A file saved before this existed must not change meaning on load. */
+  {
+    const t = coil();
+    const moved = M.setEquipTrio(t.m, t.p, 'dT', 15);
+    ok('With no history, ΔT rewrites the LOAD as before', moved === 'duty',
+       String(moved));
+    ok('...leaving the design flow alone', t.e.qRated === 0.020);
+  }
+
+  /* Guards. A zero ΔT is an infinite flow and a zero load is a zero flow;
+   * neither is a pipe, so the flow is left unset rather than made absurd. */
+  {
+    const t = coil();
+    M.setEquipTrio(t.m, t.p, 'duty', 50000);
+    M.setEquipTrio(t.m, t.p, 'qRated', 0.020);
+    M.setEquipTrio(t.m, t.p, 'duty', 50000);      // duty newest, flow held
+    const before = t.e.qRated;
+    M.setEquipTrio(t.m, t.p, 'dT', 0);
+    ok('A zero ΔT does not produce an infinite flow',
+       t.e.qRated === undefined, String(t.e.qRated));
+    ok('...rather than silently keeping the old one', before === 0.020);
+  }
+  {
+    ok('Negative ΔT is refused as a design flow',
+       M.flowForDutyAndDT(M.create(), 50000, -5) === undefined);
+    ok('...as is a zero load', M.flowForDutyAndDT(M.create(), 0, 5) === undefined);
+  }
+
+  /* The history is stored ON THE MODEL, so reopening a file does not silently
+   * change which field moves next. */
+  {
+    const t = coil();
+    M.setEquipTrio(t.m, t.p, 'qRated', 0.020);
+    M.setEquipTrio(t.m, t.p, 'duty', 50000);
+    const back = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(t.m))));
+    const p2 = M.pipe(back, t.p.id);
+    ok('The edit history survives a round trip',
+       JSON.stringify(p2.equip.lastEdited) === JSON.stringify(['duty', 'qRated']),
+       JSON.stringify(p2.equip.lastEdited));
+    ok('...so ΔT still moves the flow', M.setEquipTrio(back, p2, 'dT', 15) === 'qRated');
+  }
+}
+
 report();

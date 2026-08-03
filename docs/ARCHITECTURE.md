@@ -1159,8 +1159,41 @@ Three things about the limits are worth knowing:
   the sentence worth having; a leaving temperature that silently misses its
   setpoint is not.
 
-Sign is inferred, never selected: a setpoint below the inlet is cooling. `qMax`
-and `dTMax` are magnitudes.
+Sign is inferred, never selected: a setpoint below the inlet is cooling.
+`dTMax` is a magnitude.
+
+**Capacity is SIGNED** (v0.11.2), on the same convention as a load: `+` adds
+heat to the fluid, `−` removes it. A chiller carries a negative capacity and
+therefore *cannot heat*, however its setpoint is set — asked to work the wrong
+way it delivers nothing, reported as `Capacity (wrong direction)` rather than
+quietly reversing. Blank is unlimited in both directions, and zero is read as
+unstated rather than as "can do nothing", because a field cleared to 0 reads as
+unset. This is the one change in v0.11.2 that can alter an existing model: see
+`KNOWN-ISSUES.md`.
+
+### Design flow, load and ΔT are ONE equation
+
+`Q = ṁ·Cp·ΔT`, so only two of the three are ever independent. **Editing one
+recomputes whichever you touched least recently, holding the other**
+(`M.setEquipTrio`, Michael's rule 2026-08-03). Set the flow, then the load, and
+ΔT follows; then change ΔT and the *flow* moves, because the load is the newer
+statement.
+
+The alternative — always rewriting the same partner — is not a matter of taste.
+It is what produced `debug/20260803-1.json`: a 50 kW coil given a 15 K ΔT had
+its design flow silently rewritten from 20 to 0.8 L/s, and the pump was then
+sized to push 20 L/s through a machine rated for 0.8. Equipment ΔP goes as the
+square of the flow ratio, so 25× flow is 625× the drop; the AHU alone came to
+12 768 m of the 12 792 m duty — 1252 bar, every step of it arithmetically
+correct and nothing anywhere saying so. Correcting the design flow returns the
+same model to 44.85 m, which is exactly what its pump curve was fitted for.
+
+Two consequences elsewhere. `EQUIP_OFF_RATING` now reports any machine sitting
+more than `warn.equipFlowRatio` (default 2) away from its rated flow, with the
+pressure drop that follows from it. And the edit history lives on the model as
+`equip.lastEdited` — UI state, stored deliberately, because reopening a file
+must not silently change which field moves next. Absent, it reads as
+`['qRated','duty']`, which is how the panel behaved before any of this existed.
 
 On an exchanger, **Q, ΔT and ṁ are locked** by `Q = ṁ·Cp·ΔT`, so the panel
 offers both and each rewrites the other at the rated flow. The model stores the
@@ -1258,7 +1291,7 @@ sheet**, which is the thing that gets issued.
 
 ## 15. Testing
 
-Seven suites, 1111 assertions, no dependencies:
+Seven suites, 1161 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

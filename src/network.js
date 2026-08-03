@@ -765,6 +765,7 @@
     res.warnings = (res.warnings || []).concat(net.warnings || []);
     res.warnings = res.warnings.concat(flowRegimeWarnings(m, net, res));
     res.warnings = res.warnings.concat(supplyWarnings(m, net, res));
+    res.warnings = res.warnings.concat(equipRatingWarnings(m, res));
 
     /* Disconnection is checked on every solve, not just on demand. The model
      * that prompted this returned zero flow with converged:true and no errors —
@@ -1468,6 +1469,53 @@
       warnings: warnings,
       report: { devices: devices, sweeps: sweep, solves: solves, tol: tol }
     };
+  }
+
+  /* ------------------------------------------ equipment far off its rating
+   *
+   * Equipment is a fixed characteristic: r = ΔP_rated/(ρg·Q_rated²), so its
+   * pressure drop goes as the SQUARE of how far the flow is from the rating.
+   * At 25× the rated flow that is 625× the rated drop, and the number stops
+   * looking like a plant item and starts looking like a blockage.
+   *
+   * WHY THIS EXISTS. `debug/20260803-1.json` sized a pump to 12 791 m — 1252
+   * bar. Nothing was wrong with the arithmetic: an AHU rated 0.8 L/s at 200 kPa
+   * was carrying 20 L/s, which is 125 000 kPa across it and 99.8% of the duty.
+   * The AHU's design flow had been rewritten to 0.8 L/s when its ΔT was set
+   * (see `M.setEquipTrio`), and nothing anywhere said so. Every warning the app
+   * had was about velocity and friction rate in the PIPES.
+   *
+   * The check is on flow rather than on head, because the flow ratio is the
+   * thing an engineer recognises — "this coil is passing 25 times its duty" —
+   * and the head follows from it.
+   */
+  function equipRatingWarnings(m, res) {
+    var out = [];
+    var lim = (m.settings.warn && m.settings.warn.equipFlowRatio) || 0;
+    if (!(lim > 1)) return out;
+
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'equip' || !p.equip || p.equip.off) return;
+      var qr = p.equip.qRated || 0;
+      if (!(qr > 0)) return;
+      var q = Math.abs(res.flow[p.id] || 0);
+      if (!(q > FD.hydraulics.Q_MIN)) return;
+      var ratio = q / qr;
+      if (ratio <= lim && ratio >= 1 / lim) return;
+
+      var pd = (p.equip.pdRated || 0) * ratio * ratio;
+      out.push({
+        code: 'EQUIP_OFF_RATING', pipe: p.id, ratio: ratio,
+        message: (p.tag || p.id) + ' is rated for ' + (qr * 1000).toFixed(2) +
+                 ' L/s but is carrying ' + (q * 1000).toFixed(2) + ' L/s (' +
+                 (ratio >= 1 ? ratio.toFixed(1) + '×' : '1/' + (1 / ratio).toFixed(1)) +
+                 ' its rating). Its pressure drop follows the square of that, so ' +
+                 'it is ' + (pd / 1000).toFixed(0) + ' kPa against a rated ' +
+                 ((p.equip.pdRated || 0) / 1000).toFixed(0) + ' kPa. Check its ' +
+                 'design flow, load and ΔT — they are one equation.'
+      });
+    });
+    return out;
   }
 
   // -------------------------------------------------- supply-side warnings

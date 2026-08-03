@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1111 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1161 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,15 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **THE 12 791 m PUMP** (v0.11.2) — `debug/20260803-1.json`. Not a solver
+  defect: an AHU rated 0.8 L/s at 200 kPa was carrying 20 L/s, which by the
+  square law is 125 000 kPa across it and 99.8% of the pump duty. Its design
+  flow had been silently rewritten when its ΔT was set. Three things came out
+  of it: design flow / load / ΔT are now ONE relation that moves whichever
+  field you touched least recently (`M.setEquipTrio`), `EQUIP_OFF_RATING`
+  reports any machine far off its rating, and equipment capacity is now signed.
+  `ARCHITECTURE.md` §18. Corrected, the same model sizes to 44.85 m — exactly
+  what its pump curve was fitted for.
 * **SETPOINT CONTROL** (v0.11.1) — the control link now DOES something. A
   linked pump changes speed and a linked globe valve changes position until the
   machine holds its setpoint. This is the only place temperature feeds back into

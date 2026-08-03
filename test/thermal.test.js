@@ -716,6 +716,9 @@ section('Temperatures outside the plausible band are an error');
  * three things that bind in different places:
  *
  *   capacity  qMax   — binds at HIGH flow, where a small ΔT is still a big duty
+ *                      SIGNED (2026-08-03): + adds heat to the fluid, − removes
+ *                      it, on the same convention as a load. A chiller has a
+ *                      NEGATIVE capacity and cannot heat at all.
  *   ΔT max    dTMax  — binds at LOW flow, where a small duty is still a big ΔT
  *   T limit   tLimit — the temperature it physically cannot pass: a tower
  *                      cannot go below wet bulb, an economizer below ambient
@@ -760,7 +763,7 @@ section('Source / Sink holds a setpoint until a limit binds');
   /* CAPACITY. The same duty asked of a 100 kW machine: it can only manage
    * 100 kW, so ΔT = -100000/20893.13 = -4.786 K and it leaves at 13.21 C. */
   {
-    const t = plant({ tSet: 6, qMax: 100000 }, flow, 18);
+    const t = plant({ tSet: 6, qMax: -100000 }, flow, 18);
     const l = NET.solveModel(t.m).thermal.links[t.e.id];
     near('Capacity caps the duty', l.qW, -100000, 1e-6);
     near('...so it misses the setpoint', l.tOut, 18 - 100000 / C, 1e-9);
@@ -771,7 +774,7 @@ section('Source / Sink holds a setpoint until a limit binds');
   /* ΔT MAX. A machine that cannot work across more than 8 K leaves at 10 C,
    * whatever its capacity. */
   {
-    const t = plant({ tSet: 6, qMax: 1e9, dTMax: 8 }, flow, 18);
+    const t = plant({ tSet: 6, qMax: -1e9, dTMax: 8 }, flow, 18);
     const l = NET.solveModel(t.m).thermal.links[t.e.id];
     near('The difference is capped', l.dT, -8, 1e-9);
     near('...so it leaves at 10 C', l.tOut, 10, 1e-9);
@@ -782,7 +785,7 @@ section('Source / Sink holds a setpoint until a limit binds');
   /* Both set: whichever is tighter wins. At this flow, 8 K is 167 kW, so a
    * 100 kW machine is capacity-limited even though ΔT would allow more. */
   {
-    const t = plant({ tSet: 6, qMax: 100000, dTMax: 8 }, flow, 18);
+    const t = plant({ tSet: 6, qMax: -100000, dTMax: 8 }, flow, 18);
     const l = NET.solveModel(t.m).thermal.links[t.e.id];
     ok('The tighter of the two binds', l.limit === 'Capacity', String(l.limit));
     near('...at 100 kW', l.qW, -100000, 1e-6);
@@ -790,7 +793,7 @@ section('Source / Sink holds a setpoint until a limit binds');
   {
     /* Quarter the flow and the SAME machine becomes ΔT-limited: 8 K is now
      * only 41.8 kW, well inside its 100 kW. This is why both limits exist. */
-    const t = plant({ tSet: 6, qMax: 100000, dTMax: 8 }, flow / 4, 18);
+    const t = plant({ tSet: 6, qMax: -100000, dTMax: 8 }, flow / 4, 18);
     const l = NET.solveModel(t.m).thermal.links[t.e.id];
     ok('At a quarter flow the ΔT limit binds instead', l.limit === 'ΔT max',
        String(l.limit));
@@ -801,7 +804,7 @@ section('Source / Sink holds a setpoint until a limit binds');
    * cannot pass; the setpoint of 25 C is above it, so the setpoint governs and
    * the limit does nothing. */
   {
-    const t = plant({ tSet: 25, tLimit: 18, qMax: 1e9 }, flow, 30);
+    const t = plant({ tSet: 25, tLimit: 18, qMax: -1e9 }, flow, 30);
     const l = NET.solveModel(t.m).thermal.links[t.e.id];
     near('It holds the setpoint, which is inside the limit', l.tOut, 25, 1e-9);
     ok('...so nothing binds', l.limit === null || l.limit === undefined);
@@ -809,11 +812,52 @@ section('Source / Sink holds a setpoint until a limit binds');
   {
     /* Ask the same economizer for 12 C against an 18 C ambient and it cannot:
      * it gets to 18 and stops. That is the second law, not a control choice. */
-    const t = plant({ tSet: 12, tLimit: 18, qMax: 1e9 }, flow, 30);
+    const t = plant({ tSet: 12, tLimit: 18, qMax: -1e9 }, flow, 30);
     const l = NET.solveModel(t.m).thermal.links[t.e.id];
     near('It cannot pass its physical limit', l.tOut, 18, 1e-9);
     ok('...and says so', l.limit === 'T limit', String(l.limit));
     ok('...having still done real work', l.qW < 0);
+  }
+
+  /* THE SIGN OF THE CAPACITY IS A DIRECTION, not decoration.
+   *
+   * A chiller is stated as a negative capacity. Ask it to HEAT — a setpoint
+   * above its inlet — and it does nothing, because that is what a chiller does
+   * when you ask it to heat. It must not quietly warm the water on the strength
+   * of a magnitude.
+   */
+  {
+    const t = plant({ tSet: 30, qMax: -100000 }, flow, 18);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('A cooling machine asked to heat does nothing', l.qW, 0, 1e-9);
+    near('...so the water leaves as it arrived', l.tOut, 18, 1e-9);
+    ok('...and the reason is named, not silent',
+       l.limit === 'Capacity (wrong direction)', String(l.limit));
+  }
+  {
+    // ...and the mirror image: a boiler asked to cool.
+    const t = plant({ tSet: 6, qMax: 100000 }, flow, 18);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('A heating machine asked to cool does nothing', l.qW, 0, 1e-9);
+    ok('...reported the same way', l.limit === 'Capacity (wrong direction)');
+  }
+  {
+    /* BLANK is unlimited in BOTH directions — an unstated capacity has always
+     * meant "do not cap this", and a sign cannot be read off a blank. */
+    const t = plant({ tSet: 6 }, flow, 18);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('No capacity stated, no cap', l.tOut, 6, 1e-9);
+    ok('...and nothing binds', !l.limit);
+    const t2 = plant({ tSet: 30 }, flow, 18);
+    const l2 = NET.solveModel(t2.m).thermal.links[t2.e.id];
+    near('...in the heating direction too', l2.tOut, 30, 1e-9);
+  }
+  {
+    /* Zero is not a direction. Treated as unstated rather than as "can do
+     * nothing", because a field a user has cleared to 0 reads as unset. */
+    const t = plant({ tSet: 6, qMax: 0 }, flow, 18);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('A zero capacity is read as unstated', l.tOut, 6, 1e-9);
   }
 
   /* A BOILER is the same machine with the signs the other way up: setpoint
@@ -842,7 +886,7 @@ section('Source / Sink holds a setpoint until a limit binds');
     M.addPipe(m, n[0].id, n[1].id, { size: 'DN50', schedule: 'sch40' });
     const e1 = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
     e1.equip = { qRated: flow, pdRated: 20e3, equipType: 'source',
-                 tSet: 6, qMax: 100000 };
+                 tSet: 6, qMax: -100000 };
     M.addPipe(m, n[2].id, n[3].id, { size: 'DN50', schedule: 'sch40' });
     const e2 = M.addPipe(m, n[3].id, n[4].id, { kind: 'equip' });
     e2.equip = { qRated: flow, pdRated: 20e3, equipType: 'source',
@@ -917,7 +961,7 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
     const eq = M.addPipe(m, b.id, c.id, { kind: 'equip' });
     eq.equip = Object.assign({
       qRated: 0.020, pdRated: 20e3, equipType: 'source',
-      tSet: 25, tLimit: 18, qMax: 250000
+      tSet: 25, tLimit: 18, qMax: -250000
     }, opts.equip || {});
     const valve = M.addPipe(m, c.id, d.id, { kind: 'valve' });
     valve.valve = { type: 'globe', kv: 40, opening: 100 };
@@ -1011,7 +1055,7 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
   {
     /* 60 kW wants q = 60000/20893130 = 2.872 L/s, which is well under a
      * quarter of the full-speed flow, so the drive bottoms out. */
-    const t = economizer({ link: 'pump', equip: { qMax: 60000 } });
+    const t = economizer({ link: 'pump', equip: { qMax: -60000 } });
     const r = NET.solveModel(t.m);
     near('The pump sits on its minimum speed', M.pumpSpeed(t.pump), 0.25, 1e-9);
     const l = r.thermal.links[t.eq.id];
@@ -1032,7 +1076,7 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
      * controller that simply "ramps down towards a setpoint" would wind this
      * pump to its floor for no benefit. The perturbation catches it. */
     const t = economizer({ link: 'pump',
-                           equip: { qMax: 1e9, dTMax: 2 } });
+                           equip: { qMax: -1e9, dTMax: 2 } });
     const r = NET.solveModel(t.m);
     const l = r.thermal.links[t.eq.id];
     near('The machine is pinned 2 K below inlet', l.tOut, 28, 1e-9);

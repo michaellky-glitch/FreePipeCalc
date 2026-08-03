@@ -8,6 +8,24 @@ is, why it is deferred, and where the fix would go.
 
 ## Open
 
+### A positive capacity on a cooling machine now refuses to cool
+
+**Check this if an older model comes back with a machine doing nothing.**
+
+`equip.qMax` became SIGNED in v0.11.2 (`+` adds heat to the fluid, `−` removes
+it), so a chiller is stated as a negative capacity. A file saved before that
+with a *positive* capacity on a cooling machine will now hit the
+`Capacity (wrong direction)` branch and deliver zero duty.
+
+Not migrated automatically, and deliberately: the direction can only be inferred
+by comparing the setpoint against an inlet temperature, which does not exist
+until the model is solved, so a load-time migration would be guessing. The
+failure is loud rather than silent — the limit is named on the panel, on the
+drawing and on the sheet — which is the right trade for a number that would
+otherwise be quietly wrong by a sign.
+
+Fix in the model: put a minus in front of the capacity of anything that cools.
+
 ### `actualDelivery` diverges in SIMULATION when a terminal is short
 
 `src/network.js` — the pressure-driven second pass returns flows of order

@@ -153,7 +153,11 @@
        * so it cannot inflate flow or friction (spec Q12.11, Q12.12). */
       pumpSafetyPct: 0,
       theme: 'dark',
-      warn: { velocity: 2.4, pdm: 400, laminar: true, pumpRunout: 120 },
+      /* `equipFlowRatio` is how far a piece of equipment may sit from its
+       * rated flow before it is called out. Its pressure drop goes as the
+       * SQUARE of this, so 2× flow is already 4× the rated drop. */
+      warn: { velocity: 2.4, pdm: 400, laminar: true, pumpRunout: 120,
+              equipFlowRatio: 2 },
       floorToFloor: 3.5,
       grid: { minor: 0.5, major: 5, snap: true },
 
@@ -850,6 +854,93 @@
     return C > 0 ? duty / C : 0;
   }
 
+  /* ------------------------------- design flow, load and ΔT are ONE equation
+   *
+   * Q = ṁ·Cp·ΔT ties the three together, so only two of them are ever
+   * independent. Michael's rule, 2026-08-03: editing one recomputes the one
+   * you touched LEAST recently, holding the other. Set the flow, then the load,
+   * and ΔT follows; then change ΔT and the FLOW moves, because the load is what
+   * you said most recently.
+   *
+   * The alternative — always rewriting the same partner — is what produced the
+   * runaway in `debug/20260803-1.json`. A 50 kW coil was given a 15 K ΔT, which
+   * silently rewrote its design flow from 20 to 0.8 L/s, and the pump was then
+   * sized to push 20 L/s through a machine rated for 0.8. Its ΔP goes as the
+   * square, so 625× the rating, and the duty came out at 12 791 m. Every step
+   * of that was arithmetically correct.
+   *
+   * `lastEdited` is the two most recent keys, newest first. It is UI state but
+   * it is stored ON THE MODEL deliberately: reopening a file must not silently
+   * change which field moves next. Absent, it reads as ['qRated', 'duty'],
+   * which is how the panel behaved before this existed: ΔT rewrote the load and
+   * left the design flow alone.
+   */
+  var EQUIP_TRIO = ['qRated', 'duty', 'dT'];
+
+  function equipTrioOrder(e) {
+    var prev = (e && e.lastEdited) || [];
+    var order = [];
+    prev.forEach(function (k) {
+      if (EQUIP_TRIO.indexOf(k) >= 0 && order.indexOf(k) < 0) order.push(k);
+    });
+    ['qRated', 'duty', 'dT'].forEach(function (k) {   // the historic default
+      if (order.indexOf(k) < 0) order.push(k);
+    });
+    return order;
+  }
+
+  /* Apply an edit to one of the three. Returns the key that was recomputed, or
+   * null when nothing needed to move. Mutates `p.equip`. */
+  function setEquipTrio(m, p, key, value) {
+    var e = p.equip;
+    if (!e || EQUIP_TRIO.indexOf(key) < 0) return null;
+
+    /* Clearing a field stores the blank and stops. Recomputing from an empty
+     * value would let "I deleted the load" wipe the design flow as well, and a
+     * field the user emptied is not a statement about the other two. */
+    if (value === undefined || value === null || value === '') {
+      if (key !== 'dT') e[key] = undefined;
+      return null;
+    }
+
+    var order = equipTrioOrder(e);
+    var hold = (order[0] === key) ? order[1] : order[0];
+    var third = EQUIP_TRIO.filter(function (k) {
+      return k !== key && k !== hold;
+    })[0];
+
+    /* ΔT is DERIVED, never stored — the pair (qRated, duty) always determines
+     * it. So it is read before the edit lands and re-imposed afterwards. */
+    var dTBefore = equipDTFromDuty(m, p, e.duty || 0);
+
+    if (key === 'qRated') e.qRated = value;
+    else if (key === 'duty') e.duty = value;
+    else dTBefore = value;                        // editing ΔT IS the new value
+
+    if (key === 'dT') {
+      if (third === 'duty') e.duty = equipDutyFromDT(m, p, value);
+      else e.qRated = flowForDutyAndDT(m, e.duty || 0, value);
+    } else if (third === 'duty') {
+      e.duty = equipDutyFromDT(m, p, dTBefore);
+    } else if (third === 'qRated') {
+      e.qRated = flowForDutyAndDT(m, e.duty || 0, dTBefore);
+    }
+    // third === 'dT' needs no write: it is derived from the pair just stored.
+
+    e.lastEdited = [key, hold];
+    return third;
+  }
+
+  /* q = Q / (ρ·Cp·ΔT). Guarded, because a zero ΔT is an infinite flow and a
+   * zero load is a zero flow — neither is a pipe. */
+  function flowForDutyAndDT(m, duty, dT) {
+    var f = FD.fluids.resolve(m.settings);
+    var den = f.density * f.specificHeat * dT;
+    if (!isFinite(den) || Math.abs(den) < 1e-9) return undefined;
+    var q = duty / den;
+    return (isFinite(q) && q > 0) ? q : undefined;
+  }
+
   /* ------------------------------------------------------- control links
    *
    * A pump or globe valve can take its setpoint from a piece of equipment: the
@@ -1136,6 +1227,8 @@
     equipRatedC: equipRatedC,
     equipDutyFromDT: equipDutyFromDT,
     equipDTFromDuty: equipDTFromDuty,
+    setEquipTrio: setEquipTrio, equipTrioOrder: equipTrioOrder,
+    flowForDutyAndDT: flowForDutyAndDT,
     migrateEquipThermal: migrateEquipThermal,
     migrateSourcePressure: migrateSourcePressure,
 

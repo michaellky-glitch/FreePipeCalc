@@ -1945,12 +1945,23 @@
 
     host.appendChild(el('h3', 'sub', 'Hydraulics'));
 
+    /* Design flow is one of the THREE locked by Q = ṁ·Cp·ΔT, so it goes through
+     * the same helper as the load and ΔT even though it lives under Hydraulics.
+     * A re-render follows because the edit may have moved one of the other two,
+     * and a stale figure sitting in the Thermal box is exactly how a 0.8 L/s
+     * coil ends up carrying 20 L/s. */
     var qIn = el('input'); qIn.type = 'text';
     qIn.value = FD.units.fmtFlow(p.equip.qRated || 0, d.flow);
-    field(host, 'Design flow (' + d.flow + ')', qIn).addEventListener('change', function () {
+    field(host, 'Design flow (' + d.flow + ')', qIn);
+    infoMark(qIn.parentNode.querySelector('label'),
+             'Design flow, load and ΔT are one equation. Changing this moves ' +
+             'whichever of the other two you set least recently.');
+    qIn.addEventListener('change', function () {
       var v = FD.units.parse(qIn.value);
       if (isFinite(v) && v > 0) {
-        pushUndo(); p.equip.qRated = FD.units.toSIFlow(v, d.flow); changed();
+        pushUndo();
+        M.setEquipTrio(m, p, 'qRated', FD.units.toSIFlow(v, d.flow));
+        renderProperties(); changed();
       } else { qIn.value = FD.units.fmtFlow(p.equip.qRated || 0, d.flow); }
     });
 
@@ -2022,9 +2033,11 @@
     }
     var isSource = (e.equipType === 'source');
 
-    var th = el('h3', 'sub', 'Thermal');
-    infoMark(th, '− removes heat from the fluid, + adds it. A CHW coil is +.');
-    host.appendChild(th);
+    /* No explanation on the heading. The sign convention now lives on the two
+     * fields it actually governs — Heating/Cooling Load and Heating/Cooling
+     * Capacity — where it is read at the point of use rather than as a preamble
+     * to the whole section (Michael, 2026-08-03). */
+    host.appendChild(el('h3', 'sub', 'Thermal'));
 
     var typeSel = el('select');
     [['source', 'Source / Sink'], ['exchanger', 'Heat Exchanger']].forEach(function (o) {
@@ -2056,42 +2069,62 @@
       return i;
     }
 
+    /* One wording for both optional limits. Michael's instruction, 2026-08-03:
+     * the field either has a number in it or it does not, and that is all the
+     * marker needs to say. What each limit MEANS is in ARCHITECTURE §18. */
+    var OPTIONAL = 'Optional — leave blank for unlimited.';
+    /* The sign convention, identical on the load and the capacity because they
+     * are the same quantity read from two directions. */
+    var SIGN = 'Positive value indicates heat entering fluid. Negative value ' +
+               'indicates heat removed from fluid.';
+
     if (isSource) {
-      num('Setpoint (°C)', function () { return e.tSet; },
-          function (v) { e.tSet = v; });
-      num('Q max (kW)',
+      /* ORDER: Type, Capacity, % Load, Setpoint, ΔT max, T limit (Michael,
+       * 2026-08-03). Capacity first because it is the machine's nameplate; the
+       * setpoint is what you ask OF it, and reads better after. */
+      num('Heating/Cooling Capacity (kW)',
           function () { return e.qMax === undefined ? '' : e.qMax / 1000; },
           function (v) { e.qMax = (v === undefined ? undefined : v * 1000); },
-          'Capacity. Binds at high flow. Blank = unlimited.');
-      num('ΔT max (K)', function () { return e.dTMax; },
-          function (v) { e.dTMax = v; },
-          'Largest difference it can work across. Binds at low flow.');
-      num('T limit (°C)', function () { return e.tLimit; },
-          function (v) { e.tLimit = v; },
-          'Temperature it cannot pass — wet bulb on a tower, ambient on an ' +
-          'economizer.');
+          SIGN + ' Blank = Unlimited.');
+
+      /* % LOAD — what it is actually doing against its nameplate. Signed
+       * capacity makes this come out positive whenever the machine is working
+       * in its own direction, which is the only time the ratio means anything. */
+      var thL = app.results && app.results.thermal && app.results.thermal.links[p.id];
+      var pct = '—';
+      if (thL && isFinite(thL.qW) && isFinite(Number(e.qMax)) && Number(e.qMax) !== 0) {
+        pct = (thL.qW / Number(e.qMax) * 100).toFixed(1) + '%';
+      }
+      readoutBox(host, null).ro('% Load', pct);
+
+      num('Setpoint (°C)', function () { return e.tSet; },
+          function (v) { e.tSet = v; });
+      num('ΔT Max (K)', function () { return e.dTMax; },
+          function (v) { e.dTMax = v; }, OPTIONAL);
+      num('Temperature Limit (°C)', function () { return e.tLimit; },
+          function (v) { e.tLimit = v; }, OPTIONAL);
     } else {
-      /* Q and ΔT are the same statement at the rated flow. Both offered; each
-       * rewrites the other, and the model stores the duty. */
-      num('Load (kW)',
+      /* Load, design flow and ΔT are ONE equation. Editing any of the three
+       * moves whichever was touched least recently — M.setEquipTrio, and the
+       * reason it is not simply "ΔT rewrites the load" is `debug/20260803-1`. */
+      num('Heating/Cooling Load (kW)',
           function () { return e.duty === undefined ? '' : e.duty / 1000; },
-          function (v) { e.duty = (v === undefined ? undefined : v * 1000); });
+          function (v) {
+            M.setEquipTrio(m, p, 'duty', v === undefined ? undefined : v * 1000);
+          },
+          SIGN);
       var C = M.equipRatedC(m, p);
       num('ΔT at design (K)',
           function () {
             return C > 0 ? Math.round(M.equipDTFromDuty(m, p, e.duty || 0) * 1000) / 1000 : '';
           },
-          function (v) {
-            e.duty = (v === undefined) ? undefined : M.equipDutyFromDT(m, p, v);
-          },
-          'Locked to the load by Q = ṁ·Cp·ΔT at the design flow. Setting ' +
-          'either rewrites the other.');
+          function (v) { if (v !== undefined) M.setEquipTrio(m, p, 'dT', v); },
+          'Design flow, load and ΔT are one equation. Changing this moves ' +
+          'whichever of the other two you set least recently.');
       num('ΔT max (K)', function () { return e.dTMax; },
-          function (v) { e.dTMax = v; },
-          'Caps the difference at part load, so duty falls off instead.');
+          function (v) { e.dTMax = v; }, OPTIONAL);
       num('T limit (°C)', function () { return e.tLimit; },
-          function (v) { e.tLimit = v; },
-          'Temperature it cannot pass — entering air on a coil.');
+          function (v) { e.tLimit = v; }, OPTIONAL);
     }
 
     var res = app.results;
@@ -2333,13 +2366,16 @@
       ro('Actual flow', qNow === null ? '—' : FD.units.fmtFlow(qNow, fu, true));
       ro('Actual pressure', hNow === null ? '—'
          : FD.units.fmtPressure(headToPa(hNow), pu, true));
-      /* Speed is shown only when it is not full — a line reading "100%" on
-       * every pump in the job is noise (§17A). Where it IS shown, say what set
-       * it: a number the engineer did not type needs a reason beside it. */
-      if (!pOff && sp < 0.999) {
+      /* VFD speed is shown ALWAYS, at Michael's instruction (2026-08-03). It
+       * was hidden at 100% on the argument that a line reading "100%" is noise;
+       * he wants it on every pump, because "is this pump on full?" is a
+       * question you ask of a pump that is NOT modulating just as often. Where
+       * something is holding it down, the line says what: a number the engineer
+       * did not type needs a reason beside it. */
+      if (!pOff) {
         var ctl = app.results && app.results.controls;
         var dev = ctl ? ctl.devices.filter(function (x) { return x.pipe === p.id; })[0] : null;
-        ro('Speed', Math.round(sp * 100) + '%' +
+        ro('VFD speed', Math.round(sp * 100) + '%' +
            (dev ? ' — holding ' + (dev.equipTag || dev.equip) +
                   (dev.state === 'at-min' ? ' (at minimum)' : '') : ''));
       }
@@ -2582,7 +2618,7 @@
 
     displayChecks(host, p, [
       { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
-      { key: 'head', label: 'Head' }
+      { key: 'head', label: 'Head' }, { key: 'vfd', label: 'VFD %' }
     ]);
 
     var del = el('button', 'btn danger', 'Remove pump');

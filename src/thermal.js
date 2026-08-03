@@ -261,10 +261,28 @@
         got = (got < 0 ? -1 : 1) * dTMax;
         lim = 'ΔT max';
       }
-      var qMax = Math.abs(Number(e.qMax));
-      if (isFinite(qMax) && qMax > 0 && C > 0 && Math.abs(got * C) > qMax) {
-        got = (got < 0 ? -1 : 1) * qMax / C;
-        lim = 'Capacity';
+      /* CAPACITY IS SIGNED (Michael, 2026-08-03), on the same convention as a
+       * load: + adds heat to the fluid, − removes it. A chiller has a negative
+       * capacity and therefore CANNOT heat, however its setpoint is set.
+       *
+       * That direction is the point of the sign. A machine asked to work the
+       * wrong way delivers nothing rather than quietly reversing — reported as
+       * 'Capacity (wrong direction)' so it reads as a data problem, which is
+       * what it is. Blank is unlimited in BOTH directions, which is what an
+       * unstated capacity has always meant.
+       *
+       * Older files that carry a positive capacity on a cooling machine will
+       * hit that branch rather than cooling silently at the wrong sign — see
+       * KNOWN-ISSUES. */
+      var qCap = Number(e.qMax);
+      if (isFinite(qCap) && qCap !== 0 && C > 0) {
+        if (got !== 0 && (got > 0) !== (qCap > 0)) {
+          got = 0;
+          lim = 'Capacity (wrong direction)';
+        } else if (Math.abs(got * C) > Math.abs(qCap)) {
+          got = (got < 0 ? -1 : 1) * Math.abs(qCap) / C;
+          lim = 'Capacity';
+        }
       }
       return { tOut: clampToLimit(tIn + got, tIn), limit: lim };
     }

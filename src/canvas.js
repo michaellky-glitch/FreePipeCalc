@@ -2677,9 +2677,12 @@
               : (obj.pump.head || 0) * pSp * pSp;
           lines.push('H ' + FD.units.fmtPressure(
             FD.units.headToPaWith(hNow, m.settings.fluid.density), d.pressure, true));
-          /* A modulating pump reads its speed on the plate. Only when it is
-           * off full — "100%" on every pump is clutter. */
-          if (!pOff && pSp < 0.999) lines.push('N ' + Math.round(pSp * 100) + '%');
+        }
+        /* VFD speed, on its own toggle rather than riding on the head one.
+         * Shown at 100% too (Michael, 2026-08-03) — "is this pump on full?" is
+         * a question you ask of a pump that is NOT modulating just as often. */
+        if (flags.vfd && obj.pump && obj.pump.mode !== 'off') {
+          lines.push('VFD ' + Math.round(M.pumpSpeed(obj) * 100) + '%');
         }
         if (flags.pd) {
           var link = res.network && res.network.links.find(function (l) { return l.id === obj.id; });
