@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1212
+This is deliberately separate from the automated suites. Those cover 1230
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-04 (v0.11.3)
+Last updated: 2026-08-04 (v0.11.4)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -201,6 +201,23 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 4G. PUMP CURVE chart on the CALCULATION sheet (v0.11.4)
+
+Your request. Structure and content were driven through the live DOM on a
+two-pump model with 12 m of static lift and one pump at 75% speed, and read
+back. **Everything about how it LOOKS is unsigned** — no pixels were rendered.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| PC.1 | One chart per pump, no more "first pump only" | ⬜ | Confirmed 2 charts, captioned `PMP-01` and `PMP-02 — 75% speed`. The WIP note is gone. |
+| PC.2 | 90/80/70/60/50% curves, dotted | ⬜ | 5 dotted polylines per chart, each labelled at its own shutoff head where nothing else is drawn. |
+| PC.3 | System curve in red | ⬜ | Uses `var(--error)`, so it is red in both themes. Labelled "system" at its top end. |
+| PC.4 | The simulated operating point, marked and labelled | ⬜ | e.g. `27.41 L/s @ 277.1 kPa`. |
+| PC.5 | A pump running at a speed outside the family gets its own dashed curve | ⬜ | PMP-02 at 75% drew an 8th polyline, dashed `6 3`. Say if that is clutter. |
+| PC.6 | **Is the red line dense enough to read?** | ⬜ | **The one to judge.** 6–9 solved points per curve. Against static lift most of a speed sweep passes no flow, so the working range is swept again — but the line is still a polyline through solved points, not a smooth fit. |
+| PC.7 | In DESIGN there is no red line, and a 🛈 says why | ⬜ | Confirmed: 0 red polylines, family and rated curve still drawn, marker reads "…the demands impose the flow, so there is nothing to trace." |
+| PC.8 | Does the system curve look right for a job you know? | ⬜ | **The engineering judgement.** It is solved rather than assumed — each point is a real solve — so it should show static lift as a non-zero intercept. Worth checking against something you have sized by hand. |
 
 ## 4F. PART LOAD / VFD reporting (v0.11.3)
 

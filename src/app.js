@@ -800,70 +800,179 @@
     })();
 
     // ============================================================ 4. PUMP CURVE
+    /* ONE CHART PER PUMP (Michael, 2026-08-04). It used to draw the first pump
+     * with a curve and apologise for the rest, which is no use on a job with a
+     * duty and a standby, let alone a pump hall.
+     *
+     * Each chart carries four things:
+     *   - the RATED curve, solid;
+     *   - the 90 / 80 / 70 / 60 / 50% speed family, dotted (affinity-scaled,
+     *     §17C — always true for the pump, whatever the system is doing);
+     *   - the SYSTEM curve in red, SOLVED rather than assumed (FD.network
+     *     .systemCurve). The parabola through the origin that gets drawn as a
+     *     system curve is only right with no static lift, no second pump and a
+     *     square law everywhere;
+     *   - the operating point, where the two meet.
+     *
+     * The family and the system curve intersect at each dotted curve, which is
+     * the picture that makes a VSD legible: run down the red line, not along
+     * the black one. */
     (function () {
-      var pumps = m.pipes.filter(function (p) { return p.kind === 'pump'; });
-      if (!pumps.length) return;
-      var secCurve = calcSection('Pump Curve', { note: 'WIP' });
-      secCurve.appendChild(el('p', 'hint',
-        'Work in progress — the presentation for more than one pump is not ' +
-        'settled yet. Shown for the first pump with a curve.'));
-      var withCurve = pumps.filter(function (p) { return p.pump && p.pump.curve; })[0];
-      if (!withCurve) {
-        secCurve.appendChild(el('p', 'hint', 'No pump has a curve set.'));
+      var pumps = m.pipes.filter(function (p) {
+        return p.kind === 'pump' && p.pump && p.pump.curve;
+      });
+      if (!pumps.length) {
+        if (m.pipes.some(function (p) { return p.kind === 'pump'; })) {
+          calcSection('Pump Curve').appendChild(
+            el('p', 'hint', 'No pump has a curve set.'));
+        }
         return;
       }
-      /* Two curves when the pump is running slow: the RATED one faint, the one
-       * it is actually on solid, with the operating point on the latter. That
-       * is the picture a VSD family is always drawn as, and showing only the
-       * rated curve would put the operating point nowhere near it. */
-      var c = withCurve.pump.curve;
-      var cRun = M.pumpCurve(m, withCurve) || c;
-      var pumpSp = M.pumpSpeed(m, withCurve);
-      var qNow = res && res.flow ? Math.abs(res.flow[withCurve.id] || 0) : 0;
-      var qMax = Math.max(FD.pumps.maxFlow(c) || 0, qNow * 1.2);
-      var W = 420, H = 200, PAD = 34;
+      var secCurve = calcSection('Pump Curve');
+      var simulating = (m.settings.calcMode === 'simulation');
       var svgNS = 'http://www.w3.org/2000/svg';
       function svgEl(tag, attrs) {
         var e = document.createElementNS(svgNS, tag);
         Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); });
         return e;
       }
-      var hMax = FD.pumps.head(c, 0) || 1;
-      var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'pump-curve' });
-      function X(q) { return PAD + (q / (qMax || 1)) * (W - PAD - 12); }
-      function Y(h) { return (H - PAD) - (h / hMax) * (H - PAD - 12); }
-      svg.appendChild(svgEl('line', { x1: PAD, y1: H - PAD, x2: W - 8, y2: H - PAD,
-                                      stroke: 'currentColor', 'stroke-width': 1, opacity: .5 }));
-      svg.appendChild(svgEl('line', { x1: PAD, y1: 8, x2: PAD, y2: H - PAD,
-                                      stroke: 'currentColor', 'stroke-width': 1, opacity: .5 }));
-      function curvePts(cc) {
-        var pts = [];
-        for (var i = 0; i <= 40; i++) {
-          var q = qMax * i / 40;
-          pts.push(X(q).toFixed(1) + ',' + Y(Math.max(0, FD.pumps.head(cc, q))).toFixed(1));
+
+      var FAMILY = [0.9, 0.8, 0.7, 0.6, 0.5];
+
+      pumps.forEach(function (p) {
+        var c = p.pump.curve;
+        var off = p.pump.mode === 'off';
+        var sp = M.pumpSpeed(m, p);
+        var cRun = M.pumpCurve(m, p) || c;
+        var qNow = res && res.flow ? Math.abs(res.flow[p.id] || 0) : 0;
+        var hNow = M.pumpHead(m, p, qNow);
+
+        /* The system curve is a handful of extra solves, so it is only asked
+         * for where it means something. */
+        var sys = (simulating && !off && FD.network.systemCurve)
+          ? FD.network.systemCurve(m, p.id) : null;
+
+        var qMax = Math.max(FD.pumps.maxFlow(c) || 0, qNow * 1.15);
+        var hMax = FD.pumps.head(c, 0) || 1;
+        if (sys) {
+          sys.forEach(function (pt) {
+            if (pt.q > qMax) qMax = pt.q;
+            if (pt.h > hMax) hMax = pt.h;
+          });
         }
-        return pts.join(' ');
-      }
-      if (pumpSp < 0.999) {
-        svg.appendChild(svgEl('polyline', { points: curvePts(c), fill: 'none',
-                                            stroke: 'currentColor', 'stroke-width': 1,
-                                            'stroke-dasharray': '4 3', opacity: .45 }));
-      }
-      svg.appendChild(svgEl('polyline', { points: curvePts(cRun), fill: 'none',
-                                          stroke: 'currentColor', 'stroke-width': 2 }));
-      // the operating point the system actually settled at
-      var hNow = FD.pumps.head(cRun, qNow);
-      var op = svgEl('circle', { cx: X(qNow), cy: Y(hNow), r: 4,
-                                 fill: 'currentColor' });
-      svg.appendChild(op);
-      var lbl = svgEl('text', { x: X(qNow) + 7, y: Y(hNow) - 6,
-                                'font-size': 11, fill: 'currentColor' });
-      lbl.textContent = FD.units.fmtFlow(qNow, d.flow, true) + ' @ ' +
-                        FD.units.fmtPressure(headToPa(hNow), d.pressure, true);
-      svg.appendChild(lbl);
-      secCurve.appendChild(el('p', 'hint', (withCurve.tag || withCurve.id) +
-        (pumpSp < 0.999 ? ' — ' + Math.round(pumpSp * 100) + '% speed (rated curve dashed)' : '')));
-      secCurve.appendChild(svg);
+        if (!(qMax > 0) || !(hMax > 0)) return;
+
+        var W = 440, H = 220, PADL = 40, PADB = 34;
+        var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'pump-curve' });
+        function X(q) { return PADL + (q / qMax) * (W - PADL - 14); }
+        function Y(h) { return (H - PADB) - (h / hMax) * (H - PADB - 14); }
+
+        // axes
+        svg.appendChild(svgEl('line', { x1: PADL, y1: H - PADB, x2: W - 8, y2: H - PADB,
+                                        stroke: 'currentColor', 'stroke-width': 1, opacity: .5 }));
+        svg.appendChild(svgEl('line', { x1: PADL, y1: 8, x2: PADL, y2: H - PADB,
+                                        stroke: 'currentColor', 'stroke-width': 1, opacity: .5 }));
+        function axisLabel(x, y, txt, anchor) {
+          var t = svgEl('text', { x: x, y: y, 'font-size': 10, fill: 'currentColor',
+                                  opacity: .7, 'text-anchor': anchor || 'middle' });
+          t.textContent = txt; svg.appendChild(t);
+        }
+        axisLabel(W - 8, H - PADB + 22, d.flow, 'end');
+        axisLabel(PADL, 8, d.pressure, 'end');
+        axisLabel(X(qMax), H - PADB + 12, FD.units.fmtFlow(qMax, d.flow), 'end');
+        axisLabel(PADL - 4, Y(hMax) + 4, FD.units.fmtPressure(headToPa(hMax), d.pressure), 'end');
+
+        function curvePts(cc) {
+          var pts = [];
+          for (var i = 0; i <= 60; i++) {
+            var q = qMax * i / 60;
+            var h = FD.pumps.head(cc, q);
+            if (h < 0) break;                 // past the end of the curve
+            pts.push(X(q).toFixed(1) + ',' + Y(h).toFixed(1));
+          }
+          return pts.join(' ');
+        }
+
+        // --- the speed family, dotted
+        FAMILY.forEach(function (n) {
+          var cs = FD.pumps.atSpeed(c, n);
+          if (!cs) return;
+          svg.appendChild(svgEl('polyline', {
+            points: curvePts(cs), fill: 'none', stroke: 'currentColor',
+            'stroke-width': 1, 'stroke-dasharray': '2 3', opacity: .5
+          }));
+          /* Label the family at its own shutoff, which is where the curves are
+           * furthest apart and nothing else is drawn. */
+          var t = svgEl('text', { x: X(0) + 3, y: Y(FD.pumps.head(cs, 0)) - 2,
+                                  'font-size': 9, fill: 'currentColor', opacity: .6 });
+          t.textContent = Math.round(n * 100) + '%';
+          svg.appendChild(t);
+        });
+
+        // --- the rated curve, solid
+        svg.appendChild(svgEl('polyline', {
+          points: curvePts(c), fill: 'none', stroke: 'currentColor', 'stroke-width': 2
+        }));
+
+        /* --- the curve it is ACTUALLY on, when that is neither the rated one
+         * nor one of the dotted family. */
+        if (sp < 0.999 && FAMILY.indexOf(Math.round(sp * 100) / 100) < 0) {
+          svg.appendChild(svgEl('polyline', {
+            points: curvePts(cRun), fill: 'none', stroke: 'currentColor',
+            'stroke-width': 1.5, 'stroke-dasharray': '6 3', opacity: .85
+          }));
+        }
+
+        // --- the system curve, red
+        if (sys) {
+          svg.appendChild(svgEl('polyline', {
+            points: sys.map(function (pt) {
+              return X(pt.q).toFixed(1) + ',' + Y(pt.h).toFixed(1);
+            }).join(' '),
+            fill: 'none', stroke: 'var(--error)', 'stroke-width': 2, opacity: .9
+          }));
+          var sl = svgEl('text', { x: X(sys[sys.length - 1].q) - 4,
+                                   y: Y(sys[sys.length - 1].h) - 6,
+                                   'font-size': 10, fill: 'var(--error)', 'text-anchor': 'end' });
+          sl.textContent = 'system';
+          svg.appendChild(sl);
+        }
+
+        // --- the operating point
+        if (!off && qNow > 0) {
+          svg.appendChild(svgEl('circle', { cx: X(qNow), cy: Y(hNow), r: 4,
+                                            fill: 'currentColor' }));
+          var lbl = svgEl('text', { x: X(qNow) + 7, y: Y(hNow) - 6,
+                                    'font-size': 11, fill: 'currentColor' });
+          lbl.textContent = FD.units.fmtFlow(qNow, d.flow, true) + ' @ ' +
+                            FD.units.fmtPressure(headToPa(hNow), d.pressure, true);
+          svg.appendChild(lbl);
+        }
+
+        var cap = (p.tag || p.id) +
+          (off ? ' — stopped'
+               : sp < 0.999 ? ' — ' + Math.round(sp * 100) + '% speed' : '');
+        var ch = el('p', 'hint', cap + ' ');
+        if (!simulating) {
+          infoMark(ch, 'The system curve is a SIMULATION result — it is traced ' +
+                       'by solving the network at a range of pump speeds. In ' +
+                       'DESIGN the demands impose the flow, so there is nothing ' +
+                       'to trace.');
+        } else if (!sys) {
+          infoMark(ch, 'No system curve: the network did not settle at enough ' +
+                       'distinct flows to trace one.');
+        }
+        secCurve.appendChild(ch);
+        secCurve.appendChild(svg);
+      });
+
+      var key = el('p', 'hint',
+        'Solid: rated curve. Dotted: 90–50% speed. Red: system curve. ');
+      infoMark(key, 'The system curve is SOLVED, not assumed — each point is a ' +
+                    'real solve of the network. The parabola through the origin ' +
+                    'that usually gets drawn is only right with no static lift, ' +
+                    'no second pump and a square law everywhere.');
+      secCurve.appendChild(key);
     })();
 
     // =============================================================== WARNINGS

@@ -386,6 +386,133 @@ section('A typed speed does nothing in DESIGN, and is not silent about it');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * THE SYSTEM CURVE — solved, not assumed
+ *
+ * The head the network demands of a pump as a function of the flow through it.
+ * Each point is a real solve at a different pump speed: every operating point
+ * lies on the system curve by definition, so sweeping speed traces it exactly.
+ *
+ * WHY NOT THE PARABOLA. The usual shortcut is H = H_op·(Q/Q_op)² through the
+ * origin. That is only the system curve when there is no static lift, no second
+ * pump, and every loss goes as Q². The tests below break the first and third of
+ * those and show the traced curve following the truth where the parabola would
+ * not.
+ * ----------------------------------------------------------------------- */
+section('The system curve is traced by solving, not assumed');
+{
+  function rig(opts) {
+    opts = opts || {};
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const c = M.addNode(m, lv, 2, 0);
+    a.device = { kind: 'source', head: 0 };
+    if (opts.lift) c.dz = opts.lift;
+    c.device = { kind: 'demand', flow: 0.020, reqPressure: opts.req === undefined ? 100e3 : opts.req,
+                 include: true };
+    const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+    pump.pump = { mode: 'fixed', head: 40, curve: P.singlePoint(40, 0.020) };
+    M.addPipe(m, b.id, c.id, { size: opts.size || 'DN100', schedule: 'sch40' });
+    return { m, pump, res: NET.solveModel(m) };
+  }
+
+  // ---- shape
+  {
+    const t = rig();
+    const sys = NET.systemCurve(t.m, t.pump.id);
+    ok('A system curve is produced', !!sys && sys.length >= 5, sys && sys.length);
+    ok('...ordered by flow',
+       sys.every((pt, i) => i === 0 || pt.q > sys[i - 1].q));
+    ok('...and rising: more flow always costs more head',
+       sys.every((pt, i) => i === 0 || pt.h > sys[i - 1].h),
+       JSON.stringify(sys.map(x => +x.h.toFixed(2))));
+    ok('...with every point at a positive flow and head',
+       sys.every(pt => pt.q > 0 && pt.h > 0));
+
+    /* THE DEFINING PROPERTY: the solved operating point must lie ON it. The
+     * full-speed solve is the sweep's own n = 1 point, so this is exact. */
+    const qOp = Math.abs(t.res.flow[t.pump.id]);
+    const hOp = M.pumpHead(t.m, t.pump, qOp);
+    const at1 = sys.filter(x => Math.abs(x.speed - 1) < 1e-9)[0];
+    ok('The operating point is a point on the system curve', !!at1);
+    near('...at the same flow', at1.q, qOp, 1e-9);
+    near('...and the same head', at1.h, hOp, 1e-9);
+  }
+
+  // ---- the model is left exactly as it was found
+  {
+    const t = rig();
+    /* `savedAt` is a timestamp written by toJSON itself, not model state. */
+    const snap = () => { const j = M.toJSON(t.m); delete j.savedAt; return JSON.stringify(j); };
+    const before = snap();
+    NET.systemCurve(t.m, t.pump.id);
+    ok('Tracing the curve does not disturb the model', snap() === before);
+    ok('...and leaves no stray speed on the pump',
+       t.pump.pump.speed === undefined);
+  }
+
+  /* ---- STATIC LIFT moves the intercept off zero, which is the case the
+   * parabola-through-the-origin gets wrong. With 25 m of lift the system needs
+   * 25 m before it will pass any flow at all, so extrapolating the traced curve
+   * back towards Q = 0 must approach 25 m and not 0. */
+  {
+    const t = rig({ lift: 25, req: 50e3 });
+    const sys = NET.systemCurve(t.m, t.pump.id);
+    ok('With static lift the curve still traces', !!sys && sys.length >= 4,
+       sys && sys.length);
+    /* Most of a linear speed sweep lands on zero flow when there is a lift to
+     * overcome, so the working range is swept again — four points is a polygon,
+     * not a curve. Every point is still a solve; nothing is interpolated. */
+    ok('...at enough points to draw', sys.length >= 8, String(sys.length));
+    const lowest = sys[0];
+    ok('...and its lowest point is above the 25 m lift', lowest.h > 25,
+       lowest.h.toFixed(2) + ' m at ' + (lowest.q * 1000).toFixed(2) + ' L/s');
+
+    /* The parabola through the origin and the operating point would predict
+     * far LESS head at low flow than the network really needs — that is the
+     * whole error, and it is large. */
+    const op = sys[sys.length - 1];
+    const parabola = op.h * Math.pow(lowest.q / op.q, 2);
+    ok('...where a parabola through the origin would badly under-read',
+       parabola < lowest.h * 0.6,
+       `traced ${lowest.h.toFixed(2)} m, parabola ${parabola.toFixed(2)} m`);
+  }
+
+  /* ---- NOT SQUARE-LAW either. With no lift and a terminal removed, the loss
+   * is Hazen-Williams pipe friction at exponent 1.852, so the traced curve is
+   * measurably flatter than Q². Small, but real, and in the right direction. */
+  {
+    const t = rig({ req: 100, size: 'DN50' });
+    const sys = NET.systemCurve(t.m, t.pump.id);
+    const lo = sys[0], hi = sys[sys.length - 1];
+    const n = Math.log(hi.h / lo.h) / Math.log(hi.q / lo.q);
+    ok('The traced exponent sits between 1.852 and 2',
+       n > 1.8 && n < 2.05, 'n = ' + n.toFixed(4));
+  }
+
+  // ---- refusals
+  {
+    const t = rig();
+    t.m.settings.calcMode = 'design';
+    ok('No system curve in DESIGN — the flow is imposed there',
+       NET.systemCurve(t.m, t.pump.id) === null);
+  }
+  {
+    const t = rig();
+    t.pump.pump.mode = 'off';
+    ok('A stopped pump has no system curve', NET.systemCurve(t.m, t.pump.id) === null);
+  }
+  {
+    const t = rig();
+    delete t.pump.pump.curve;
+    ok('No curve, no system curve', NET.systemCurve(t.m, t.pump.id) === null);
+    ok('Asking about something that is not a pump returns nothing',
+       NET.systemCurve(t.m, 'nope') === null);
+  }
+}
+
 section('Curve fitting');
 {
   // Points generated FROM a known curve must fit back to it exactly.

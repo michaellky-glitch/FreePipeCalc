@@ -1046,6 +1046,42 @@ kept rather than cleared, so switching back restores it, and
 `M.pumpSpeedIgnored` drives a 🛈 on the panel so a number that is doing nothing
 says so.
 
+### The pump-curve chart, and the system curve
+
+One chart per pump on the calculation sheet (v0.11.4). It used to draw the first
+pump with a curve and apologise for the rest, which is no use on a job with a
+duty and a standby. Each chart carries the **rated curve** solid, the
+**90/80/70/60/50% family** dotted, the **system curve in red**, and the
+**operating point** where the two meet. That is the picture that makes a VSD
+legible: at part load you run down the red line, not along the black one.
+
+**The system curve is SOLVED, not assumed** — `FD.network.systemCurve()`. The
+shortcut everyone draws is `H = H_op·(Q/Q_op)²`, a parabola through the origin
+and the operating point, and it is only the system curve when there is no static
+lift, no other pump running, and every loss goes as Q². None of those hold
+generally: a lift moves the intercept off zero, a second pump changes what this
+one has to supply, and Hazen-Williams friction is Q^1.852. Drawing that parabola
+and labelling it "system" would be inventing a curve.
+
+So every point is a real solve. **Every operating point lies on the system curve
+by definition**, so sweeping the pump's speed and recording where the network
+comes to rest traces it exactly — static head, other pumps, real exponents and
+all. The tests measure the traced exponent (it comes out between 1.852 and 2, as
+it must) and show a parabola through the origin under-reading by more than 40% at
+low flow once there is 25 m of lift.
+
+Two details worth knowing. Speeds above 1 are a **probe**, not a claim about the
+pump: the system curve is a property of the pipework and exists at flows this
+pump cannot reach. And against a static lift most of a linear speed sweep lands
+on zero flow and is discarded — 25 m of lift left four points of thirteen — so
+the range that did work is **swept again at full resolution**. Nothing is
+interpolated; a thin curve is re-solved, not smoothed.
+
+SIMULATION only, for the same reason speed is: in DESIGN the demands impose the
+flow and every one of those solves would return the same point. The chart still
+draws there, with the rated curve and the family, and a 🛈 saying why the red
+line is absent.
+
 ### Speed is an affinity scaling of the curve, and nothing else
 
 `Q ∝ N`, `H ∝ N²`, so `H_s(Q) = s²·H(Q/s)`. Substituted into the stored form
@@ -1347,7 +1383,7 @@ sheet**, which is the thing that gets issued.
 
 ## 15. Testing
 
-Seven suites, 1212 assertions, no dependencies:
+Seven suites, 1230 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

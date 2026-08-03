@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1212 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1230 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,13 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **THE PUMP-CURVE CHART** (v0.11.4) — no longer WIP. One chart per pump, with
+  the rated curve solid, the 90–50% speed family dotted, the operating point,
+  and the **system curve in red, traced by solving** rather than assumed. Every
+  operating point lies on the system curve by definition, so sweeping the
+  pump's speed traces it exactly — including static lift, other pumps and the
+  real friction exponent, none of which the usual parabola-through-the-origin
+  gets right. `FD.network.systemCurve()`, `ARCHITECTURE.md` §17C.
 * **PART LOAD RIDES DOWN THE SYSTEM CURVE** (v0.11.3) — Michael's catch. The
   ENGINE was right: on a closed circuit the solved operating point satisfies
   Q ∝ n and H ∝ n² to four decimals, and with static lift it correctly does
@@ -449,7 +456,7 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
   draggable in VIEW. Label offsets are keyed so the glyph moves independently
   of the node number.
 * **CALCULATION restructured** into five collapsible sections — All Pipes,
-  Critical Path, Device Flow, Pump Curve (WIP), Appendix. **A collapsed section
+  Critical Path, Device Flow, Pump Curve, Appendix. **A collapsed section
   does not print**, which is how you choose what to issue. Project metadata is
   edited in the sheet header (and removed from SETTINGS).
 * **Test fixtures moved to `test/fixtures/`.** `examples/` is working material

@@ -2002,6 +2002,97 @@
     return issues;
   }
 
+  /* ================================================== THE SYSTEM CURVE
+   *
+   * The head the network demands OF THIS PUMP as a function of the flow through
+   * it. Returned as points, for the chart on the calculation sheet.
+   *
+   * SOLVED, NOT ASSUMED. The textbook shortcut is H = H_op·(Q/Q_op)² — a
+   * parabola through the origin and the operating point — and it is only the
+   * system curve when there is no static lift, no other pump running, and every
+   * loss goes as Q². None of those hold generally: a lift moves the intercept
+   * off zero, a second pump changes what this one has to supply, and pipe
+   * friction is Q^1.852 under Hazen-Williams. Drawing that parabola and calling
+   * it the system would be inventing a curve, which is not what this app does.
+   *
+   * So each point is a REAL SOLVE. Every operating point lies on the system
+   * curve by definition, so sweeping the pump's speed and recording where the
+   * network comes to rest traces the system curve exactly — including the
+   * static head, the other pumps, and whatever exponent the friction has.
+   *
+   * Speeds above 1 are a PROBE, not a claim about the pump: the system curve is
+   * a property of the pipework and exists at flows this pump cannot reach. Using
+   * an over-speeded pump to ask "what head would the network need at that flow"
+   * is a numerical device and nothing more.
+   *
+   * SIMULATION only, because that is the only mode where flow responds to the
+   * pump at all (§17C). In DESIGN the demands impose the flow and every one of
+   * these solves would return the same point.
+   */
+  var SYSTEM_SWEEP = [0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85,
+                      0.95, 1.0, 1.1, 1.2, 1.3];
+
+  function systemCurve(m, pipeId, speeds) {
+    if (!m || m.settings.calcMode !== 'simulation') return null;
+    var p = M.pipe(m, pipeId);
+    if (!p || p.kind !== 'pump' || !p.pump || !p.pump.curve) return null;
+    if (p.pump.mode === 'off') return null;
+
+    var had = Object.prototype.hasOwnProperty.call(p.pump, 'speed');
+    var saved = p.pump.speed;
+    /* A control link would fight the speed being imposed here, so the sweep
+     * calls solveCore directly — it runs the hydraulics and nothing else. */
+    var pts = [];
+    function probe(n) {
+      p.pump.speed = n;
+      var core;
+      try { core = solveCore(m, 5); } catch (e) { return; }
+      if (!core || !core.res || !core.res.flow) return;
+      var q = Math.abs(core.res.flow[pipeId]);
+      if (!isFinite(q) || q < FD.hydraulics.Q_MIN) return;
+      var h = FD.pumps.head(M.pumpCurve(m, p), q);
+      if (!isFinite(h) || h <= 0) return;
+      pts.push({ q: q, h: h, speed: n });
+    }
+
+    var sweep = speeds || SYSTEM_SWEEP;
+    sweep.forEach(probe);
+
+    /* REFINE when the coarse sweep came back thin.
+     *
+     * Against a STATIC LIFT the pump passes nothing at all until it can raise
+     * the head, so most of a linear speed sweep lands on zero flow and is
+     * discarded — 25 m of lift left only four points of thirteen. Four points
+     * is a polygon, not a curve. So the range that DID work is swept again at
+     * full resolution. Nothing is interpolated; every point is still a solve. */
+    if (!speeds && pts.length >= 2 && pts.length < 9) {
+      var nMin = pts[0].speed, nMax = pts[0].speed;
+      pts.forEach(function (pt) {
+        if (pt.speed < nMin) nMin = pt.speed;
+        if (pt.speed > nMax) nMax = pt.speed;
+      });
+      var have = {};
+      pts.forEach(function (pt) { have[pt.speed.toFixed(4)] = true; });
+      for (var i = 0; i <= 12; i++) {
+        var n = nMin + (nMax - nMin) * i / 12;
+        if (have[n.toFixed(4)]) continue;
+        probe(n);
+      }
+    }
+    if (had) p.pump.speed = saved; else delete p.pump.speed;
+
+    pts.sort(function (a, b) { return a.q - b.q; });
+    /* Two solves can land on the same flow when the pump is already choked by
+     * the system; a repeated abscissa is not a second point. */
+    var out = [];
+    pts.forEach(function (pt) {
+      var last = out[out.length - 1];
+      if (last && Math.abs(pt.q - last.q) < 1e-9) return;
+      out.push(pt);
+    });
+    return out.length >= 2 ? out : null;
+  }
+
   function simulationReport(m, net, res) {
     if (m.settings.calcMode !== 'simulation') return null;
     var rho = net.rho || 998;
@@ -2227,6 +2318,7 @@
     detectSystemType: detectSystemType,
     actualDelivery: actualDelivery,
     autoSizePumps: autoSizePumps,
+    systemCurve: systemCurve,
     worstShortfall: worstShortfall,
     solveModel: solveModel,
     fittingsAtNode: fittingsAtNode,
