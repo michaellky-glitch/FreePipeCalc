@@ -1670,6 +1670,41 @@
     return k;
   }
 
+  /* Control link: a pump or globe valve takes its setpoint from a piece of
+   * equipment. Click to pick the target on the drawing; click again to clear.
+   *
+   * Picking on the CANVAS rather than from a dropdown, because "which chiller"
+   * is a question about the drawing and a list of P-numbers is not an answer
+   * to it. */
+  function controlField(host, p) {
+    if (!M.canControl(p)) return;
+    var m = app.model;
+    var c = M.controlOf(p);
+    var target = c ? M.pipe(m, c.equip) : null;
+
+    var wrap = el('div', 'field');
+    var lbl = el('label', '', 'Control');
+    infoMark(lbl, 'Modulate to hold a piece of equipment’s setpoint. Shown as a ' +
+                  'dashed green line.');
+    wrap.appendChild(lbl);
+
+    var row = el('div', 'btn-row');
+    var picking = !!(app.view.controlPick && app.view.controlPick.pipeId === p.id);
+    var btn = el('button', 'btn' + (picking ? ' active' : ''),
+      picking ? 'Pick equipment…' : (c ? 'Clear control' : 'Control'));
+    btn.addEventListener('click', function () {
+      if (picking) { app.view.controlPick = null; }
+      else if (c) { pushUndo(); M.setControl(m, p, null); changed(); }
+      else { app.view.controlPick = { pipeId: p.id };
+             toast('Click the equipment to follow.'); }
+      renderProperties(); app.view.render();
+    });
+    row.appendChild(btn);
+    if (target) row.appendChild(el('span', 'hint', target.tag || target.id));
+    wrap.appendChild(row);
+    host.appendChild(wrap);
+  }
+
   /* An option as a sliding switch rather than a tick box (Michael, 2026-08-02).
    *
    * Same control as the pump's Running switch, and it replaces every checkbox
@@ -1930,7 +1965,11 @@
     }
     displayChecks(host, p, [
       { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
-      { key: 'pd', label: 'Pressure drop' }
+      { key: 'pd', label: 'Pressure drop' },
+      { key: 'temp', label: 'Temperatures' },
+      { key: 'dT', label: 'ΔT' },
+      { key: 'duty', label: 'Duty' },
+      { key: 'setpoint', label: 'Setpoint' }
     ]);
 
     var del = el('button', 'btn danger', 'Remove equipment');
@@ -2107,6 +2146,8 @@
       host.appendChild(el('p', 'hint',
         'Opens with forward flow, seats against reverse. Not user-positioned.'));
     }
+
+    controlField(host, p);
 
     /* ONE coefficient, not both. Kv and Cv are the same quantity in different
      * units, so showing both invited typing into the one being ignored. Which
@@ -2446,6 +2487,8 @@
         if (on) autoSizePump(p);
         renderProperties(); changed();
       });
+
+    controlField(host, p);
 
     // ---- design: what this pump was sized for ----
     var dp = pumpDesignPoint(p);
@@ -2818,12 +2861,14 @@
       displayChecks(host, n, [
         { key: 'flow', label: 'Flow' },
         { key: 'required', label: 'Required pressure' },
-        { key: 'available', label: 'Available pressure' }
+        { key: 'available', label: 'Available pressure' },
+        { key: 'temperature', label: 'Temperature' }
       ]);
     } else if (dev && dev.kind === 'source') {
       displayChecks(host, n, [
         { key: 'elevation', label: 'Elevation' },
-        { key: 'available', label: 'Pressure' }
+        { key: 'available', label: 'Pressure' },
+        { key: 'temperature', label: 'Temperature' }
       ]);
     }
 
@@ -4167,6 +4212,16 @@
      * curve…" button opens TOOLS. It only switches panes; the caller renders
      * the destination, because the tab click handler above does the same. */
     app.showTab = showTab;
+
+    var ctlBtn = $('btn-control-links');
+    if (ctlBtn) {
+      ctlBtn.classList.toggle('active', app.view.showControl !== false);
+      ctlBtn.addEventListener('click', function () {
+        app.view.showControl = (app.view.showControl === false);
+        ctlBtn.classList.toggle('active', app.view.showControl);
+        app.view.render();
+      });
+    }
 
     // ---- tools ----
     var toolButtons = [].slice.call(document.querySelectorAll('[data-tool]'));

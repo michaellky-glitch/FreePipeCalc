@@ -833,6 +833,82 @@
     return C > 0 ? duty / C : 0;
   }
 
+  /* ------------------------------------------------------- control links
+   *
+   * A pump or globe valve can take its setpoint from a piece of equipment: the
+   * valve or the pump modulates to hold that machine's leaving temperature.
+   * Stored on the CONTROLLER, not the equipment, because one machine's setpoint
+   * can be served by more than one device but a device follows exactly one.
+   *
+   *   control = { equip: pipeId, axis: 'h'|'v', mid: worldCoord }
+   *
+   * `axis` and `mid` are PRESENTATION only — where the orthogonal route bends.
+   * They never touch the calculation, which is why they can be dragged freely.
+   * `mid` is a WORLD coordinate rather than a screen offset, because it is an
+   * absolute position on the drawing: a label offset follows its owner, a route
+   * bend stays where it was put. */
+  function controlOf(p) {
+    if (!p) return null;
+    var c = (p.pump && p.pump.control) || (p.valve && p.valve.control) || null;
+    return (c && c.equip) ? c : null;
+  }
+
+  function canControl(p) {
+    if (!p) return false;
+    if (p.kind === 'pump') return true;
+    /* Only a GLOBE valve. A gate valve is an isolating valve — it is not a
+     * regulating device and modulating one is not what it is for. A check
+     * valve has no position to set at all. */
+    return p.kind === 'valve' && p.valve && p.valve.type === 'globe';
+  }
+
+  function setControl(m, p, equipId) {
+    if (!canControl(p)) return null;
+    var host = (p.kind === 'pump') ? p.pump : p.valve;
+    if (!equipId) { delete host.control; return null; }
+    var a = deviceMid(m, p), b = deviceMid(m, pipe(m, equipId));
+    host.control = {
+      equip: equipId,
+      axis: (a && b && Math.abs(b.x - a.x) >= Math.abs(b.y - a.y)) ? 'h' : 'v',
+      mid: null                       // null = halfway, worked out at draw time
+    };
+    return host.control;
+  }
+
+  /* Where an in-line device sits on the drawing: the midpoint of its link. */
+  function deviceMid(m, p) {
+    if (!p) return null;
+    var a = node(m, p.a), b = node(m, p.b);
+    if (!a || !b) return null;
+    var wa = worldXY(m, a), wb = worldXY(m, b);
+    return { x: (wa.x + wb.x) / 2, y: (wa.y + wb.y) / 2 };
+  }
+
+  /* The orthogonal route as a list of world points. One bend is an L, two is a
+   * Z — and an L is just the Z whose middle segment has collapsed, so there is
+   * one code path and `mid` alone decides which you get. */
+  function controlRoute(m, p) {
+    var c = controlOf(p);
+    if (!c) return null;
+    var a = deviceMid(m, p), b = deviceMid(m, pipe(m, c.equip));
+    if (!a || !b) return null;
+    var horiz = (c.axis !== 'v');
+    var mid = (c.mid === null || c.mid === undefined)
+      ? (horiz ? (a.x + b.x) / 2 : (a.y + b.y) / 2)
+      : c.mid;
+    var pts = horiz
+      ? [a, { x: mid, y: a.y }, { x: mid, y: b.y }, b]
+      : [a, { x: a.x, y: mid }, { x: b.x, y: mid }, b];
+    /* Drop a bend that has collapsed onto its neighbour, so an L really is
+     * three points and not four with a zero-length segment. */
+    var out = [pts[0]];
+    for (var i = 1; i < pts.length; i++) {
+      var q = pts[i], last = out[out.length - 1];
+      if (Math.abs(q.x - last.x) > 1e-9 || Math.abs(q.y - last.y) > 1e-9) out.push(q);
+    }
+    return { points: out, axis: horiz ? 'h' : 'v', mid: mid, from: a, to: b };
+  }
+
   function clearDevice(m, nodeId) {
     var n = node(m, nodeId);
     if (n) n.device = null;
@@ -1010,6 +1086,8 @@
 
     setSource: setSource, setDemand: setDemand, clearDevice: clearDevice,
     applyFluidPreset: applyFluidPreset,
+    controlOf: controlOf, canControl: canControl, setControl: setControl,
+    controlRoute: controlRoute, deviceMid: deviceMid,
     equipRatedC: equipRatedC,
     equipDutyFromDT: equipDutyFromDT,
     equipDTFromDuty: equipDTFromDuty,

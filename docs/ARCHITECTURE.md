@@ -929,6 +929,45 @@ new model showed "Hazen-Williams" in a box that was set to ASHRAE, and picking
 either option was a one-way door with no route back. Both faults came from
 restating in the UI something the engine already knows.
 
+## 17B. Control links
+
+A pump or **globe** valve can take its setpoint from a piece of equipment: it
+modulates to hold that machine's leaving temperature. New in v0.11.0.
+
+Stored on the **controller**, not the equipment — one machine's setpoint can be
+served by several devices, but a device follows exactly one:
+
+```js
+pump.control = { equip: pipeId, axis: 'h'|'v', mid: worldCoord }
+```
+
+**Only a globe valve.** A gate valve isolates rather than regulates, and a check
+valve has no position to set at all.
+
+**Picked on the drawing, not from a list.** "Which chiller" is a question about
+the drawing, and a menu of P-numbers is not an answer to it. Click *Control*,
+click the equipment; click *Control* again to clear. Escape cancels, and a click
+on anything that is not equipment cancels too — a mis-click must not leave the
+canvas in a mode the user cannot see.
+
+**Drawn as a dashed green orthogonal route**, L or Z. Green and dashed so it
+reads as a signal rather than pipework: it carries no water. Orthogonal because
+a diagonal across a floor plan reads as a pipe run.
+
+`axis` and `mid` are **presentation only** and there is a test asserting that
+moving them changes no flow anywhere. `mid` is a **world** coordinate, not a
+screen offset like `labelOffset`: a label follows its owner, a route bend stays
+where it was put. An **L is the Z whose middle segment has collapsed**, so one
+parameter gives both shapes and there is one code path. Both bend handles slide
+the same line, which is what keeps the route orthogonal however it is dragged.
+
+Toggled by CONTROL LINKS in the VIEW group. On by default — a hidden control
+relationship is a surprise waiting to happen.
+
+**Nothing acts on it yet.** The link is recorded and drawn; making a pump
+actually modulate to hold the setpoint is the variable-speed-pump work in
+`HANDOVER.md` §9A.
+
 ## 18. The thermal module
 
 New in v0.10.0. `src/thermal.js` runs AFTER the hydraulic solve and reads its
@@ -1102,7 +1141,7 @@ sheet**, which is the thing that gets issued.
 
 ## 15. Testing
 
-Seven suites, 1009 assertions, no dependencies:
+Seven suites, 1032 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
@@ -1114,7 +1153,7 @@ node test/simulation.test.js DESIGN/SIMULATION, pump curves, parallel pumps
 node test/thermal.test.js    heat loss, mixing, equipment duty, fluid data
 ```
 
-All 1009 pass. The "Parallel pumps share in DESIGN" section of
+All 1032 pass. The "Parallel pumps share in DESIGN" section of
 `simulation.test.js` regression-locks the total flow and pump heads of
 `data_centre_redundant_ring_main.pnet (fixed).json`; those expectations were
 regenerated on 2026-07-30 after the model was rebuilt by hand (§2), so a change

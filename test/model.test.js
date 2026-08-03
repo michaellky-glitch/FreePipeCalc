@@ -1558,4 +1558,106 @@ section('Darcy-Weisbach network: fittings ride as a separate K term');
      L2h._Leff > 10 && !L2h.rK, `${L2h._Leff}`);
 }
 
+/* --------------------------------------------------------------------------
+ * CONTROL LINKS: a pump or globe valve follows a piece of equipment's setpoint.
+ *
+ * Stored on the CONTROLLER, because one machine's setpoint can be served by
+ * several devices but a device follows exactly one. The route geometry is
+ * presentation and never reaches the calculation.
+ * ----------------------------------------------------------------------- */
+section('Control links');
+{
+  function rig() {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 2, 0);
+    const c = M.addNode(m, lv, 20, 10), d = M.addNode(m, lv, 22, 10);
+    const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 5 };
+    const gate = M.addPipe(m, b.id, c.id, { kind: 'valve' });
+    gate.valve = { type: 'gate', kv: 100, opening: 100 };
+    const globe = M.addPipe(m, b.id, c.id, { kind: 'valve' });
+    globe.valve = { type: 'globe', kv: 100, opening: 100 };
+    const chk = M.addPipe(m, b.id, c.id, { kind: 'valve' });
+    chk.valve = { type: 'check', kv: 100, opening: 100 };
+    const eq = M.addPipe(m, c.id, d.id, { kind: 'equip' });
+    eq.equip = { qRated: 0.005, pdRated: 20e3, equipType: 'source', tSet: 6 };
+    eq.tag = 'CH-01';
+    const plain = M.addPipe(m, a.id, c.id, { size: 'DN50', schedule: 'sch40' });
+    return { m, pump, gate, globe, chk, eq, plain };
+  }
+
+  const t = rig();
+  /* WHICH devices can control. A globe valve regulates; a gate valve isolates
+   * and is not a regulating device; a check valve has no position at all. */
+  ok('A pump can control', M.canControl(t.pump) === true);
+  ok('A globe valve can', M.canControl(t.globe) === true);
+  ok('A gate valve cannot — it isolates, it does not regulate',
+     M.canControl(t.gate) === false);
+  ok('A check valve cannot — it has no position to set',
+     M.canControl(t.chk) === false);
+  ok('A plain pipe cannot', M.canControl(t.plain) === false);
+
+  ok('Nothing is linked to start with', M.controlOf(t.pump) === null);
+  M.setControl(t.m, t.pump, t.eq.id);
+  ok('Linking records the target', M.controlOf(t.pump).equip === t.eq.id);
+  ok('...on the CONTROLLER, not the equipment', !!t.pump.pump.control);
+  ok('...leaving the equipment untouched', t.eq.equip.control === undefined);
+
+  /* Two devices may follow the SAME machine — one setpoint, several things
+   * modulating for it. */
+  M.setControl(t.m, t.globe, t.eq.id);
+  ok('A second device can follow the same equipment',
+     M.controlOf(t.globe).equip === t.eq.id &&
+     M.controlOf(t.pump).equip === t.eq.id);
+
+  M.setControl(t.m, t.pump, null);
+  ok('Clearing removes it', M.controlOf(t.pump) === null);
+  ok('...without disturbing the other', M.controlOf(t.globe).equip === t.eq.id);
+  ok('Setting on a device that cannot control does nothing',
+     M.setControl(t.m, t.gate, t.eq.id) === null && M.controlOf(t.gate) === null);
+
+  // ---- the route is orthogonal, and only ever orthogonal ----
+  const r = M.controlRoute(t.m, t.globe);
+  ok('A route is produced', !!r && r.points.length >= 3);
+  let ortho = true;
+  for (let i = 1; i < r.points.length; i++) {
+    const p0 = r.points[i - 1], p1 = r.points[i];
+    if (Math.abs(p0.x - p1.x) > 1e-9 && Math.abs(p0.y - p1.y) > 1e-9) ortho = false;
+  }
+  ok('Every segment is horizontal or vertical', ortho, JSON.stringify(r.points));
+
+  const from = M.deviceMid(t.m, t.globe), to = M.deviceMid(t.m, t.eq);
+  near('It starts at the controller', r.points[0].x, from.x, 1e-9);
+  near('...and ends at the equipment', r.points[r.points.length - 1].x, to.x, 1e-9);
+  near('...at the right y as well', r.points[r.points.length - 1].y, to.y, 1e-9);
+
+  /* Dragging the bend changes only where it bends. An L is the Z whose middle
+   * segment has collapsed, so the same parameter gives both. */
+  t.globe.valve.control.mid = to.x;
+  const rL = M.controlRoute(t.m, t.globe);
+  ok('Sliding the bend onto the target collapses it to an L',
+     rL.points.length === 3, String(rL.points.length));
+  t.globe.valve.control.mid = (from.x + to.x) / 2;
+  ok('...and away from it is a Z again',
+     M.controlRoute(t.m, t.globe).points.length === 4);
+
+  /* Presentation only: the route must not touch the calculation. */
+  const before = JSON.stringify(NET.solveModel(t.m).flow);
+  t.globe.valve.control.mid = -500;
+  t.globe.valve.control.axis = 'v';
+  const after = JSON.stringify(NET.solveModel(t.m).flow);
+  ok('Moving the route changes no flow anywhere', before === after);
+
+  // A link to equipment that has been deleted must not produce a route.
+  t.globe.valve.control.equip = 'GONE';
+  ok('A dangling link produces no route', M.controlRoute(t.m, t.globe) === null);
+
+  // It survives save and load.
+  M.setControl(t.m, t.globe, t.eq.id);
+  const back = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(t.m))));
+  const g2 = back.pipes.find(p => p.valve && p.valve.type === 'globe');
+  ok('A control link survives save and load', M.controlOf(g2).equip === t.eq.id);
+}
+
 report();

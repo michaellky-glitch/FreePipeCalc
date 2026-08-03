@@ -56,6 +56,11 @@
      * the value can be read with the mouse out of the way. */
     this.probe = null;
     this.probeHover = null;
+    /* Control links: dashed green routes from a pump or globe valve to the
+     * equipment whose setpoint it follows. On by default — a hidden control
+     * relationship is a surprise waiting to happen. */
+    this.showControl = true;
+    this.controlPick = null;          // {pipeId} while picking a target
     this.selection = [];             // [{kind,id}]
     this.marquee = null;
     this.conflict = null;          // pipe ids highlighted red by a geometry conflict
@@ -496,6 +501,7 @@
       var r = c.getBoundingClientRect();
       var sx = e.clientX - r.left, sy = e.clientY - r.top;
       var w = self.toWorld(sx, sy);
+      var m0 = self.getModel();
 
       if (e.button === 1) {                       // middle drag = pan (§4)
         self.panning = { sx: sx, sy: sy, ox: self.originX, oy: self.originY };
@@ -533,7 +539,31 @@
         }
         return;
       }
+      /* Picking a control target: the next click on a piece of equipment
+       * links it. Anything else cancels, so a mis-click does not leave the
+       * canvas in a mode the user cannot see. */
+      if (self.controlPick) {
+        var pickHit = self.deviceAt(w.x, w.y) || (self.pipeAt(w.x, w.y) || {}).pipe;
+        var src = M.pipe(m0, self.controlPick.pipeId);
+        self.controlPick = null;
+        if (pickHit && pickHit.kind === 'equip' && src) {
+          self.onBeforeEdit();
+          M.setControl(m0, src, pickHit.id);
+          self.onMessage('Control linked to ' + (pickHit.tag || pickHit.id) + '.');
+        } else {
+          self.onMessage('Nothing linked — pick a piece of equipment.', 'error');
+        }
+        self.changed();
+        return;
+      }
+
       if (self.tool === 'view') {
+        var ch = self.controlHandleAt(sx, sy);
+        if (ch) {
+          self.dragControl = { pipe: ch.pipe, axis: ch.axis };
+          c.setPointerCapture(e.pointerId);
+          return;
+        }
         var lab = self.labelAt(sx, sy);
         if (lab) {
           /* Anchor = where the label would sit with zero offset. Kept in SCREEN
@@ -739,6 +769,18 @@
         self.render();
         return;
       }
+      if (self.dragControl) {
+        /* Slide the whole middle segment. `mid` is a WORLD coordinate, so the
+         * route stays where it was put through zoom and pan. Presentation
+         * only — nothing here reaches the calculation. */
+        var dc = self.dragControl;
+        var host = (dc.pipe.kind === 'pump') ? dc.pipe.pump : dc.pipe.valve;
+        if (host && host.control) {
+          host.control.mid = (dc.axis === 'h') ? w.x : w.y;
+          self.render();
+        }
+        return;
+      }
       if (self.dragLabel) {
         var d = self.dragLabel;
         var nox = d.ox + (sx - d.sx), noy = d.oy + (sy - d.sy);
@@ -855,6 +897,7 @@
     window.addEventListener('pointerup', function (e) {
       if (self.panning) { self.panning = null; return; }
       if (self.dragTrace) { self.dragTrace = null; self.changed(); return; }
+      if (self.dragControl) { self.dragControl = null; self.changed(); return; }
       if (self.dragLabel) { self.dragLabel = null; self.changed(); return; }
       if (self.dragAlign) { self.dragAlign = null; self.changed(); return; }
       if (self.dragDevice) { self.dragDevice = null; self.changed(); return; }
@@ -899,7 +942,8 @@
       }
 
       if (e.key === 'Escape') {
-        if (self.calibrating) self.cancelCalibration();
+        if (self.controlPick) { self.controlPick = null; self.onMessage('Cancelled.'); self.render(); }
+        else if (self.calibrating) self.cancelCalibration();
         else if (self.lengthEntry) { self.lengthEntry = null; self.render(); }
         else if (self.draft) self.endDraft();
         /* A pinned probe is dropped before the tool is, so Escape clears the
@@ -1423,6 +1467,7 @@
     this.drawVizNodes(vs);
     this.drawVizLegend(vs);
     this.drawWarnHighlight();
+    this.drawControlLinks();
     this.drawDisconnects();
     this.drawFlipButton();
     this.drawScaleBar();
@@ -2602,6 +2647,10 @@
       if (flags.available && res && res.pressure[obj.id] !== undefined) {
         lines.push('P ' + FD.units.fmtPressure(res.pressure[obj.id], d.pressure, true));
       }
+      if (flags.temperature && res && res.thermal) {
+        var tn = res.thermal.temperature[obj.id];
+        if (tn !== undefined && isFinite(tn)) lines.push('T ' + tn.toFixed(1) + '\u00b0C');
+      }
     } else {
       // in-line device (pump / equipment / valve)
       if (flags.tag && obj.tag) lines.push(obj.tag);
@@ -2636,6 +2685,24 @@
               m.settings.fluid.density), d.pressure, true));
           }
         }
+      }
+      /* Thermal, from the thermal pass rather than the hydraulic one. Read
+       * separately because a device can carry flow with no thermal result —
+       * nothing sets a temperature — and the box should show what it has. */
+      var tl = res && res.thermal && res.thermal.links[obj.id];
+      if (tl) {
+        if (flags.temp) {
+          lines.push(tl.tIn.toFixed(1) + ' → ' + tl.tOut.toFixed(1) + '\u00b0C');
+        }
+        if (flags.dT) lines.push('ΔT ' + (tl.dT >= 0 ? '+' : '') + tl.dT.toFixed(1) + ' K');
+        if (flags.duty) {
+          lines.push('Q ' + (tl.qW >= 0 ? '+' : '') + (tl.qW / 1000).toFixed(1) + ' kW');
+          if (tl.limit) lines.push('(' + tl.limit + ')');
+        }
+      }
+      if (flags.setpoint && obj.equip && obj.equip.equipType === 'source' &&
+          obj.equip.tSet !== undefined && obj.equip.tSet !== null) {
+        lines.push('SP ' + Number(obj.equip.tSet).toFixed(1) + '\u00b0C');
       }
     }
     if (!lines.length) return;
@@ -3160,6 +3227,69 @@
     ctx.textAlign = 'left';
     lines.forEach(function (l, i) { ctx.fillText(l, x + 8, y + 18 + i * 15); });
     ctx.restore();
+  };
+
+  /* ------------------------------------------------------- control links
+   *
+   * A dashed GREEN orthogonal route from a pump or globe valve to the
+   * equipment whose setpoint it follows. Green and dashed so it reads as a
+   * signal rather than as pipework — it carries no water, and nothing about it
+   * enters the calculation.
+   *
+   * Orthogonal, L or Z, because a diagonal across a floor plan reads as a pipe
+   * run. The bend is draggable in VIEW and is presentation only. */
+  View.prototype.drawControlLinks = function () {
+    this._controlHandles = [];
+    if (!this.showControl) return;
+    var m = this.getModel(), ctx = this.ctx, self = this;
+
+    m.pipes.forEach(function (p) {
+      var r = M.controlRoute(m, p);
+      if (!r) return;
+      var target = M.pipe(m, M.controlOf(p).equip);
+      if (!target) return;
+      /* Both ends must be on the level being drawn, or the route would cut
+       * across a floor it does not belong to. */
+      var na = M.node(m, p.a), nb = M.node(m, target.a);
+      if (!na || !nb || na.level !== m.activeLevel || nb.level !== m.activeLevel) return;
+
+      var pts = r.points.map(function (q) { return self.toScreen(q.x, q.y); });
+      ctx.save();
+      ctx.strokeStyle = self.theme.ok;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      /* A small ring at the equipment end says which way the signal runs. */
+      var end = pts[pts.length - 1];
+      ctx.beginPath(); ctx.arc(end.x, end.y, 4, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+
+      if (self.tool === 'view' && pts.length > 2) {
+        /* One handle per bend; both slide the same mid line, which is what
+         * makes the route stay orthogonal however it is dragged. */
+        for (var j = 1; j < pts.length - 1; j++) {
+          self.labelHandle(pts[j].x - 5, pts[j].y - 5, 10, 10);
+          self._controlHandles.push({
+            pipe: p, axis: r.axis,
+            x: pts[j].x - 6, y: pts[j].y - 6, w: 12, h: 12
+          });
+        }
+      }
+    });
+  };
+
+  View.prototype.controlHandleAt = function (sx, sy) {
+    var hs = this._controlHandles || [];
+    for (var i = hs.length - 1; i >= 0; i--) {
+      var h = hs[i];
+      if (sx >= h.x && sx <= h.x + h.w && sy >= h.y && sy <= h.y + h.h) return h;
+    }
+    return null;
   };
 
   FD.View = View;
