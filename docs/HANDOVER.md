@@ -1,6 +1,6 @@
 # Handover
 
-Written 2026-07-30, rewritten 2026-08-03 (v0.10.3), for whoever picks this up next
+Written 2026-07-30, rewritten 2026-08-03 (v0.11.0), for whoever picks this up next
 — most likely a fresh Claude Code session with none of the preceding context.
 
 **Read `ARCHITECTURE.md` before changing anything.** This document covers what is
@@ -21,15 +21,15 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1009 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1032 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
 ---
 
-## 2. Where things stand (v0.10.3, 2026-08-03)
+## 2. Where things stand (v0.11.0, 2026-08-03)
 
-Nothing is BROKEN. The engine is green at **1009 assertions** and the repository
+Nothing is BROKEN. The engine is green at **1032 assertions** and the repository
 is published privately at `github.com/michaellky-glitch/FreePipeCalc`.
 
 The big change since v0.5.0 is the **ASHRAE (2021) method**, now the default —
@@ -315,6 +315,9 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **CONTROL LINKS** (v0.11.0) — a pump or globe valve records which equipment's
+  setpoint it follows, drawn as a dashed green orthogonal route. **Recorded and
+  drawn only; nothing acts on it yet.** `ARCHITECTURE.md` §17B.
 * **Two EQUIPMENT TYPES** (v0.10.3) — Source / Sink and Heat Exchanger, split
   on what you know at design, with capacity, ΔT and temperature limits and the
   binding one reported. Replaces the dT/dQ modes. `ARCHITECTURE.md` §18.
@@ -472,7 +475,21 @@ printing on real paper; the light theme.
   first two digits.
 * `Previous Version/` holds archived releases (v0.2 → v0.6), gitignored.
 
-## 9A. NEXT: variable-speed pumps
+## 9A. NEXT: variable-speed pumps — START HERE
+
+This is the next piece and everything is in place for it except the control
+itself. Read `ARCHITECTURE.md` §17B first, then this.
+
+**What already exists.** A pump or globe valve carries
+`control = { equip, axis, mid }`, set by the Control button and drawn as a
+dashed green route. `M.controlOf(p)` returns it. The equipment carries `tSet`,
+`qMax`, `dTMax`, `tLimit`, and `res.thermal.links[id].limit` already reports
+which constraint bound it.
+
+**What is missing.** Nothing reads `control` during a solve. A linked pump does
+not change speed; a linked globe valve does not change position.
+
+**The shape of the work.**
 
 Michael's realisation, 2026-08-03, and it is the right one: a setpoint is only
 meaningful if something can modulate to reach it. His case — a waterside
@@ -492,13 +509,34 @@ Three things to get right, all of which this codebase has already learnt once:
    iterates solve-and-adjust, converges from either side, and rolls back a step
    that bought nothing. The equivalent trap here is chasing a setpoint using
    the temperature error a pass is itself producing.
-2. **Say which pump serves which setpoint.** An explicit link on the pump —
-   "VSD, hold [equipment]'s setpoint" — rather than inferring it. Inferring
-   would break the moment two setpoints exist.
+2. ~~Say which pump serves which setpoint.~~ **Done** — that is the control
+   link, v0.11.0.
 3. **The direction is not obvious.** More flow does not always mean closer to
    setpoint; on a heat exchanger it is the opposite of what it is on a source.
-   The control has to work from the sign of the error against the sign of
-   dT_out/dṁ, or find itself ramping the wrong way.
+   Do not hard-code a sign. Perturb: solve at the current speed and again at a
+   slightly higher one, and use the sign of the change in the controlled
+   temperature. Two extra solves per adjustment is cheap next to getting it
+   backwards, and the app already runs several solves per edit.
+4. **A pump has a floor.** Real VSDs do not go below roughly 25–30% speed, and
+   a pump at zero flow makes the thermal solve singular. Give the control a
+   minimum and report when it is sitting on it — "P-01 at minimum speed, CH-01
+   still 2.1 K above setpoint" is the useful sentence, the same shape as the
+   `EQUIP_LIMITED` warning that already exists.
+5. **A globe valve is the same problem with a different actuator.** Modulating
+   position rather than speed; the outer loop is identical, only the quantity
+   being adjusted differs. Write the loop against "the thing being modulated"
+   rather than against a pump, or it will need writing twice.
+
+**Where to put it.** `solveModel` in `src/network.js`, around the existing solve
+— `autoSizePumps` sits in the same place and is the model to copy. The thermal
+pass is already the last thing before the result is returned, so the loop wraps
+both: solve hydraulics → solve thermal → read the controlled temperature →
+adjust → repeat.
+
+**How to know it works.** The test to write first is Michael's economizer:
+T limit 18 °C, setpoint 25 °C, and a pump that must ramp DOWN to hold it. If the
+control ramps up, the sign handling is wrong. `test/thermal.test.js` has the
+plant rig to build on.
 
 Worth noting the payoff: with VSD in place, the SIMULATION question from
 2026-08-02 largely answers itself. A coil holding its leaving temperature by
