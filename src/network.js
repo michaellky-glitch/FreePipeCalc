@@ -1055,11 +1055,35 @@
     var hasDemand = m.nodes.some(function (n) {
       return n.device && n.device.kind === 'demand' && n.device.include !== false;
     });
+    /* WHICH EQUIPMENT SETS THE FLOW — the loads do.
+     *
+     * A heat exchanger states the flow it needs to move its duty: that is a
+     * DEMAND on the circuit. A source/sink's rated flow is a SELECTION figure —
+     * what the machine was bought for — and a machine is routinely selected
+     * larger than the load it serves today. Michael, 2026-08-04.
+     *
+     * Taking the largest rating across ALL equipment is what produced
+     * `debug/20260804-1.json`: a 100 kW chiller rated 1.6 L/s beside a 50 kW
+     * coil rated 0.798 L/s — a chiller deliberately selected to run at half
+     * load. The sizer drove 1.6 L/s through the coil, 2.006× its rating and
+     * therefore 4.02× its pressure drop: 805 kPa against a rated 200, and a
+     * pump duty of 102.7 m. Nothing was wrong with the arithmetic.
+     *
+     * Sized on the coil instead, the chiller passes 0.798 L/s and drops
+     * (0.798/1.6)² × 200 = 50 kPa. That half of the fix needed no code at all:
+     * equipment has always been r·Q² from its own design point, so a machine
+     * at part load drops what the square law says it drops.
+     *
+     * Plant-only circuits still size on the plant — a loop with nothing but a
+     * chiller in it has no other statement of what flow it wants. */
     var equips = m.pipes.filter(function (p) {
-      return p.kind === 'equip' && p.equip && p.equip.qRated > 0;
+      return p.kind === 'equip' && p.equip && !p.equip.off && p.equip.qRated > 0;
+    });
+    var loads = equips.filter(function (p) {
+      return p.equip.equipType !== 'source';
     });
     if (!hasDemand && equips.length) {
-      return autoSizeForFlow(m, res, autos, equips);
+      return autoSizeForFlow(m, res, autos, loads.length ? loads : equips);
     }
 
     var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
@@ -1161,7 +1185,10 @@
     /* Deliberately NOT multiplied by the safety factor — see the note in
      * autoSizePumps. The equipment must see its rated flow; the margin is
      * reported as the duty head to select against. */
-    return { resolved: true, res: cur, iterations: i, mode: 'flow', target: target };
+    return { resolved: true, res: cur, iterations: i, mode: 'flow', target: target,
+             /* Which machines the duty was sized on, so the sheet can say so
+              * rather than leaving "why that flow?" as a puzzle. */
+             sizedOn: equips.map(function (e) { return e.tag || e.id; }) };
   }
 
   /* =============================================== SETPOINT CONTROL (VSD)
@@ -1679,6 +1706,12 @@
       if (!(q > FD.hydraulics.Q_MIN)) return;
       var ratio = q / qr;
       if (ratio <= lim && ratio >= 1 / lim) return;
+      /* A SOURCE/SINK BELOW ITS RATING IS NORMAL OPERATION, not a defect —
+       * plant is routinely selected larger than today's load, and since
+       * v0.12.1 the sizer deliberately leaves it at part load. Over-flow is
+       * still called out for everything, because that is the square-law trap
+       * this check exists for. */
+      if (ratio < 1 && p.equip.equipType === 'source') return;
 
       var pd = (p.equip.pdRated || 0) * ratio * ratio;
       out.push({

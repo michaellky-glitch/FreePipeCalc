@@ -295,4 +295,152 @@ section('Equipment tags');
   ok('Plain pipes have no tag property', plain.tag === undefined);
 }
 
+/* --------------------------------------------------------------------------
+ * THE LOADS SET THE FLOW, NOT THE PLANT  (Michael, 2026-08-04)
+ *
+ * A heat exchanger states the flow it needs to move its duty — that is a demand
+ * on the circuit. A source/sink's rated flow is a SELECTION figure: what the
+ * machine was bought for, and plant is routinely selected larger than the load
+ * it serves today.
+ *
+ * `debug/20260804-1.json`: a 100 kW chiller rated 1.6 L/s beside a 50 kW coil
+ * rated 0.798 L/s — a chiller deliberately picked to run at half load. Sizing
+ * on the largest rating drove 1.6 L/s through the coil:
+ *
+ *     ratio  = 1.600 / 0.798 = 2.006
+ *     ΔP     = 200 × 2.006²  = 805 kPa   against a rated 200
+ *     duty   = 102.7 m
+ *
+ * Sized on the coil, the chiller passes 0.798 L/s and drops
+ *
+ *     200 × (0.798/1.600)² = 200 × 0.2487 = 49.7 kPa
+ *
+ * which is the square law and needed no code: equipment has always been r·Q²
+ * from its own design point. The duty falls to 25.5 m.
+ * ----------------------------------------------------------------------- */
+section('A closed circuit is sized on its loads, not on its plant');
+{
+  const RHO = 998, G = 9.81;
+
+  function loop(opts) {
+    opts = opts || {};
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 5; i++) n.push(M.addNode(m, lv, i * 2, 0));
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 10 };
+    const coil = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
+    coil.tag = 'AHU-1';
+    coil.equip = { qRated: opts.coil, pdRated: 200e3,
+                   equipType: 'exchanger', duty: 50000 };
+    const chiller = M.addPipe(m, n[2].id, n[3].id, { kind: 'equip' });
+    chiller.tag = 'ACCH-01';
+    chiller.equip = { qRated: opts.plant, pdRated: 200e3, equipType: 'source',
+                      tSet: 20, qMax: -100000 };
+    /* Short, wide pipework so the equipment dominates and the hand figures
+     * below are recognisable in the answer. */
+    M.addPipe(m, n[3].id, n[4].id, { size: 'DN150', schedule: 'sch40' });
+    M.addPipe(m, n[4].id, n[0].id, { size: 'DN150', schedule: 'sch40' });
+    const res = NET.solveModel(m);
+    return { m, pump, coil, chiller, res };
+  }
+
+  const t = loop({ coil: 0.000798, plant: 0.0016 });
+
+  ok('The duty was sized on flow, in a circuit with no outflows',
+     t.res.pumpSizing.mode === 'flow');
+  ok('...and it names the machine it sized on', 
+     JSON.stringify(t.res.pumpSizing.sizedOn) === '["AHU-1"]',
+     JSON.stringify(t.res.pumpSizing.sizedOn));
+
+  near('The COIL gets its rated flow', Math.abs(t.res.flow[t.coil.id]),
+       0.000798, 0.000798 * 2e-3);
+  near('...and the plant runs at half load, which is what it was selected for',
+       Math.abs(t.res.flow[t.chiller.id]) / 0.0016, 0.4988, 2e-3);
+
+  /* The square law on the plant, by hand: 200 kPa × (0.798/1.6)². */
+  {
+    const link = t.res.network.links.filter(l => l.id === t.chiller.id)[0];
+    const pd = RHO * G * Math.abs(FD.hydraulics.linkLoss(link, t.res.flow[t.chiller.id]));
+    near('The plant drops what the square law says at part flow',
+         pd / 1000, 200 * Math.pow(0.000798 / 0.0016, 2), 1);
+    near('...which is 49.7 kPa', pd / 1000, 49.7, 0.5);
+  }
+
+  /* The whole point: an ordinary duty rather than 102.7 m. */
+  ok('The pump duty is ordinary', t.pump.pump.head < 30,
+     t.pump.pump.head.toFixed(2) + ' m');
+  ok('...and nothing is being over-pumped',
+     !t.res.warnings.some(w => w.code === 'EQUIP_OFF_RATING'),
+     JSON.stringify(t.res.warnings.filter(w => w.code === 'EQUIP_OFF_RATING')
+                       .map(w => w.message)));
+
+  /* THE OLD BEHAVIOUR, stated so the regression is unmistakable: had it sized
+   * on the chiller, the coil would have seen 2.006× its rating and 4.02× its
+   * drop. Computed here, not read from the code. */
+  {
+    const ratio = 0.0016 / 0.000798;
+    near('Sizing on the plant would have been 2.006x the coil rating', ratio, 2.0050, 1e-3);
+    near('...and 804 kPa across it', 200 * ratio * ratio, 804.0, 1);
+    ok('...which is not what happened',
+       Math.abs(t.res.flow[t.coil.id]) < 0.001);
+  }
+
+  /* Two coils in SERIES with equal ratings still work — they are all the same
+   * flow, so the target is unambiguous. */
+  {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 2, 0));
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 10 };
+    [1, 2].forEach(k => {
+      const c = M.addPipe(m, n[k].id, n[k + 1].id, { kind: 'equip' });
+      c.equip = { qRated: 0.002, pdRated: 100e3, equipType: 'exchanger', duty: 30000 };
+    });
+    const ch = M.addPipe(m, n[3].id, n[4].id, { kind: 'equip' });
+    ch.equip = { qRated: 0.010, pdRated: 100e3, equipType: 'source', tSet: 20 };
+    M.addPipe(m, n[4].id, n[5].id, { size: 'DN150', schedule: 'sch40' });
+    M.addPipe(m, n[5].id, n[0].id, { size: 'DN150', schedule: 'sch40' });
+    const res = NET.solveModel(m);
+    near('Two matched coils in series both get their rating',
+         Math.abs(res.flow[m.pipes[1].id]), 0.002, 0.002 * 2e-3);
+    ok('...and the oversized plant is not what set the flow',
+       Math.abs(res.flow[ch.id]) < 0.003, 
+       (Math.abs(res.flow[ch.id]) * 1000).toFixed(3) + ' L/s');
+  }
+
+  /* A PLANT-ONLY circuit has nothing else to go on, so it still sizes on the
+   * plant — the rule is "the loads set the flow", and with no loads the plant
+   * is the only statement of what flow the circuit wants. */
+  {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 4; i++) n.push(M.addNode(m, lv, i * 2, 0));
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 10 };
+    const ch = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
+    ch.equip = { qRated: 0.004, pdRated: 100e3, equipType: 'source', tSet: 20 };
+    M.addPipe(m, n[2].id, n[3].id, { size: 'DN100', schedule: 'sch40' });
+    M.addPipe(m, n[3].id, n[0].id, { size: 'DN100', schedule: 'sch40' });
+    const res = NET.solveModel(m);
+    near('With no loads, the plant sets the flow', Math.abs(res.flow[ch.id]),
+         0.004, 0.004 * 2e-3);
+  }
+
+  /* An ISOLATED machine states nothing about the circuit it is valved out of. */
+  {
+    const t2 = loop({ coil: 0.000798, plant: 0.0016 });
+    t2.coil.equip.off = true;
+    const res = NET.solveModel(t2.m);
+    ok('An isolated coil does not set the flow either',
+       res.pumpSizing.mode === 'flow' &&
+       JSON.stringify(res.pumpSizing.sizedOn) === '["ACCH-01"]',
+       JSON.stringify(res.pumpSizing.sizedOn));
+  }
+}
+
 report();
