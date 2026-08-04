@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1361
+This is deliberately separate from the automated suites. Those cover 1368
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-04 (v0.12.3)
+Last updated: 2026-08-04 (v0.12.4)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -202,6 +202,18 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 4L. OVERLOAD BEHAVIOUR and setpoint priority (v0.12.4)
+
+Driven live on `20260804-3.json`.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| OV.1 | The pump no longer throttles into an overload | ✅ | Was 25% (its floor); now 100%. The runaway falls from ~3000 °C to 420 °C — still a runaway, still flagged, but no longer made worse by the control. |
+| OV.2 | `SETPOINT_LOST`, your wording | ⬜ | "System is unable to maintain setpoint. Check heat balance." An ERROR — it clears `converged`. |
+| OV.3 | **The trade-off, and it needs your ruling** | ⬜ | **The one to judge.** For a machine holding a LEAVING temperature, minimum speed was *closer to setpoint*; full speed moves the most water. The rule now picks delivered capacity. It changed the v0.11.1 economizer case, which parks at full instead of on its floor. Overrule me if that reads wrong on a real job. |
+| OV.4 | Setpoint priority is a drag list | ⬜ | Same grip and gesture as LEVELS, labelled primary / secondary. Verified live: dragging ΔT above LWT stored `order:['dt','lwt']` and the engine followed. |
+| OV.5 | Your third question — "once it hits the design ΔT limit the pump stops trying" | ✅ | That was it, and two things caused it. The v0.12.3 authority probe stopped the pump chasing a setpoint it could not move; this one stops it *throttling* when no setpoint is reachable. Both were needed. |
 
 ## 4K. CONTROL AUTHORITY and valve UX (v0.12.3)
 

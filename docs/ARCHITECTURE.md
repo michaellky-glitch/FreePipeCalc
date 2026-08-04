@@ -1220,6 +1220,46 @@ the balancing valve does not have to throttle at all.
 **"First, then" is a fallback, not a blend.** One actuator cannot hold two
 setpoints at once, and pretending otherwise is how a loop starts oscillating.
 
+**The order is DRAGGED, not fixed.** Which setpoint matters more is an
+engineering judgement, so the panel is a list you rearrange — the same gesture
+as LEVELS, chosen because the order *is* the meaning here and a rearrangeable
+list says that better than a pair of radio buttons. Stored as `control.order`
+on the controller. An option the stored order does not mention keeps its natural
+place after the ones it does, so a machine that grows a setpoint later never
+silently drops off the list.
+
+### Losing the setpoint: park at FULL, do not throttle
+
+`debug/20260804-3.json` — a 110 kW coil against a 100 kW chiller. The loop
+chased LWT, found that throttling *reduced* the error, and walked the pump down
+to its 25% floor while the loop ran away to 3000 °C. Michael's objection is the
+right one: in a condition it cannot control, a pump should be doing its most,
+not its least.
+
+The reasoning is physical. Less flow through a machine already at its capacity
+delivers less cooling, not more — throttling holds the *leaving temperature*
+closer to setpoint while starving the load, which is the wrong thing to optimise
+when the machine is short of capacity. So when nothing in the actuator's range
+holds the setpoint, **the actuator returns to full travel** and the answer is an
+error:
+
+> System is unable to maintain setpoint. Check heat balance.
+
+`SETPOINT_LOST` clears `converged`, because a system that cannot hold its
+setpoint anywhere is not delivering what the model says it delivers. On his
+model the pump goes back to 100% and the runaway falls from 3000 °C to 420 °C —
+still a runaway, still flagged, but no longer made worse by the control.
+
+**The trade-off is real and worth knowing.** For a machine holding a leaving
+temperature, minimum speed put it *closest to setpoint*; full speed moves the
+most water. Those are different objectives and this rule picks delivered
+capacity. It also changed the v0.11.1 economizer case, which now parks at full
+rather than sitting on its floor.
+
+Each fallback option is also chased **from full travel**: the previous one may
+have left the actuator on its stop, and starting the next search there hides
+half the range from it.
+
 ### Control valve authority is a different word
 
 `VALVE_AUTHORITY` is about a valve that HAS the movement but spends it all near
@@ -1566,7 +1606,7 @@ sheet**, which is the thing that gets issued.
 
 ## 15. Testing
 
-Seven suites, 1361 assertions, no dependencies:
+Seven suites, 1368 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

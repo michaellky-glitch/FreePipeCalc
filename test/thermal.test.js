@@ -1080,22 +1080,38 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
          Math.abs(res.flow[controlled.eq.id]), 1e-6);
   }
 
-  // ---- 4. THE FLOOR. A machine too small to hold setpoint at minimum speed.
+  /* ---- 4. THE SETPOINT IS LOST — a machine too small to hold it anywhere.
+   *
+   * 60 kW wants q = 60000/20893130 = 2.872 L/s, well under a quarter of the
+   * full-speed flow, so the drive bottoms out and the setpoint is still missed.
+   *
+   * THE PUMP THEN GOES BACK TO FULL (Michael, 2026-08-04). A throttled pump in
+   * a condition it cannot control is strictly worse than an open one: it saves
+   * nothing that matters and starves the load. Same reasoning as a control
+   * valve failing open.
+   *
+   * THE TRADE-OFF IS REAL and worth stating. Minimum speed put this machine's
+   * LEAVING TEMPERATURE closest to setpoint; full speed moves the most water.
+   * They are different objectives, and the rule chooses delivered capacity —
+   * which is the one that matters when the machine is short of capacity, and is
+   * what stopped the overload in `debug/20260804-3.json` walking the pump down
+   * to 25% while the loop ran away to 3000 °C. */
   {
-    /* 60 kW wants q = 60000/20893130 = 2.872 L/s, which is well under a
-     * quarter of the full-speed flow, so the drive bottoms out. */
     const t = economizer({ link: 'pump', equip: { qMax: -60000 } });
     const r = NET.solveModel(t.m);
-    near('The pump sits on its minimum speed', M.pumpSpeed(t.m, t.pump), 0.25, 1e-9);
+    near('The pump is returned to full speed, not left on its floor',
+         M.pumpSpeed(t.m, t.pump), 1, 1e-9);
     const l = r.thermal.links[t.eq.id];
     ok('...and the machine is still warm of setpoint', l.tOut > 25.5,
        l.tOut.toFixed(2) + ' C');
-    const w = r.warnings.filter(x => x.code === 'CONTROL_AT_LIMIT')[0];
-    ok('CONTROL_AT_LIMIT is raised', !!w);
-    ok('...naming the minimum and the shortfall',
-       !!w && /minimum speed/.test(w.message) && /above/.test(w.message),
-       w && w.message);
-    ok('...reported as at-min', r.controls.devices[0].state === 'at-min');
+    ok('...reported as lost rather than as a settled answer',
+       r.controls.devices[0].lost === true);
+    const e = (r.errors || []).filter(x => x.code === 'SETPOINT_LOST')[0];
+    ok('SETPOINT_LOST is raised', !!e, JSON.stringify((r.errors||[]).map(x=>x.code)));
+    ok('...in Michael\u2019s own words', !!e &&
+       /System is unable to maintain setpoint\. Check heat balance\./.test(e.message),
+       e && e.message);
+    ok('...and it clears converged', r.converged === false);
   }
 
   // ---- 5. THE SIGN IS NOT ASSUMED: backing off must be shown to help.

@@ -1093,10 +1093,50 @@
     if (!c) return [];
     var opts = controlOptions(m, c.equip);
     if (!opts.length) return [];
+
+    /* THE USER'S ORDER WINS. `controlOptions` returns a sensible default
+     * priority, but which setpoint matters more is an engineering judgement, so
+     * the panel lets it be dragged and stores the result as `control.order`.
+     * Anything the stored order does not mention keeps its natural position
+     * after the ones it does — a machine that grows a new setpoint must not
+     * silently drop off the list. */
+    var ordered = opts;
+    if (c.order && c.order.length) {
+      var rank = {};
+      c.order.forEach(function (k, i) { rank[k] = i; });
+      ordered = opts.slice().sort(function (a, b) {
+        var ra = rank[a.key], rb = rank[b.key];
+        if (ra === undefined && rb === undefined) return 0;
+        if (ra === undefined) return 1;
+        if (rb === undefined) return -1;
+        return ra - rb;
+      });
+    }
     var use = c.use;
-    if (!use) return [opts[0]];
-    var on = opts.filter(function (o) { return use[o.key]; });
-    return on;
+    if (!use) return [ordered[0]];
+    return ordered.filter(function (o) { return use[o.key]; });
+  }
+
+  /* Every option this controller could hold, in the order it would chase them —
+   * toggles ignored. The panel needs the full list; the engine needs only the
+   * ones switched on. */
+  function controlOrdered(m, controller) {
+    var c = controlOf(controller);
+    if (!c) return [];
+    var saved = c.use;
+    c.use = null;
+    var all = controlOptions(m, c.equip);
+    c.use = saved;
+    if (!all.length || !c.order || !c.order.length) return all;
+    var rank = {};
+    c.order.forEach(function (k, i) { rank[k] = i; });
+    return all.slice().sort(function (a, b) {
+      var ra = rank[a.key], rb = rank[b.key];
+      if (ra === undefined && rb === undefined) return 0;
+      if (ra === undefined) return 1;
+      if (rb === undefined) return -1;
+      return ra - rb;
+    });
   }
 
   function canBeControlled(p) {
@@ -1450,6 +1490,7 @@
     controlOf: controlOf, canControl: canControl, setControl: setControl,
     sensorSetpoint: sensorSetpoint,
     controlOptions: controlOptions, controlChoice: controlChoice,
+    controlOrdered: controlOrdered,
     canBeControlled: canBeControlled,
     pumpSpeed: pumpSpeed, pumpCurve: pumpCurve,
     pumpSpeedIgnored: pumpSpeedIgnored, pumpHead: pumpHead,

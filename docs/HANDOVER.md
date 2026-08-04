@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1361 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1368 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,18 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **LOSING THE SETPOINT PARKS AT FULL** (v0.12.4) — Michael simulated an
+  overload (110 kW coil, 100 kW chiller) and the loop walked the pump DOWN to
+  its 25% floor while the loop ran away to 3000 °C. Throttling a machine that
+  is already at capacity delivers less cooling, not more. So when nothing in
+  the actuator's range holds the setpoint, it returns to full travel and
+  `SETPOINT_LOST` fires: "System is unable to maintain setpoint. Check heat
+  balance." Note the trade-off — for a machine holding a LEAVING temperature,
+  minimum speed was closer to setpoint; this rule picks delivered capacity.
+  `ARCHITECTURE.md` §17C.
+* **SETPOINT PRIORITY IS DRAGGED** (v0.12.4) — the panel is a rearrangeable
+  list, the same gesture as LEVELS, because the order IS the meaning. Stored as
+  `control.order`.
 * **CONTROL AUTHORITY** (v0.12.3) — the piece that made the priority list
   actually work. A pump chasing a chiller's Design LWT sat at 100% forever,
   because an unlimited chiller holds its setpoint at ANY flow: zero error at

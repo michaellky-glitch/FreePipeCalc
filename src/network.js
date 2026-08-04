@@ -754,6 +754,10 @@
     if (controls.warnings.length) {
       res.warnings = (res.warnings || []).concat(controls.warnings);
     }
+    if (controls.errors && controls.errors.length) {
+      res.errors = (res.errors || []).concat(controls.errors);
+      res.converged = false;
+    }
 
     /* An omitted device is out of the circuit, so its flow is exactly zero —
      * report it as such. Leaving the key absent surfaces as `undefined` in the
@@ -1276,8 +1280,9 @@
   }
 
   function runControls(m, core, maxPasses) {
-    var warnings = [];
-    var out = { acted: false, core: core, report: null, warnings: warnings };
+    var warnings = [], errors = [];
+    var out = { acted: false, core: core, report: null, warnings: warnings,
+                errors: errors };
     if (!FD.thermal) return out;
     if (m.settings.calcMode !== 'simulation') return out;
 
@@ -1316,7 +1321,8 @@
                    options: opts, optIndex: 0, result: null });
     });
     if (!pairs.length) {
-      return { acted: false, core: core, report: null, warnings: warnings };
+      return { acted: false, core: core, report: null, warnings: warnings,
+               errors: errors };
     }
 
     /* TWO thresholds, and they are different things.
@@ -1565,6 +1571,11 @@
      * one device's modulation moves every other device's inlet temperature.
      * Two or three sweeps in practice; if it is still moving after that, say so
      * rather than reporting a number that is still travelling. */
+    function failed(st) {
+      return st === 'at-max' || st === 'at-min' || st === 'unsettled' ||
+             st === 'no-authority';
+    }
+
     var acted = false, moving = true, sweep = 0;
     while (moving && sweep < 4 && solves < MAX_SOLVES) {
       moving = false; sweep++;
@@ -1575,16 +1586,43 @@
          * off making it worse — chase the next one instead of sitting on a
          * result nobody asked for. Only once per sweep, so a device cannot
          * cycle through its options forever. */
-        while ((r.state === 'at-max' || r.state === 'at-min' ||
-                r.state === 'unsettled' || r.state === 'no-authority') &&
-               pair.optIndex + 1 < pair.options.length) {
+        while (failed(r.state) && pair.optIndex + 1 < pair.options.length) {
           pair.optIndex++;
           var nx = pair.options[pair.optIndex];
           pair.target = nx.value; pair.mode = nx.mode;
           pair.label = nx.label; pair.key = nx.key;
           pair.floorErr = 0;
           pair.fellBack = true;
+          /* Each setpoint is chased from FULL TRAVEL. The previous one may
+           * have left the actuator on its stop, and starting the next search
+           * there hides half the range from it. */
+          if (pair.act.get() < 1 - 1e-9) { pair.act.set(1); cur = evaluate(); }
           r = seek(pair);
+        }
+
+        /* PARK AT FULL WHEN THE SETPOINT IS LOST  (Michael, 2026-08-04).
+         *
+         * `debug/20260804-3.json`: a 110 kW coil against a 100 kW chiller. The
+         * loop chased LWT, found that throttling reduced the error, and walked
+         * the pump to its 25% floor — making a heat-balance failure worse. Less
+         * flow through a machine that is already at its capacity delivers less
+         * cooling, not more.
+         *
+         * So when nothing in the actuator's range holds the setpoint, the
+         * actuator goes back to FULL. A throttled pump in that state is
+         * strictly worse than an open one: it saves nothing that matters and
+         * starves the load. It is the same reasoning as a control valve failing
+         * open — in a condition you cannot control, choose the position that
+         * delivers most. */
+        if (failed(r.state)) {
+          if (pair.act.get() < 1 - 1e-9) {
+            pair.act.set(1);
+            cur = evaluate();
+            r.x = 1;
+            r.error = errorOf(cur, pair);
+            r.moved = true;
+          }
+          r.lost = true;
         }
         pair.result = r;
         if (r.moved) { moving = true; acted = true; }
@@ -1608,7 +1646,7 @@
         equip: pair.equip.id, equipTag: pair.equip.tag || null,
         target: pair.target, setpointOf: pair.mode,
         holding: pair.label || null, holdingKey: pair.key || null,
-        fellBack: !!pair.fellBack,
+        fellBack: !!pair.fellBack, lost: !!r.lost,
         actual: measured,
         error: r.error === undefined ? null : r.error,
         value: pair.act.get(), min: pair.act.min,
@@ -1666,11 +1704,30 @@
       return d;
     });
 
+    /* THE SETPOINT IS LOST — Michael's wording, 2026-08-04. An ERROR rather
+     * than a warning: a system that cannot hold its setpoint anywhere in its
+     * actuator's range is not delivering what the model says it delivers, and
+     * every number downstream describes an operating point nobody can reach.
+     * The cause is almost always the heat balance rather than the control, so
+     * the message points there. */
+    var lostList = devices.filter(function (x) { return x.lost; });
+    if (lostList.length) {
+      errors.push({
+        code: 'SETPOINT_LOST',
+        pipe: lostList[0].pipe, equip: lostList[0].equip,
+        message: 'System is unable to maintain setpoint. Check heat balance. (' +
+                 lostList.map(function (x) {
+                   return (x.tag || x.pipe) + ' → ' + (x.equipTag || x.equip);
+                 }).join(', ') + ' at full travel and still off setpoint.)'
+      });
+    }
+
     return {
       /* Always true once there is anything to control: `cur` is the solve that
        * matches the model as it now stands, and `core` may have been computed
        * with the modulation the previous solve left behind. */
       acted: true, moved: acted,
+      errors: errors,
       core: cur,
       warnings: warnings,
       report: { devices: devices, sweeps: sweep, solves: solves, tol: tol }

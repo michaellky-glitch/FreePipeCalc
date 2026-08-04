@@ -1851,7 +1851,10 @@
     var mon = readoutBox(host, null);
     mon.ro('Monitoring', target.tag || target.id);
 
-    var opts = M.controlOptions(m, target.id);
+    /* Rendered in the order the engine will chase them, which is the stored
+     * one if there is one — the list and the solve must not disagree about
+     * which is primary. */
+    var opts = M.controlOrdered(m, p);
     if (!opts.length) {
       host.appendChild(el('p', 'hint',
         (target.tag || target.id) + ' states no setpoint to hold.'));
@@ -1865,11 +1868,28 @@
     var dev = res && res.controls
       ? res.controls.devices.filter(function (x) { return x.pipe === p.id; })[0] : null;
 
+    /* DRAG TO SET PRIORITY, the same gesture as the LEVELS list (Michael,
+     * 2026-08-04). The order IS the meaning here — top is chased first, the
+     * rest are fallbacks — so a list you rearrange says it better than a pair
+     * of radio buttons ever would. The chosen order is stored on the CONTROLLER
+     * as `control.order`, beside the toggles, because two pumps following one
+     * machine may legitimately rank its setpoints differently. */
+    var listWrap = el('div', 'setpoint-list');
     opts.forEach(function (o, i) {
-      var txt = o.label + '  ' + fmtSetpoint(o);
-      switchRow(host, txt, !!c.use[o.key], function (on) {
+      var row = el('div', 'setpoint-row');
+      row.draggable = true;
+      row.appendChild(el('span', 'level-grip', '\u283f'));
+
+      var sw = el('button', 'switch plain' + (c.use[o.key] ? ' on' : ' off'));
+      sw.type = 'button';
+      sw.setAttribute('role', 'switch');
+      sw.setAttribute('aria-checked', c.use[o.key] ? 'true' : 'false');
+      sw.appendChild(el('span', 'switch-track', ''));
+      sw.appendChild(el('span', 'switch-label',
+        o.label + '  ' + fmtSetpoint(o)));
+      sw.addEventListener('click', function () {
         pushUndo();
-        c.use[o.key] = on;
+        c.use[o.key] = !c.use[o.key];
         /* Never leave a control link with nothing to hold: turning the last
          * one off is a request to stop controlling, so the link goes too. */
         if (!opts.some(function (x) { return c.use[x.key]; })) {
@@ -1877,13 +1897,49 @@
         }
         renderProperties(); changed();
       });
-      if (i === 0 && opts.length > 1) {
-        var pr = el('p', 'hint', 'Held first; the next is a fallback. ');
-        infoMark(pr, 'One actuator cannot hold two setpoints at once. If the ' +
-                     'first cannot be reached, the next is chased instead.');
-        host.appendChild(pr);
-      }
+      row.appendChild(sw);
+      row.appendChild(el('span', 'setpoint-rank',
+        opts.length > 1 ? (i === 0 ? 'primary' : 'secondary') : ''));
+
+      row.addEventListener('dragstart', function (e) {
+        app.dragSetpoint = i;
+        row.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(i));
+      });
+      row.addEventListener('dragend', function () {
+        app.dragSetpoint = null; renderProperties();
+      });
+      row.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        row.classList.add('drop-target');
+      });
+      row.addEventListener('dragleave', function () {
+        row.classList.remove('drop-target');
+      });
+      row.addEventListener('drop', function (e) {
+        e.preventDefault();
+        row.classList.remove('drop-target');
+        var from = app.dragSetpoint;
+        if (from === null || from === undefined || from === i) return;
+        pushUndo();
+        var keys = opts.map(function (x) { return x.key; });
+        keys.splice(i, 0, keys.splice(from, 1)[0]);
+        c.order = keys;
+        renderProperties(); changed();
+      });
+      listWrap.appendChild(row);
     });
+    host.appendChild(listWrap);
+
+    if (opts.length > 1) {
+      var pr = el('p', 'hint', 'Drag to set priority. ');
+      infoMark(pr, 'The top one is held; the rest are fallbacks. One actuator ' +
+                   'cannot hold two setpoints at once, so if the first cannot ' +
+                   'be reached the next is chased instead.');
+      host.appendChild(pr);
+    }
 
     if (dev) {
       var ab = readoutBox(host, null);

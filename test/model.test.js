@@ -1947,6 +1947,47 @@ section('Control options, in priority order');
     ok('Nothing on: nothing is chased',
        M.controlChoice(t.m, t.pump).length === 0);
   }
+
+  /* THE USER'S ORDER WINS. Which setpoint matters more is an engineering
+   * judgement, so the panel lets it be dragged and stores `control.order`. */
+  {
+    const t = rig({ qRated: 0.002, pdRated: 100e3, equipType: 'source',
+                    tSet: 6, qMax: -50000, dTMax: 8 });
+    M.setControl(t.m, t.pump, t.tgt.id);
+    const c = t.pump.pump.control;
+    c.use = { lwt: true, dt: true };
+
+    ok('By default LWT leads', M.controlChoice(t.m, t.pump)[0].key === 'lwt');
+    c.order = ['dt', 'lwt'];
+    const ch = M.controlChoice(t.m, t.pump);
+    ok('Dragged the other way, ΔT leads',
+       ch[0].key === 'dt' && ch[1].key === 'lwt',
+       JSON.stringify(ch.map(x => x.key)));
+    ok('...and the panel list agrees with the engine',
+       JSON.stringify(M.controlOrdered(t.m, t.pump).map(x => x.key)) ===
+       JSON.stringify(['dt', 'lwt']));
+
+    /* A stored order that does not mention everything must not DROP the rest —
+     * a machine can grow a setpoint after the order was saved. */
+    c.order = ['dt'];
+    const ch2 = M.controlChoice(t.m, t.pump);
+    ok('An unlisted option keeps its place after the listed ones',
+       ch2.length === 2 && ch2[0].key === 'dt' && ch2[1].key === 'lwt',
+       JSON.stringify(ch2.map(x => x.key)));
+
+    /* And the toggles still filter, independently of the order. */
+    c.order = ['dt', 'lwt'];
+    c.use = { lwt: true };
+    const ch3 = M.controlChoice(t.m, t.pump);
+    ok('Order and toggles are independent',
+       ch3.length === 1 && ch3[0].key === 'lwt',
+       JSON.stringify(ch3.map(x => x.key)));
+
+    /* controlOrdered ignores the toggles — the panel must list what is
+     * available, not only what is switched on. */
+    ok('The panel list is not filtered by the toggles',
+       M.controlOrdered(t.m, t.pump).length === 2);
+  }
 }
 
 /* --------------------------------------------------------------------------
