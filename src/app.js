@@ -852,12 +852,17 @@
         var sys = (simulating && !off && FD.network.systemCurve)
           ? FD.network.systemCurve(m, p.id) : null;
 
-        var qMax = Math.max(FD.pumps.maxFlow(c) || 0, qNow * 1.15);
+        /* CUT OFF AT 200% OF DESIGN FLOW (Michael, 2026-08-04). The axis used
+         * to run to wherever the curve reached zero head, which is 200% exactly
+         * for the single-point assumption but wanders with a FITTED curve — his
+         * own runs to 224%. Nobody selects a pump on what it does past twice
+         * duty, and letting the axis follow the fit made two pumps on the same
+         * sheet unreadable against each other. */
+        var qMax = (c.Qd > 0) ? c.Qd * 2 : (FD.pumps.maxFlow(c) || 0);
         var hMax = FD.pumps.head(c, 0) || 1;
         if (sys) {
           sys.forEach(function (pt) {
-            if (pt.q > qMax) qMax = pt.q;
-            if (pt.h > hMax) hMax = pt.h;
+            if (pt.q <= qMax && pt.h > hMax) hMax = pt.h;
           });
         }
         if (!(qMax > 0) || !(hMax > 0)) return;
@@ -924,15 +929,16 @@
         }
 
         // --- the system curve, red
-        if (sys) {
+        var shown = sys ? sys.filter(function (pt) { return pt.q <= qMax; }) : null;
+        if (shown && shown.length >= 2) {
           svg.appendChild(svgEl('polyline', {
-            points: sys.map(function (pt) {
+            points: shown.map(function (pt) {
               return X(pt.q).toFixed(1) + ',' + Y(pt.h).toFixed(1);
             }).join(' '),
             fill: 'none', stroke: 'var(--error)', 'stroke-width': 2, opacity: .9
           }));
-          var sl = svgEl('text', { x: X(sys[sys.length - 1].q) - 4,
-                                   y: Y(sys[sys.length - 1].h) - 6,
+          var end = shown[shown.length - 1];
+          var sl = svgEl('text', { x: X(end.q) - 4, y: Y(end.h) - 6,
                                    'font-size': 10, fill: 'var(--error)', 'text-anchor': 'end' });
           sl.textContent = 'system';
           svg.appendChild(sl);
@@ -958,16 +964,17 @@
                        'by solving the network at a range of pump speeds. In ' +
                        'DESIGN the demands impose the flow, so there is nothing ' +
                        'to trace.');
-        } else if (!sys) {
+        } else if (!shown || shown.length < 2) {
           infoMark(ch, 'No system curve: the network did not settle at enough ' +
-                       'distinct flows to trace one.');
+                       'distinct flows below 200% of duty to trace one.');
         }
         secCurve.appendChild(ch);
         secCurve.appendChild(svg);
       });
 
       var key = el('p', 'hint',
-        'Solid: rated curve. Dotted: 90–50% speed. Red: system curve. ');
+        'Solid: rated curve. Dotted: 90–50% speed. Red: system curve. ' +
+        'Plotted to 200% of duty flow. ');
       infoMark(key, 'The system curve is SOLVED, not assumed — each point is a ' +
                     'real solve of the network. The parabola through the origin ' +
                     'that usually gets drawn is only right with no static lift, ' +
@@ -1863,6 +1870,7 @@
     if (p.kind === 'pump') { renderPumpProps(host, p); return; }
     if (p.kind === 'valve') { renderValveProps(host, p); return; }
     if (p.kind === 'equip') { renderEquipProps(host, p); return; }
+    if (p.kind === 'sensor') { renderSensorProps(host, p); return; }
     host.appendChild(el('h3', '', 'Pipe ' + p.id));
 
     // schedule
@@ -2035,6 +2043,105 @@
 
   /* Spec §8.3 — an in-line device with a rated flow and pressure drop.
    * ΔP scales as (Q/Q_rated)². */
+  /* PIPE SENSOR — an instrument, and the panel says so by what it does NOT
+   * offer: no design point, no duty, no in-service switch. It states one
+   * setpoint and nothing else.
+   *
+   * Michael, 2026-08-04. The case is thermostatic mixing: put a sensor
+   * downstream of a blend, set the temperature you want, and Control-link a
+   * valve or a pump to it. */
+  function renderSensorProps(host, p) {
+    var m = app.model, d = m.settings.display;
+    if (!p.sensor) p.sensor = { mode: 'temperature', tSet: 45 };
+    var sn = p.sensor;
+    host.appendChild(el('h3', '', 'Sensor ' + p.id));
+    tagField(host, p);
+
+    var modeSel = el('select');
+    [['temperature', 'Temperature'], ['flow', 'Flow']].forEach(function (o) {
+      var opt = el('option', '', o[1]); opt.value = o[0];
+      if (o[0] === sn.mode) opt.selected = true;
+      modeSel.appendChild(opt);
+    });
+    field(host, 'Measures', modeSel).addEventListener('change', function () {
+      pushUndo(); sn.mode = modeSel.value; renderProperties(); changed();
+    });
+
+    if (sn.mode === 'flow') {
+      var qIn = el('input'); qIn.type = 'text';
+      qIn.value = sn.qSet ? FD.units.fmtFlow(sn.qSet, d.flow) : '';
+      field(host, 'Flow setpoint (' + d.flow + ')', qIn)
+        .addEventListener('change', function () {
+          var v = FD.units.parse(qIn.value);
+          pushUndo();
+          sn.qSet = (isFinite(v) && v > 0) ? FD.units.toSIFlow(v, d.flow) : undefined;
+          renderProperties(); changed();
+        });
+    } else {
+      var tIn = el('input'); tIn.type = 'text';
+      tIn.value = (sn.tSet === undefined || sn.tSet === null) ? '' : sn.tSet;
+      field(host, 'Temperature setpoint (°C)', tIn)
+        .addEventListener('change', function () {
+          var v = FD.units.parse(tIn.value);
+          pushUndo();
+          sn.tSet = isFinite(v) ? v : undefined;
+          renderProperties(); changed();
+        });
+    }
+
+    var hint = el('p', 'hint', 'Link a pump or globe valve to it with Control. ');
+    infoMark(hint, 'The sensor states a setpoint; the linked device modulates ' +
+                   'to hold it. Nothing happens without a link, and the ' +
+                   'modulation runs in SIMULATION only.');
+    host.appendChild(hint);
+
+    /* Who is following it, and what they settled at. A setpoint with nothing
+     * wired to it is the failure this panel has to make visible. */
+    var followers = m.pipes.filter(function (q) {
+      var c = M.controlOf(q);
+      return c && c.equip === p.id;
+    });
+    var box = readoutBox(host, 'Actual');
+    var res = app.results;
+    var tl = res && res.thermal && res.thermal.links[p.id];
+    if (sn.mode === 'flow') {
+      var qa = res && res.flow ? res.flow[p.id] : undefined;
+      box.ro('Flow', qa === undefined ? '—'
+             : FD.units.fmtFlow(Math.abs(qa), d.flow, true));
+    } else {
+      box.ro('Temperature', tl && isFinite(tl.tIn) ? tl.tIn.toFixed(2) + ' °C' : '—');
+    }
+    if (!followers.length) {
+      box.ro('Controlled by', 'nothing');
+    } else {
+      followers.forEach(function (q) {
+        var dev = res && res.controls
+          ? res.controls.devices.filter(function (x) { return x.pipe === q.id; })[0] : null;
+        box.ro(q.tag || q.id, dev
+          ? (dev.quantity === 'speed'
+              ? Math.round(dev.value * 100) + '% speed'
+              : Math.round(dev.value * 100) + '% open') +
+            (dev.state === 'at-min' ? ' (at minimum)'
+             : dev.state === 'at-max' ? ' (at maximum)'
+             : dev.state === 'unsettled' ? ' (not holding)' : '')
+          : 'linked');
+      });
+    }
+
+    displayChecks(host, p, [
+      { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
+      { key: 'temp', label: 'Temperature' },
+      { key: 'setpoint', label: 'Setpoint' }
+    ]);
+
+    var del = el('button', 'btn danger', 'Remove sensor');
+    del.addEventListener('click', function () {
+      pushUndo(); p.kind = 'pipe'; delete p.sensor;
+      changed(); renderProperties();
+    });
+    host.appendChild(del);
+  }
+
   function renderEquipProps(host, p) {
     var m = app.model, d = m.settings.display;
     host.appendChild(el('h3', '', 'Equipment ' + p.id));
@@ -2624,7 +2731,8 @@
    * engine reads a→b. */
   function flipField(host, p) {
     var kindName = p.kind === 'pump' ? 'Pump'
-                 : p.kind === 'equip' ? 'Equipment' : 'Valve';
+                 : p.kind === 'equip' ? 'Equipment'
+                 : p.kind === 'sensor' ? 'Sensor' : 'Valve';
     var wrap = el('div', 'field');
     wrap.appendChild(el('label', '', 'Direction'));
     var box = el('div', 'btn-row');
@@ -4097,6 +4205,19 @@
       function (v) { pushUndo(); m.settings.warn.velocity = v; redrawAll(); }, '(m/s)');
     numField(wg, 'Max friction rate', m.settings.warn.pdm,
       function (v) { pushUndo(); m.settings.warn.pdm = v; redrawAll(); }, '(Pa/m)');
+    numField(wg, 'Equipment flow ratio', m.settings.warn.equipFlowRatio,
+      function (v) { pushUndo(); m.settings.warn.equipFlowRatio = v; redrawAll(); },
+      '(×rated)');
+    numField(wg, 'Max component pressure', (m.settings.warn.maxComponentPD || 0) / 1000,
+      function (v) {
+        pushUndo(); m.settings.warn.maxComponentPD = v * 1000; redrawAll();
+      }, '(kPa)');
+    var pl = el('p', 'hint',
+      'Past the pressure limit the answer is an ERROR, not a warning. ');
+    infoMark(pl, 'The solve is exact — but a component at 1252 bar describes a ' +
+                 'system nobody will build, and the usual cause is equipment ' +
+                 'carrying far more than its rated flow. 0 disables it.');
+    host.appendChild(pl);
 
     switchRow(host, 'Warn on laminar / transitional flow',
               m.settings.warn.laminar !== false, function (on) {

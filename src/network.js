@@ -768,6 +768,14 @@
     res.warnings = res.warnings.concat(supplyWarnings(m, net, res));
     res.warnings = res.warnings.concat(equipRatingWarnings(m, res));
 
+    /* A pressure nothing will ever be built to is an ERROR, not a warning —
+     * the thermal runaway guard's reasoning, applied to pressure. */
+    var implausible = pressurePlausibility(m, net, res);
+    if (implausible.length) {
+      res.errors = (res.errors || []).concat(implausible);
+      res.converged = false;
+    }
+
     /* Disconnection is checked on every solve, not just on demand. The model
      * that prompted this returned zero flow with converged:true and no errors —
      * the worst possible failure, because it looks like an answer. */
@@ -1249,24 +1257,30 @@
     m.pipes.forEach(function (p) {
       var c = M.controlOf(p);
       if (!c) return;
-      var eq = M.pipe(m, c.equip);
-      if (!eq || eq.kind !== 'equip' || !eq.equip || eq.equip.off) return;
+      var tgtPipe = M.pipe(m, c.equip);
+      if (!tgtPipe) return;
       var act = actuatorFor(m, p);
       if (!act) return;
-      var set = Number(eq.equip.tSet);
-      if (!isFinite(set)) {
-        /* A heat exchanger states a LOAD, not a leaving temperature (§18), so
-         * there is no setpoint to hold and nothing to modulate towards. Said
-         * out loud, because a drawn control link that does nothing is exactly
-         * the surprise the link was added to avoid. */
+      /* The target may be a SOURCE/SINK's leaving temperature or a PIPE
+       * SENSOR's setpoint, and the sensor may be holding a temperature or a
+       * flow. `M.controlTarget` is the one place that knows the difference. */
+      var tgt = M.controlTarget(m, c.equip);
+      if (!tgt) {
+        /* A heat exchanger states a LOAD, not a leaving temperature (§18), and
+         * a sensor with an empty setpoint states nothing. Either way there is
+         * nothing to modulate towards, and it is said out loud — a drawn
+         * control link that quietly does nothing is exactly the surprise the
+         * link was added to avoid. */
         warnings.push({
-          code: 'CONTROL_NO_SETPOINT', pipe: p.id, equip: eq.id,
-          message: (p.tag || p.id) + ' is linked to ' + (eq.tag || eq.id) +
-                   ', which states no setpoint, so it has nothing to control to.'
+          code: 'CONTROL_NO_SETPOINT', pipe: p.id, equip: tgtPipe.id,
+          message: (p.tag || p.id) + ' is linked to ' +
+                   (tgtPipe.tag || tgtPipe.id) + ', which states no setpoint, ' +
+                   'so it has nothing to control to.'
         });
         return;
       }
-      pairs.push({ act: act, equip: eq, target: set, result: null });
+      pairs.push({ act: act, equip: tgtPipe, target: tgt.value,
+                   mode: tgt.mode, result: null });
     });
     if (!pairs.length) {
       return { acted: false, core: core, report: null, warnings: warnings };
@@ -1301,10 +1315,21 @@
       c.thermal = FD.thermal.solve(m, c.res);
       return c;
     }
-    function errorOf(c, pair) {
+    /* What the controller is looking at. A temperature comes out of the thermal
+     * pass; a flow comes straight off the solve and needs no thermal result at
+     * all, which is why a flow-setpoint sensor works in a model with no
+     * temperatures in it. */
+    function measure(c, pair) {
+      if (pair.mode === 'flow') {
+        var q = c.res && c.res.flow ? c.res.flow[pair.equip.id] : undefined;
+        return (q === undefined || !isFinite(q)) ? null : Math.abs(q);
+      }
       var l = c.thermal && c.thermal.links && c.thermal.links[pair.equip.id];
-      if (!l || !isFinite(l.tOut)) return null;
-      return l.tOut - pair.target;
+      return (!l || !isFinite(l.tOut)) ? null : l.tOut;
+    }
+    function errorOf(c, pair) {
+      var v = measure(c, pair);
+      return v === null ? null : v - pair.target;
     }
     function quantise(act, x) {
       var q = Math.round(x / act.step) * act.step;
@@ -1326,22 +1351,74 @@
       if (!cur.thermal) cur.thermal = FD.thermal.solve(m, cur.res);
     }
 
+    /* The DEADBAND, per target. On a temperature it is an absolute number of
+     * kelvin. On a FLOW it has to be relative: 0.05 of anything is meaningless
+     * without a unit, and 0.05 m³/s is 50 L/s. Half a percent of setpoint,
+     * floored at 0.01 L/s — tighter than any real flow meter. */
+    function tolFor(pair) {
+      if (pair.mode === 'flow') return Math.max(1e-5, Math.abs(pair.target) * 0.005);
+      return tol;
+    }
+
+    /* "MEETS THE SETPOINT", generalised over the two shapes of error.
+     *
+     * A SOURCE/SINK holds its setpoint EXACTLY once it is no longer limited, so
+     * its error is a step: non-zero above some speed and identically zero
+     * below. A SENSOR is continuous — the mixed temperature at a tee slides
+     * smoothly with the valve — so its error CROSSES zero rather than reaching
+     * it, and a "== 0" test would never fire.
+     *
+     * One predicate covers both: arrived, or gone past. The bisection that
+     * follows then converges on the boundary in the first case and on the root
+     * in the second, without knowing which it is looking at. */
+    function metBy(e, e0, pair) {
+      if (e === null) return false;
+      var eps = pair.mode === 'flow' ? 1e-9 : 1e-7;
+      if (Math.abs(e) <= eps) return true;
+      return (e > 0) !== (e0 > 0);          // crossed
+    }
+
     /* Settle ONE device, holding every other where it is. */
     function seek(pair) {
       var act = pair.act;
+      /* The deadband can never be finer than the ACTUATOR can resolve. A globe
+       * valve is set in whole percent, so a mixed temperature lands on a grid
+       * about a tenth of a kelvin apart; asking for 0.05 K then means the
+       * device is never "on setpoint", and the next sweep hunts again from a
+       * position that was already the best available. `floorErr` is what a
+       * bracketed search actually achieved, discovered rather than assumed. */
+      var band = Math.max(tolFor(pair), pair.floorErr || 0);
       var x0 = act.get();
       var e0 = errorOf(cur, pair);
       if (e0 === null) return { state: 'no-flow', x: x0, error: null, moved: false };
-      if (Math.abs(e0) <= tol) return { state: 'on', x: x0, error: e0, moved: false };
+      if (Math.abs(e0) <= band) return { state: 'on', x: x0, error: e0, moved: false };
 
       // --- does backing off help? The sign question, answered not assumed.
       var probe = quantise(act, x0 - Math.max(act.step, 0.05));
       if (!(probe < x0 - 1e-12)) {
         return { state: 'at-min', x: x0, error: e0, moved: false };
       }
+      /* Keep the BEST point seen anywhere in this search, not merely the last
+       * one. An actuator has a finite resolution — a globe valve is set in
+       * whole percent — so the setpoint usually falls BETWEEN two positions,
+       * and the honest answer is whichever of them sits closest to it. Ties go
+       * to the higher setting, which is where a source/sink's flat-zero error
+       * puts the boundary. */
+      var best = { x: x0, e: e0, c: cur };
+      var bracketed = false;
+      function record(x, e, c) {
+        if (e === null) return;
+        if (metBy(e, e0, pair)) bracketed = true;
+        var d = Math.abs(e) - Math.abs(best.e);
+        if (d < -1e-12 || (Math.abs(d) <= 1e-12 && x > best.x)) {
+          best = { x: x, e: e, c: c };
+        }
+      }
+
       act.set(probe);
       var trial = evaluate();
       var e1 = errorOf(trial, pair);
+      record(probe, e1, trial);
       if (e1 === null || !(Math.abs(e1) < Math.abs(e0) - 1e-12)) {
         /* No better. Put it back — and note that `cur` is still the answer at
          * x0, so restoring the model costs nothing to re-solve. */
@@ -1353,12 +1430,12 @@
       var xPrev = x0, ePrev = e0, x = probe, e = e1, c = trial;
       var met = null, guard = 0;
       while (guard++ < 14 && solves < MAX_SOLVES) {
-        if (Math.abs(e) <= EPS) { met = x; cur = c; break; }
+        if (metBy(e, e0, pair)) { met = x; cur = c; break; }
         if (x <= act.min + 1e-12) {
           cur = c;
           /* On the floor. Inside the deadband is still "holding setpoint" —
            * it just cannot be held any more tightly than this. */
-          return { state: Math.abs(e) <= tol ? 'on' : 'at-min',
+          return { state: Math.abs(e) <= band ? 'on' : 'at-min',
                    x: x, error: e, moved: true };
         }
         var den = e - ePrev, nx;
@@ -1371,32 +1448,43 @@
         act.set(x);
         c = evaluate();
         e = errorOf(c, pair);
+        record(x, e, c);
         if (e === null) { cur = c; return { state: 'no-flow', x: x, error: null, moved: true }; }
       }
       if (met === null) {
         cur = c;
-        return { state: Math.abs(e) <= tol ? 'on' : 'unsettled',
+        return { state: Math.abs(e) <= band ? 'on' : 'unsettled',
                  x: x, error: e, moved: true };
       }
 
-      /* --- the answer is the HIGHEST setting that still meets the setpoint.
-       * Everything below `met` meets it too — a source/sink that is no longer
-       * limited holds its setpoint at any lower flow — but a controller comes
-       * to rest where it stops seeing an error, which is the boundary. */
-      var a = met, b = xPrev, best = cur;      // a meets it, b does not
+      /* --- narrow the bracket to the actuator's own resolution.
+       *
+       * `a` meets the setpoint and `b` does not. For a SOURCE/SINK everything
+       * below `a` meets it too, so the answer is the boundary — the highest
+       * setting that still does, which is where a controller stops seeing an
+       * error. For a SENSOR the two ends straddle a genuine root and the answer
+       * is whichever end is closer, which `record` is already tracking. */
+      var a = met, b = xPrev;
       while (b - a > act.step + 1e-12 && solves < MAX_SOLVES) {
         var mid = quantise(act, (a + b) / 2);
         if (!(mid > a + 1e-12) || !(mid < b - 1e-12)) break;
         act.set(mid);
         var mc = evaluate();
         var me = errorOf(mc, pair);
-        if (me !== null && Math.abs(me) <= EPS) { a = mid; best = mc; }
-        else b = mid;
+        record(mid, me, mc);
+        if (metBy(me, e0, pair)) { a = mid; } else { b = mid; }
       }
-      act.set(a);
-      cur = best;
-      return { state: 'on', x: a, error: errorOf(best, pair),
-               moved: Math.abs(a - x0) > 1e-9 };
+      act.set(best.x);
+      cur = best.c;
+      /* BRACKETED means the search straddled the setpoint: the controller is
+       * doing everything it can, and any residual is the actuator's resolution
+       * rather than a failure to control. A globe valve set in whole percent
+       * cannot land a mixed temperature more finely than about a tenth of a
+       * kelvin, and demanding more would report a working control as broken. */
+      if (bracketed) pair.floorErr = Math.abs(best.e) * 1.0001;
+      return { state: (Math.abs(best.e) <= band || bracketed) ? 'on' : 'unsettled',
+               x: best.x, error: best.e,
+               moved: Math.abs(best.x - x0) > 1e-9 };
     }
 
     /* Several controllers are settled in turn and the sweep repeated, because
@@ -1423,33 +1511,47 @@
 
     var devices = pairs.map(function (pair) {
       var r = pair.result || {};
-      var l = cur.thermal && cur.thermal.links && cur.thermal.links[pair.equip.id];
+      var measured = measure(cur, pair);
       var d = {
         pipe: pair.act.pipe.id, tag: pair.act.pipe.tag || null,
         kind: pair.act.kind, quantity: pair.act.quantity,
         equip: pair.equip.id, equipTag: pair.equip.tag || null,
-        target: pair.target,
-        actual: l && isFinite(l.tOut) ? l.tOut : null,
+        target: pair.target, setpointOf: pair.mode,
+        actual: measured,
         error: r.error === undefined ? null : r.error,
         value: pair.act.get(), min: pair.act.min,
         state: r.state || 'on'
       };
       var name = d.tag || d.pipe, eqName = d.equipTag || d.equip;
-      var off = (d.error === null) ? null :
-        Math.abs(d.error).toFixed(1) + ' K ' + (d.error > 0 ? 'above' : 'below');
+      /* The setpoint may be a temperature or a flow, so the units come from
+       * the target rather than being assumed to be kelvin. */
+      var isFlow = (pair.mode === 'flow');
+      var setTxt = isFlow ? (pair.target * 1000).toFixed(2) + ' L/s'
+                          : pair.target.toFixed(1) + ' °C';
+      var off = (d.error === null) ? null
+        : (isFlow ? Math.abs(d.error * 1000).toFixed(2) + ' L/s'
+                  : Math.abs(d.error).toFixed(1) + ' K') +
+          ' ' + (d.error > 0 ? 'above' : 'below');
       if (d.state === 'at-min') {
         warnings.push({
           code: 'CONTROL_AT_LIMIT', pipe: d.pipe, equip: d.equip,
           message: name + ' is at its minimum ' + pair.act.quantity + ' (' +
                    pair.act.label(d.value) + ') and ' + eqName + ' is still ' +
-                   off + ' its ' + pair.target.toFixed(1) + ' °C setpoint.'
+                   off + ' its ' + setTxt + ' setpoint.'
         });
       } else if (d.state === 'at-max') {
         warnings.push({
           code: 'CONTROL_AT_LIMIT', pipe: d.pipe, equip: d.equip,
           message: name + ' is at full ' + pair.act.quantity + ' and ' + eqName +
-                   ' is ' + off + ' its ' + pair.target.toFixed(1) +
-                   ' °C setpoint — backing off would not bring it closer.'
+                   ' is ' + off + ' its ' + setTxt +
+                   ' setpoint — backing off would not bring it closer.'
+        });
+      } else if (d.state === 'unsettled') {
+        warnings.push({
+          code: 'CONTROL_UNSETTLED', pipe: d.pipe, equip: d.equip,
+          message: name + ' could not hold ' + eqName + ' at ' + setTxt +
+                   ' — it came to rest ' + off + ' setpoint. The actuator ' +
+                   'resolution may be the limit, or nothing it can do reaches it.'
         });
       } else if (d.state === 'no-flow') {
         warnings.push({
@@ -1470,6 +1572,80 @@
       warnings: warnings,
       report: { devices: devices, sweeps: sweep, solves: solves, tol: tol }
     };
+  }
+
+  /* -------------------------------------- the pressure plausibility guard
+   *
+   * The same idea as the thermal runaway guard (§18), for the same reason and
+   * with the same teeth: THE SOLVE IS EXACT, BUT A CORRECT ANSWER CAN STILL BE
+   * ABSURD, and reporting it as though it were a result is worse than refusing.
+   *
+   * `debug/20260803-1.json` reported a pump duty of 12 791 m — 1252 bar —
+   * because an AHU rated 0.8 L/s was carrying 20 L/s and dropping 125 000 kPa.
+   * Every step was right. The model said `converged: true` and offered the
+   * number as an answer. v0.11.2 added EQUIP_OFF_RATING beside it, which names
+   * the cause; a warning sitting under a plausible-looking figure is still the
+   * wrong shape of response to a system that cannot exist.
+   *
+   * So it is an ERROR: it clears `converged` and takes the status chip, because
+   * every number downstream of a 1252 bar pump is describing a system nobody
+   * will build. The figures are still reported — the answer is not wrong, it is
+   * implausible, and hiding it would leave nothing to diagnose from.
+   *
+   * The band is ADJUSTABLE and has to be, exactly like the temperature band.
+   * The 2000 kPa default is a judgement, not sourced data: building services
+   * pipework is PN16 with PN25 on tall risers, so a SINGLE component dropping
+   * more than 20 bar is not a building services problem. A fire main or a
+   * high-rise booster set may want it raised, and the field is there for that.
+   */
+  function pressurePlausibility(m, net, res) {
+    var out = [];
+    var lim = (m.settings.warn && m.settings.warn.maxComponentPD);
+    if (!(lim > 0)) return out;
+    var rho = net.rho || 998;
+    var worst = null;
+
+    function consider(pa, what, id) {
+      if (!isFinite(pa) || pa <= lim) return;
+      if (!worst || pa > worst.pa) worst = { pa: pa, what: what, id: id };
+    }
+
+    net.links.forEach(function (l) {
+      if (l._virtual) return;
+      /* A SHUT VALVE IS NOT AN IMPLAUSIBLE SYSTEM. `CLOSED_R` is a numerical
+       * device for "no path through here", not a claim that the valve is
+       * dropping 10^12 metres — a closed isolating valve and a seated check
+       * valve are both deliberate, ordinary model states. Reading the sentinel
+       * as a pressure would refuse every model with a standby leg in it. */
+      if (l.r >= FD.valves.CLOSED_R || l._checkShut) return;
+      var q = res.flow[l.id];
+      if (q === undefined) return;
+      var p = M.pipe(m, l.id);
+      var pa = rho * 9.81 * Math.abs(FD.hydraulics.linkLoss(l, q));
+      consider(pa, (p && (p.tag || p.id)) || l.id, l.id);
+    });
+
+    /* The pump duty as well. Many ordinary components in series can add up to
+     * an impossible pump without any one of them tripping the check. */
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'pump' || !p.pump || p.pump.mode === 'off') return;
+      consider(rho * 9.81 * (p.pump.head || 0), (p.tag || p.id) + ' duty', p.id);
+    });
+
+    if (worst) {
+      out.push({
+        code: 'PRESSURE_IMPLAUSIBLE', pipe: worst.id, pressure: worst.pa,
+        limit: lim,
+        message: worst.what + ' is at ' + (worst.pa / 1000).toFixed(0) + ' kPa (' +
+                 (worst.pa / 1e5).toFixed(1) + ' bar), past the ' +
+                 (lim / 1000).toFixed(0) + ' kPa plausibility limit. The ' +
+                 'arithmetic is right — something in the model is not. Check ' +
+                 'any equipment carrying far more than its rated flow: its ' +
+                 'pressure drop goes as the SQUARE of the ratio. Raise the ' +
+                 'limit on the HYDRAULIC tab if the system really is this high.'
+      });
+    }
+    return out;
   }
 
   /* ------------------------------------------ equipment far off its rating

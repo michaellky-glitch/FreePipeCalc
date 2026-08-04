@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1230
+This is deliberately separate from the automated suites. Those cover 1280
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-04 (v0.11.4)
+Last updated: 2026-08-04 (v0.12.0)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -180,6 +180,7 @@ app cannot source for itself.
 | **TD.2** | Set the outside surface coefficient | 8 W/m²·K is a default, not sourced. On an insulated pipe it is a small part of the resistance; on a **bare** pipe it is the whole of it. |
 | **TD.3** | Set the plausibility band per service | Defaults to ±50 °C, which suits chilled water and **trips on any LTHW system** — the test suite demonstrates this at 80 °C flow. Adjustable on THERMAL. |
 | **TD.4** | Confirm the insulation rule | 25 mm below DN50, 50 mm from DN50 up, per size on the schedule. His rule, so not flagged — but worth confirming it is the one he meant, including that DN50 itself takes 50. |
+| **TD.9** | **Confirm the pump-curve cut-off at 200% of duty flow** | Done as asked. Note it changes what you see on a FITTED curve: yours reached zero head at 224% of duty, so the last 24% is now off the chart. |
 | **TD.8** | **Put a minus sign in front of any cooling capacity in older files** | Capacity is now signed (− removes heat), so a chiller saved with a positive Q max will refuse to cool and say `Capacity (wrong direction)`. Not migrated automatically because the direction cannot be known before a solve — see KNOWN-ISSUES. Your `20260803-1.json` already uses −51 kW, so it is unaffected. |
 | **TD.6** | **Set the VSD minimum speed** (THERMAL ▸ Setpoint control) | Defaults to 25%. Real drives vary — 25–30% is the usual range, but it is a plant decision and the app cannot source it. Sitting on the floor is reported rather than hidden. Minimum valve opening (10%) and the deadband (0.05 K) are on the same panel. |
 | **TD.7** | **Judge whether a controlled pump should also be allowed in DESIGN** | It is SIMULATION-only today, because in DESIGN the demands impose the flows and a controller cannot move them. That reasoning is in `ARCHITECTURE.md` §17C — worth confirming it matches how he would expect to use it. |
@@ -201,6 +202,30 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 4H. PIPE SENSOR — thermostatic mixing (v0.12.0)
+
+Your request. Engine side is 34 new assertions including the mixing hand
+calculation. Driven through the live app on a hot/cold blend and read back.
+**Appearance is unsigned** — no pixels rendered.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| PS.1 | SENSOR button in the COMMAND group | ⬜ | Placing one splits a pipe like PUMP/VALVE/EQUIP do. Tags auto-increment TS-1, TS-2. |
+| PS.2 | Sensor symbol | ⬜ | **The one to judge.** An instrument bubble — hollow circle on a stem, `T` or `F` inside — in amber. Deliberately not the filled green/red ring a pump and chiller share, because it is not plant and has no in-service state. |
+| PS.3 | Panel: Measures (Temperature / Flow), one setpoint, and who is following it | ⬜ | On the live rig it read `Temperature 45.11 °C` and `TMV-1  31% open`. Says "Controlled by: nothing" when no link exists. |
+| PS.4 | Thermostatic mixing works | ⬜ | 60 °C and 10 °C blended, sensor at 45 °C, valve on the cold leg closed to 31% and held it. Hand check: 70% of the mass must arrive hot, and it does. |
+| PS.5 | The residual is one percent of valve travel | ⬜ | 33% open gives 45.106 °C, 34% gives 44.845 °C — 45.000 falls between. The search keeps the closer. **Say if you want finer valve steps**; the 1% grid was your call in v0.10.3. |
+| PS.6 | Flow setpoint, for constant-flow control on a branch | ⬜ | Throttles to the flow asked for within one percent of travel. An unreachable setpoint is reported rather than hunted for. |
+| PS.7 | Does "Pipe Sensor" earn its place as an Equipment vs a Valve? | ⬜ | **Your call.** I made it a device kind of its own rather than an equipment subtype — it has no design point, no duty and no service state, and as equipment it would have leaked into the off-rating check, the terminal list and the duty columns. |
+
+## 4I. PRESSURE PLAUSIBILITY GUARD (v0.12.0)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| PG.1 | `debug/20260803-1.json` now refuses to report | ⬜ | "PMP-1 duty is at 125237 kPa (1252.4 bar), past the 2000 kPa plausibility limit. The arithmetic is right — something in the model is not." Clears `converged` and takes the status chip. |
+| PG.2 | **Is 2000 kPa the right default?** | ⬜ | **Your call.** My reasoning: PN16 pipework, PN25 on tall risers, so a single component past 20 bar is not building services. A fire main may want it raised. Field is on HYDRAULIC ▸ Warning thresholds; 0 disables. |
+| PG.3 | Equipment flow ratio is now editable too | ⬜ | Default 2×. Same panel. |
 
 ## 4G. PUMP CURVE chart on the CALCULATION sheet (v0.11.4)
 

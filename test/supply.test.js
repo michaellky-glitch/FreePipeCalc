@@ -527,4 +527,94 @@ section('Equipment carrying far more than its rating is called out');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * THE PRESSURE PLAUSIBILITY GUARD
+ *
+ * The thermal runaway guard's reasoning, applied to pressure: the solve is
+ * exact, but a correct answer can still be absurd, and reporting 1252 bar as
+ * though it were a result is worse than refusing.
+ *
+ * `debug/20260803-1.json` did exactly that — converged: true, no errors, and a
+ * pump duty of 12 791 m. EQUIP_OFF_RATING named the cause from v0.11.2, but a
+ * warning under a plausible-looking figure is the wrong shape of response to a
+ * system nobody will build.
+ * ----------------------------------------------------------------------- */
+section('A pressure nothing will be built to is an error, not a result');
+{
+  function rig(qRated, limit) {
+    const m = M.create();
+    if (limit !== undefined) m.settings.warn.maxComponentPD = limit;
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const c = M.addNode(m, lv, 2, 0), d = M.addNode(m, lv, 3, 0);
+    M.setSource(m, a.id, 0);
+    d.device = { kind: 'demand', flow: 0.020, reqPressure: 100e3, include: true };
+    const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 10 };
+    const eq = M.addPipe(m, b.id, c.id, { kind: 'equip' });
+    eq.tag = 'AHU-1';
+    eq.equip = { qRated: qRated, pdRated: 200e3, equipType: 'exchanger', duty: 50000 };
+    M.addPipe(m, c.id, d.id, { size: 'DN100', schedule: 'sch40' });
+    return { m, pump, eq, res: NET.solveModel(m) };
+  }
+
+  {
+    const t = rig(0.0008);                       // the debug model's ratio
+    ok('It refuses to report the answer as converged', t.res.converged === false);
+    const e = (t.res.errors || []).filter(x => x.code === 'PRESSURE_IMPLAUSIBLE')[0];
+    ok('PRESSURE_IMPLAUSIBLE is raised', !!e,
+       JSON.stringify((t.res.errors || []).map(x => x.code)));
+    ok('...quoting the pressure in bar as well as kPa',
+       !!e && /bar/.test(e.message), e && e.message);
+    ok('...and saying the arithmetic is right, the model is not',
+       !!e && /arithmetic is right/.test(e.message));
+    ok('The numbers are still reported, not hidden',
+       Math.abs(t.res.flow[t.eq.id]) > 0);
+    ok('EQUIP_OFF_RATING still names the cause beside it',
+       (t.res.warnings || []).some(w => w.code === 'EQUIP_OFF_RATING'));
+  }
+
+  {
+    const t = rig(0.020);                        // correctly rated
+    ok('An ordinary model raises nothing', t.res.converged === true,
+       JSON.stringify(t.res.errors));
+    ok('...and no implausible-pressure error',
+       !(t.res.errors || []).some(x => x.code === 'PRESSURE_IMPLAUSIBLE'));
+  }
+
+  {
+    // The band is adjustable, and it has to be — a fire main runs high.
+    const t = rig(0.0008, 0);
+    ok('Zero disables the guard',
+       !(t.res.errors || []).some(x => x.code === 'PRESSURE_IMPLAUSIBLE'));
+  }
+  {
+    const t = rig(0.020, 50e3);                  // absurdly tight limit
+    ok('A tighter band catches an otherwise ordinary model',
+       (t.res.errors || []).some(x => x.code === 'PRESSURE_IMPLAUSIBLE'));
+  }
+
+  /* A SHUT VALVE IS NOT AN IMPLAUSIBLE SYSTEM. CLOSED_R is a numerical device
+   * for "no path through here", not a claim about a pressure — and a standby
+   * leg behind a closed valve is an ordinary thing to draw. */
+  {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const c = M.addNode(m, lv, 2, 0), d = M.addNode(m, lv, 3, 0);
+    M.setSource(m, a.id, 400e3);
+    d.device = { kind: 'demand', flow: 0.005, reqPressure: 100e3, include: true };
+    M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    const v = M.addPipe(m, b.id, c.id, { kind: 'valve' });
+    v.valve = { type: 'gate', kv: 100, opening: 0 };
+    M.addPipe(m, c.id, d.id, { size: 'DN50', schedule: 'sch40' });
+    const res = NET.solveModel(m);
+    ok('A shut valve does not trip the pressure guard',
+       !(res.errors || []).some(x => x.code === 'PRESSURE_IMPLAUSIBLE'),
+       JSON.stringify((res.errors || []).map(x => x.code)));
+    ok('...and it is still reported as shut',
+       (res.warnings || []).some(w => w.code === 'VALVE_SHUT'));
+  }
+}
+
 report();

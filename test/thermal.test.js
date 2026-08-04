@@ -1143,4 +1143,248 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * PIPE SENSOR — thermostatic mixing  (Michael, 2026-08-04)
+ *
+ * A sensor is an INSTRUMENT: it reads the water where it sits and states a
+ * setpoint for something else to hold. It has no pressure drop of its own and
+ * passes temperature straight through — a thermometer that changed the reading
+ * would not be one.
+ *
+ * THE RIG. Hot at 60 °C and cold at 10 °C meet at a tee; a sensor downstream of
+ * the blend states 45 °C; a globe valve on the COLD leg holds it. Both legs
+ * carry an identical valve so that wide open is symmetric.
+ *
+ * THE HAND CALCULATION. Mixing is mass-weighted, so at the setpoint
+ *
+ *     60·f + 10·(1−f) = 45     ->     50·f = 35     ->     f = 0.7
+ *
+ * SEVENTY PERCENT of the mass must arrive from the hot leg, whatever the total
+ * flow turns out to be and whatever the valve had to do to get there. That
+ * ratio is the assertion; it involves neither the valve nor the pipework.
+ *
+ * THE DIRECTION. Wide open the legs are symmetric, so the blend is 35 °C —
+ * BELOW setpoint. An actuator can only close from fully open, and closing the
+ * COLD leg raises the mix. Put the valve on the hot leg instead and the same
+ * setpoint becomes unreachable, which the app must say rather than hunt for.
+ * ----------------------------------------------------------------------- */
+section('Pipe sensor: thermostatic mixing');
+{
+  /* `on` is which leg carries the controlled valve: 'cold', 'hot' or null. */
+  function blend(opts) {
+    opts = opts || {};
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    m.settings.thermal = { ambient: 20, supplyTemp: 45, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const h = M.addNode(m, lv, 0, 2), c = M.addNode(m, lv, 0, -2);
+    const hv = M.addNode(m, lv, 2, 2), cv = M.addNode(m, lv, 2, -2);
+    const hv2 = M.addNode(m, lv, 3, 2), cv2 = M.addNode(m, lv, 3, -2);
+    const j = M.addNode(m, lv, 5, 0);
+    const s1 = M.addNode(m, lv, 6, 0), s2 = M.addNode(m, lv, 7, 0);
+    const out = M.addNode(m, lv, 10, 0);
+
+    M.setSource(m, h.id, 300e3); h.device.temperature = 60;
+    M.setSource(m, c.id, 300e3); c.device.temperature = 10;
+    out.device = { kind: 'demand', flow: 0.010, reqPressure: 100e3, include: true };
+
+    M.addPipe(m, h.id, hv.id, { size: 'DN50', schedule: 'sch40' });
+    M.addPipe(m, c.id, cv.id, { size: 'DN50', schedule: 'sch40' });
+    const vh = M.addPipe(m, hv.id, hv2.id, { kind: 'valve' });
+    const vc = M.addPipe(m, cv.id, cv2.id, { kind: 'valve' });
+    vh.tag = 'BV-HOT'; vc.tag = 'BV-COLD';
+    vh.valve = { type: 'globe', kv: 30, opening: 100 };
+    vc.valve = { type: 'globe', kv: 30, opening: 100 };
+    const ph = M.addPipe(m, hv2.id, j.id, { size: 'DN50', schedule: 'sch40' });
+    const pc = M.addPipe(m, cv2.id, j.id, { size: 'DN50', schedule: 'sch40' });
+    M.addPipe(m, j.id, s1.id, { size: 'DN50', schedule: 'sch40' });
+    const sensor = M.addPipe(m, s1.id, s2.id, { kind: 'sensor' });
+    sensor.tag = 'TS-1';
+    sensor.sensor = opts.sensor === null ? { mode: 'temperature' }
+                  : (opts.sensor || { mode: 'temperature', tSet: 45 });
+    M.addPipe(m, s2.id, out.id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+
+    if (opts.on === 'cold') M.setControl(m, vc, sensor.id);
+    if (opts.on === 'hot') M.setControl(m, vh, sensor.id);
+    return { m, vh, vc, sensor, ph, pc };
+  }
+
+  // ---- 1. UNCONTROLLED: symmetric legs blend to the mean.
+  {
+    const t = blend({ on: null });
+    const res = NET.solveModel(t.m);
+    ok('Solves', res.converged === true, JSON.stringify(res.errors));
+    const l = res.thermal.links[t.sensor.id];
+    near('Symmetric legs blend 60 and 10 to their mean', l.tIn, 35, 0.05);
+    ok('...which is below the 45 °C setpoint, so there is work to do', l.tIn < 45);
+    ok('Nothing is controlled without a link', res.controls === null);
+    near('A sensor passes temperature straight through', l.tOut, l.tIn, 1e-12);
+    near('...and adds no duty', l.qW, 0, 1e-9);
+  }
+
+  // ---- 2. CONTROLLED: the cold valve closes until the blend is 45 °C.
+  {
+    const t = blend({ on: 'cold' });
+    const res = NET.solveModel(t.m);
+    ok('Solves with the sensor wired up', res.converged === true,
+       JSON.stringify(res.errors));
+    const l = res.thermal.links[t.sensor.id];
+    /* THE ACTUATOR'S RESOLUTION IS THE LIMIT, and it is worth stating exactly.
+     * A globe valve is set in WHOLE PERCENT (Michael, 2026-08-03 — a balancing
+     * valve lands wherever it lands), and on this rig one percent of travel is
+     * worth 0.26 K:
+     *
+     *     34% open -> 44.845 °C        33% open -> 45.106 °C
+     *
+     * 45.000 falls between them, so no valve position holds it exactly and the
+     * honest answer is the closer of the two: 33% is 0.106 K out, 34% is
+     * 0.155 K out. The search settles on 33. */
+    near('The sensor is held at its setpoint', l.tIn, 45, 0.15);
+    ok('...as closely as a whole percent of valve travel allows',
+       Math.abs(l.tIn - 45) < 0.13, l.tIn.toFixed(4) + ' °C');
+
+    ok('The cold valve closed', t.vc.valve.opening < 100,
+       t.vc.valve.opening + '% open');
+    ok('...and the hot valve was left alone', t.vh.valve.opening === 100);
+
+    /* THE HAND CALCULATION: mixing is mass-weighted, so the leg flows and the
+     * mixed temperature are locked together. This identity is exact and holds
+     * whatever the valve settled at. */
+    const qh = Math.abs(res.flow[t.ph.id]), qc = Math.abs(res.flow[t.pc.id]);
+    const f = qh / (qh + qc);
+    near('The mixing law ties the leg flows to the reading exactly',
+         60 * f + 10 * (1 - f), l.tIn, 1e-9);
+    near('...and about seventy percent of the mass arrives hot', f, 0.7, 0.003);
+
+    const rep = res.controls;
+    ok('A control report is produced', !!rep && rep.devices.length === 1);
+    const dv = rep.devices[0];
+    ok('...naming the valve and the sensor',
+       dv.pipe === t.vc.id && dv.equip === t.sensor.id);
+    ok('...and what kind of setpoint it is', dv.setpointOf === 'temperature',
+       dv.setpointOf);
+    ok('...reported as on setpoint', dv.state === 'on', dv.state);
+  }
+
+  // ---- 3. THE DIRECTION IS NOT ASSUMED. On the hot leg, closing cools.
+  {
+    const t = blend({ on: 'hot' });
+    const res = NET.solveModel(t.m);
+    ok('The hot valve stays open', t.vh.valve.opening === 100,
+       t.vh.valve.opening + '%');
+    ok('...reported as at maximum, not hunted for',
+       res.controls.devices[0].state === 'at-max', res.controls.devices[0].state);
+    ok('...with a warning that backing off would not help',
+       res.warnings.some(w => w.code === 'CONTROL_AT_LIMIT' &&
+                              /not bring it closer/.test(w.message)));
+  }
+
+  // ---- 4. The MIRROR: a setpoint BELOW the mean is held by the hot valve.
+  {
+    const t = blend({ on: 'hot', sensor: { mode: 'temperature', tSet: 25 } });
+    const res = NET.solveModel(t.m);
+    const l = res.thermal.links[t.sensor.id];
+    near('A cooler setpoint is held by closing the HOT leg', l.tIn, 25, 0.15);
+    ok('...so the hot valve closed', t.vh.valve.opening < 100,
+       t.vh.valve.opening + '% open');
+    /* 60f + 10(1−f) = 25  ->  50f = 15  ->  f = 0.3 */
+    const qh = Math.abs(res.flow[t.ph.id]), qc = Math.abs(res.flow[t.pc.id]);
+    near('Thirty percent of the mass arrives hot', qh / (qh + qc), 0.3, 0.003);
+  }
+
+  /* ---- 5. A FLOW setpoint, and it needs no temperatures at all.
+   *
+   * Constant-flow control on a branch: source -> valve -> sensor -> outflow,
+   * with the valve throttling until the branch carries what the sensor asks
+   * for. Deliberately a DIFFERENT rig from the blend — on the blend's main the
+   * total is set by the terminal and closing one leg barely moves it, which is
+   * an unreachable setpoint and a separate case (5b). */
+  {
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 2, 0);
+    const c = M.addNode(m, lv, 3, 0), d2 = M.addNode(m, lv, 4, 0);
+    const e = M.addNode(m, lv, 8, 0);
+    M.setSource(m, a.id, 300e3);
+    e.device = { kind: 'demand', flow: 0.010, reqPressure: 100e3, include: true };
+    M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    const v = M.addPipe(m, b.id, c.id, { kind: 'valve' });
+    v.tag = 'FCV-1'; v.valve = { type: 'globe', kv: 30, opening: 100 };
+    const sn = M.addPipe(m, c.id, d2.id, { kind: 'sensor' });
+    sn.tag = 'FS-1'; sn.sensor = { mode: 'flow', qSet: 0.006 };
+    M.addPipe(m, d2.id, e.id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+
+    const wide = NET.solveModel(M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(m)))));
+    M.setControl(m, v, sn.id);
+    const res = NET.solveModel(m);
+    ok('Solves', res.converged === true, JSON.stringify(res.errors));
+
+    const dv = res.controls.devices[0];
+    ok('The setpoint is reported as a flow', dv.setpointOf === 'flow', dv.setpointOf);
+    ok('Wide open the branch carries more than the setpoint',
+       Math.abs(wide.flow[sn.id]) > 0.006,
+       (Math.abs(wide.flow[sn.id]) * 1000).toFixed(2) + ' L/s');
+    /* Within one percent of valve travel, the same limit as the blend above. */
+    near('...and the valve throttles it to the 6 L/s asked for',
+         Math.abs(res.flow[sn.id]), 0.006, 0.006 * 0.015);
+    ok('...having closed to get there', v.valve.opening < 100,
+       v.valve.opening + '% open');
+    ok('...reported as on setpoint', dv.state === 'on', dv.state);
+  }
+
+  /* ---- 5b. A setpoint nothing can reach is SAID, not hunted for. */
+  {
+    const t = blend({ on: 'cold', sensor: { mode: 'flow', qSet: 0.004 } });
+    const res = NET.solveModel(t.m);
+    const dv = res.controls.devices[0];
+    ok('An unreachable flow setpoint is not silently accepted',
+       dv.state !== 'on', dv.state);
+    ok('...and it is reported',
+       res.warnings.some(w => /^CONTROL_/.test(w.code)),
+       JSON.stringify(res.warnings.filter(w => /^CONTROL_/.test(w.code))
+                         .map(w => w.code)));
+  }
+
+  // ---- 6. A sensor with no setpoint controls nothing, and says so.
+  {
+    const t = blend({ on: 'cold', sensor: null });
+    const res = NET.solveModel(t.m);
+    ok('The valve is left wide open', t.vc.valve.opening === 100);
+    ok('CONTROL_NO_SETPOINT is raised',
+       res.warnings.some(w => w.code === 'CONTROL_NO_SETPOINT'),
+       JSON.stringify(res.warnings.map(w => w.code)));
+  }
+
+  // ---- 7. A sensor is hydraulically a piece of pipe, and nothing more.
+  {
+    const t = blend({ on: null });
+    const res = NET.solveModel(t.m);
+    const link = res.network.links.filter(l => l.id === t.sensor.id)[0];
+    ok('It builds as a plain pipe', link.kind === 'pipe', link.kind);
+    const plain = M.create();
+    ok('...with no equipment characteristic on it', link.r !== undefined);
+    /* Its drop is whatever its own length earns and no more: an identical
+     * length of the same pipe must have the same resistance. */
+    const twin = res.network.links.filter(
+      l => l.kind === 'pipe' && l.id !== t.sensor.id &&
+           Math.abs(l._L - link._L) < 1e-9 && Math.abs(l._d - link._d) < 1e-12)[0];
+    ok('...identical to a plain pipe of the same length and bore',
+       !twin || Math.abs(twin.r - link.r) < 1e-9,
+       twin ? `${twin.r} vs ${link.r}` : 'no twin to compare');
+  }
+
+  // ---- 8. DESIGN does not modulate — the flows are imposed there.
+  {
+    const t = blend({ on: 'cold' });
+    t.m.settings.calcMode = 'design';
+    const res = NET.solveModel(t.m);
+    ok('No control report in DESIGN', res.controls === null);
+    ok('...and the valve is untouched', t.vc.valve.opening === 100);
+  }
+}
+
 report();

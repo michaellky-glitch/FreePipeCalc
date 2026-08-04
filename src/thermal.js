@@ -379,7 +379,8 @@
       if (p.kind === 'equip' && p.equip && !p.equip.off) {
         return equipOutlet(p.equip, tIn, c.C).tOut;
       }
-      /* Pumps, valves, isolated equipment: straight through. */
+      /* Pumps, valves, SENSORS, isolated equipment: straight through. A
+       * thermometer that changed the reading would not be one. */
       return tIn;
     }
 
@@ -436,7 +437,7 @@
         /* Load-led with nothing binding: a constant duty. */
         return { a: 1, b: (c.C > 0 ? (Number(eq.duty) || 0) / c.C : 0) };
       }
-      return { a: 1, b: 0 };                              // pump, valve
+      return { a: 1, b: 0 };                         // pump, valve, sensor
     }
 
     /* ---- ACTIVE SET -----------------------------------------------------

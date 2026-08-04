@@ -149,7 +149,7 @@
     var m = this.getModel(), self = this, best = null, bestD = Infinity;
     var rad = this.pxToM(radiusPx === undefined ? 13 : radiusPx);
     m.pipes.forEach(function (p) {
-      if (p.kind !== 'pump' && p.kind !== 'valve' && p.kind !== 'equip') return;
+      if (!IN_LINE[p.kind]) return;
       var a = M.node(m, p.a), b = M.node(m, p.b);
       if (!a || !b || a.level !== m.activeLevel || b.level !== m.activeLevel) return;
       var wa = M.worldXY(m, a), wb = M.worldXY(m, b);
@@ -546,7 +546,7 @@
         var pickHit = self.deviceAt(w.x, w.y) || (self.pipeAt(w.x, w.y) || {}).pipe;
         var src = M.pipe(m0, self.controlPick.pipeId);
         self.controlPick = null;
-        if (pickHit && pickHit.kind === 'equip' && src) {
+        if (pickHit && M.canBeControlled(pickHit) && src) {
           self.onBeforeEdit();
           M.setControl(m0, src, pickHit.id);
           self.onMessage('Control linked to ' + (pickHit.tag || pickHit.id) + '.');
@@ -623,6 +623,7 @@
       if (self.tool === 'pump') { self.pumpClick(w); return; }
       if (self.tool === 'valve') { self.valveClick(w); return; }
       if (self.tool === 'equip') { self.equipClick(w); return; }
+      if (self.tool === 'sensor') { self.sensorClick(w); return; }
       if (self.tool === 'riser') { self.riserClick(w); return; }
 
       /* ALIGN: grab any node and the WHOLE model follows.
@@ -870,7 +871,8 @@
       /* While a device tool is armed, track the pipe it would land in so the
        * canvas can show it. Without this the only feedback that you missed is
        * an error toast after the click. */
-      if (self.tool === 'pump' || self.tool === 'valve' || self.tool === 'equip') {
+      if (self.tool === 'pump' || self.tool === 'valve' || self.tool === 'equip' ||
+          self.tool === 'sensor') {
         var cand = self.pipeAt(w.x, w.y, DEVICE_SNAP_PX);
         var candId = cand && cand.pipe.kind === 'pipe' ? cand.pipe.id : null;
         var candT = cand ? cand.point : null;
@@ -1141,7 +1143,12 @@
    * and in practice that step gets skipped. The number is the next free one for
    * that prefix, so deleting PMP-2 and drawing another gives PMP-2 back rather
    * than climbing forever. */
-  var TAG_PREFIX = { source: 'SRC', demand: 'OF', pump: 'PMP', equip: 'AHU' };
+  var TAG_PREFIX = { source: 'SRC', demand: 'OF', pump: 'PMP', equip: 'AHU',
+                     sensor: 'TS' };
+
+  /* In-line 2-port devices: they sit IN a pipe rather than at a node, are drawn
+   * as a point symbol on a short link, and are hit-tested at their midpoint. */
+  var IN_LINE = { pump: true, valve: true, equip: true, sensor: true };
 
   View.prototype.nextTag = function (kind) {
     var m = this.getModel();
@@ -1232,6 +1239,15 @@
   View.prototype.pumpClick = function (w) {
     var pmp = this.insertInline(w, 'pump', { pump: { mode: 'auto', head: 20, flow: 0 } }, 'pump');
     if (pmp && !pmp.tag) { pmp.tag = this.nextTag('pump'); this.changed(); }
+  };
+
+  /* SENSOR: an instrument dropped into a run. Defaults to a temperature
+   * setpoint, because thermostatic mixing is the case it was asked for. */
+  View.prototype.sensorClick = function (w) {
+    var sn = this.insertInline(w, 'sensor', {
+      sensor: { mode: 'temperature', tSet: 45 }
+    }, 'sensor');
+    if (sn && !sn.tag) { sn.tag = this.nextTag('sensor'); this.changed(); }
   };
 
   View.prototype.equipClick = function (w) {
@@ -1725,7 +1741,7 @@
       return { stroke: ca, mid: mid };
     }
     var g = this.ctx.createLinearGradient(sa.x, sa.y, sb.x, sb.y);
-    if (p.kind === 'pump' || p.kind === 'valve' || p.kind === 'equip') {
+    if (IN_LINE[p.kind]) {
       g.addColorStop(0, ca); g.addColorStop(0.5, ca);
       g.addColorStop(0.5, cb); g.addColorStop(1, cb);
     } else {
@@ -2120,7 +2136,7 @@
        *
        * The symbol is sized in SCREEN pixels, so it stays a point at every
        * zoom rather than growing with the link. */
-      if (p.kind === 'pump' || p.kind === 'valve' || p.kind === 'equip') {
+      if (IN_LINE[p.kind]) {
         if (selIds[p.id]) {
           var msx = (sa.x + sb.x) / 2, msy = (sa.y + sb.y) / 2;
           ctx.strokeStyle = self.theme.select;
@@ -2134,6 +2150,7 @@
 
         if (p.kind === 'pump') self.drawPumpGlyph(p, sa, sb, selIds[p.id], q || 1);
         else if (p.kind === 'valve') self.drawValveGlyph(p, sa, sb, selIds[p.id]);
+        else if (p.kind === 'sensor') self.drawSensorGlyph(p, sa, sb, selIds[p.id]);
         else self.drawEquipGlyph(p, sa, sb, selIds[p.id]);
         return;
       }
@@ -2306,6 +2323,41 @@
 
   /* Equipment glyph: a square box straddling the pipe — a coil, chiller,
    * heat exchanger, anything with a rated flow and pressure drop. */
+  /* SENSOR: an instrument, so it must NOT read as plant.
+   *
+   * A small hollow circle with a stem to the pipe — the instrument bubble every
+   * P&ID uses — rather than the filled ring a pump and a chiller share. It
+   * carries no flow decision and no duty, and the symbol should say so at a
+   * glance: this thing measures, it does not do anything to the water.
+   *
+   * Amber rather than green/red, because green and red are the in-service /
+   * isolated pair on the devices that HAVE a service state. A sensor has none. */
+  View.prototype.drawSensorGlyph = function (p, sa, sb, selected) {
+    var ctx = this.ctx;
+    var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
+    var colour = selected ? this.theme.select : this.theme.warn;
+    var mode = (p.sensor && p.sensor.mode === 'flow') ? 'F' : 'T';
+
+    ctx.save();
+    ctx.translate(mx, my);
+    // stem from the pipe up to the bubble
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -9); ctx.stroke();
+    // the bubble
+    ctx.fillStyle = this.theme.bg;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, -18, 9, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    // T for temperature, F for flow — the quantity it is holding
+    ctx.fillStyle = colour;
+    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(mode, 0, -18);
+    ctx.restore();
+    this.drawTag(p, mx, my);
+  };
+
   View.prototype.drawEquipGlyph = function (p, sa, sb, selected) {
     var ctx = this.ctx;
     var off = !!(p.equip && p.equip.off);
@@ -3085,7 +3137,7 @@
     var q = res.flow[p.id];
     var link = res.network && res.network.links
       ? res.network.links.filter(function (l) { return l.id === p.id; })[0] : null;
-    var device = (p.kind === 'pump' || p.kind === 'valve' || p.kind === 'equip');
+    var device = !!IN_LINE[p.kind];
 
     var out = {
       pipe: p, t: hit.t, point: hit.point, device: device,

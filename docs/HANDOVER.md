@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1230 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1280 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,20 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **THE PIPE SENSOR** (v0.12.0) — a new `kind: 'sensor'`, at Michael's request.
+  An instrument that states a temperature or flow setpoint for a linked pump or
+  globe valve to hold. Thermostatic mixing is the case it was asked for, and
+  constant-flow control on a branch falls out of it. Hydraulically it is a plain
+  pipe and it passes temperature through. The control search had to be
+  generalised: a source/sink's error is a STEP (identically zero once
+  unlimited), a sensor's is CONTINUOUS and crosses zero, so the predicate is
+  now "arrived, or gone past". `ARCHITECTURE.md` §17D.
+* **THE PRESSURE PLAUSIBILITY GUARD** (v0.12.0) — a component ΔP or pump duty
+  past `warn.maxComponentPD` (default 2000 kPa) is an ERROR that clears
+  `converged`, the same way a temperature outside the band is. The 1252 bar
+  answer in `debug/20260803-1.json` was still being offered as a result with
+  only a warning beside it. Shut valves are excluded: `CLOSED_R` is a numerical
+  device, not a pressure.
 * **THE PUMP-CURVE CHART** (v0.11.4) — no longer WIP. One chart per pump, with
   the rated curve solid, the 90–50% speed family dotted, the operating point,
   and the **system curve in red, traced by solving** rather than assumed. Every

@@ -156,8 +156,14 @@
       /* `equipFlowRatio` is how far a piece of equipment may sit from its
        * rated flow before it is called out. Its pressure drop goes as the
        * SQUARE of this, so 2× flow is already 4× the rated drop. */
+      /* `maxComponentPD` is a PLAUSIBILITY band, not a warning threshold: past
+       * it the answer is reported as an ERROR, the same way a temperature
+       * outside thermal.tempMin/tempMax is. 2000 kPa is a judgement — building
+       * services pipework is PN16, PN25 on tall risers, so a single component
+       * dropping more than 20 bar is not a building services problem. A fire
+       * main may want it raised. 0 disables the check. */
       warn: { velocity: 2.4, pdm: 400, laminar: true, pumpRunout: 120,
-              equipFlowRatio: 2 },
+              equipFlowRatio: 2, maxComponentPD: 2000e3 },
       floorToFloor: 3.5,
       grid: { minor: 0.5, major: 5, snap: true },
 
@@ -941,6 +947,67 @@
     return (isFinite(q) && q > 0) ? q : undefined;
   }
 
+  /* ---------------------------------------------------------- pipe sensor
+   *
+   * An INSTRUMENT, not a device. It reads the water where it sits and states a
+   * setpoint for something else to hold. Michael, 2026-08-04, and the case that
+   * drove it is THERMOSTATIC MIXING: the quantity being held is a temperature
+   * downstream of a blend, and the thing holding it is a valve on one leg or a
+   * pump on one branch.
+   *
+   *   sensor = { mode: 'temperature' | 'flow', tSet: °C, qSet: m³/s }
+   *
+   * IT IS A PIPE IN EVERY HYDRAULIC SENSE. It has a length, a bore and ordinary
+   * friction, and adds NO resistance of its own — a pocket welded into a run is
+   * a piece of pipe. That is why `network.build` needs no branch for it: a
+   * sensor falls through to the pipe treatment and gets exactly the friction
+   * its own 0.5 m earns.
+   *
+   * The two rejected alternatives are worth recording. Modelling it as
+   * EQUIPMENT would give it a design point and therefore a pressure drop that
+   * does not exist, and would leak it into everything that treats equipment as
+   * plant — the off-rating check, the terminal list, the duty columns. Modelling
+   * it as a ZERO-RESISTANCE link would put a singular row in the Jacobian for
+   * no benefit at all.
+   *
+   * It carries no temperature either: it passes straight through, like a pump
+   * or a valve (§18). A thermometer that changed the reading would not be one. */
+  function sensorSetpoint(p) {
+    if (!p || p.kind !== 'sensor' || !p.sensor) return null;
+    var sn = p.sensor;
+    if (sn.mode === 'flow') {
+      var q = Number(sn.qSet);
+      return isFinite(q) && q > 0 ? { mode: 'flow', value: q } : null;
+    }
+    var t = Number(sn.tSet);
+    return isFinite(t) ? { mode: 'temperature', value: t } : null;
+  }
+
+  /* What a controller may follow: a source/sink with a leaving-temperature
+   * setpoint, or a sensor with either kind. A heat exchanger states a LOAD and
+   * has no setpoint to hold, which is why it is not in this list. */
+  function controlTarget(m, id) {
+    var p = pipe(m, id);
+    if (!p) return null;
+    if (p.kind === 'sensor') {
+      var sp = sensorSetpoint(p);
+      return sp ? { pipe: p, mode: sp.mode, value: sp.value, kind: 'sensor' } : null;
+    }
+    if (p.kind === 'equip' && p.equip && !p.equip.off &&
+        p.equip.equipType === 'source') {
+      var t = Number(p.equip.tSet);
+      return isFinite(t)
+        ? { pipe: p, mode: 'temperature', value: t, kind: 'equip' } : null;
+    }
+    return null;
+  }
+
+  function canBeControlled(p) {
+    if (!p) return false;
+    if (p.kind === 'sensor') return true;
+    return p.kind === 'equip' && !!p.equip;
+  }
+
   /* ------------------------------------------------------- control links
    *
    * A pump or globe valve can take its setpoint from a piece of equipment: the
@@ -1057,6 +1124,8 @@
 
   function setControl(m, p, equipId) {
     if (!canControl(p)) return null;
+    /* The target may be a piece of equipment OR a pipe sensor — the link is
+     * "follow this setpoint", and a sensor is the general way to state one. */
     var host = (p.kind === 'pump') ? p.pump : p.valve;
     if (!equipId) { delete host.control; return null; }
     var a = deviceMid(m, p), b = deviceMid(m, pipe(m, equipId));
@@ -1282,6 +1351,8 @@
     setSource: setSource, setDemand: setDemand, clearDevice: clearDevice,
     applyFluidPreset: applyFluidPreset,
     controlOf: controlOf, canControl: canControl, setControl: setControl,
+    sensorSetpoint: sensorSetpoint, controlTarget: controlTarget,
+    canBeControlled: canBeControlled,
     pumpSpeed: pumpSpeed, pumpCurve: pumpCurve,
     pumpSpeedIgnored: pumpSpeedIgnored, pumpHead: pumpHead,
     controlRoute: controlRoute, deviceMid: deviceMid,

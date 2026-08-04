@@ -1176,6 +1176,67 @@ sweeps in practice; still moving after four is `CONTROL_UNSETTLED`.
 A link to a machine that states no setpoint — a heat exchanger states a *load* —
 raises `CONTROL_NO_SETPOINT` rather than doing nothing quietly.
 
+## 17D. The pipe sensor
+
+New in v0.12.0, at Michael's request. An **instrument**, not a device: it reads
+the water where it sits and states a setpoint for something else to hold.
+
+```js
+pipe.kind = 'sensor';
+pipe.sensor = { mode: 'temperature' | 'flow', tSet: °C, qSet: m³/s };
+```
+
+The case that drove it is **thermostatic mixing**: put a sensor downstream of a
+blend, state the temperature you want, and Control-link a valve on one leg to
+it. It also gives constant-flow control on a branch for free, because a flow
+setpoint is the same machinery with a different measured quantity.
+
+**It is a pipe in every hydraulic sense.** It has a length, a bore and ordinary
+friction, and adds nothing of its own — a pocket welded into a run *is* a piece
+of pipe. That is why `network.build()` needs no branch for it: a sensor falls
+through to the pipe treatment and earns exactly the friction its own 0.5 m is
+worth. It passes temperature straight through too, like a pump or a valve — a
+thermometer that changed the reading would not be one.
+
+Two alternatives were rejected and are worth recording. Modelling it as
+**equipment** would give it a design point and therefore a pressure drop that
+does not exist, and would leak it into everything that treats equipment as
+plant: the off-rating check, the terminal list, the duty columns. Modelling it
+as a **zero-resistance link** would put a singular row in the Jacobian for no
+benefit at all.
+
+Drawn as an **instrument bubble** — a small hollow circle on a stem, carrying
+`T` or `F` — in amber. Green and red are the in-service/isolated pair on devices
+that have a service state; a sensor has none, and must not read as plant.
+
+### What it changed in the control loop
+
+`M.controlTarget()` is now the single place that knows what a controller may
+follow: a source/sink's leaving temperature, or a sensor's setpoint of either
+kind. A heat exchanger states a *load* and has no setpoint, which is why it is
+not in that list and raises `CONTROL_NO_SETPOINT`.
+
+**The search had to be generalised, and this is the interesting part.** A
+source/sink holds its setpoint *exactly* once unlimited, so its error is a
+**step** — non-zero above some speed, identically zero below. A sensor is
+**continuous**: the mixed temperature at a tee slides smoothly with the valve,
+so its error *crosses* zero rather than reaching it, and the `== 0` test that
+worked for the step would never fire. One predicate now covers both: *arrived,
+or gone past*. The bisection that follows converges on the boundary in the first
+case and on the root in the second without knowing which it is looking at.
+
+**The deadband learns the actuator's resolution.** A globe valve is set in whole
+percent, so on the test rig one percent of travel is worth 0.26 K:
+
+    34% open → 44.845 °C        33% open → 45.106 °C
+
+45.000 falls between them. No valve position holds it exactly, so the search
+keeps the **best point it found** rather than the last one, and records what it
+achieved as `floorErr` — otherwise the next sweep hunts again from a position
+that was already the best available, and a working control reports as broken.
+The deadband on a flow is relative (half a percent of setpoint, floored at
+0.01 L/s), because 0.05 of a flow is meaningless without a unit.
+
 ## 18. The thermal module
 
 New in v0.10.0. `src/thermal.js` runs AFTER the hydraulic solve and reads its
@@ -1347,6 +1408,28 @@ really can sit anywhere. Reported as `THERMAL_DATUM`, never silent.
 only way to express a sealed circuit, and substituting a default there would
 quietly reinstate the heat exchange the engineer had switched off.
 
+### The pressure plausibility guard
+
+The same idea as the runaway guard below, applied to pressure, and added for
+the same reason: `debug/20260803-1.json` reported a pump duty of **1252 bar**
+with `converged: true` and no errors. Every step of the arithmetic was right —
+an AHU rated 0.8 L/s was carrying 20 L/s and dropping 125 000 kPa, and equipment
+ΔP goes as the square of the flow ratio. `EQUIP_OFF_RATING` (v0.11.2) names the
+cause, but a warning sitting under a plausible-looking figure is the wrong shape
+of response to a system nobody will build.
+
+So a component ΔP or pump duty past `warn.maxComponentPD` is an **error**: it
+clears `converged` and takes the status chip. The figures are still reported —
+the answer is not wrong, it is implausible, and hiding it would leave nothing to
+diagnose from.
+
+The 2000 kPa default is a judgement, not sourced data: building services
+pipework is PN16, PN25 on tall risers, so a *single component* dropping more
+than 20 bar is not a building services problem. Adjustable on the HYDRAULIC tab,
+0 disables it. **A shut valve is excluded** — `CLOSED_R` is a numerical device
+for "no path through here", not a claim about a pressure, and a standby leg
+behind a closed valve is an ordinary thing to draw.
+
 ### The runaway guard
 
 The solve is exact, so nothing runs away numerically — but a correct answer can
@@ -1383,7 +1466,7 @@ sheet**, which is the thing that gets issued.
 
 ## 15. Testing
 
-Seven suites, 1230 assertions, no dependencies:
+Seven suites, 1280 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver
