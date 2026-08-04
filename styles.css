@@ -388,6 +388,10 @@ table.sheet td.dim  { color: var(--text-mute); }
 .slider-row input[type=range] { flex: 1 1 auto; min-width: 40px; width: auto; }
 .tiny-num { width: 4.5em; flex: none; text-align: right; }
 .slider-row .tiny-num { flex: 0 0 4.5em; width: 4.5em; min-width: 4.5em; }
+/* A control link owns the position, so the controls read as unavailable rather
+ * than merely unresponsive. */
+.slider-row.is-disabled { opacity: .5; }
+.slider-row input:disabled { cursor: not-allowed; }
 
 /* A published value that cannot be typed over — a named fluid's properties.
    Reads as a field so the form keeps its shape, but plainly not an input. */

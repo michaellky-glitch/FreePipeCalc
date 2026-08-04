@@ -26,9 +26,14 @@
   /* Resistance coefficients (velocity heads) for a fully open valve, used only
    * to generate a default Kv when the user has not entered one. */
   var TYPES = {
+    /* NAMES vs KEYS. The keys stay 'gate' and 'globe' — they are in every saved
+     * file and in every test — while the NAMES say what the valve is FOR
+     * (Michael, 2026-08-04). An engineer picks a valve by its job, and
+     * "isolation" and "control" are the jobs; the body style is a detail of how
+     * that job gets done. */
     gate: {
       key: 'gate',
-      name: 'Gate valve',
+      name: 'Isolation valve',
       code: 'GV',
       K: 0.15,
       adjustable: true,
@@ -46,7 +51,7 @@
      * caveat as the rest of this file. */
     globe: {
       key: 'globe',
-      name: 'Globe valve',
+      name: 'Control valve',
       code: 'GLV',
       K: 6.0,
       adjustable: true,

@@ -1949,4 +1949,82 @@ section('Control options, in priority order');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * CONTROL VALVE AUTHORITY — a valve throttling near its seat is oversized
+ *
+ * A DIFFERENT sense of the word from the control loop's `no-authority`, which
+ * is about a setpoint the actuator cannot move at all. This one is about having
+ * the movement but spending it all in the wrong part of the travel: near the
+ * seat a small change in position is a large change in Kv, so the loop is
+ * twitchy and the valve wears where it throttles.
+ * ----------------------------------------------------------------------- */
+section('A control valve throttling near its seat is called out');
+{
+  function rig(type, opening, limit) {
+    const m = M.create();
+    if (limit !== undefined) m.settings.warn.valveAuthority = limit;
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const c = M.addNode(m, lv, 2, 0), d = M.addNode(m, lv, 3, 0);
+    M.setSource(m, a.id, 600e3);
+    d.device = { kind: 'demand', flow: 0.004, reqPressure: 100e3, include: true };
+    M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    const v = M.addPipe(m, b.id, c.id, { kind: 'valve' });
+    v.tag = 'CV-01'; v.valve = { type: type, kv: 40, opening: opening };
+    M.addPipe(m, c.id, d.id, { size: 'DN50', schedule: 'sch40' });
+    return { m, v, res: NET.solveModel(m) };
+  }
+
+  {
+    const t = rig('globe', 6);
+    const w = (t.res.warnings || []).filter(x => x.code === 'VALVE_AUTHORITY')[0];
+    ok('VALVE_AUTHORITY is raised at 6% open', !!w,
+       JSON.stringify((t.res.warnings || []).map(x => x.code)));
+    ok('...in Michael\u2019s own words', !!w &&
+       /has insufficient control authority\. Consider reducing size\./.test(w.message),
+       w && w.message);
+    ok('...naming the valve and the position',
+       !!w && /CV-01/.test(w.message) && /6% open/.test(w.message), w && w.message);
+  }
+  {
+    const t = rig('globe', 40);
+    ok('A valve with room to move raises nothing',
+       !(t.res.warnings || []).some(x => x.code === 'VALVE_AUTHORITY'));
+  }
+  {
+    /* AN ISOLATION VALVE IS EXEMPT. It is meant to be shut or open, and a
+     * cracked-open isolating valve is a deliberate act rather than a selection
+     * error. */
+    const t = rig('gate', 6);
+    ok('An isolation valve is not a control valve',
+       !(t.res.warnings || []).some(x => x.code === 'VALVE_AUTHORITY'));
+  }
+  {
+    /* SHUT is not "throttled" — it is off, and VALVE_SHUT already says so. */
+    const t = rig('globe', 0);
+    ok('A shut valve is not an authority problem',
+       !(t.res.warnings || []).some(x => x.code === 'VALVE_AUTHORITY'));
+  }
+  {
+    const t = rig('globe', 15, 25);
+    ok('The threshold is adjustable',
+       (t.res.warnings || []).some(x => x.code === 'VALVE_AUTHORITY'));
+    const t2 = rig('globe', 6, 0);
+    ok('...and 0 disables it',
+       !(t2.res.warnings || []).some(x => x.code === 'VALVE_AUTHORITY'));
+  }
+
+  /* The names changed, the keys did not — every saved file uses the keys. */
+  {
+    ok('Gate valve is now called an Isolation valve',
+       FD.valves.type('gate').name === 'Isolation valve',
+       FD.valves.type('gate').name);
+    ok('Globe valve is now called a Control valve',
+       FD.valves.type('globe').name === 'Control valve',
+       FD.valves.type('globe').name);
+    ok('...and the keys are untouched',
+       FD.valves.type('gate').key === 'gate' && FD.valves.type('globe').key === 'globe');
+  }
+}
+
 report();

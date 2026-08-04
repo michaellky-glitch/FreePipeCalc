@@ -2319,7 +2319,13 @@
     var codeTxt = m.settings.annotate.fitType ? t.code : '';
     var posTxt = t.adjustable ? open + '%' : '';
     var label = [codeTxt, posTxt].filter(Boolean).join(' ');
-    if (label) ctx.fillText(label, mx, my - 15);
+    /* BELOW the glyph, because the space above belongs to the tag. It used to
+     * sit at −15, which is where drawTag puts the tag — and drawTag was never
+     * called here at all, so a valve showed neither its tag nor its flow and PD
+     * value box while every other in-line device did. Michael, 2026-08-04. */
+    if (label) ctx.fillText(label, mx, my + 20);
+
+    this.drawTag(p, mx, my);
   };
 
   /* Equipment glyph: a square box straddling the pipe — a coil, chiller,

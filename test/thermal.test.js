@@ -1437,4 +1437,134 @@ section('Pipe sensor: thermostatic mixing');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * CONTROL AUTHORITY — a setpoint the actuator cannot move is not "held"
+ *
+ * Michael, 2026-08-04, from `debug/20260804-2.json`. A pump linked to a
+ * chiller's Design LWT sat at 100% and never moved. The search was right to do
+ * nothing: an unlimited chiller holds 20 °C at ANY flow, so the error was zero
+ * at every speed. But the pump was not HOLDING that setpoint — it had no say in
+ * it — and the control valve downstream was left to strangle the flow on its
+ * own, bottomed out at 10% open. That is not how a system is commissioned.
+ *
+ * The distinction is AUTHORITY, and it costs one probe: nudge the actuator and
+ * see whether the error moves. If it does not, this setpoint gives no signal,
+ * so fall through to the next one the device was asked to hold.
+ *
+ * THE HAND CALCULATION for the fallback. The coil holds 50 kW, so a chiller
+ * design ΔT of 15 K fixes the flow:
+ *
+ *     q = 50 000 / (15 × 998 × 4187) = 7.9771e-4 m³/s = 0.798 L/s
+ *
+ * which is the coil's own design flow. Chasing design ΔT on the plant lands on
+ * design flow, and the balancing valve does not have to throttle at all.
+ * ----------------------------------------------------------------------- */
+section('Control authority: a setpoint nothing can move is not being held');
+{
+  const RHOCP = 998 * 4187;
+
+  function plantLoop(opts) {
+    opts = opts || {};
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    m.settings.thermal = { ambient: 20, supplyTemp: 20, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 2, 0));
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.tag = 'PMP-1';
+    /* Sized well ABOVE the coil's design flow, as Michael's model is: at full
+     * speed it pushes 1.41 L/s and the chiller sits at 8.5 K, comfortably clear
+     * of its 15 K limit. That gap is the point — it is where LWT is held at any
+     * flow and therefore tells the pump nothing. */
+    pump.pump = { mode: 'fixed', head: 80,
+                  curve: FD.pumps.singlePoint(80, 0.0014) };
+    const coil = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
+    coil.tag = 'AHU-1';
+    coil.equip = { qRated: 0.0008, pdRated: 200e3, equipType: 'exchanger',
+                   duty: 50000 };
+    const ch = M.addPipe(m, n[2].id, n[3].id, { kind: 'equip' });
+    ch.tag = 'ACCH-01';
+    ch.equip = { qRated: 0.0016, pdRated: 200e3, equipType: 'source',
+                 tSet: 20, qMax: -100000, dTMax: 15 };
+    M.addPipe(m, n[3].id, n[4].id, { size: 'DN50', schedule: 'sch40' });
+    M.addPipe(m, n[4].id, n[5].id, { size: 'DN50', schedule: 'sch40' });
+    M.addPipe(m, n[5].id, n[0].id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+    if (opts.link) {
+      M.setControl(m, pump, ch.id);
+      pump.pump.control.use = opts.use || { lwt: true, dt: true };
+    }
+    return { m, pump, coil, ch };
+  }
+
+  // ---- 1. LWT alone: the pump cannot move it, and says so.
+  {
+    const t = plantLoop({ link: true, use: { lwt: true } });
+    const res = NET.solveModel(t.m);
+    const d = res.controls.devices[0];
+    ok('The pump reports no authority over LWT', d.state === 'no-authority',
+       d.state);
+    near('...and stays at full speed', d.value, 1, 1e-12);
+    const w = res.warnings.filter(x => x.code === 'CONTROL_NO_AUTHORITY')[0];
+    ok('CONTROL_NO_AUTHORITY is raised', !!w,
+       JSON.stringify(res.warnings.map(x => x.code)));
+    ok('...and it suggests what the pump CAN hold',
+       !!w && /Design ΔT|design flow/.test(w.message), w && w.message);
+  }
+
+  // ---- 2. LWT then ΔT: it falls through and does the work.
+  {
+    const t = plantLoop({ link: true, use: { lwt: true, dt: true } });
+    const res = NET.solveModel(t.m);
+    const d = res.controls.devices[0];
+    ok('It fell back to the next setpoint', d.fellBack === true);
+    ok('...which is Design ΔT', d.holding === 'Design ΔT', String(d.holding));
+    ok('...and reports as holding it', d.state === 'on', d.state);
+    ok('The pump ramped DOWN', d.value < 1, (d.value * 100).toFixed(0) + '%');
+
+    near('The chiller sits on its design ΔT',
+         Math.abs(res.thermal.links[t.ch.id].dT), 15, 0.06);
+    /* THE hand figure: 50 kW across 15 K is 0.798 L/s, which is the coil's own
+     * design flow — chasing ΔT on the plant lands on design flow. */
+    const qHand = 50000 / (15 * RHOCP);
+    near('...at the flow that implies', Math.abs(res.flow[t.ch.id]), qHand,
+         qHand * 0.01);
+    near('...which is the coil design flow', qHand, 0.0008, 0.0008 * 0.01);
+    ok('No authority warning once it found something it can hold',
+       !res.warnings.some(x => x.code === 'CONTROL_NO_AUTHORITY'));
+  }
+
+  /* ---- 3. AUTHORITY IS NOT ASSUMED AWAY. Where the actuator really is the
+   * reason the setpoint is met, it stays put. Full speed with the chiller
+   * SITTING ON its 15 K limit: nudging the pump moves the reading, so the
+   * probe finds authority and reports it as held rather than falling through. */
+  {
+    const t = plantLoop({ link: true, use: { lwt: true, dt: true } });
+    /* Shrink the pump so full speed already lands on design flow. */
+    t.pump.pump.curve = FD.pumps.singlePoint(28, 0.0008);
+    t.pump.pump.head = 28;
+    const res = NET.solveModel(t.m);
+    const d = res.controls.devices[0];
+    ok('At design flow the pump is genuinely holding something',
+       d.state === 'on', d.state);
+    ok('...without needing to move', d.value > 0.95,
+       (d.value * 100).toFixed(0) + '%');
+    ok('...and nothing is reported as beyond its authority',
+       !res.warnings.some(x => x.code === 'CONTROL_NO_AUTHORITY'));
+  }
+
+  // ---- 4. A device already off full travel is not re-probed.
+  {
+    const t = plantLoop({ link: true, use: { dt: true } });
+    const res = NET.solveModel(t.m);
+    const d = res.controls.devices[0];
+    ok('Chasing ΔT alone works from the start', d.state === 'on', d.state);
+    ok('...having moved off full speed', d.value < 1,
+       (d.value * 100).toFixed(0) + '%');
+    near('...to hold 15 K', Math.abs(res.thermal.links[t.ch.id].dT), 15, 0.06);
+  }
+}
+
 report();

@@ -2491,12 +2491,17 @@
       if (Number(slider.value) === 0) {
         openWrap.appendChild(el('span', 'hint', 'Shut.'));
       }
-      /* A controlled valve's position is an OUTPUT. Say so beside the slider,
-       * or setting it by hand looks like a bug when the next solve moves it. */
+      /* A controlled valve's position is an OUTPUT, so the controls are
+       * DISABLED rather than merely annotated (Michael, 2026-08-04). Leaving
+       * them live invites setting a number the next solve overwrites, which
+       * reads as the app ignoring you. */
       if (M.controlOf(p) && m.settings.calcMode === 'simulation') {
+        slider.disabled = true; box.disabled = true;
+        openRow.classList.add('is-disabled');
         var vh = el('span', 'hint', 'Set by the control link. ');
         infoMark(vh, 'The valve modulates to hold its linked setpoint, so this ' +
-                     'position is written by the solve.');
+                     'position is written by the solve. Clear the control link ' +
+                     'to set it by hand.');
         openWrap.appendChild(vh);
       }
       host.appendChild(openWrap);
@@ -4289,6 +4294,9 @@
     numField(wg, 'Equipment flow ratio', m.settings.warn.equipFlowRatio,
       function (v) { pushUndo(); m.settings.warn.equipFlowRatio = v; redrawAll(); },
       '(×rated)');
+    numField(wg, 'Min control valve opening', m.settings.warn.valveAuthority,
+      function (v) { pushUndo(); m.settings.warn.valveAuthority = v; redrawAll(); },
+      '(%)');
     numField(wg, 'Max component pressure', (m.settings.warn.maxComponentPD || 0) / 1000,
       function (v) {
         pushUndo(); m.settings.warn.maxComponentPD = v * 1000; redrawAll();

@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1332
+This is deliberately separate from the automated suites. Those cover 1361
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-04 (v0.12.2)
+Last updated: 2026-08-04 (v0.12.3)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -202,6 +202,20 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 4K. CONTROL AUTHORITY and valve UX (v0.12.3)
+
+Driven live on `20260804-2.json`.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| CA.1 | The VFD no longer pins at 100% | ✅ | Your file: PMP-1 falls through to Design ΔT, settles at **57%**, chiller at exactly **15.00 K**, GLV-01 back to **100% open**. Flow 0.800 L/s = the coil's design flow. |
+| CA.2 | `CONTROL_NO_AUTHORITY` when nothing else is toggled | ⬜ | "PMP-1 has no authority over ACCH-01's Design LWT: it is held at 20.0 °C whatever PMP-1 does… Hold a setpoint the pump can actually move — Design ΔT or design flow." |
+| CA.3 | **Is falling through the right behaviour?** | ⬜ | **Your call.** With both toggled it silently moves to the second. The alternative is to refuse and make you pick. I chose silent-with-a-`(fallback)`-label in the panel. |
+| CA.4 | Isolation valve / Control valve names | ⬜ | Dropdown reads Isolation valve / Control valve / Check valve. Keys in saved files unchanged. |
+| CA.5 | Opening controls greyed out when controlled | ⬜ | Slider and box `disabled`, row at 50% opacity. Verified live. |
+| CA.6 | `VALVE_AUTHORITY` below 10% open | ⬜ | Your wording exactly. Control valves only; a shut valve and an isolation valve are exempt. Threshold on HYDRAULIC ▸ Warning thresholds. |
+| CA.7 | Valve tag, flow and PD now draw | ⬜ | **Was a real bug** — `drawValveGlyph` never called `drawTag`, so a valve showed neither its tag nor its value box while every other in-line device did. The %-open label moved below the glyph to make room. |
 
 ## 4J. THE HIGH-ΔP FIX and the panel rework (v0.12.1 / v0.12.2)
 

@@ -1176,6 +1176,59 @@ sweeps in practice; still moving after four is `CONTROL_UNSETTLED`.
 A link to a machine that states no setpoint — a heat exchanger states a *load* —
 raises `CONTROL_NO_SETPOINT` rather than doing nothing quietly.
 
+### What a controller follows, and in what order
+
+A machine states more than one thing worth holding, and which one a controller
+chases is an engineering decision (Michael, 2026-08-04):
+
+| Target | First | Then |
+|---|---|---|
+| Source / sink | Design LWT | Design ΔT |
+| Heat exchanger | Design flow | Design ΔT |
+| Sensor | its one setpoint | — |
+
+`M.controlOptions` owns the order; `control.use` holds the toggles, on the
+CONTROLLER rather than the machine, because two pumps following one chiller may
+legitimately hold different things. Absent a stored choice the first option is
+on, and turning the last one off clears the link — a control link with nothing
+to hold is not a state worth having. The panel reads *Monitoring: ACCH-01*, then
+one switch per setpoint, then what it actually settled on, marked `(fallback)`
+when it is not the first.
+
+**A setpoint the actuator cannot move is not being held.** This is the rule that
+makes the priority list work, and it was missing until v0.12.3. A pump linked to
+a chiller's Design LWT sat at 100% and never moved: an unlimited chiller holds
+20 °C at *any* flow, so the error was zero at every speed and the search
+correctly did nothing — while the control valve downstream was left to strangle
+the flow on its own, bottomed out at 10% open. That is not commissioning.
+
+The distinction is **authority**, and it costs one probe: nudge the actuator and
+see whether the error moves. If it does, the setting is genuinely holding the
+setpoint. If it does not, the setpoint gives no signal, so fall through to the
+next toggled option — or raise `CONTROL_NO_AUTHORITY` naming what the device
+*can* hold. The probe runs only at **full travel**: a device already throttled
+plainly has authority, and probing it again misreads the far side of a setpoint,
+where a machine sitting on its own ΔT limit holds the reading flat however much
+further the pump backs off.
+
+On Michael's model the pump falls through to Design ΔT, settles at **57% speed**
+with the chiller at exactly 15.0 K, and the control valve stays **100% open**.
+The flow that implies is `50 kW / (15 K × ρ·Cp) = 0.798 L/s` — the coil's own
+design flow. Chasing design ΔT on the plant lands on design flow, which is why
+the balancing valve does not have to throttle at all.
+
+**"First, then" is a fallback, not a blend.** One actuator cannot hold two
+setpoints at once, and pretending otherwise is how a loop starts oscillating.
+
+### Control valve authority is a different word
+
+`VALVE_AUTHORITY` is about a valve that HAS the movement but spends it all near
+its seat, where a small change in position is a large change in Kv: twitchy to
+control, hard to commission, and wearing where it throttles. Below
+`warn.valveAuthority` (default 10%) it reports *"CV-01 has insufficient control
+authority. Consider reducing size."* Control valves only — an isolation valve is
+meant to be shut or open, and a cracked-open one is a deliberate act.
+
 ## 17D. The pipe sensor
 
 New in v0.12.0, at Michael's request. An **instrument**, not a device: it reads
@@ -1513,7 +1566,7 @@ sheet**, which is the thing that gets issued.
 
 ## 15. Testing
 
-Seven suites, 1327 assertions, no dependencies:
+Seven suites, 1361 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

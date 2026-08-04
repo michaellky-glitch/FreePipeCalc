@@ -767,6 +767,7 @@
     res.warnings = res.warnings.concat(flowRegimeWarnings(m, net, res));
     res.warnings = res.warnings.concat(supplyWarnings(m, net, res));
     res.warnings = res.warnings.concat(equipRatingWarnings(m, res));
+    res.warnings = res.warnings.concat(valveAuthorityWarnings(m, res));
 
     /* A pressure nothing will ever be built to is an ERROR, not a warning —
      * the thermal runaway guard's reasoning, applied to pressure. */
@@ -1428,7 +1429,43 @@
       var x0 = act.get();
       var e0 = errorOf(cur, pair);
       if (e0 === null) return { state: 'no-flow', x: x0, error: null, moved: false };
-      if (Math.abs(e0) <= band) return { state: 'on', x: x0, error: e0, moved: false };
+      if (Math.abs(e0) <= band) {
+        /* ALREADY ON SETPOINT — but is the actuator the reason?
+         *
+         * Michael, 2026-08-04. A pump linked to a chiller's Design LWT sat at
+         * 100% and never moved, because the chiller holds 20 °C at ANY flow:
+         * the error was zero at every speed, so the search correctly did
+         * nothing and the valve downstream was left to strangle the flow on its
+         * own. That is not commissioning, and the pump was not "holding" the
+         * setpoint — it had no say in it.
+         *
+         * The distinction is AUTHORITY, and it is one probe: nudge the actuator
+         * and see whether the error moves. If it does, the setting is genuinely
+         * holding the setpoint and should stay. If it does not, this setpoint
+         * gives the actuator no signal at all — so fall through to the next one
+         * it was asked to hold, or say so.
+         *
+         * This is the same perturbation the direction question uses, asked from
+         * the other side. */
+        /* Only worth asking AT FULL TRAVEL. A device that has already been
+         * throttled plainly has authority — it moved to get here — and probing
+         * it again misreads the far side of the setpoint, where a machine on
+         * its own ΔT limit holds the reading flat however much further the pump
+         * backs off. That flat region is the SETPOINT being met, not the
+         * actuator being ignored. */
+        var aProbe = quantise(act, x0 - Math.max(act.step, 0.05));
+        if (x0 < 1 - 1e-9 || !(aProbe < x0 - 1e-12)) {
+          return { state: 'on', x: x0, error: e0, moved: false };
+        }
+        act.set(aProbe);
+        var aTrial = evaluate();
+        var aErr = errorOf(aTrial, pair);
+        act.set(x0);                       // `cur` is still the answer at x0
+        if (aErr !== null && Math.abs(aErr - e0) > Math.max(1e-9, band * 1e-3)) {
+          return { state: 'on', x: x0, error: e0, moved: false };
+        }
+        return { state: 'no-authority', x: x0, error: e0, moved: false };
+      }
 
       // --- does backing off help? The sign question, answered not assumed.
       var probe = quantise(act, x0 - Math.max(act.step, 0.05));
@@ -1539,7 +1576,7 @@
          * result nobody asked for. Only once per sweep, so a device cannot
          * cycle through its options forever. */
         while ((r.state === 'at-max' || r.state === 'at-min' ||
-                r.state === 'unsettled') &&
+                r.state === 'unsettled' || r.state === 'no-authority') &&
                pair.optIndex + 1 < pair.options.length) {
           pair.optIndex++;
           var nx = pair.options[pair.optIndex];
@@ -1609,6 +1646,16 @@
                    ' — it came to rest ' + off + ' setpoint. The actuator ' +
                    'resolution may be the limit, or nothing it can do reaches it.'
         });
+      } else if (d.state === 'no-authority') {
+        warnings.push({
+          code: 'CONTROL_NO_AUTHORITY', pipe: d.pipe, equip: d.equip,
+          message: name + ' has no authority over ' + eqName + '\u2019s ' +
+                   (pair.label || 'setpoint') + ': it is held at ' + setTxt +
+                   ' whatever ' + name + ' does, so there is nothing to ' +
+                   'modulate towards. Hold a setpoint the ' +
+                   (pair.act.kind === 'pump' ? 'pump' : 'valve') +
+                   ' can actually move \u2014 Design \u0394T or design flow.'
+        });
       } else if (d.state === 'no-flow') {
         warnings.push({
           code: 'CONTROL_NO_FLOW', pipe: d.pipe, equip: d.equip,
@@ -1628,6 +1675,41 @@
       warnings: warnings,
       report: { devices: devices, sweeps: sweep, solves: solves, tol: tol }
     };
+  }
+
+  /* ------------------------------------------- control valve authority
+   *
+   * A control valve doing all its work in the bottom of its travel is the wrong
+   * size. Near the seat a small movement is a large change in Kv, so the loop
+   * is twitchy, the position is hard to commission, and the valve wears where
+   * it throttles. The rule of thumb an engineer applies is "if it is nearly
+   * shut at design, it is too big".
+   *
+   * A DIFFERENT sense of the word from the control loop's `no-authority`, which
+   * is about a setpoint the actuator cannot move at all. This one is about
+   * having the movement but in the wrong part of the travel.
+   *
+   * Applies to control valves only. An isolation valve is meant to be shut or
+   * open, and 5% on one is a deliberate crack rather than a selection error. */
+  function valveAuthorityWarnings(m, res) {
+    var out = [];
+    var lim = (m.settings.warn && m.settings.warn.valveAuthority);
+    if (!(lim > 0)) return out;
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'valve' || !p.valve || p.valve.type !== 'globe') return;
+      var open = Number(p.valve.opening);
+      if (!isFinite(open) || open <= 0) return;          // shut is not "throttled"
+      if (open >= lim) return;
+      var q = res.flow[p.id];
+      if (q === undefined || Math.abs(q) < FD.hydraulics.Q_MIN) return;
+      out.push({
+        code: 'VALVE_AUTHORITY', pipe: p.id, opening: open, limit: lim,
+        message: (p.tag || p.id) + ' has insufficient control authority. ' +
+                 'Consider reducing size. (' + open + '% open, below the ' +
+                 lim + '% limit.)'
+      });
+    });
+    return out;
   }
 
   /* -------------------------------------- the pressure plausibility guard

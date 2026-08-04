@@ -162,8 +162,13 @@
        * services pipework is PN16, PN25 on tall risers, so a single component
        * dropping more than 20 bar is not a building services problem. A fire
        * main may want it raised. 0 disables the check. */
+      /* `valveAuthority` — a CONTROL valve throttling below this much of its
+       * travel is doing all its work near the seat, where a small movement is
+       * a large change in Kv. That is a selection problem, not a setting one:
+       * the valve is too big. Isolation valves are exempt; a cracked-open
+       * isolating valve is a deliberate act. */
       warn: { velocity: 2.4, pdm: 400, laminar: true, pumpRunout: 120,
-              equipFlowRatio: 2, maxComponentPD: 2000e3 },
+              equipFlowRatio: 2, maxComponentPD: 2000e3, valveAuthority: 10 },
       floorToFloor: 3.5,
       grid: { minor: 0.5, major: 5, snap: true },
 
