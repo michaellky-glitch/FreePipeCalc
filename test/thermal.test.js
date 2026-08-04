@@ -779,7 +779,7 @@ section('Source / Sink holds a setpoint until a limit binds');
     near('The difference is capped', l.dT, -8, 1e-9);
     near('...so it leaves at 10 C', l.tOut, 10, 1e-9);
     near('...at a duty of -167.1 kW', l.qW, -8 * C, 1e-6);
-    ok('...reported as the ΔT limit', l.limit === 'ΔT max', String(l.limit));
+    ok('...reported as the ΔT limit', l.limit === 'Design ΔT', String(l.limit));
   }
 
   /* Both set: whichever is tighter wins. At this flow, 8 K is 167 kW, so a
@@ -795,28 +795,57 @@ section('Source / Sink holds a setpoint until a limit binds');
      * only 41.8 kW, well inside its 100 kW. This is why both limits exist. */
     const t = plant({ tSet: 6, qMax: -100000, dTMax: 8 }, flow / 4, 18);
     const l = NET.solveModel(t.m).thermal.links[t.e.id];
-    ok('At a quarter flow the ΔT limit binds instead', l.limit === 'ΔT max',
+    ok('At a quarter flow the ΔT limit binds instead', l.limit === 'Design ΔT',
        String(l.limit));
     near('...at 41.8 kW', l.qW, -8 * C / 4, 1);
   }
 
-  /* T LIMIT — Michael's waterside economizer. Ambient 18 C is the floor it
-   * cannot pass; the setpoint of 25 C is above it, so the setpoint governs and
-   * the limit does nothing. */
+  /* THE T LIMIT IS GONE FROM A SOURCE/SINK  (Michael, 2026-08-04).
+   *
+   * It used to clamp the leaving temperature at a physical bound — wet bulb on
+   * a tower, ambient on an economizer. His instruction is "let the engineer
+   * evaluate": whether a leaving temperature is achievable is a judgement about
+   * the SELECTION, and clamping it silently produced an answer that looked
+   * achieved when the machine could not have done it.
+   *
+   * So the setpoint is now met whatever it asks for, and it is the engineer who
+   * decides that 12 °C off an 18 °C ambient is not a machine anyone can buy.
+   * Capacity and Design ΔT still bind — those are nameplate figures, not
+   * judgements. */
   {
     const t = plant({ tSet: 25, tLimit: 18, qMax: -1e9 }, flow, 30);
     const l = NET.solveModel(t.m).thermal.links[t.e.id];
-    near('It holds the setpoint, which is inside the limit', l.tOut, 25, 1e-9);
-    ok('...so nothing binds', l.limit === null || l.limit === undefined);
+    near('It holds its setpoint', l.tOut, 25, 1e-9);
+    ok('...with nothing binding', l.limit === null || l.limit === undefined);
   }
   {
-    /* Ask the same economizer for 12 C against an 18 C ambient and it cannot:
-     * it gets to 18 and stops. That is the second law, not a control choice. */
     const t = plant({ tSet: 12, tLimit: 18, qMax: -1e9 }, flow, 30);
     const l = NET.solveModel(t.m).thermal.links[t.e.id];
-    near('It cannot pass its physical limit', l.tOut, 18, 1e-9);
-    ok('...and says so', l.limit === 'T limit', String(l.limit));
-    ok('...having still done real work', l.qW < 0);
+    near('A setpoint past the old limit is now simply reached', l.tOut, 12, 1e-9);
+    ok('...and nothing is reported as limiting it',
+       l.limit === null || l.limit === undefined, String(l.limit));
+    ok('...having done the work that implies', l.qW < 0);
+  }
+  {
+    /* An EXCHANGER keeps its T limit: there it is the entering-air temperature
+     * in disguise, which is a stated condition rather than a judgement. */
+    const m2 = M.create();
+    m2.settings.thermal = { ambient: 20, supplyTemp: 30, insulationK: 0.02,
+                            surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m2.levels[0].id;
+    const a = M.addNode(m2, lv, 0, 0), j = M.addNode(m2, lv, 1, 0);
+    const k = M.addNode(m2, lv, 2, 0), b = M.addNode(m2, lv, 3, 0);
+    M.setSource(m2, a.id, 600e3); a.device.temperature = 30;
+    b.device = { kind: 'demand', flow: flow, reqPressure: 100e3, include: true };
+    M.addPipe(m2, a.id, j.id, { size: 'DN50', schedule: 'sch40' });
+    const e2 = M.addPipe(m2, j.id, k.id, { kind: 'equip' });
+    e2.equip = { qRated: flow, pdRated: 20e3, equipType: 'exchanger',
+                 duty: -1e6, tLimit: 18 };
+    M.addPipe(m2, k.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    m2.pipes.forEach(x => { if (x.kind !== 'equip') x.insulation_mm = 0; });
+    const l2 = NET.solveModel(m2).thermal.links[e2.id];
+    near('An exchanger still cannot pass its T limit', l2.tOut, 18, 1e-9);
+    ok('...and still says so', l2.limit === 'T limit', String(l2.limit));
   }
 
   /* THE SIGN OF THE CAPACITY IS A DIRECTION, not decoration.
@@ -868,7 +897,7 @@ section('Source / Sink holds a setpoint until a limit binds');
     near('Heating is capped by the same ΔT limit', l.dT, 15, 1e-9);
     near('...leaving at 75 C', l.tOut, 75, 1e-9);
     ok('...with a positive duty', l.qW > 0);
-    ok('...reported the same way', l.limit === 'ΔT max');
+    ok('...reported the same way', l.limit === 'Design ΔT');
   }
 
   /* The active set settles rather than oscillating — the check-valve lesson.
@@ -900,7 +929,7 @@ section('Source / Sink holds a setpoint until a limit binds');
        !th.warnings.some(w => w.code === 'THERMAL_LIMIT_OSCILLATION'));
     ok('...in a handful of passes', th.iterations <= 5, String(th.iterations));
     ok('The first is capacity-limited', th.links[e1.id].limit === 'Capacity');
-    ok('The second is ΔT-limited', th.links[e2.id].limit === 'ΔT max');
+    ok('The second is ΔT-limited', th.links[e2.id].limit === 'Design ΔT');
     near('...dropping exactly 3 K', th.links[e2.id].dT, -3, 1e-9);
     /* And the two together are still just Q = C.dT, link by link. */
     near('Duty and difference agree on the first',
@@ -1080,7 +1109,7 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
     const r = NET.solveModel(t.m);
     const l = r.thermal.links[t.eq.id];
     near('The machine is pinned 2 K below inlet', l.tOut, 28, 1e-9);
-    ok('...by its ΔT limit', l.limit === 'ΔT max', String(l.limit));
+    ok('...by its ΔT limit', l.limit === 'Design ΔT', String(l.limit));
     ok('The pump stayed at full speed', M.pumpSpeed(t.m, t.pump) === 1,
        String(M.pumpSpeed(t.m, t.pump)));
     ok('...reported as at-max', r.controls.devices[0].state === 'at-max',
@@ -1119,11 +1148,32 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
        t.valve.valve.opening === Math.round(t.valve.valve.opening));
   }
 
-  // ---- 7. A link to a machine with no setpoint controls nothing, and says so.
+  /* ---- 7. A HEAT EXCHANGER offers setpoints of its own (Michael, 2026-08-04):
+   * Design flow first, Design ΔT second. It states a load rather than a leaving
+   * temperature, so "the temperature it holds" was never the question to ask
+   * of it — but "the flow it needs" always was. */
   {
     const t = economizer({ link: 'pump',
                            equip: { equipType: 'exchanger', duty: -100000,
-                                    tSet: undefined } });
+                                    qRated: 0.020, tSet: undefined } });
+    const r = NET.solveModel(t.m);
+    ok('An exchanger is a valid control target', r.controls !== null &&
+       r.controls.devices.length === 1,
+       JSON.stringify(r.warnings.map(w => w.code)));
+    ok('...and the first thing chased is its design flow',
+       r.controls.devices[0].setpointOf === 'flow',
+       r.controls.devices[0].setpointOf);
+    ok('...labelled as such', r.controls.devices[0].holding === 'Design flow',
+       String(r.controls.devices[0].holding));
+    ok('No CONTROL_NO_SETPOINT, because it does state one',
+       !r.warnings.some(w => w.code === 'CONTROL_NO_SETPOINT'));
+  }
+
+  /* ---- 7b. A machine that states NOTHING still says so. */
+  {
+    const t = economizer({ link: 'pump',
+                           equip: { equipType: 'exchanger', duty: 0,
+                                    qRated: 0, tSet: undefined } });
     const r = NET.solveModel(t.m);
     ok('The pump is left at full speed', M.pumpSpeed(t.m, t.pump) === 1);
     ok('CONTROL_NO_SETPOINT is raised',

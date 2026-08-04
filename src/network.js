@@ -1288,10 +1288,12 @@
       if (!tgtPipe) return;
       var act = actuatorFor(m, p);
       if (!act) return;
-      /* The target may be a SOURCE/SINK's leaving temperature or a PIPE
-       * SENSOR's setpoint, and the sensor may be holding a temperature or a
-       * flow. `M.controlTarget` is the one place that knows the difference. */
-      var tgt = M.controlTarget(m, c.equip);
+      /* WHICH setpoints this controller is chasing, in priority order —
+       * Design LWT then Design ΔT on a source/sink, Design flow then Design ΔT
+       * on an exchanger, its one setpoint on a sensor. `M.controlChoice` is the
+       * one place that knows the order and which are toggled on. */
+      var opts = M.controlChoice(m, p);
+      var tgt = opts[0];
       if (!tgt) {
         /* A heat exchanger states a LOAD, not a leaving temperature (§18), and
          * a sensor with an empty setpoint states nothing. Either way there is
@@ -1307,7 +1309,10 @@
         return;
       }
       pairs.push({ act: act, equip: tgtPipe, target: tgt.value,
-                   mode: tgt.mode, result: null });
+                   mode: tgt.mode, label: tgt.label, key: tgt.key,
+                   /* The fallbacks, in order. Chased only if the one above
+                    * turns out to be unreachable. */
+                   options: opts, optIndex: 0, result: null });
     });
     if (!pairs.length) {
       return { acted: false, core: core, report: null, warnings: warnings };
@@ -1352,7 +1357,12 @@
         return (q === undefined || !isFinite(q)) ? null : Math.abs(q);
       }
       var l = c.thermal && c.thermal.links && c.thermal.links[pair.equip.id];
-      return (!l || !isFinite(l.tOut)) ? null : l.tOut;
+      if (!l) return null;
+      /* ΔT is compared as a MAGNITUDE. The sign is the direction the machine
+       * works in, which is inferred rather than chosen (§18), so a design ΔT
+       * of 15 K means 15 K across it either way. */
+      if (pair.mode === 'dT') return isFinite(l.dT) ? Math.abs(l.dT) : null;
+      return isFinite(l.tOut) ? l.tOut : null;
     }
     function errorOf(c, pair) {
       var v = measure(c, pair);
@@ -1384,7 +1394,7 @@
      * floored at 0.01 L/s — tighter than any real flow meter. */
     function tolFor(pair) {
       if (pair.mode === 'flow') return Math.max(1e-5, Math.abs(pair.target) * 0.005);
-      return tol;
+      return tol;                             // kelvin, for a temperature or a ΔT
     }
 
     /* "MEETS THE SETPOINT", generalised over the two shapes of error.
@@ -1523,6 +1533,22 @@
       moving = false; sweep++;
       pairs.forEach(function (pair) {
         var r = seek(pair);
+        /* FALL BACK. "LWT first, then ΔT" is a priority, not a blend: if the
+         * first setpoint cannot be reached — the actuator on a stop, or backing
+         * off making it worse — chase the next one instead of sitting on a
+         * result nobody asked for. Only once per sweep, so a device cannot
+         * cycle through its options forever. */
+        while ((r.state === 'at-max' || r.state === 'at-min' ||
+                r.state === 'unsettled') &&
+               pair.optIndex + 1 < pair.options.length) {
+          pair.optIndex++;
+          var nx = pair.options[pair.optIndex];
+          pair.target = nx.value; pair.mode = nx.mode;
+          pair.label = nx.label; pair.key = nx.key;
+          pair.floorErr = 0;
+          pair.fellBack = true;
+          r = seek(pair);
+        }
         pair.result = r;
         if (r.moved) { moving = true; acted = true; }
       });
@@ -1544,6 +1570,8 @@
         kind: pair.act.kind, quantity: pair.act.quantity,
         equip: pair.equip.id, equipTag: pair.equip.tag || null,
         target: pair.target, setpointOf: pair.mode,
+        holding: pair.label || null, holdingKey: pair.key || null,
+        fellBack: !!pair.fellBack,
         actual: measured,
         error: r.error === undefined ? null : r.error,
         value: pair.act.get(), min: pair.act.min,
@@ -1554,7 +1582,8 @@
        * the target rather than being assumed to be kelvin. */
       var isFlow = (pair.mode === 'flow');
       var setTxt = isFlow ? (pair.target * 1000).toFixed(2) + ' L/s'
-                          : pair.target.toFixed(1) + ' °C';
+                 : pair.mode === 'dT' ? pair.target.toFixed(1) + ' K ΔT'
+                 : pair.target.toFixed(1) + ' °C';
       var off = (d.error === null) ? null
         : (isFlow ? Math.abs(d.error * 1000).toFixed(2) + ' L/s'
                   : Math.abs(d.error).toFixed(1) + ' K') +

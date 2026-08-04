@@ -1794,4 +1794,159 @@ section('Design flow, load and ΔT: the third value follows');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * A SOURCE/SINK'S THREE ARE THE SAME EQUATION  (Michael, 2026-08-04)
+ *
+ * Design flow, Heating/Cooling Capacity and Design ΔT are Q = ṁ·Cp·ΔT, exactly
+ * as on an exchanger — but a source/sink STORES all three (qRated, qMax,
+ * dTMax) because all three are nameplate figures on its panel. Storing them
+ * means they can drift apart, which is what the trio helper prevents: every
+ * edit rewrites the one you touched least recently.
+ *
+ * ρ·Cp = 998 × 4187 = 4 178 626 J/(m³·K), so 60 kW across 20 K is
+ *     60 000 / (20 × 4 178 626) = 7.1795e-4 m³/s = 0.7179 L/s
+ * ----------------------------------------------------------------------- */
+section('Source/sink: flow, capacity and design ΔT move together');
+{
+  const RHOCP = 998 * 4187;
+  function plant() {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const p = M.addPipe(m, a.id, b.id, { kind: 'equip' });
+    p.equip = { qRated: 0.0016, pdRated: 200e3, equipType: 'source',
+                tSet: 20, qMax: -100000, dTMax: 15 };
+    return { m, p, e: p.equip };
+  }
+
+  /* Michael's sequence, on the plant this time. */
+  {
+    const t = plant();
+    M.setEquipTrio(t.m, t.p, 'qRated', 0.0012);
+    near('Flow first: ΔT follows, capacity held', t.e.dTMax,
+         100000 / (0.0012 * RHOCP), 1e-9);
+    near('...which is 19.94 K', t.e.dTMax, 19.9428, 1e-3);
+    ok('...and the capacity kept its sign', t.e.qMax === -100000);
+
+    M.setEquipTrio(t.m, t.p, 'duty', -60000);
+    near('Capacity next: ΔT follows again', t.e.dTMax,
+         60000 / (0.0012 * RHOCP), 1e-9);
+    ok('...flow untouched', t.e.qRated === 0.0012);
+
+    const moved = M.setEquipTrio(t.m, t.p, 'dT', 20);
+    ok('Then ΔT moves the FLOW', moved === 'qRated', String(moved));
+    near('...to 60 kW across 20 K', t.e.qRated, 60000 / (20 * RHOCP), 1e-15);
+    near('...which is 0.7179 L/s', t.e.qRated * 1000, 0.71795, 1e-4);
+    ok('The capacity is still what was last stated', t.e.qMax === -60000);
+    near('...and the stored ΔT is what was typed', t.e.dTMax, 20, 1e-12);
+  }
+
+  /* THE SIGN IS CARRIED, NEVER RECOMPUTED. A chiller that is re-flowed is
+   * still a chiller. */
+  {
+    const t = plant();
+    M.setEquipTrio(t.m, t.p, 'dT', 10);
+    ok('Recomputing the capacity keeps it negative', t.e.qMax < 0,
+       String(t.e.qMax));
+    near('...at the magnitude the flow and ΔT imply',
+         Math.abs(t.e.qMax), 0.0016 * RHOCP * 10, 1);
+
+    const boiler = plant();
+    boiler.e.qMax = 100000;                       // heating
+    M.setEquipTrio(boiler.m, boiler.p, 'dT', 10);
+    ok('...and a boiler stays positive', boiler.e.qMax > 0, String(boiler.e.qMax));
+  }
+
+  /* An EXCHANGER stores only two of the three, and must not grow a dTMax. */
+  {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const p = M.addPipe(m, a.id, b.id, { kind: 'equip' });
+    p.equip = { qRated: 0.020, pdRated: 200e3, equipType: 'exchanger', duty: 50000 };
+    M.setEquipTrio(m, p, 'qRated', 0.010);
+    ok('An exchanger derives ΔT rather than storing it',
+       p.equip.dTMax === undefined, String(p.equip.dTMax));
+    near('...and the derived value is right',
+         M.equipDTFromDuty(m, p, p.equip.duty), 50000 / (0.010 * RHOCP), 1e-12);
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * WHAT A CONTROLLER MAY FOLLOW, and in what order  (Michael, 2026-08-04)
+ * ----------------------------------------------------------------------- */
+section('Control options, in priority order');
+{
+  function rig(equip, kind) {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 5; i++) n.push(M.addNode(m, lv, i, 0));
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 10 };
+    const tgt = M.addPipe(m, n[1].id, n[2].id, { kind: kind || 'equip' });
+    if (kind === 'sensor') tgt.sensor = equip; else tgt.equip = equip;
+    M.addPipe(m, n[2].id, n[3].id, { size: 'DN50', schedule: 'sch40' });
+    return { m, pump, tgt };
+  }
+
+  {
+    const t = rig({ qRated: 0.002, pdRated: 100e3, equipType: 'source',
+                    tSet: 6, qMax: -50000, dTMax: 8 });
+    const o = M.controlOptions(t.m, t.tgt.id);
+    ok('A source/sink offers two', o.length === 2, JSON.stringify(o.map(x => x.key)));
+    ok('...Design LWT first', o[0].key === 'lwt' && o[0].mode === 'temperature');
+    near('...at its setpoint', o[0].value, 6, 1e-12);
+    ok('...then Design ΔT', o[1].key === 'dt' && o[1].mode === 'dT');
+    near('...at its design difference', o[1].value, 8, 1e-12);
+  }
+  {
+    const t = rig({ qRated: 0.004, pdRated: 100e3, equipType: 'exchanger',
+                    duty: 40000 });
+    const o = M.controlOptions(t.m, t.tgt.id);
+    ok('An exchanger offers two as well', o.length === 2,
+       JSON.stringify(o.map(x => x.key)));
+    ok('...Design flow FIRST', o[0].key === 'flow' && o[0].mode === 'flow');
+    near('...at its rated flow', o[0].value, 0.004, 1e-15);
+    ok('...then Design ΔT', o[1].key === 'dt' && o[1].mode === 'dT');
+    near('...derived from the duty', o[1].value,
+         40000 / (0.004 * 998 * 4187), 1e-9);
+  }
+  {
+    const t = rig({ mode: 'flow', qSet: 0.003 }, 'sensor');
+    const o = M.controlOptions(t.m, t.tgt.id);
+    ok('A sensor offers its one setpoint', o.length === 1 && o[0].mode === 'flow');
+  }
+  {
+    const t = rig({ qRated: 0, pdRated: 0, equipType: 'exchanger', duty: 0 });
+    ok('A machine that states nothing offers nothing',
+       M.controlOptions(t.m, t.tgt.id).length === 0);
+  }
+
+  /* The CHOICE: absent a stored one the first option is on, and the toggles
+   * are read in the list's own order so the priority survives. */
+  {
+    const t = rig({ qRated: 0.002, pdRated: 100e3, equipType: 'source',
+                    tSet: 6, qMax: -50000, dTMax: 8 });
+    M.setControl(t.m, t.pump, t.tgt.id);
+    let ch = M.controlChoice(t.m, t.pump);
+    ok('With nothing stored, the first option is chased',
+       ch.length === 1 && ch[0].key === 'lwt', JSON.stringify(ch.map(x => x.key)));
+
+    t.pump.pump.control.use = { lwt: true, dt: true };
+    ch = M.controlChoice(t.m, t.pump);
+    ok('Both on: both are returned, LWT first',
+       ch.length === 2 && ch[0].key === 'lwt' && ch[1].key === 'dt');
+
+    t.pump.pump.control.use = { dt: true };
+    ch = M.controlChoice(t.m, t.pump);
+    ok('Only ΔT on: only ΔT is chased',
+       ch.length === 1 && ch[0].key === 'dt', JSON.stringify(ch.map(x => x.key)));
+
+    t.pump.pump.control.use = {};
+    ok('Nothing on: nothing is chased',
+       M.controlChoice(t.m, t.pump).length === 0);
+  }
+}
+
 report();

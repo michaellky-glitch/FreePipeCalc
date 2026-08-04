@@ -1285,6 +1285,36 @@ the energy balance **69 kW** out. That is not a tolerance to tune — it is the
 wrong method for a linear problem. Solving it also retires "did it converge?",
 which was never a physical question here.
 
+### The loads set the flow, not the plant
+
+`autoSizeForFlow` sizes a closed circuit so the equipment gets its rated flow.
+**Which equipment** is the question, and the answer is the LOADS (Michael,
+2026-08-04). A heat exchanger states the flow it needs to move its duty — a
+demand on the circuit. A source/sink's rated flow is a **selection** figure:
+what the machine was bought for, and plant is routinely selected larger than the
+load it serves today.
+
+Taking the largest rating across all equipment produced `debug/20260804-1.json`:
+a 100 kW chiller rated 1.6 L/s beside a 50 kW coil rated 0.798 L/s — a chiller
+deliberately selected to run at half load. The sizer drove 1.6 L/s through the
+coil, 2.006× its rating and therefore **4.02× its pressure drop**: 805 kPa
+against a rated 200, and a pump duty of 102.7 m. Nothing was wrong with the
+arithmetic.
+
+Sized on the coil, the chiller passes 0.798 L/s and drops
+`200 × (0.798/1.6)² = 49.7 kPa`, and the duty falls to **25.5 m**. That half of
+it needed no code at all: equipment has always been `r·Q²` from its own design
+point, so a machine at part load drops what the square law says. It never got
+the chance, because the flow was wrong.
+
+Two consequences. An **isolated** machine no longer sets the target — a chiller
+valved out states nothing about the circuit it is not in. And a source/sink
+**below** its rating no longer raises `EQUIP_OFF_RATING`: part-load plant is
+normal operation and is now the deliberate result of this rule. Over-flow is
+still called out for everything, because that is the square-law trap the check
+exists for. A plant-only circuit still sizes on the plant — with no loads, the
+plant is the only statement of what flow the circuit wants.
+
 ### Two equipment types, split on what you know at design
 
 Michael's, 2026-08-03. The solver only ever needs `Q = f(T_in, ṁ)`, so the
@@ -1311,6 +1341,23 @@ Three things about the limits are worth knowing:
   warning. "CH-01 is limited by Capacity and is not reaching its setpoint" is
   the sentence worth having; a leaving temperature that silently misses its
   setpoint is not.
+
+**The T limit is gone from a source/sink** (v0.12.2). It clamped the leaving
+temperature at a physical bound — wet bulb on a tower, ambient on an economizer.
+Michael's instruction, 2026-08-04: *"let the engineer evaluate."* Whether a
+leaving temperature is achievable is a judgement about the **selection**, and
+clamping it silently produced an answer that looked achieved when no machine
+could have done it. Capacity and Design ΔT still bind: those are nameplate
+figures, not judgements. An exchanger keeps its T limit, where it is the
+entering-air temperature in disguise — a stated condition rather than a
+judgement.
+
+`dTMax` is now labelled **Design ΔT**, and on a source/sink it is one of three
+stored figures rather than a limit bolted on: design flow, Heating/Cooling
+Capacity and Design ΔT are `Q = ṁ·Cp·ΔT` exactly as on an exchanger, and go
+through the same `M.setEquipTrio`. The difference is that a source/sink stores
+all three — they are all nameplate — so the third is rewritten on every edit
+rather than derived on read.
 
 Sign is inferred, never selected: a setpoint below the inlet is cooling.
 `dTMax` is a magnitude.
@@ -1466,7 +1513,7 @@ sheet**, which is the thing that gets issued.
 
 ## 15. Testing
 
-Seven suites, 1280 assertions, no dependencies:
+Seven suites, 1327 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

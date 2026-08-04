@@ -379,8 +379,15 @@ table.sheet td.dim  { color: var(--text-mute); }
 
 /* Slider with an exact-entry box beside it. */
 .slider-row { display: flex; align-items: center; gap: 8px; }
-.slider-row input[type=range] { flex: 1; min-width: 0; }
+/* Specificity matters here. `.cell-input` (further down, for the editable
+ * calculation sheet) carries width:100% and min-width:70px at the same
+ * specificity as `.tiny-num` and later in the file, so it won — the number box
+ * took the whole row and the range collapsed to its thumb. Michael's
+ * screenshot, 2026-08-04. Two-class selectors below outrank it, and the
+ * explicit widths mean rule order stops mattering. */
+.slider-row input[type=range] { flex: 1 1 auto; min-width: 40px; width: auto; }
 .tiny-num { width: 4.5em; flex: none; text-align: right; }
+.slider-row .tiny-num { flex: 0 0 4.5em; width: 4.5em; min-width: 4.5em; }
 
 /* A published value that cannot be typed over — a named fluid's properties.
    Reads as a field so the form keeps its shape, but plainly not an input. */

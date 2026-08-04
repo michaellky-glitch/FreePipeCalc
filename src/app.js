@@ -1836,9 +1836,73 @@
       renderProperties(); app.view.render();
     });
     row.appendChild(btn);
-    if (target) row.appendChild(el('span', 'hint', target.tag || target.id));
     wrap.appendChild(row);
     host.appendChild(wrap);
+    if (!target) return;
+
+    /* WHAT IT IS MONITORING, then WHAT IT IS HOLDING — Michael's structure,
+     * 2026-08-04. The machine on its own line, then one switch per setpoint it
+     * offers, in the order they are chased.
+     *
+     * More than one can be on, and the ORDER is a fallback rather than a blend:
+     * chase the first, and only if it turns out to be unreachable chase the
+     * next. One actuator cannot hold two things at once, and pretending it can
+     * is how a control loop starts oscillating. */
+    var mon = readoutBox(host, null);
+    mon.ro('Monitoring', target.tag || target.id);
+
+    var opts = M.controlOptions(m, target.id);
+    if (!opts.length) {
+      host.appendChild(el('p', 'hint',
+        (target.tag || target.id) + ' states no setpoint to hold.'));
+      return;
+    }
+    /* Absent a stored choice, the FIRST option is on — the list is already in
+     * priority order, so that is the sensible default rather than a guess. */
+    if (!c.use) { c.use = {}; c.use[opts[0].key] = true; }
+
+    var res = app.results;
+    var dev = res && res.controls
+      ? res.controls.devices.filter(function (x) { return x.pipe === p.id; })[0] : null;
+
+    opts.forEach(function (o, i) {
+      var txt = o.label + '  ' + fmtSetpoint(o);
+      switchRow(host, txt, !!c.use[o.key], function (on) {
+        pushUndo();
+        c.use[o.key] = on;
+        /* Never leave a control link with nothing to hold: turning the last
+         * one off is a request to stop controlling, so the link goes too. */
+        if (!opts.some(function (x) { return c.use[x.key]; })) {
+          M.setControl(m, p, null);
+        }
+        renderProperties(); changed();
+      });
+      if (i === 0 && opts.length > 1) {
+        var pr = el('p', 'hint', 'Held first; the next is a fallback. ');
+        infoMark(pr, 'One actuator cannot hold two setpoints at once. If the ' +
+                     'first cannot be reached, the next is chased instead.');
+        host.appendChild(pr);
+      }
+    });
+
+    if (dev) {
+      var ab = readoutBox(host, null);
+      ab.ro('Holding', (dev.holding || '—') +
+            (dev.fellBack ? ' (fallback)' : ''));
+      ab.ro(dev.quantity === 'speed' ? 'Speed' : 'Opening',
+            Math.round(dev.value * 100) + '%' +
+            (dev.state === 'at-min' ? ' — at minimum'
+             : dev.state === 'at-max' ? ' — at maximum'
+             : dev.state === 'unsettled' ? ' — not holding' : ''));
+    }
+  }
+
+  /* A setpoint written the way its own quantity reads. */
+  function fmtSetpoint(o) {
+    var d = app.model.settings.display;
+    if (o.mode === 'flow') return FD.units.fmtFlow(o.value, d.flow, true);
+    if (o.mode === 'dT') return o.value.toFixed(1) + ' K';
+    return o.value.toFixed(1) + ' °C';
   }
 
   /* An option as a sliding switch rather than a tick box (Michael, 2026-08-02).
@@ -2111,8 +2175,10 @@
     } else {
       box.ro('Temperature', tl && isFinite(tl.tIn) ? tl.tIn.toFixed(2) + ' °C' : '—');
     }
+    /* "Linked to", not "Controlled by": the SENSOR is the thing doing the
+     * controlling — it states the setpoint. Michael, 2026-08-04. */
     if (!followers.length) {
-      box.ro('Controlled by', 'nothing');
+      box.ro('Linked to', 'nothing');
     } else {
       followers.forEach(function (q) {
         var dev = res && res.controls
@@ -2294,12 +2360,22 @@
                'indicates heat removed from fluid.';
 
     if (isSource) {
-      /* ORDER: Type, Capacity, % Load, Setpoint, ΔT max, T limit (Michael,
-       * 2026-08-03). Capacity first because it is the machine's nameplate; the
-       * setpoint is what you ask OF it, and reads better after. */
+      /* ORDER: Type, Capacity, % Load, LWT Setpoint, Design ΔT (Michael,
+       * 2026-08-03 and 2026-08-04). Capacity first because it is the machine's
+       * nameplate; the setpoint is what you ask OF it and reads better after.
+       *
+       * T limit is GONE at Michael's instruction, 2026-08-04: "let the engineer
+       * evaluate". It was a hard clamp on a physical bound — wet bulb on a
+       * tower, ambient on an economizer — and the judgement of whether an
+       * answer is achievable belongs to the person reading it.
+       *
+       * Capacity, design flow and ΔT are ONE equation here exactly as they are
+       * on an exchanger, so they go through the same helper. */
       num('Heating/Cooling Capacity (kW)',
           function () { return e.qMax === undefined ? '' : e.qMax / 1000; },
-          function (v) { e.qMax = (v === undefined ? undefined : v * 1000); },
+          function (v) {
+            M.setEquipTrio(m, p, 'duty', v === undefined ? undefined : v * 1000);
+          },
           SIGN + ' Blank = Unlimited.');
 
       /* % LOAD — what it is actually doing against its nameplate. Signed
@@ -2312,12 +2388,17 @@
       }
       readoutBox(host, null).ro('% Load', pct);
 
-      num('Setpoint (°C)', function () { return e.tSet; },
-          function (v) { e.tSet = v; });
-      num('ΔT Max (K)', function () { return e.dTMax; },
-          function (v) { e.dTMax = v; }, OPTIONAL);
-      num('Temperature Limit (°C)', function () { return e.tLimit; },
-          function (v) { e.tLimit = v; }, OPTIONAL);
+      num('LWT Setpoint (°C)', function () { return e.tSet; },
+          function (v) { e.tSet = v; },
+          'Leaving water temperature the machine modulates to hold.');
+      num('Design ΔT (K)',
+          function () {
+            return e.dTMax === undefined || e.dTMax === null || e.dTMax === ''
+              ? '' : e.dTMax;
+          },
+          function (v) { M.setEquipTrio(m, p, 'dT', v); },
+          'Design flow, capacity and ΔT are one equation. Changing this moves ' +
+          'whichever of the other two you set least recently. ' + OPTIONAL);
     } else {
       /* Load, design flow and ΔT are ONE equation. Editing any of the three
        * moves whichever was touched least recently — M.setEquipTrio, and the

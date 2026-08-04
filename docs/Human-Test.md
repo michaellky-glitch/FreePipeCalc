@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1280
+This is deliberately separate from the automated suites. Those cover 1332
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-04 (v0.12.0)
+Last updated: 2026-08-04 (v0.12.2)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -202,6 +202,22 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 4J. THE HIGH-ΔP FIX and the panel rework (v0.12.1 / v0.12.2)
+
+Driven through the live app on `20260804-1.json` and read back.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| HP.1 | Your model sizes to **25.53 m**, was 102.68 m | ✅ | Your diagnosis was right. Chiller now drops 49.7 kPa = 200 × (0.798/1.6)², the square law at part load. No EQUIP_OFF_RATING. |
+| HP.2 | Source/Sink: LWT Setpoint, Design ΔT, no Temperature Limit | ⬜ | Read back live: Capacity −100 kW, % Load 50.0%, LWT Setpoint 20 °C, Design ΔT 15 K. |
+| HP.3 | Source/Sink trio interrelates | ⬜ | Your sequence, live: flow 1.2 L/s → ΔT 19.94 K; capacity −60 kW → ΔT 11.97 K; ΔT 20 K → **flow 0.7179 L/s**. Sign preserved (chiller stays a chiller). |
+| HP.4 | Control section: Monitoring, then setpoint switches | ⬜ | Live on PMP-1: `Monitoring ACCH-01`, `[x] Design LWT 20.0 °C`, `[ ] Design ΔT 15.0 K`. Toggling ΔT on stored `use:{lwt:true,dt:true}`. |
+| HP.5 | Priority is a **fallback**, not a blend | ⬜ | **Worth your eye.** One actuator cannot hold two setpoints at once, so the second is chased only when the first proves unreachable. Say if you meant something closer to a cascade. |
+| HP.6 | Valve slider fixed | ⬜ | Range now 102 px of a 170 px row, number box 56 px. Cause: `.cell-input` overriding `.tiny-num` — same specificity, later in the file. |
+| HP.7 | Sensor bubble perpendicular, draggable in VIEW | ⬜ | On your vertical run it is offset 18 px sideways and 0 px along — measured, not eyeballed. Drag key `sensorOffset`, cleared by "Reset label positions". |
+| HP.8 | Sensor panel says "Linked to" | ⬜ | Was "Controlled by". |
+| HP.9 | "Limited by" now reads **Design ΔT** | ⬜ | Was "ΔT max", to match the renamed field. |
 
 ## 4H. PIPE SENSOR — thermostatic mixing (v0.12.0)
 

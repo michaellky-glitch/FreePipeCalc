@@ -35,9 +35,10 @@
  *      design:
  *          SOURCE / SINK   chiller, boiler, tower. State a LEAVING
  *                          TEMPERATURE; duty follows, limited by capacity,
- *                          ΔT max and a physical temperature limit.
+ *                          Design ΔT. (The physical T limit was removed
+ *                          on 2026-08-04 — see clampToLimit.)
  *          HEAT EXCHANGER  AHU, FCU, plate HX. State a LOAD; temperature
- *                          follows, limited by ΔT max and the same limit.
+ *                          follows, limited by Design ΔT and a T limit.
  *      (Until v0.10.3 this was a dT/dQ toggle instead. Both were load-led, so
  *      both became an exchanger; a stated ΔT converts to the duty it means at
  *      the rated flow, and `migrateEquipThermal` does that on load.)
@@ -241,7 +242,15 @@
     function clampToLimit(t, from) {
       /* A machine cannot take the fluid PAST its physical limit — a tower
        * cannot cool below wet bulb, an economizer cannot go below ambient.
-       * Applied on whichever side the machine is working from. */
+       * Applied on whichever side the machine is working from.
+       *
+       * HEAT EXCHANGERS ONLY since v0.12.2. Michael removed it from source/sink
+       * on 2026-08-04 — "let the engineer evaluate". Whether a leaving
+       * temperature is physically achievable is a judgement about the selection,
+       * and clamping it silently produced an answer that looked achieved. Any
+       * `tLimit` left on a source/sink by an older file is ignored rather than
+       * deleted, so nothing is lost if it comes back. */
+      if (e.equipType === 'source') return t;
       if (e.tLimit === undefined || e.tLimit === null || e.tLimit === '') return t;
       var L = Number(e.tLimit);
       if (!isFinite(L)) return t;
@@ -259,7 +268,7 @@
       var dTMax = Math.abs(Number(e.dTMax));
       if (isFinite(dTMax) && dTMax > 0 && Math.abs(got) > dTMax) {
         got = (got < 0 ? -1 : 1) * dTMax;
-        lim = 'ΔT max';
+        lim = 'Design ΔT';
       }
       /* CAPACITY IS SIGNED (Michael, 2026-08-03), on the same convention as a
        * load: + adds heat to the fluid, − removes it. A chiller has a negative
@@ -292,7 +301,7 @@
     var dTx = Math.abs(Number(e.dTMax));
     if (isFinite(dTx) && dTx > 0 && Math.abs(dT) > dTx) {
       dT = (dT < 0 ? -1 : 1) * dTx;
-      lim = 'ΔT max';
+      lim = 'Design ΔT';
     }
     return { tOut: clampToLimit(tIn + dT, tIn), limit: lim };
   }
@@ -497,12 +506,12 @@
         c.limit = r2.limit;
         if (e.equipType === 'source') {
           c.active = r2.limit === 'T limit' ? 'tlimit'
-                   : r2.limit === 'ΔT max' ? 'dtmax'
+                   : r2.limit === 'Design ΔT' ? 'dtmax'
                    : r2.limit === 'Capacity' ? 'capacity'
                    : 'setpoint';
         } else {
           c.active = r2.limit === 'T limit' ? 'tlimit'
-                   : r2.limit === 'ΔT max' ? 'dtmax'
+                   : r2.limit === 'Design ΔT' ? 'dtmax'
                    : null;
         }
         sig.push(c.pipe.id + ':' + c.active);
@@ -560,7 +569,7 @@
         UperM: c.UperM, length: c.L,
         /* Which constraint stopped it doing what it was asked, or null. This
          * is the useful output of the whole limit machinery: "CH-01 limited by
-         * ΔT max" beats an unexplained leaving temperature. */
+         * Design ΔT" beats an unexplained leaving temperature. */
         limit: (c.limit === undefined ? null : c.limit)
       };
       if (c.limit) {

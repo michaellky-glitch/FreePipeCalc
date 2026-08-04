@@ -695,7 +695,7 @@
    * the reset having half worked. `warn` is the disconnection glyph, `box` the
    * "Show on drawing" value box. */
   function clearLabelOffsets(m) {
-    var keys = ['labelOffset', 'warnOffset', 'boxOffset'];
+    var keys = ['labelOffset', 'warnOffset', 'boxOffset', 'sensorOffset'];
     var strip = function (o) { keys.forEach(function (k) { delete o[k]; }); };
     m.nodes.forEach(strip);
     m.pipes.forEach(strip);
@@ -895,6 +895,24 @@
     return order;
   }
 
+  /* WHERE EACH OF THE THREE LIVES, per equipment type.
+   *
+   * An exchanger stores the flow and the duty, and ΔT is derived — two of three
+   * are enough. A SOURCE/SINK stores all three, because all three are on its
+   * panel as nameplate figures: design flow, Heating/Cooling Capacity and
+   * Design ΔT. Storing all three means they can drift apart, which is exactly
+   * what this helper exists to prevent: every edit rewrites the third.
+   *
+   * Capacity is SIGNED (§18) and ΔT is a magnitude, so the sign is carried
+   * through rather than recomputed — a chiller that is re-flowed is still a
+   * chiller. */
+  function trioFields(p) {
+    var e = (p && p.equip) || {};
+    return (e.equipType === 'source')
+      ? { duty: 'qMax', dT: 'dTMax' }
+      : { duty: 'duty', dT: null };          // dT derived from the pair
+  }
+
   /* Apply an edit to one of the three. Returns the key that was recomputed, or
    * null when nothing needed to move. Mutates `p.equip`. */
   function setEquipTrio(m, p, key, value) {
@@ -915,23 +933,42 @@
       return k !== key && k !== hold;
     })[0];
 
-    /* ΔT is DERIVED, never stored — the pair (qRated, duty) always determines
-     * it. So it is read before the edit lands and re-imposed afterwards. */
-    var dTBefore = equipDTFromDuty(m, p, e.duty || 0);
+    var F = trioFields(p);
+    var sign = (Number(e[F.duty]) < 0) ? -1 : 1;
+    function getDuty() { return Math.abs(Number(e[F.duty]) || 0); }
+    function setDuty(v) {
+      e[F.duty] = (v === undefined) ? undefined : sign * Math.abs(v);
+    }
+    /* ΔT: stored on a source/sink, derived on an exchanger. Either way it is
+     * read BEFORE the edit lands, so the value being held is the one that was
+     * on the panel. */
+    function getDT() {
+      if (F.dT) {
+        var d0 = Math.abs(Number(e[F.dT]));
+        if (isFinite(d0) && d0 > 0) return d0;
+      }
+      return Math.abs(equipDTFromDuty(m, p, getDuty()));
+    }
+    function setDT(v) { if (F.dT) e[F.dT] = (v === undefined) ? undefined : Math.abs(v); }
+
+    var dTBefore = getDT();
 
     if (key === 'qRated') e.qRated = value;
-    else if (key === 'duty') e.duty = value;
-    else dTBefore = value;                        // editing ΔT IS the new value
+    else if (key === 'duty') setDuty(value);
+    else { dTBefore = Math.abs(value); setDT(dTBefore); }
 
     if (key === 'dT') {
-      if (third === 'duty') e.duty = equipDutyFromDT(m, p, value);
-      else e.qRated = flowForDutyAndDT(m, e.duty || 0, value);
+      if (third === 'duty') setDuty(equipDutyFromDT(m, p, dTBefore));
+      else e.qRated = flowForDutyAndDT(m, getDuty(), dTBefore);
     } else if (third === 'duty') {
-      e.duty = equipDutyFromDT(m, p, dTBefore);
+      setDuty(equipDutyFromDT(m, p, dTBefore));
     } else if (third === 'qRated') {
-      e.qRated = flowForDutyAndDT(m, e.duty || 0, dTBefore);
+      e.qRated = flowForDutyAndDT(m, getDuty(), dTBefore);
+    } else if (third === 'dT') {
+      /* Stored ΔT must be rewritten to stay consistent with the pair; a derived
+       * one needs nothing, because it IS the pair. */
+      setDT(Math.abs(equipDTFromDuty(m, p, getDuty())));
     }
-    // third === 'dT' needs no write: it is derived from the pair just stored.
 
     e.lastEdited = [key, hold];
     return third;
@@ -983,23 +1020,78 @@
     return isFinite(t) ? { mode: 'temperature', value: t } : null;
   }
 
-  /* What a controller may follow: a source/sink with a leaving-temperature
-   * setpoint, or a sensor with either kind. A heat exchanger states a LOAD and
-   * has no setpoint to hold, which is why it is not in this list. */
-  function controlTarget(m, id) {
+  /* WHAT A CONTROLLER MAY FOLLOW, in PRIORITY ORDER.
+   *
+   * Michael, 2026-08-04. A machine states more than one thing worth holding,
+   * and which of them a controller chases is an engineering decision rather
+   * than something the app should pick:
+   *
+   *   SOURCE / SINK    Design LWT, then Design ΔT
+   *   HEAT EXCHANGER   Design flow, then Design ΔT
+   *   SENSOR           its one setpoint
+   *
+   * "First, then" is a fallback, not a blend: chase the first, and if it turns
+   * out to be unreachable — the actuator on a stop, or backing off making it
+   * worse — chase the next instead. Chasing two setpoints at once with one
+   * actuator has no answer in general, and pretending otherwise is how a
+   * control loop starts oscillating.
+   *
+   * Each option is toggled on the CONTROLLER (`control.use`), because two pumps
+   * following the same machine may legitimately hold different things.
+   *
+   * `mode` is what gets MEASURED: 'temperature' reads the leaving temperature,
+   * 'flow' the flow through the link, 'dT' the magnitude of the difference
+   * across it. */
+  function controlOptions(m, id) {
     var p = pipe(m, id);
-    if (!p) return null;
+    if (!p) return [];
     if (p.kind === 'sensor') {
       var sp = sensorSetpoint(p);
-      return sp ? { pipe: p, mode: sp.mode, value: sp.value, kind: 'sensor' } : null;
+      return sp ? [{ key: 'set', pipe: p, mode: sp.mode, value: sp.value,
+                     label: sp.mode === 'flow' ? 'Flow setpoint' : 'Temperature setpoint' }]
+                : [];
     }
-    if (p.kind === 'equip' && p.equip && !p.equip.off &&
-        p.equip.equipType === 'source') {
-      var t = Number(p.equip.tSet);
-      return isFinite(t)
-        ? { pipe: p, mode: 'temperature', value: t, kind: 'equip' } : null;
+    if (p.kind !== 'equip' || !p.equip || p.equip.off) return [];
+    var e = p.equip, out = [];
+
+    if (e.equipType === 'source') {
+      var lwt = Number(e.tSet);
+      if (isFinite(lwt)) {
+        out.push({ key: 'lwt', pipe: p, mode: 'temperature', value: lwt,
+                   label: 'Design LWT' });
+      }
+      var dtm = Math.abs(Number(e.dTMax));
+      if (isFinite(dtm) && dtm > 0) {
+        out.push({ key: 'dt', pipe: p, mode: 'dT', value: dtm,
+                   label: 'Design ΔT' });
+      }
+      return out;
     }
-    return null;
+
+    // heat exchanger — the flow it needs first, the difference second
+    if (e.qRated > 0) {
+      out.push({ key: 'flow', pipe: p, mode: 'flow', value: e.qRated,
+                 label: 'Design flow' });
+    }
+    var dt = Math.abs(equipDTFromDuty(m, p, Number(e.duty) || 0));
+    if (isFinite(dt) && dt > 1e-9) {
+      out.push({ key: 'dt', pipe: p, mode: 'dT', value: dt, label: 'Design ΔT' });
+    }
+    return out;
+  }
+
+  /* The options a given CONTROLLER is actually chasing, in order. Absent a
+   * stored choice the FIRST option is on, which is the priority the list is
+   * already in. */
+  function controlChoice(m, controller) {
+    var c = controlOf(controller);
+    if (!c) return [];
+    var opts = controlOptions(m, c.equip);
+    if (!opts.length) return [];
+    var use = c.use;
+    if (!use) return [opts[0]];
+    var on = opts.filter(function (o) { return use[o.key]; });
+    return on;
   }
 
   function canBeControlled(p) {
@@ -1351,7 +1443,8 @@
     setSource: setSource, setDemand: setDemand, clearDevice: clearDevice,
     applyFluidPreset: applyFluidPreset,
     controlOf: controlOf, canControl: canControl, setControl: setControl,
-    sensorSetpoint: sensorSetpoint, controlTarget: controlTarget,
+    sensorSetpoint: sensorSetpoint,
+    controlOptions: controlOptions, controlChoice: controlChoice,
     canBeControlled: canBeControlled,
     pumpSpeed: pumpSpeed, pumpCurve: pumpCurve,
     pumpSpeedIgnored: pumpSpeedIgnored, pumpHead: pumpHead,
@@ -1360,6 +1453,7 @@
     equipDutyFromDT: equipDutyFromDT,
     equipDTFromDuty: equipDTFromDuty,
     setEquipTrio: setEquipTrio, equipTrioOrder: equipTrioOrder,
+    trioFields: trioFields,
     flowForDutyAndDT: flowForDutyAndDT,
     migrateEquipThermal: migrateEquipThermal,
     migrateSourcePressure: migrateSourcePressure,

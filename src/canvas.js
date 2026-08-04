@@ -574,7 +574,8 @@
           /* Anything with its own offset key moves independently of the
            * entity's own label: the disconnection ⚠️, and the "Show on
            * drawing" value box. */
-          var loKey = (lab.kind === 'warn' || lab.kind === 'box') ? lab.kind : null;
+          var loKey = (lab.kind === 'warn' || lab.kind === 'box' ||
+                       lab.kind === 'sensor') ? lab.kind : null;
           var lo = M.labelOffset(lab.obj, loKey);
           self.dragLabel = { target: lab.obj, sx: sx, sy: sy, key: loKey,
                              ox: lo.dx, oy: lo.dy,
@@ -582,7 +583,7 @@
           /* A value box belongs to its entity, so grabbing one selects THAT —
            * `kind: 'box'` would select nothing and empty the properties panel
            * at the moment you are using it. */
-          var selKind = lab.kind === 'box'
+          var selKind = (lab.kind === 'box' || lab.kind === 'sensor')
             ? (lab.obj.a !== undefined ? 'pipe' : 'node')   // only a pipe has ends
             : lab.kind;
           self.selection = [{ kind: selKind, id: lab.obj.id }];
@@ -2338,23 +2339,47 @@
     var colour = selected ? this.theme.select : this.theme.warn;
     var mode = (p.sensor && p.sensor.mode === 'flow') ? 'F' : 'T';
 
+    /* PERPENDICULAR TO THE PIPE (Michael, 2026-08-04). It used to stand
+     * straight up in screen space, which reads as perpendicular only on a
+     * horizontal run and sits ON the pipe on a vertical one. The normal is
+     * taken from the run itself, and the side is chosen so the bubble goes
+     * UPWARD on screen wherever possible — a consistent default beats a
+     * geometrically arbitrary one.
+     *
+     * A stored `sensorOffset` overrides it, so it can be dragged to the other
+     * side in VIEW like any other annotation. */
+    var dx = sb.x - sa.x, dy = sb.y - sa.y;
+    var len = Math.hypot(dx, dy) || 1;
+    var nx = -dy / len, ny = dx / len;
+    if (ny > 0) { nx = -nx; ny = -ny; }          // prefer the upward normal
+    var off = M.labelOffset(p, 'sensor');
+    var STEM = 9, R = 9, REACH = 18;
+    var bx = mx + nx * REACH + off.dx, by = my + ny * REACH + off.dy;
+    /* The stem stops short of the bubble so the outline stays clean. */
+    var ux = bx - mx, uy = by - my, ul = Math.hypot(ux, uy) || 1;
+
     ctx.save();
-    ctx.translate(mx, my);
-    // stem from the pipe up to the bubble
     ctx.strokeStyle = colour;
     ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -9); ctx.stroke();
-    // the bubble
+    ctx.beginPath();
+    ctx.moveTo(mx, my);
+    ctx.lineTo(mx + ux / ul * Math.max(0, ul - R), my + uy / ul * Math.max(0, ul - R));
+    ctx.stroke();
     ctx.fillStyle = this.theme.bg;
     ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(0, -18, 9, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(bx, by, R, 0, Math.PI * 2);
     ctx.fill(); ctx.stroke();
-    // T for temperature, F for flow — the quantity it is holding
     ctx.fillStyle = colour;
     ctx.font = '600 11px system-ui, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(mode, 0, -18);
+    ctx.fillText(mode, bx, by);
     ctx.restore();
+
+    /* Draggable in VIEW, on its own offset key so it moves independently of
+     * the tag above it. */
+    this.registerLabel('sensor', p, bx - R, by - R, R * 2, R * 2);
+    if (this.tool === 'view') this.labelHandle(bx - R, by - R, R * 2, R * 2);
+
     this.drawTag(p, mx, my);
   };
 

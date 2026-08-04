@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1280 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1332 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,39 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **THE LOADS SET THE FLOW** (v0.12.1) — Michael's diagnosis of the high-ΔP
+  problem, and he was right. `autoSizeForFlow` took the largest rated flow
+  across ALL equipment, so a chiller selected to run at half load forced its own
+  rating through a coil rated half that: 2.006× flow, 4.02× ΔP, 102.7 m of pump.
+  Sized on the loads instead it is 25.5 m, and the plant drops what the square
+  law says at part flow. `ARCHITECTURE.md` §18.
+* **CONTROL PRIORITY** (v0.12.2) — a controller now picks WHICH setpoint it
+  follows, with toggles: LWT then Design ΔT on a source/sink, Design flow then
+  Design ΔT on an exchanger. A fallback, not a blend.
+* **T LIMIT REMOVED from source/sink** (v0.12.2) — "let the engineer evaluate".
+  Exchangers keep theirs, where it is the entering-air temperature in disguise.
+* **THE VALVE SLIDER** (v0.12.2) — `.cell-input` (added later, for the editable
+  calculation sheet) carries `width:100%` at the same specificity as `.tiny-num`
+  and later in the file, so the number box took the whole row and the range
+  collapsed to its thumb. A visual-only regression, invisible to a test suite
+  and to a browser that renders no pixels — Michael's screenshot found it.
+* **THE LOADS SET THE FLOW** (v0.12.1) — Michael's diagnosis of the high-ΔP
+  problem, and he was right. `autoSizeForFlow` took the largest rated flow
+  across ALL equipment, so a chiller selected to run at half load forced its own
+  rating through a coil rated half that: 2.006× flow, 4.02× ΔP, 102.7 m of pump.
+  Sized on the loads instead it is 25.5 m, and the plant drops what the square
+  law says at part flow. `ARCHITECTURE.md` §18.
+* **CONTROL PRIORITY** (v0.12.2) — a controller now picks WHICH setpoint it
+  follows, with toggles: LWT then Design ΔT on a source/sink, Design flow then
+  Design ΔT on an exchanger. A fallback, not a blend — one actuator cannot hold
+  two setpoints at once.
+* **T LIMIT REMOVED from source/sink** (v0.12.2) — "let the engineer evaluate".
+  Exchangers keep theirs, where it is the entering-air temperature in disguise.
+* **THE VALVE SLIDER** (v0.12.2) — `.cell-input` (added later, for the editable
+  calculation sheet) carries `width:100%` at the same specificity as `.tiny-num`
+  and later in the file, so the number box took the whole row and the range
+  collapsed to its thumb. A visual-only regression, invisible to a test suite
+  and to a browser that renders no pixels — Michael's screenshot found it.
 * **THE PIPE SENSOR** (v0.12.0) — a new `kind: 'sensor'`, at Michael's request.
   An instrument that states a temperature or flow setpoint for a linked pump or
   globe valve to hold. Thermostatic mixing is the case it was asked for, and
