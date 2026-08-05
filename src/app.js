@@ -4269,9 +4269,17 @@
     numField(g4, 'Deadband', ctl.tol,
       function (v) { m.settings.control.tol = v; renderThermal(); redrawAll(); },
       '(K)');
+    numField(g4, 'Max control solves', ctl.maxSolves || 0,
+      function (v) {
+        m.settings.control.maxSolves = Math.max(0, Math.round(v));
+        renderThermal(); redrawAll();
+      }, '(0 = auto)');
     var ch = el('p', 'hint', 'SIMULATION only. Sitting on a minimum is reported. ');
     infoMark(ch, 'In DESIGN the flows are imposed by the demands, so there is ' +
-                 'nothing for a controller to move.');
+                 'nothing for a controller to move. Max control solves is how ' +
+                 'much work the loop may do: automatic is 40 + 30 per ' +
+                 'controlled device, capped at 400, and one solve is a few ' +
+                 'milliseconds on a model of a few dozen pipes.');
     host.appendChild(ch);
 
     var uh = el('p', 'hint', 'U′ = 1 / [ ln(r₀/rᵢ)/(2πk) + 1/(2πr₀h) ]. ');

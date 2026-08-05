@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1490
+This is deliberately separate from the automated suites. Those cover 1512
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -202,6 +202,15 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 4R. PARALLEL BRANCH BALANCING (v0.14.4)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| BAL.1 | Four valves balance four branches | ✅ | `20260805-4`: all four AHUs within 1% of rated flow, valves at 36–37%. Was three valves stuck at 100% with branches 17% over. |
+| BAL.2 | The pump's SETPOINT_LOST is correct and now says why | ⬜ | "…PMP-1 → ACCH-1, **limited by Design ΔT** — at full travel and still off setpoint." The chiller's 15 K Design ΔT stops it reaching 7.5 °C; no pump speed fixes that. Toggle Design ΔT as a fallback on the pump if you want it to chase that instead. |
+| BAL.3 | `Max control solves` on THERMAL | ⬜ | 0 = auto (40 + 30 per controlled device, capped 400). One solve is ~3.5 ms on a 36-pipe model; the whole controlled solve took ~200 ms over 50 solves. Raise it for an awkward model, lower it if a big model feels sluggish while drawing. |
+| BAL.4 | **Does 36–37% look right for those valves?** | ⬜ | **The engineering judgement.** Equal-percentage characteristic, four equal branches off a common header. |
 
 ## 4Q. THERMAL section on the CALCULATION sheet (v0.14.1)
 

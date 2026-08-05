@@ -1260,6 +1260,44 @@ Each fallback option is also chased **from full travel**: the previous one may
 have left the actuator on its stop, and starting the next search there hides
 half the range from it.
 
+### Balancing several branches, and what it costs
+
+Four control valves on four parallel branches interact: closing one pushes flow
+to the others. The sweep is Gauss-Seidel over the devices, and three separate
+faults had to be fixed before `debug/20260805-4.json` would balance
+(2026-08-05, all reported by Michael as "the valves are not throttling"):
+
+1. **The solve budget was flat.** 60, chosen when a model had one controller or
+   two. With five it ran out at 62 partway through the LAST device, which then
+   reported `unsettled` and was parked back at full travel — looking exactly as
+   though the valve had never tried. It scales now: `40 + 30` per device, capped
+   at 400, overridable as `control.maxSolves`.
+2. **Park-at-full ran inside the sweep.** A device can report `at-max` on one
+   pass and settle happily on the next, and slamming it back to full mid-sweep
+   threw away the iteration's progress. Judged once, at the end.
+3. **The direction probe read noise.** A 5% nudge on an equal-percentage valve
+   near full travel moves the flow by ~1e-7 m³/s — two orders of magnitude below
+   the solver's own convergence tolerance.
+
+**The probe now goes to the far end, and accepts a CROSSING as well as an
+improvement.** That second half matters: probing the minimum overshoots hard —
++0.15 L/s at full becomes −0.58 L/s at 10% open — and judging on |error| alone
+called that "backing off does not help" and left the valve wide open. A sign
+change is the strongest possible evidence the setpoint is reachable, because it
+brackets the root.
+
+**The authority test stopped being a probe at all.** It could not be made to work
+at any single distance: near, it read solver noise; far, it read the far field,
+because a chiller that holds its setpoint comfortably at design flow will still
+miss it at quarter flow. At full travel there is nothing left to give and
+nothing to improve, so whatever is holding the setpoint is not this device —
+the position alone answers the question, and costs nothing.
+
+**What it costs.** On that model — 33 nodes, 36 pipes, five controllers — one
+network solve is about 3.5 ms and the whole controlled solve takes ~200 ms over
+50 inner solves. The 400 ceiling is of the order of a second on a model that
+size, and only a model that is genuinely hunting gets near it.
+
 ### Control valve authority is a different word
 
 `VALVE_OVERSIZED` is about a valve that HAS the movement but spends it all near
@@ -1773,7 +1811,7 @@ is the strongest claim available.
 
 ## 15. Testing
 
-Seven suites, 1490 assertions, no dependencies:
+Seven suites, 1512 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

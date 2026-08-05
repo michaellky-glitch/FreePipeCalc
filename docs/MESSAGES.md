@@ -60,7 +60,7 @@ Two conventions worth keeping:
 | `NO_PUMP_CURVE` | SIMULATION with a running pump that has no curve. A curve-less pump falls back to constant head, which answers a different question — the flow stops responding to the system, the one thing the mode exists to show. | Points at Sizing ▸ Auto/Manual or a pasted curve. |
 | `THERMAL_LIMIT` | A solved temperature is outside `thermal.tempMin … tempMax`. The runaway guard: the solve is exact, but a correct answer can still be absurd. | Quotes the worst node and the band. |
 | `PRESSURE_IMPLAUSIBLE` | A component ΔP or pump duty exceeds `warn.maxComponentPD` (default 2000 kPa). Shut valves are excluded — `CLOSED_R` is a numerical device, not a pressure. | "…past the 2000 kPa plausibility limit. The arithmetic is right — something in the model is not." |
-| `SETPOINT_LOST` | A controlled device runs out of travel with its setpoint still unmet. The actuator is returned to FULL first. | "System is unable to maintain setpoint. Check heat balance." |
+| `SETPOINT_LOST` | A controlled device runs out of travel with its setpoint still unmet. The actuator is returned to FULL first. **`no-authority` is deliberately NOT in this set** — a device that cannot MOVE a setpoint is a different thing from a system that cannot hold one, and `CONTROL_NO_AUTHORITY` already says it properly. | "System is unable to maintain setpoint. Check heat balance." — and it names what limited the machine where the thermal pass knows it. |
 | `THERMAL_SINGULAR` | The temperature field has no unique solution — nothing sets a level and nothing ties the system to ambient. **Promoted from a warning on 2026-08-05**: the reported temperatures are then just the seed, and presenting a flat supply temperature beside `converged: true` is meaningless numbers dressed as an answer. | Names what to give it: a source temperature, or ambient coupling. |
 
 ### Errors from an edit, not a solve
@@ -168,6 +168,7 @@ DEFAULTS a user can change — none is transcribed data.
 | `warn.maxComponentPD` | 2000 kPa | `PRESSURE_IMPLAUSIBLE` | HYDRAULIC |
 | `warn.valveOversized` | 10% | `VALVE_OVERSIZED` | HYDRAULIC |
 | `warn.heatBalance` | 2% | `HEAT_IMBALANCE` | HYDRAULIC |
+| `control.maxSolves` | 0 (auto) | how hard the control loop works | THERMAL |
 | `thermal.tempMin` / `tempMax` | −50 / +50 °C | `THERMAL_LIMIT` | THERMAL |
 | `control.minSpeed` | 0.25 | `CONTROL_AT_LIMIT` | THERMAL |
 | `control.minOpening` | 10% | `CONTROL_AT_LIMIT` | THERMAL |

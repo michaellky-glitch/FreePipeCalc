@@ -120,7 +120,16 @@
       control: {
         minSpeed: 0.25,                // fraction of rated pump speed
         minOpening: 10,                // % open, globe valve
-        tol: 0.05                      // K
+        tol: 0.05,                     // K
+
+        /* How many network solves the control loop may spend. 0 = automatic,
+         * which scales with the number of controlled devices (40 + 30 each,
+         * capped at 400). One solve is a few milliseconds on a model of a few
+         * dozen pipes, so the automatic ceiling is of the order of a second in
+         * the worst case — and only a model that is genuinely hunting gets
+         * near it. Raise it to give an awkward model more room; lower it if a
+         * large model feels sluggish while you are drawing. */
+        maxSolves: 0
       },
 
       /* Which equivalent-length table Hazen-Williams reads: 'carrier' (Carrier

@@ -1375,7 +1375,37 @@
     var tolCfg = Number((m.settings.control || {}).tol);
     var tol = (isFinite(tolCfg) && tolCfg > 0) ? tolCfg : CTRL_DEFAULTS.tol;
     var EPS = 1e-7;                            // K — "on setpoint" for the search
-    var MAX_SOLVES = 60;
+
+    /* THE SOLVE BUDGET SCALES WITH THE NUMBER OF CONTROLLED DEVICES.
+     *
+     * It was a flat 60, chosen when a model had one controller or two. On
+     * `debug/20260805-4.json` — five of them — it ran out at 62 solves partway
+     * through the LAST device, which then reported `unsettled` and was parked
+     * back at full travel by the lost-setpoint rule. It looked exactly as
+     * though the valve had never tried to throttle, and Michael reported it as
+     * such. The valve was fine; it simply never got a turn.
+     *
+     * Per-device, with a ceiling so a pathological model still reports rather
+     * than hangs. A device needs roughly 10-15 solves to bracket and bisect,
+     * and the sweep may revisit it.
+     *
+     * MEASURED, so the ceiling is a judgement rather than a guess: on
+     * `debug/20260805-4.json` — 33 nodes, 36 pipes, five controllers — one
+     * network solve is about 3.5 ms, and the whole controlled solve took 184 ms
+     * over 52 inner solves. The 400 ceiling is therefore of the order of a
+     * second on a model that size: slow enough to notice, fast enough not to
+     * matter, and only reached by a model that is genuinely hunting.
+     *
+     * `control.maxSolves` overrides it — Michael, 2026-08-05 — for anyone who
+     * wants to trade time for a tighter answer, or the reverse on a big model. */
+    /* A SOFT limit, and it has to be: it is tested at loop boundaries, and
+     * every device takes at least its first probe before the check can bite.
+     * With five controllers the floor is about ten solves whatever is asked
+     * for. It bounds the work; it does not hit a number exactly. */
+    var cfgSolves = Number((m.settings.control || {}).maxSolves);
+    var MAX_SOLVES = (isFinite(cfgSolves) && cfgSolves > 0)
+      ? cfgSolves
+      : Math.min(400, 40 + 30 * pairs.length);
     var solves = 0;
 
     function evaluate() {
@@ -1499,43 +1529,44 @@
       if (Math.abs(e0) <= band) {
         /* ALREADY ON SETPOINT — but is the actuator the reason?
          *
-         * Michael, 2026-08-04. A pump linked to a chiller's Design LWT sat at
-         * 100% and never moved, because the chiller holds 20 °C at ANY flow:
-         * the error was zero at every speed, so the search correctly did
-         * nothing and the valve downstream was left to strangle the flow on its
-         * own. That is not commissioning, and the pump was not "holding" the
-         * setpoint — it had no say in it.
+         * AT FULL TRAVEL IT CANNOT BE. There is nothing left to give and
+         * nothing to improve, so whatever is holding the setpoint, it is not
+         * this device: an unlimited chiller holds its LWT at any flow and the
+         * pump following it has no say (Michael, 2026-08-04, where a pump sat
+         * at 100% while the valve downstream strangled the flow on its own).
+         * Fall through to the next setpoint it was asked to hold, or say so.
          *
-         * The distinction is AUTHORITY, and it is one probe: nudge the actuator
-         * and see whether the error moves. If it does, the setting is genuinely
-         * holding the setpoint and should stay. If it does not, this setpoint
-         * gives the actuator no signal at all — so fall through to the next one
-         * it was asked to hold, or say so.
+         * OFF full travel it plainly IS the reason — it moved to get here.
          *
-         * This is the same perturbation the direction question uses, asked from
-         * the other side. */
-        /* Only worth asking AT FULL TRAVEL. A device that has already been
-         * throttled plainly has authority — it moved to get here — and probing
-         * it again misreads the far side of the setpoint, where a machine on
-         * its own ΔT limit holds the reading flat however much further the pump
-         * backs off. That flat region is the SETPOINT being met, not the
-         * actuator being ignored. */
-        var aProbe = quantise(act, x0 - Math.max(act.step, 0.05));
-        if (x0 < 1 - 1e-9 || !(aProbe < x0 - 1e-12)) {
-          return { state: 'on', x: x0, error: e0, moved: false };
+         * This was a PROBE until 2026-08-05, and the probe could not be made to
+         * work at any single distance. NEAR, it read solver noise: 5% of an
+         * equal-percentage valve's travel changes the flow by less than the
+         * solver's own convergence tolerance, so "the error did not move" meant
+         * "I could not measure it". FAR, it read the far field: a chiller that
+         * holds its setpoint comfortably at design flow will still miss it at
+         * quarter flow, so probing the minimum found an authority the device
+         * has no use for. The position alone answers the question without
+         * either failure, and costs nothing. */
+        if (x0 >= 1 - 1e-9) {
+          return { state: 'no-authority', x: x0, error: e0, moved: false };
         }
-        act.set(aProbe);
-        var aTrial = evaluate();
-        var aErr = errorOf(aTrial, pair);
-        act.set(x0);                       // `cur` is still the answer at x0
-        if (aErr !== null && Math.abs(aErr - e0) > Math.max(1e-9, band * 1e-3)) {
-          return { state: 'on', x: x0, error: e0, moved: false };
-        }
-        return { state: 'no-authority', x: x0, error: e0, moved: false };
+        return { state: 'on', x: x0, error: e0, moved: false };
       }
 
-      // --- does backing off help? The sign question, answered not assumed.
-      var probe = quantise(act, x0 - Math.max(act.step, 0.05));
+      /* --- DOES BACKING OFF HELP? The sign question, answered not assumed.
+       *
+       * PROBED AT THE MINIMUM, not a nudge below where we are. A 5% nudge was
+       * the obvious thing and is wrong: on an equal-percentage valve near full
+       * travel it changes the flow by about 1e-7 m³/s, which is two orders of
+       * magnitude BELOW the solver's own convergence tolerance. The test was
+       * reading numerical noise and calling it "backing off does not help", so
+       * three valves on `debug/20260805-4.json` sat at 100% while their
+       * branches ran 17% over — Michael reported them as not throttling.
+       *
+       * Probing the far end answers the question definitively for one solve,
+       * and it hands the descent a BRACKET straight away rather than making it
+       * walk there — so it usually costs fewer solves, not more. */
+      var probe = act.min;
       if (!(probe < x0 - 1e-12)) {
         return { state: 'at-min', x: x0, error: e0, moved: false };
       }
@@ -1560,14 +1591,25 @@
       var trial = evaluate();
       var e1 = errorOf(trial, pair);
       record(probe, e1, trial);
-      if (e1 === null || !(Math.abs(e1) < Math.abs(e0) - 1e-12)) {
-        /* No better. Put it back — and note that `cur` is still the answer at
-         * x0, so restoring the model costs nothing to re-solve. */
+      /* HELPED, OR WENT PAST IT. Both mean backing off is the right direction —
+       * and the second has to be allowed for, because probing at the MINIMUM
+       * usually overshoots hard: on this rig the error goes from +0.15 L/s at
+       * full to −0.58 L/s at 10% open. Judging on |error| alone would call that
+       * "no better" and leave the valve wide open, which is exactly what three
+       * of Michael's valves did. A crossing is the strongest possible evidence
+       * that the setpoint is reachable — it brackets the root. */
+      var helped = (e1 !== null) &&
+                   (Math.abs(e1) < Math.abs(e0) - 1e-12 || metBy(e1, e0, pair));
+      if (!helped) {
+        /* No better and no crossing. Put it back — and note that `cur` is still
+         * the answer at x0, so restoring the model costs nothing to re-solve. */
         act.set(x0);
         return { state: 'at-max', x: x0, error: e0, moved: false };
       }
 
-      // --- descend until something meets the setpoint, or the floor is reached
+      /* --- descend until something meets the setpoint, or the floor is reached.
+       * The probe already sits at the minimum, so if it crossed the setpoint
+       * this loop exits immediately and the bisection below does the work. */
       var xPrev = x0, ePrev = e0, x = probe, e = e1, c = trial;
       var met = null, guard = 0;
       while (guard++ < 14 && solves < MAX_SOLVES) {
@@ -1632,13 +1674,29 @@
      * one device's modulation moves every other device's inlet temperature.
      * Two or three sweeps in practice; if it is still moving after that, say so
      * rather than reporting a number that is still travelling. */
+    /* Worth trying the NEXT setpoint on the list. */
     function failed(st) {
       return st === 'at-max' || st === 'at-min' || st === 'unsettled' ||
              st === 'no-authority';
     }
 
+    /* THE SETPOINT IS GENUINELY LOST — a stronger statement than `failed`, and
+     * the one that raises an error and parks the actuator at full.
+     *
+     * `no-authority` is deliberately NOT in this set. It means the device
+     * cannot MOVE that setpoint, which is a different thing from the system
+     * being unable to hold it: on `debug/20260805-4.json` an unlimited chiller
+     * was holding 7.5 °C perfectly well, and the pump following it simply had
+     * no say. Reporting "System is unable to maintain setpoint" there was
+     * wrong, and it is what CONTROL_NO_AUTHORITY already says properly. */
+    function lostSetpoint(st) {
+      return st === 'at-max' || st === 'at-min' || st === 'unsettled';
+    }
+
+    /* Six sweeps rather than four. Parallel branches balancing against each
+     * other need a few passes to settle, and the budget now allows them. */
     var acted = false, moving = true, sweep = 0;
-    while (moving && sweep < 4 && solves < MAX_SOLVES) {
+    while (moving && sweep < 6 && solves < MAX_SOLVES) {
       moving = false; sweep++;
       pairs.forEach(function (pair) {
         var r = seek(pair);
@@ -1661,34 +1719,41 @@
           r = seek(pair);
         }
 
-        /* PARK AT FULL WHEN THE SETPOINT IS LOST  (Michael, 2026-08-04).
-         *
-         * `debug/20260804-3.json`: a 110 kW coil against a 100 kW chiller. The
-         * loop chased LWT, found that throttling reduced the error, and walked
-         * the pump to its 25% floor — making a heat-balance failure worse. Less
-         * flow through a machine that is already at its capacity delivers less
-         * cooling, not more.
-         *
-         * So when nothing in the actuator's range holds the setpoint, the
-         * actuator goes back to FULL. A throttled pump in that state is
-         * strictly worse than an open one: it saves nothing that matters and
-         * starves the load. It is the same reasoning as a control valve failing
-         * open — in a condition you cannot control, choose the position that
-         * delivers most. */
-        if (failed(r.state)) {
-          if (pair.act.get() < 1 - 1e-9) {
-            pair.act.set(1);
-            cur = evaluate();
-            r.x = 1;
-            r.error = errorOf(cur, pair);
-            r.moved = true;
-          }
-          r.lost = true;
-        }
         pair.result = r;
         if (r.moved) { moving = true; acted = true; }
       });
     }
+
+    /* PARK AT FULL WHEN THE SETPOINT IS LOST — AFTER the sweeps, never during
+     * (Michael, 2026-08-04 for the rule; moved out of the loop 2026-08-05).
+     *
+     * `debug/20260804-3.json`: a 110 kW coil against a 100 kW chiller. The loop
+     * chased LWT, found that throttling reduced the error, and walked the pump
+     * to its 25% floor — making a heat-balance failure worse. Less flow through
+     * a machine already at its capacity delivers less cooling, not more. So
+     * when nothing in the actuator's range holds the setpoint, the actuator
+     * goes back to FULL: in a condition you cannot control, choose the position
+     * that delivers most. Same reasoning as a control valve failing open.
+     *
+     * DOING IT INSIDE THE SWEEP WAS WRONG. Four valves balancing four parallel
+     * branches interact — closing one pushes flow to the others — so a device
+     * can report `at-max` on one pass and settle happily on the next. Slamming
+     * it back to full travel mid-sweep threw away the iteration's progress and
+     * made the answer depend on which pass a transient landed in. On
+     * `debug/20260805-4.json` it left a valve at 100% that had been perfectly
+     * capable of holding its branch. Judged once, at the end, on the state the
+     * device actually finished in. */
+    pairs.forEach(function (pair) {
+      var r = pair.result;
+      if (!r || !lostSetpoint(r.state)) return;
+      if (pair.act.get() < 1 - 1e-9) {
+        pair.act.set(1);
+        cur = evaluate();
+        r.x = 1;
+        r.error = errorOf(cur, pair);
+      }
+      r.lost = true;
+    });
     if (moving) {
       /* THE SWEEP never settled — a different condition from a single device
        * coming to rest off setpoint, and the two used to share a code. One is
@@ -1790,8 +1855,14 @@
         pipe: lostList[0].pipe, equip: lostList[0].equip,
         message: 'System is unable to maintain setpoint. Check heat balance. (' +
                  lostList.map(function (x) {
-                   return (x.tag || x.pipe) + ' → ' + (x.equipTag || x.equip);
-                 }).join(', ') + ' at full travel and still off setpoint.)'
+                   /* Name what stopped the MACHINE where the thermal pass knows
+                    * it — "limited by Design ΔT" is a far more actionable
+                    * sentence than "check heat balance" on its own. */
+                   var tl = cur.thermal && cur.thermal.links &&
+                            cur.thermal.links[x.equip];
+                   return (x.tag || x.pipe) + ' → ' + (x.equipTag || x.equip) +
+                          (tl && tl.limit ? ', limited by ' + tl.limit : '');
+                 }).join('; ') + ' — at full travel and still off setpoint.)'
       });
     }
 

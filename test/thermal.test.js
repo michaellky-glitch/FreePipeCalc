@@ -2195,4 +2195,140 @@ section('A fill on a dead leg absorbs nothing; one in the return line does');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * FOUR VALVES BALANCING FOUR PARALLEL BRANCHES
+ *
+ * `debug/20260805-4.json`, reported 2026-08-05: the valves were not throttling
+ * AHU-1 and a SETPOINT_LOST error was being thrown. Three separate faults, all
+ * of which this section pins.
+ *
+ * 1. THE SOLVE BUDGET WAS FLAT. 60 solves, chosen when a model had one
+ *    controller or two. With five it ran out at 62 partway through the last
+ *    device, which then reported `unsettled` and was parked back at full travel
+ *    — looking exactly as though the valve had never tried. It scales now.
+ *
+ * 2. PARK-AT-FULL RAN INSIDE THE SWEEP. Parallel branches interact: closing one
+ *    pushes flow to the others, so a device can report `at-max` on one pass and
+ *    settle happily on the next. Slamming it back to full mid-sweep threw away
+ *    the iteration. It is judged once, at the end.
+ *
+ * 3. THE DIRECTION PROBE READ NOISE. A 5% nudge on an equal-percentage valve
+ *    near full travel moves the flow by ~1e-7 m³/s — two orders of magnitude
+ *    below the solver's own tolerance. It probes the far end now, and accepts a
+ *    CROSSING as well as an improvement, because probing the minimum overshoots
+ *    hard: +0.15 L/s at full becomes −0.58 L/s at 10% open, and judging on
+ *    |error| alone called that "no better".
+ * ----------------------------------------------------------------------- */
+section('Parallel branches balance against each other');
+{
+  const fs = require('fs');
+  const path = require('path');
+  const raw = fs.readFileSync(
+    path.join(__dirname, '..', 'debug', '20260805-4.json'), 'utf8');
+
+  const m = M.fromJSON(JSON.parse(raw));
+  const res = NET.solveModel(m);
+  const AHUS = ['P10', 'P34', 'P37', 'P40'];
+
+  /* THE ASSERTION THAT MATTERS: every branch gets its rated flow. Four valves,
+   * four setpoints, and the interaction between them resolved. */
+  AHUS.forEach(function (id) {
+    const p = M.pipe(m, id);
+    const ratio = Math.abs(res.flow[id]) / p.equip.qRated;
+    ok((p.tag || id) + ' is within 2% of its rated flow',
+       Math.abs(ratio - 1) < 0.02, (ratio * 100).toFixed(1) + '%');
+  });
+
+  /* Every valve had to move to get there — none is sitting at full travel
+   * pretending, which is what the bug looked like. */
+  ['P43', 'P46', 'P49', 'P52'].forEach(function (id) {
+    const v = M.pipe(m, id);
+    ok('Valve ' + id + ' throttled', v.valve.opening < 60 && v.valve.opening > 10,
+       v.valve.opening + '% open');
+  });
+
+  const byPipe = {};
+  res.controls.devices.forEach(function (d) { byPipe[d.pipe] = d; });
+  ['P43', 'P46', 'P49', 'P52'].forEach(function (id) {
+    ok('...and ' + id + ' reports as holding its setpoint',
+       byPipe[id].state === 'on', id + ': ' + byPipe[id].state);
+  });
+
+  /* THE PUMP is a separate matter and the error it raises is CORRECT: the
+   * chiller's Design ΔT of 15 K stops it reaching 7.5 °C, and no pump speed
+   * fixes that. What was wrong was the message blaming the heat balance
+   * without naming the limit. */
+  {
+    const e = (res.errors || []).filter(x => x.code === 'SETPOINT_LOST')[0];
+    ok('The pump still reports a lost setpoint', !!e);
+    ok('...naming what limited the machine', !!e && /limited by Design ΔT/.test(e.message),
+       e && e.message);
+    ok('...and only the pump, not the valves', !!e &&
+       !/P43|P46|P49|P52/.test(e.message), e && e.message);
+  }
+
+  /* THE BUDGET. It has to be enough for five devices, and it has to be a
+   * setting — Michael asked, having seen how much work the loop does. */
+  {
+    ok('It finished inside its budget', res.controls.solves < 400,
+       String(res.controls.solves));
+    const m2 = M.fromJSON(JSON.parse(raw));
+    m2.settings.control.maxSolves = 8;              // deliberately starved
+    const r2 = NET.solveModel(m2);
+    /* The budget is a SOFT limit and has to be: it is tested at loop
+     * boundaries, and every device takes at least its first probe before the
+     * check can bite. With five devices the floor is therefore about ten
+     * solves whatever is asked for. What it must do is BOUND the work, not hit
+     * a number exactly. */
+    ok('A hand-set budget bounds the work',
+       r2.controls.solves < res.controls.solves / 2,
+       r2.controls.solves + ' against ' + res.controls.solves + ' unbounded');
+    ok('...and starving it visibly changes the answer',
+       r2.controls.devices.some(d => d.state !== 'on'),
+       JSON.stringify(r2.controls.devices.map(d => d.state)));
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * A CROSSING IS EVIDENCE, EVEN WHEN THE MAGNITUDE IS WORSE
+ *
+ * The direction probe goes to the far end of the travel, where it usually
+ * OVERSHOOTS: an error of +0.15 L/s at full becomes −0.58 L/s at the minimum.
+ * Judging on |error| alone calls that "backing off does not help" and leaves
+ * the valve wide open. A sign change is the strongest possible evidence that
+ * the setpoint is reachable — it brackets the root.
+ * ----------------------------------------------------------------------- */
+section('Overshooting the setpoint still counts as finding it');
+{
+  const m = M.create();
+  m.settings.calcMode = 'simulation';
+  const lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 2, 0);
+  const c = M.addNode(m, lv, 3, 0), d2 = M.addNode(m, lv, 4, 0);
+  const e = M.addNode(m, lv, 8, 0);
+  M.setSource(m, a.id, 300e3);
+  e.device = { kind: 'demand', flow: 0.010, reqPressure: 100e3, include: true };
+  M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
+  const v = M.addPipe(m, b.id, c.id, { kind: 'valve' });
+  v.valve = { type: 'globe', kv: 45, opening: 100 };
+  const sn = M.addPipe(m, c.id, d2.id, { kind: 'sensor' });
+  /* A setpoint only a little below the wide-open flow, so the far probe
+   * overshoots it by a wide margin. */
+  sn.sensor = { mode: 'flow', qSet: 0.008 };
+  M.addPipe(m, d2.id, e.id, { size: 'DN50', schedule: 'sch40' });
+  m.pipes.forEach(x => { x.insulation_mm = 0; });
+
+  const wide = NET.solveModel(M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(m)))));
+  M.setControl(m, v, sn.id);
+  const res = NET.solveModel(m);
+
+  ok('Wide open it carries more than the setpoint',
+     Math.abs(wide.flow[sn.id]) > 0.008,
+     (Math.abs(wide.flow[sn.id]) * 1000).toFixed(2) + ' L/s');
+  near('It throttles to the setpoint', Math.abs(res.flow[sn.id]), 0.008, 0.008 * 0.02);
+  ok('...having actually moved', v.valve.opening < 100, v.valve.opening + '%');
+  ok('...and reports as holding it', res.controls.devices[0].state === 'on',
+     res.controls.devices[0].state);
+}
+
 report();
