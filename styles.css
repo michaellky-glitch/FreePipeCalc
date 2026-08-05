@@ -408,6 +408,13 @@ table.sheet td.dim  { color: var(--text-mute); }
    what was drawn is not what was meant. Coloured as a warning that means it. */
 .chip.defect { background: var(--warn); color: #1b2027; font-weight: 700; }
 h4.warn-group { margin: 10px 0 2px; font-size: 12px; letter-spacing: .3px; }
+/* A sub-heading inside a calculation section, for the parts of the thermal
+   result that answer different questions. */
+h4.sheet-sub {
+  margin: 14px 0 4px; font-size: 12px; letter-spacing: .4px;
+  text-transform: uppercase; color: var(--text-dim);
+  border-bottom: 1px solid var(--line-soft); padding-bottom: 3px;
+}
 h4.warn-group.defect { color: var(--warn); }
 h4.warn-group.warning { color: var(--text-dim); }
 h4.warn-group.notice { color: var(--text-mute); }

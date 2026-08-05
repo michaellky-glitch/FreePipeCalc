@@ -1627,6 +1627,37 @@ than 20 bar is not a building services problem. Adjustable on the HYDRAULIC tab,
 for "no path through here", not a claim about a pressure, and a standby leg
 behind a closed valve is an ordinary thing to draw.
 
+### The heat balance, and the two terms that are not link duties
+
+The CALCULATION sheet's Thermal section leads on the **residual**: at steady
+state everything put into the water comes out of it, so it is zero by
+definition. It needs no reference temperature and no hand calculation to read,
+which is what makes it the one figure worth putting first.
+
+`imbalance` — the sum of link duties — only closes on a **sealed** circuit. Two
+terms were missing, and both are real physics rather than bookkeeping:
+
+* **`sourceDuty`** — a source HOLDS its stated temperature whatever arrives, so
+  it is a heat source in its own right; an infinite reservoir does not warm up.
+  The energy is the flow through it times the difference between what it holds
+  and what it would otherwise have mixed to. On a sealed circuit with a fill
+  connection this is where a plant shortfall appears: the fill quietly absorbs
+  it. `examples/stacked-riser.pnet.json` shows exactly that — 150.2 kW of coils
+  against 143.9 kW of chiller, and 6.3 kW absorbed at the fill.
+* **`boundary`** — energy the water carries out of an OPEN system when it leaves
+  at a different temperature from the one it entered at. Independent of the
+  temperature datum, because mass is conserved and an arbitrary offset in T
+  cancels between the two sums.
+
+`residual = pipeLoss + equipDuty + sourceDuty − boundary`, and it closes in all
+three cases. `imbalance` is kept beside it because every sealed-circuit
+expectation in the suite reads it, and for a sealed circuit the two are the same
+number.
+
+The section also lists **every pipe**, including the ones that move nothing. A
+zero row on a well-insulated main is a result rather than clutter, and leaving it
+out makes the total impossible to check by adding up.
+
 ### The runaway guard
 
 The solve is exact, so nothing runs away numerically — but a correct answer can
@@ -1709,7 +1740,7 @@ is the strongest claim available.
 
 ## 15. Testing
 
-Seven suites, 1452 assertions, no dependencies:
+Seven suites, 1468 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

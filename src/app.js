@@ -965,45 +965,189 @@
           'pinned at ' + th.pinned.node + '. Every temperature is relative to that.'));
       }
 
-      var t = el('table', 'sheet');
-      t.innerHTML = '<thead><tr><th class="txt">Item</th><th class="txt">Tag</th>' +
-                    '<th>In (°C)</th><th>Out (°C)</th><th>ΔT (K)</th>' +
-                    '<th>Q (kW)</th></tr></thead>';
-      var tb = el('tbody');
-      var rows = 0;
-      m.pipes.forEach(function (p) {
-        var l = th.links[p.id];
-        if (!l) return;
-        /* Plain pipe rows only when they actually move heat — a table of
-         * 0.00 kW lines buries the equipment that matters. */
-        if ((p.kind === 'pipe' || p.kind === 'riser') && Math.abs(l.qW) < 1) return;
-        var tr = el('tr');
-        if (p.kind === 'equip') tr.className = 'index-row';
-        tr.appendChild(el('td', 'txt', p.kind === 'equip' ? 'Equipment' :
-                                       p.kind === 'riser' ? 'Riser' : 'Pipe ' + p.id));
-        tr.appendChild(el('td', 'txt', p.tag || ''));
-        tr.appendChild(el('td', '', l.tIn.toFixed(2)));
-        tr.appendChild(el('td', '', l.tOut.toFixed(2)));
-        tr.appendChild(el('td', '', (l.dT >= 0 ? '+' : '') + l.dT.toFixed(2)));
-        tr.appendChild(el('td', '', (l.qW >= 0 ? '+' : '') + (l.qW / 1000).toFixed(2)));
-        tb.appendChild(tr);
-        rows++;
+      /* ---------------------------------------------------- HEAT BALANCE
+       *
+       * At steady state everything put into the water has to come out of it.
+       * That is not a check on the arithmetic, it is the DEFINITION of steady
+       * state — and it needs no reference temperature and no hand calculation
+       * to read, which is what makes it the one figure worth putting first.
+       *
+       * A residual that is not near zero means the answer has not settled,
+       * whatever the temperatures say. Michael asked for this section,
+       * 2026-08-05. */
+      var heatIn = 0, heatOut = 0;
+      Object.keys(th.links).forEach(function (id) {
+        var q = th.links[id].qW;
+        if (!isFinite(q)) return;
+        if (q > 0) heatIn += q; else heatOut += q;
       });
-      t.appendChild(tb);
-      if (rows) secT.appendChild(t);
 
-      var g = el('div', 'index-grid');
-      function kvT(k, v) {
-        var r = el('div', 'kv');
+      secT.appendChild(el('h4', 'sheet-sub', 'Heat balance'));
+      var bt = el('table', 'sheet');
+      bt.innerHTML = '<thead><tr><th class="txt">Into the water</th><th>kW</th>' +
+                     '<th class="txt">Out of the water</th><th>kW</th></tr></thead>';
+      var btb = el('tbody');
+      function bRow(a, av, b, bv, cls) {
+        var tr = el('tr');
+        if (cls) tr.className = cls;
+        tr.appendChild(el('td', 'txt', a));
+        tr.appendChild(el('td', '', av));
+        tr.appendChild(el('td', 'txt', b));
+        tr.appendChild(el('td', '', bv));
+        btb.appendChild(tr);
+      }
+      bRow('Gained (loads, warm ambient)', '+' + (heatIn / 1000).toFixed(2),
+           'Removed (plant, cold ambient)', (heatOut / 1000).toFixed(2));
+      bRow('Equipment', (th.totals.equipDuty >= 0 ? '+' : '') +
+                        (th.totals.equipDuty / 1000).toFixed(2),
+           'Pipework', (th.totals.pipeLoss >= 0 ? '+' : '') +
+                       (th.totals.pipeLoss / 1000).toFixed(3));
+      /* THE TWO TERMS THAT ARE NOT LINK DUTIES, and without which an open or
+       * fill-connected system never appears to balance.
+       *
+       * A SOURCE holds its stated temperature whatever arrives, so it is a heat
+       * source in its own right — an infinite reservoir does not warm up. On a
+       * closed circuit with a fill connection this is where a plant shortfall
+       * shows up: the fill quietly absorbs it.
+       *
+       * BOUNDARY is the energy water carries out of an open system when it
+       * leaves at a different temperature from the one it entered at. */
+      if (Math.abs(th.sourceDuty || 0) > 1) {
+        bRow('At the source / fill', (th.sourceDuty >= 0 ? '+' : '') +
+             (th.sourceDuty / 1000).toFixed(3), '', '', 'index-row');
+      }
+      if (Math.abs(th.boundary || 0) > 1) {
+        bRow('', '', 'Carried out by the water',
+             (th.boundary / 1000).toFixed(3), 'index-row');
+      }
+      bt.appendChild(btb);
+      secT.appendChild(bt);
+
+      var g0 = el('div', 'index-grid');
+      function kv0(k, v, cls) {
+        var r = el('div', 'kv' + (cls ? ' ' + cls : ''));
         r.appendChild(el('span', 'k', k));
         r.appendChild(el('span', 'v', v));
-        g.appendChild(r);
+        g0.appendChild(r);
+        return r;
       }
-      kvT('Equipment duty', (th.totals.equipDuty / 1000).toFixed(2) + ' kW');
-      kvT('Pipe gain / loss', (th.totals.pipeLoss / 1000).toFixed(3) + ' kW');
-      kvT('Temperature range', th.totals.min === null ? '—'
+      /* The residual, and whether it is small enough to mean anything. A
+       * watt on a 100 kW system is noise; a kilowatt is not. */
+      /* `residual`, not `imbalance`: the latter is link duties only, which never
+       * balances once a source is holding a temperature or water is leaving the
+       * system carrying heat with it. */
+      var resid = (th.residual !== undefined) ? th.residual : th.imbalance;
+      var scale = Math.max(Math.abs(heatIn), Math.abs(heatOut), 1);
+      var tight = Math.abs(resid) < Math.max(1, scale * 1e-4);
+      kv0('Residual', (resid >= 0 ? '+' : '') +
+          (resid / 1000).toFixed(3) + ' kW' +
+          (tight ? '  — balanced' : '  — NOT balanced'),
+          tight ? '' : 'deficit');
+      if (Math.abs(th.sourceDuty || 0) > 1) {
+        kv0('Absorbed at the source', (th.sourceDuty / 1000).toFixed(2) + ' kW' +
+            (th.sourceDuty < 0 ? '  — the plant is short by this much'
+                               : '  — the fill is making this up'), 'deficit');
+      }
+      kv0('Temperature range', th.totals.min === null ? '—'
         : th.totals.min.toFixed(2) + ' … ' + th.totals.max.toFixed(2) + ' °C');
-      secT.appendChild(g);
+      secT.appendChild(g0);
+      secT.appendChild(el('p', 'legend',
+        'At steady state everything put into the water comes out of it, so the ' +
+        'residual is zero by definition — it needs no reference temperature and ' +
+        'no hand calculation to read. A source holds its stated temperature ' +
+        'whatever arrives, so it counts as a duty of its own: on a sealed ' +
+        'circuit with a fill connection, a plant that cannot keep up shows as ' +
+        'heat absorbed there.'));
+
+      /* ------------------------------------------------------- EQUIPMENT */
+      var eqRowsT = m.pipes.filter(function (p) {
+        return p.kind === 'equip' && th.links[p.id];
+      });
+      if (eqRowsT.length) {
+        secT.appendChild(el('h4', 'sheet-sub', 'Equipment duty'));
+        var t = el('table', 'sheet');
+        t.innerHTML = '<thead><tr><th class="txt">Tag</th><th class="txt">Type</th>' +
+                      '<th>Flow (' + d.flow + ')</th>' +
+                      '<th>In (°C)</th><th>Out (°C)</th><th>ΔT (K)</th>' +
+                      '<th>Q (kW)</th><th class="txt">Limited by</th></tr></thead>';
+        var tb = el('tbody');
+        eqRowsT.forEach(function (p) {
+          var l = th.links[p.id];
+          var tr = el('tr');
+          tr.className = 'index-row';
+          tr.appendChild(el('td', 'txt', p.tag || p.id));
+          tr.appendChild(el('td', 'txt',
+            p.equip.equipType === 'source' ? 'Source / sink'
+            : p.equip.equipType === 'adiabatic' ? 'Adiabatic' : 'Heat exchanger'));
+          tr.appendChild(el('td', '', FD.units.fmtFlow(l.mdot / (th.fluid.density || 998),
+                                                       d.flow)));
+          tr.appendChild(el('td', '', l.tIn.toFixed(2)));
+          tr.appendChild(el('td', '', l.tOut.toFixed(2)));
+          tr.appendChild(el('td', '', (l.dT >= 0 ? '+' : '') + l.dT.toFixed(2)));
+          tr.appendChild(el('td', '', (l.qW >= 0 ? '+' : '') + (l.qW / 1000).toFixed(2)));
+          tr.appendChild(el('td', 'txt', l.limit || ''));
+          tb.appendChild(tr);
+        });
+        t.appendChild(tb);
+        secT.appendChild(t);
+      }
+
+      /* ------------------------------- PIPEWORK HEAT GAIN / LOSS
+       *
+       * The one Michael named. On a chilled system this is the gain that has to
+       * be added to the coil load; on LTHW it is the loss that has to be made
+       * up. EVERY pipe is listed, including the ones that move nothing —
+       * a zero row on a well-insulated main is a result, not clutter, and
+       * leaving it out makes the total impossible to check by adding up. */
+      var pipeRows = m.pipes.filter(function (p) {
+        return (p.kind === 'pipe' || p.kind === 'riser') && th.links[p.id];
+      });
+      if (pipeRows.length) {
+        secT.appendChild(el('h4', 'sheet-sub', 'Pipework heat gain / loss'));
+        var pt = el('table', 'sheet');
+        pt.innerHTML = '<thead><tr><th class="txt">Section</th><th class="txt">Size</th>' +
+                       '<th>L (m)</th><th>Ins (mm)</th><th>U′ (W/m·K)</th>' +
+                       '<th>In (°C)</th><th>Out (°C)</th><th>Q (W)</th></tr></thead>';
+        var ptb = el('tbody');
+        var gain = 0, loss = 0;
+        pipeRows.forEach(function (p) {
+          var l = th.links[p.id];
+          var ins = FD.thermal.thicknessOf(m, p) * 1000;
+          var tr = el('tr');
+          tr.appendChild(el('td', 'txt', (p.tag ? p.tag + ' · ' : '') + p.a + ' → ' + p.b));
+          tr.appendChild(el('td', 'txt', FD.units.fmtSize(p.size, d.size)));
+          tr.appendChild(el('td', '', (l.length || 0).toFixed(2)));
+          tr.appendChild(el('td', '', ins.toFixed(0)));
+          tr.appendChild(el('td', '', (l.UperM || 0).toFixed(3)));
+          tr.appendChild(el('td', '', l.tIn.toFixed(2)));
+          tr.appendChild(el('td', '', l.tOut.toFixed(2)));
+          tr.appendChild(el('td', '', (l.qW >= 0 ? '+' : '') + l.qW.toFixed(1)));
+          ptb.appendChild(tr);
+          if (l.qW > 0) gain += l.qW; else loss += l.qW;
+        });
+        pt.appendChild(ptb);
+        secT.appendChild(pt);
+
+        var g2 = el('div', 'index-grid');
+        function kv2T(k, v) {
+          var r = el('div', 'kv');
+          r.appendChild(el('span', 'k', k));
+          r.appendChild(el('span', 'v', v));
+          g2.appendChild(r);
+        }
+        kv2T('Pipework gain', '+' + (gain / 1000).toFixed(3) + ' kW');
+        kv2T('Pipework loss', (loss / 1000).toFixed(3) + ' kW');
+        kv2T('Net', (th.totals.pipeLoss >= 0 ? '+' : '') +
+             (th.totals.pipeLoss / 1000).toFixed(3) + ' kW');
+        /* As a fraction of the load it has to be added to or made up from —
+         * the number an engineer actually uses it for. */
+        var loadMag = Math.abs(th.totals.equipDuty);
+        if (loadMag > 1) {
+          kv2T('As % of equipment duty',
+               (Math.abs(th.totals.pipeLoss) / loadMag * 100).toFixed(1) + '%');
+        }
+        secT.appendChild(g2);
+      }
     })();
 
     (function () {

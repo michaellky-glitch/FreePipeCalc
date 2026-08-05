@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1452
+This is deliberately separate from the automated suites. Those cover 1468
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-05 (v0.14.0)
+Last updated: 2026-08-05 (v0.14.1)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -202,6 +202,17 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 4Q. THERMAL section on the CALCULATION sheet (v0.14.1)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| TH.1 | Heat balance, leading on the residual | ⬜ | Verified live on the stacked-riser example: residual −0.000 kW, "balanced". |
+| TH.2 | **The source/fill term** | ⬜ | **Worth your eye.** A source holds its temperature whatever arrives, so it is a duty. On the example it reads "Absorbed at the source −6.30 kW — the plant is short by this much". That is a real finding about the example, not a rounding error. |
+| TH.3 | Equipment duty table | ⬜ | Tag, type, flow, in/out, ΔT, Q, and what limited it. |
+| TH.4 | Pipework heat gain / loss | ⬜ | Every pipe: length, insulation, U′, in/out, Q in watts. Totals for gain, loss, net, and **net as a % of equipment duty** — the number you actually use it for. On the example: +0.178 kW, 2.9%. |
+| TH.5 | Every pipe is listed, including zero rows | ⬜ | Deliberate: a zero row on a well-insulated main is a result, and leaving it out makes the total impossible to check by adding up. Say if you'd rather they were suppressed. |
+| TH.6 | The section is collapsed by default | ⬜ | So it does not print unless you open it, per the existing convention. |
 
 ## 4P. DXF EXPORT and the message UX pass (v0.14.0)
 

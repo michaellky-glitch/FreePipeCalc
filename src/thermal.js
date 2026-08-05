@@ -662,6 +662,67 @@
       else if (c.pipe.kind === 'equip') equipDuty += qW;
     });
 
+    /* ---- ENERGY CARRIED ACROSS THE BOUNDARY -----------------------------
+     *
+     * An OPEN system does not balance on link duties alone, and it should not:
+     * water enters at a source and leaves at an outflow, carrying energy with
+     * it. On the stacked-riser example the coils add 6.12 kW and the pipework
+     * 0.18 kW, and every watt of it walks out of the demand node — reporting
+     * that as an unbalanced answer would be wrong twice over.
+     *
+     * At every node, the mass arriving through pipes and the mass leaving
+     * through pipes differ by whatever crossed the boundary there. The NET
+     * energy that carries is
+     *
+     *     Σ(ṁ_out·Cp·T_out) − Σ(ṁ_in·Cp·T_in)
+     *
+     * which is independent of the temperature datum, because mass is conserved
+     * and the two sums use the same Cp — an arbitrary offset in T cancels. Only
+     * the DIFFERENCE means anything, which is why it is reported as one figure
+     * rather than two.
+     *
+     * For a closed circuit there are no boundary nodes and this is exactly
+     * zero, so `imbalance` keeps its old meaning there and every closed-system
+     * expectation is untouched. */
+    var boundary = 0, sourceDuty = 0;
+    (function () {
+      var arrive = {}, leave = {};
+      carriers.forEach(function (c) {
+        arrive[c.to] = (arrive[c.to] || 0) + c.mdot;
+        leave[c.from] = (leave[c.from] || 0) + c.mdot;
+      });
+      Object.keys(T).forEach(function (id) {
+        var net = (arrive[id] || 0) - (leave[id] || 0);   // + = leaving the system
+        if (Math.abs(net) > 1e-12 && isFinite(T[id])) boundary += net * cp * T[id];
+      });
+
+      /* ---- HEAT ADDED OR REMOVED AT A REFERENCE NODE
+       *
+       * A source HOLDS its stated temperature whatever arrives, which means it
+       * is a heat source in its own right: an infinite reservoir does not warm
+       * up. The energy involved is the flow through it times the difference
+       * between what it holds and what it would otherwise have mixed to, and it
+       * belongs in the balance like any other duty.
+       *
+       * On the stacked-riser example this is where a 6.3 kW residual came from
+       * and what it means: with the coils adding 150.2 kW and the chiller only
+       * removing 143.9, the fill connection is quietly absorbing the shortfall.
+       * That is a real statement about the design — the plant is 6.3 kW short —
+       * and reporting it as an unbalanced answer would have hidden it. */
+      Object.keys(ref.refs).forEach(function (id) {
+        var arriving = inTo[id];
+        if (!arriving || !arriving.length) return;
+        var den = 0, mixed = 0;
+        arriving.forEach(function (c) { den += c.mdot; });
+        if (!(den > 0)) return;
+        arriving.forEach(function (c) {
+          mixed += (c.mdot / den) * outletOf(c, T[c.from]);
+        });
+        if (!isFinite(mixed) || !isFinite(T[id])) return;
+        sourceDuty += den * cp * (T[id] - mixed);
+      });
+    })();
+
     var temps = Object.keys(T).map(function (k) { return T[k]; })
       .filter(function (v) { return isFinite(v); });
 
@@ -721,6 +782,17 @@
        * worth reporting: a residual that is not near zero means the iteration
        * has not finished, whatever the temperature tolerance said. */
       imbalance: pipeLoss + equipDuty,
+      /* Net energy the water carries OUT across the system boundary. Zero for
+       * a closed circuit. */
+      boundary: boundary,
+      /* Heat added (+) or removed (−) at a reference node, because a source
+       * holds its temperature whatever arrives. */
+      sourceDuty: sourceDuty,
+      /* What is left once BOTH are accounted for. THIS is the figure that is
+       * zero at steady state whatever the system is — `imbalance` is kept
+       * beside it because every closed-system expectation in the suite reads
+       * it, and for a sealed circuit the two are the same number. */
+      residual: pipeLoss + equipDuty + sourceDuty - boundary,
       fluid: fluid,
       ambient: prm.ambient,
       pinned: ref.pinned,

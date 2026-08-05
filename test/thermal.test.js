@@ -1853,4 +1853,124 @@ section('Pressure and differential sensors');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * THE HEAT BALANCE CLOSES — for an open system too
+ *
+ * Michael asked for a heat balance on the calculation sheet, 2026-08-05. The
+ * figure that makes it worth having is the RESIDUAL: at steady state everything
+ * put into the water comes out of it, so it is zero by definition and needs no
+ * reference temperature and no hand calculation to read.
+ *
+ * `imbalance` — link duties alone — only closes on a SEALED circuit. Two terms
+ * were missing:
+ *
+ *   SOURCE DUTY   a source holds its stated temperature whatever arrives, so it
+ *                 is a heat source in its own right. An infinite reservoir does
+ *                 not warm up.
+ *   BOUNDARY      energy the water carries out of an OPEN system when it leaves
+ *                 at a different temperature from the one it entered at.
+ *
+ * `residual = pipeLoss + equipDuty + sourceDuty − boundary` closes in all three
+ * cases, and `imbalance` is kept beside it because every sealed-circuit
+ * expectation in this file reads it.
+ * ----------------------------------------------------------------------- */
+section('The heat balance closes, sealed or open');
+{
+  const RHOCP = 998 * 4187;
+
+  /* ---- 1. AN OPEN SYSTEM: water in at 10 °C, a 40 kW coil, water out.
+   * Everything the coil adds walks out of the demand node, so `imbalance` is
+   * +40 kW and the residual is zero. */
+  {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: 10, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), j = M.addNode(m, lv, 1, 0);
+    const k = M.addNode(m, lv, 2, 0), b = M.addNode(m, lv, 3, 0);
+    M.setSource(m, a.id, 400e3); a.device.temperature = 10;
+    b.device = { kind: 'demand', flow: 0.005, reqPressure: 100e3, include: true };
+    M.addPipe(m, a.id, j.id, { size: 'DN50', schedule: 'sch40' });
+    const e = M.addPipe(m, j.id, k.id, { kind: 'equip' });
+    e.equip = { qRated: 0.005, pdRated: 20e3, equipType: 'exchanger', duty: 40000 };
+    M.addPipe(m, k.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+    const th = NET.solveModel(m).thermal;
+
+    near('The coil adds its 40 kW', th.totals.equipDuty, 40000, 1);
+    near('Link duties alone do NOT balance an open system', th.imbalance, 40000, 1);
+    near('...because the water carries it out', th.boundary, 40000, 1);
+    near('...so the residual is zero', th.residual, 0, 1e-6);
+
+    /* And the boundary term is exactly ṁ·Cp·ΔT across the system, by hand:
+     * 40 kW into 5 L/s raises it 40000/(0.005 × 4 178 626) = 1.914 K. */
+    const dTsys = 40000 / (0.005 * RHOCP);
+    near('...which is ṁ·Cp·ΔT across the whole system',
+         th.boundary, 0.005 * RHOCP * dTsys, 1);
+    near('...raising the water 1.914 K', dTsys, 1.9145, 1e-3);
+  }
+
+  /* ---- 2. A SEALED CIRCUIT with a fill connection. The source carries no net
+   * flow, but it PINS the temperature — so a plant that cannot keep up shows as
+   * heat absorbed there rather than as an unbalanced answer. */
+  {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: 11, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 2, 0));
+    M.setSource(m, n[0].id, 250e3); n[0].device.temperature = 11;
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 15 };
+    const coil = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
+    coil.equip = { qRated: 0.004, pdRated: 50e3, equipType: 'exchanger', duty: 60000 };
+    const ch = M.addPipe(m, n[2].id, n[3].id, { kind: 'equip' });
+    /* Deliberately too small: 40 kW of cooling against a 60 kW load. */
+    ch.equip = { qRated: 0.004, pdRated: 50e3, equipType: 'source',
+                 tSet: 6, qMax: -40000 };
+    M.addPipe(m, n[3].id, n[4].id, { size: 'DN65', schedule: 'sch40' });
+    M.addPipe(m, n[4].id, n[0].id, { size: 'DN65', schedule: 'sch40' });
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+    const th = NET.solveModel(m).thermal;
+
+    near('No water crosses the boundary of a sealed circuit', th.boundary, 0, 1e-6);
+    ok('The plant cannot keep up', th.totals.equipDuty > 1000,
+       (th.totals.equipDuty / 1000).toFixed(2) + ' kW');
+    ok('...and the fill absorbs the shortfall', th.sourceDuty < -1000,
+       (th.sourceDuty / 1000).toFixed(2) + ' kW');
+    near('...to the watt', th.sourceDuty, -(th.totals.equipDuty + th.totals.pipeLoss), 1);
+    near('The balance closes', th.residual, 0, 1e-6);
+    /* 60 kW in, 40 kW out: the fill is carrying the missing 20 kW. */
+    near('...and the shortfall is the 20 kW the chiller is short by',
+         th.sourceDuty, -20000, 50);
+  }
+
+  /* ---- 3. A GENUINELY SEALED, BALANCED circuit: no source at all, so nothing
+   * is pinned and the two figures agree. This is the case every earlier test in
+   * this file reads, and it must not have moved. */
+  {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: 6, insulationK: 0.02,
+                           surfaceCoeff: 8, tempMin: -100, tempMax: 500 };
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 4; i++) n.push(M.addNode(m, lv, i * 20, 0));
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 10 };
+    const load = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
+    load.equip = { qRated: 0.020, pdRated: 50e3, equipType: 'exchanger', duty: 100000 };
+    const p1 = M.addPipe(m, n[2].id, n[3].id, { size: 'DN100', schedule: 'sch40' });
+    const p2 = M.addPipe(m, n[3].id, n[0].id, { size: 'DN100', schedule: 'sch40' });
+    p1.insulation_mm = 0; p2.insulation_mm = 0;
+    const th = NET.solveModel(m).thermal;
+
+    near('Pipe loss cancels the load', th.imbalance, 0, 1);
+    near('Nothing is pinned, so no source duty', th.sourceDuty, 0, 1e-6);
+    near('...and no boundary flow', th.boundary, 0, 1e-6);
+    near('So residual and imbalance are the same number',
+         th.residual, th.imbalance, 1e-9);
+  }
+}
+
 report();

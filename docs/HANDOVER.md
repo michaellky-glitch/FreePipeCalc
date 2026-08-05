@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1452 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1468 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,16 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **THE THERMAL SECTION on the calculation sheet** (v0.14.1) — Michael's
+  request. Three parts: a HEAT BALANCE leading on the residual, equipment duty,
+  and pipework heat gain/loss per pipe with a total and its percentage of the
+  equipment duty.
+  Writing it found a real gap: `imbalance` only closes on a sealed circuit. A
+  source HOLDS its temperature whatever arrives, so it is a duty in its own
+  right (`sourceDuty`), and an open system carries energy out with the water
+  (`boundary`). `residual` accounts for both and closes everywhere. On the
+  stacked-riser example it immediately showed the chiller is 6.3 kW short — a
+  finding, not a rounding error. `ARCHITECTURE.md` §18.
 * **DXF EXPORT** (v0.14.0, EXPERIMENTAL) — `src/dxf.js`, R12 ASCII, geometry
   and text only. Model space in metres at true size with REAL Z, so risers
   export as genuine verticals and the model opens as a 3D layout. Simpler than
