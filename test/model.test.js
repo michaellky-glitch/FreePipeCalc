@@ -2182,4 +2182,93 @@ section('Typing a negative duty means a negative duty');
    * does not load the thermal module. */
 }
 
+/* --------------------------------------------------------------------------
+ * RISERS STACK, AND SKIP FLOORS  (Michael, 2026-08-05)
+ *
+ * A column links CONSECUTIVE attachments sorted by altitude, so skipping a
+ * floor has always worked at the model level — L1 to L3 is one pipe. What did
+ * not work was adding a THIRD floor from the drawing, because the click handler
+ * dragged the column to the new point and tried to realign the floors already
+ * on it. With two columns in a model both lower levels are locked, nothing
+ * could move, and the column ended up misaligned with its own attachments.
+ * A column with two attachments is now an established line: a third floor joins
+ * it WHERE IT IS.
+ * ----------------------------------------------------------------------- */
+section('Risers stack to any number of floors, and may skip them');
+{
+  function tower(n) {
+    const m = M.create();
+    const levels = [m.levels[0]];
+    for (let i = 1; i < n; i++) {
+      const lv = M.addLevel(m);
+      lv.altitude = i * 3.5;
+      levels.push(lv);
+    }
+    /* addLevel prepends or appends depending on the build; sort top-first the
+     * way the model itself does, so the test does not depend on that. */
+    m.levels.sort((a, b) => b.altitude - a.altitude);
+    return { m, levels };
+  }
+
+  {
+    const t = tower(4);
+    const r = M.addRiser(t.m, 5, 5);
+    const nodes = t.levels.map(lv => M.addNode(t.m, lv.id, 5, 5));
+    t.levels.forEach((lv, i) => M.attachRiser(t.m, r.id, lv.id, nodes[i].id));
+    ok('All four floors attach', r.attachments.length === 4,
+       String(r.attachments.length));
+    const pipes = M.riserPipes(t.m).filter(p => p.riser === r.id);
+    ok('...giving three riser pipes', pipes.length === 3, String(pipes.length));
+    /* Sorted top-first, so consecutive pairs are contiguous floors. */
+    const alts = r.attachments.map(a => M.level(t.m, a.level).altitude);
+    ok('...ordered by altitude, top first',
+       alts.every((v, i) => i === 0 || v < alts[i - 1]), alts.join(','));
+  }
+
+  {
+    /* SKIPPING A FLOOR: attach the bottom and the top of a four-storey tower
+     * and nothing else. One pipe, spanning the full height. */
+    const t = tower(4);
+    const r = M.addRiser(t.m, 9, 9);
+    const bottom = t.levels[t.levels.length - 1], top = t.levels[0];
+    const nb = M.addNode(t.m, bottom.id, 9, 9), nt = M.addNode(t.m, top.id, 9, 9);
+    M.attachRiser(t.m, r.id, bottom.id, nb.id);
+    M.attachRiser(t.m, r.id, top.id, nt.id);
+    const pipes = M.riserPipes(t.m).filter(p => p.riser === r.id);
+    ok('A riser may skip the floors between', pipes.length === 1);
+    near('...and its length is the full height it spans',
+         M.pipeLength(t.m, pipes[0]), 3 * 3.5, 1e-9);
+  }
+
+  /* AN OPEN END: the column hands over to horizontal pipework at its top and
+   * bottom. A node with nothing else on it means the riser stops in mid-air. */
+  {
+    const t = tower(3);
+    const r = M.addRiser(t.m, 5, 5);
+    const nodes = t.levels.map(lv => M.addNode(t.m, lv.id, 5, 5));
+    t.levels.forEach((lv, i) => M.attachRiser(t.m, r.id, lv.id, nodes[i].id));
+    M.riserPipes(t.m);
+    let open = M.riserOpenEnds(t.m);
+    ok('Both ends are open with no pipework on them', open.length === 2,
+       JSON.stringify(open.map(o => o.end)));
+    ok('...named as top and bottom',
+       open.map(o => o.end).sort().join(',') === 'bottom,top');
+
+    /* Connect the TOP attachment — taken from the column itself rather than
+     * from the level order, which is the column's own business. */
+    const topAtt = r.attachments[0];
+    const spur = M.addNode(t.m, topAtt.level, 8, 5);
+    M.addPipe(t.m, topAtt.node, spur.id, { size: 'DN50', schedule: 'sch40' });
+    open = M.riserOpenEnds(t.m);
+    ok('Connecting the top leaves only the bottom open',
+       open.length === 1 && open[0].end === 'bottom',
+       JSON.stringify(open.map(o => o.end)));
+
+    /* A MIDDLE attachment with nothing on it is a pass-through, not an error —
+     * the column simply carries on. */
+    ok('The middle floor is not reported',
+       !open.some(o => o.node === r.attachments[1].node));
+  }
+}
+
 report();

@@ -475,6 +475,65 @@
      * limit on the strength of a duty it is itself producing. It settles in
      * two or three passes; the cap exists so a pathological model reports
      * rather than hangs. */
+    /* ---- NODES WITH NO FLOW ARRIVING -----------------------------------
+     *
+     * A dead leg, a shut branch, a standby pump behind a closed valve. Nothing
+     * carries a temperature TO them, so the mixing relation has nothing to say
+     * and the row needs filling some other way.
+     *
+     * It used to be filled with the SEED — the source water temperature — which
+     * is what Michael saw as "the temperature is resetting at the source and
+     * dead-end pipes" (2026-08-05). A dead leg is not at the supply
+     * temperature; it is at the temperature of the water it is connected to,
+     * because that is the water that is in it.
+     *
+     * So each such node is tied to a neighbour that DOES have a temperature:
+     *
+     *     T_dead − T_neighbour = 0
+     *
+     * still linear, and still exact. His own statement of the rule: "if one end
+     * is a tee with flow in another direction, use the temperature of the other
+     * end."
+     *
+     * The neighbour is found by breadth-first search OUTWARD FROM THE LIVE
+     * NODES, so every dead node points at something nearer the live water than
+     * itself. That ordering is what keeps the system non-singular: two dead
+     * nodes pointing at each other would be `T1 − T2 = 0` twice over, which has
+     * no unique solution. A node with no path to any live water at all — a
+     * completely isolated island — still falls back to the seed, because there
+     * genuinely is nothing else to say about it. */
+    function deadLegParents() {
+      var live = {}, parent = {}, queue = [];
+      ids.forEach(function (id) {
+        var arriving = inTo[id];
+        var den = 0;
+        if (arriving) arriving.forEach(function (c) { den += c.mdot; });
+        if (ref.refs[id] !== undefined || (arriving && arriving.length && den > 0)) {
+          live[id] = true;
+          queue.push(id);
+        }
+      });
+      /* Adjacency over EVERY pipe, carrying flow or not — a dead leg is
+       * connected by pipework even when no water moves in it. */
+      var adj = {};
+      m.pipes.forEach(function (p) {
+        if (!adj[p.a]) adj[p.a] = [];
+        if (!adj[p.b]) adj[p.b] = [];
+        adj[p.a].push(p.b);
+        adj[p.b].push(p.a);
+      });
+      for (var qi = 0; qi < queue.length; qi++) {
+        var here = queue[qi];
+        (adj[here] || []).forEach(function (nb) {
+          if (live[nb] || parent[nb] !== undefined) return;
+          parent[nb] = here;
+          queue.push(nb);
+        });
+      }
+      return parent;
+    }
+    var deadParent = deadLegParents();
+
     function assembleAndSolve() {
       var A = [], bvec = [];
       for (var r = 0; r < N; r++) {
@@ -487,10 +546,22 @@
           return;
         }
         var arriving = inTo[id];
-        if (!arriving || !arriving.length) { A[i][i] = 1; bvec[i] = seed; return; }
         var den = 0;
-        arriving.forEach(function (c) { den += c.mdot; });
-        if (!(den > 0)) { A[i][i] = 1; bvec[i] = seed; return; }
+        if (arriving) arriving.forEach(function (c) { den += c.mdot; });
+
+        if (!arriving || !arriving.length || !(den > 0)) {
+          /* No flow arriving: take the temperature of the water this node is
+           * connected to, not the seed. */
+          var par = deadParent[id];
+          if (par !== undefined && index[par] !== undefined) {
+            A[i][i] = 1;
+            A[i][index[par]] = -1;
+            bvec[i] = 0;
+          } else {
+            A[i][i] = 1; bvec[i] = seed;      // a genuinely isolated island
+          }
+          return;
+        }
 
         A[i][i] = 1;
         arriving.forEach(function (c) {

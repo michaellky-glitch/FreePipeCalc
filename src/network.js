@@ -784,6 +784,17 @@
     /* Disconnection is checked on every solve, not just on demand. The model
      * that prompted this returned zero flow with converged:true and no errors —
      * the worst possible failure, because it looks like an answer. */
+    /* A riser that stops in mid-air is a disconnection the flat-plan check
+     * cannot see, because the column is drawn as a marker rather than a line. */
+    (M.riserOpenEnds ? M.riserOpenEnds(m) : []).forEach(function (o) {
+      res.warnings = (res.warnings || []).concat([{
+        code: 'RISER_OPEN_END', node: o.node, riser: o.riser,
+        message: 'Riser ' + o.riser + ' has nothing connected at its ' + o.end +
+                 ' (node ' + o.node + '). The column ends in mid-air — water ' +
+                 'arriving there has nowhere to go.'
+      }]);
+    });
+
     var dis = disconnections(m);
     res.disconnections = dis;
     var fatal = dis.filter(function (d) { return d.severity === 'error'; });
@@ -1319,6 +1330,7 @@
       }
       pairs.push({ act: act, equip: tgtPipe, target: tgt.value,
                    mode: tgt.mode, label: tgt.label, key: tgt.key,
+                   refPipe: tgt.ref || null,
                    /* The fallbacks, in order. Chased only if the one above
                     * turns out to be unreachable. */
                    options: opts, optIndex: 0, result: null });
@@ -1366,6 +1378,31 @@
         var q = c.res && c.res.flow ? c.res.flow[pair.equip.id] : undefined;
         return (q === undefined || !isFinite(q)) ? null : Math.abs(q);
       }
+      /* PRESSURE at the sensor's INLET node — the water arriving, which is what
+       * a tapping on that pipe reads. */
+      if (pair.mode === 'pressure') {
+        var pa = c.res && c.res.pressure ? c.res.pressure[pair.equip.a] : undefined;
+        return (pa === undefined || !isFinite(pa)) ? null : pa;
+      }
+      /* DIFFERENTIAL, between this sensor and its referenced pipe — both read
+       * at their inlet, which is where the two tappings would go. Reported as a
+       * MAGNITUDE: which way round the two pipes were picked is an accident of
+       * drawing order, not a statement about the plant. */
+      if (pair.mode === 'dPdiff' || pair.mode === 'dTdiff') {
+        var ref = M.pipe(m, pair.refPipe);
+        if (!ref) return null;
+        if (pair.mode === 'dPdiff') {
+          var p1 = c.res && c.res.pressure ? c.res.pressure[pair.equip.a] : undefined;
+          var p2 = c.res && c.res.pressure ? c.res.pressure[ref.a] : undefined;
+          return (p1 === undefined || p2 === undefined ||
+                  !isFinite(p1) || !isFinite(p2)) ? null : Math.abs(p1 - p2);
+        }
+        var th = c.thermal && c.thermal.temperature;
+        if (!th) return null;
+        var t1 = th[pair.equip.a], t2 = th[ref.a];
+        return (t1 === undefined || t2 === undefined ||
+                !isFinite(t1) || !isFinite(t2)) ? null : Math.abs(t1 - t2);
+      }
       var l = c.thermal && c.thermal.links && c.thermal.links[pair.equip.id];
       if (!l) return null;
       /* ΔT is compared as a MAGNITUDE. The sign is the direction the machine
@@ -1404,6 +1441,11 @@
      * floored at 0.01 L/s — tighter than any real flow meter. */
     function tolFor(pair) {
       if (pair.mode === 'flow') return Math.max(1e-5, Math.abs(pair.target) * 0.005);
+      /* Half a percent of setpoint, floored at 100 Pa — tighter than any real
+       * pressure transmitter and well inside the solver's own tolerance. */
+      if (pair.mode === 'pressure' || pair.mode === 'dPdiff') {
+        return Math.max(100, Math.abs(pair.target) * 0.005);
+      }
       return tol;                             // kelvin, for a temperature or a ΔT
     }
 
@@ -1420,7 +1462,8 @@
      * in the second, without knowing which it is looking at. */
     function metBy(e, e0, pair) {
       if (e === null) return false;
-      var eps = pair.mode === 'flow' ? 1e-9 : 1e-7;
+      var eps = pair.mode === 'flow' ? 1e-9
+              : (pair.mode === 'pressure' || pair.mode === 'dPdiff') ? 1e-4 : 1e-7;
       if (Math.abs(e) <= eps) return true;
       return (e > 0) !== (e0 > 0);          // crossed
     }
@@ -1661,10 +1704,14 @@
       var isFlow = (pair.mode === 'flow');
       var setTxt = isFlow ? (pair.target * 1000).toFixed(2) + ' L/s'
                  : pair.mode === 'dT' ? pair.target.toFixed(1) + ' K ΔT'
+                 : (pair.mode === 'pressure' || pair.mode === 'dPdiff')
+                     ? (pair.target / 1000).toFixed(1) + ' kPa'
                  : pair.target.toFixed(1) + ' °C';
       var off = (d.error === null) ? null
         : (isFlow ? Math.abs(d.error * 1000).toFixed(2) + ' L/s'
-                  : Math.abs(d.error).toFixed(1) + ' K') +
+           : (pair.mode === 'pressure' || pair.mode === 'dPdiff')
+               ? Math.abs(d.error / 1000).toFixed(1) + ' kPa'
+           : Math.abs(d.error).toFixed(1) + ' K') +
           ' ' + (d.error > 0 ? 'above' : 'below');
       if (d.state === 'at-min') {
         warnings.push({

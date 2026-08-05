@@ -2218,7 +2218,9 @@
     tagField(host, p);
 
     var modeSel = el('select');
-    [['temperature', 'Temperature'], ['flow', 'Flow']].forEach(function (o) {
+    [['temperature', 'Temperature'], ['flow', 'Flow'],
+     ['pressure', 'Pressure'], ['dP', 'Differential pressure'],
+     ['dT', 'Differential temperature']].forEach(function (o) {
       var opt = el('option', '', o[1]); opt.value = o[0];
       if (o[0] === sn.mode) opt.selected = true;
       modeSel.appendChild(opt);
@@ -2237,6 +2239,61 @@
           sn.qSet = (isFinite(v) && v > 0) ? FD.units.toSIFlow(v, d.flow) : undefined;
           renderProperties(); changed();
         });
+    } else if (sn.mode === 'pressure') {
+      var pIn = el('input'); pIn.type = 'text';
+      pIn.value = sn.pSet ? FD.units.fmtPressure(sn.pSet, d.pressure) : '';
+      var pf = field(host, 'Pressure setpoint (' + d.pressure + ')', pIn);
+      infoMark(pIn.parentNode.querySelector('label'),
+               'Read at the sensor\u2019s inlet — the water arriving, which is ' +
+               'what a tapping on that pipe would read.');
+      pf.addEventListener('change', function () {
+        var v = FD.units.parse(pIn.value);
+        pushUndo();
+        sn.pSet = (isFinite(v) && v > 0) ? FD.units.toSIPressure(v, d.pressure) : undefined;
+        renderProperties(); changed();
+      });
+    } else if (sn.mode === 'dP' || sn.mode === 'dT') {
+      /* TWO PIPES, one sensor. The sensor sits in the first; the second is
+       * picked on the drawing, the same gesture as a control link — "which
+       * pipe" is a question about the drawing, and a menu of P-numbers is not
+       * an answer to it (§17B). */
+      var isDP = (sn.mode === 'dP');
+      var dIn = el('input'); dIn.type = 'text';
+      dIn.value = isDP
+        ? (sn.dpSet ? FD.units.fmtPressure(sn.dpSet, d.pressure) : '')
+        : (sn.dtSet === undefined || sn.dtSet === null ? '' : sn.dtSet);
+      field(host, isDP ? 'Δp setpoint (' + d.pressure + ')' : 'ΔT setpoint (K)', dIn)
+        .addEventListener('change', function () {
+          var v = FD.units.parse(dIn.value);
+          pushUndo();
+          if (isDP) {
+            sn.dpSet = (isFinite(v) && v > 0)
+              ? FD.units.toSIPressure(v, d.pressure) : undefined;
+          } else {
+            sn.dtSet = isFinite(v) ? Math.abs(v) : undefined;
+          }
+          renderProperties(); changed();
+        });
+
+      var refPipe = sn.ref ? M.pipe(m, sn.ref) : null;
+      var rrow = el('div', 'btn-row');
+      var picking = !!(app.view.refPick && app.view.refPick.pipeId === p.id);
+      var rb = el('button', 'btn' + (picking ? ' active' : ''),
+        picking ? 'Pick pipe…' : (refPipe ? 'Clear reference' : 'Reference pipe…'));
+      rb.addEventListener('click', function () {
+        if (picking) { app.view.refPick = null; }
+        else if (refPipe) { pushUndo(); delete sn.ref; changed(); }
+        else { app.view.refPick = { pipeId: p.id };
+               toast('Click the second pipe to measure against.'); }
+        renderProperties(); app.view.render();
+      });
+      rrow.appendChild(rb);
+      if (refPipe) rrow.appendChild(el('span', 'hint', refPipe.tag || refPipe.id));
+      host.appendChild(rrow);
+      if (!refPipe) {
+        host.appendChild(el('p', 'hint',
+          'A differential needs two pipes. Pick the second one.'));
+      }
     } else {
       var tIn = el('input'); tIn.type = 'text';
       tIn.value = (sn.tSet === undefined || sn.tSet === null) ? '' : sn.tSet;
@@ -2268,6 +2325,25 @@
       var qa = res && res.flow ? res.flow[p.id] : undefined;
       box.ro('Flow', qa === undefined ? '—'
              : FD.units.fmtFlow(Math.abs(qa), d.flow, true));
+    } else if (sn.mode === 'pressure') {
+      var pa = res && res.pressure ? res.pressure[p.a] : undefined;
+      box.ro('Pressure', pa === undefined ? '—'
+             : FD.units.fmtPressure(pa, d.pressure, true));
+    } else if (sn.mode === 'dP' || sn.mode === 'dT') {
+      var rp = sn.ref ? M.pipe(m, sn.ref) : null;
+      var v1, v2, txt = '—';
+      if (rp && res) {
+        if (sn.mode === 'dP' && res.pressure) {
+          v1 = res.pressure[p.a]; v2 = res.pressure[rp.a];
+          if (isFinite(v1) && isFinite(v2)) {
+            txt = FD.units.fmtPressure(Math.abs(v1 - v2), d.pressure, true);
+          }
+        } else if (res.thermal) {
+          v1 = res.thermal.temperature[p.a]; v2 = res.thermal.temperature[rp.a];
+          if (isFinite(v1) && isFinite(v2)) txt = Math.abs(v1 - v2).toFixed(2) + ' K';
+        }
+      }
+      box.ro(sn.mode === 'dP' ? 'Δp' : 'ΔT', txt);
     } else {
       box.ro('Temperature', tl && isFinite(tl.tIn) ? tl.tIn.toFixed(2) + ' °C' : '—');
     }
@@ -2378,6 +2454,7 @@
       { key: 'temp', label: 'Temperatures' },
       { key: 'dT', label: 'ΔT' },
       { key: 'duty', label: 'Duty' },
+      { key: 'load', label: 'Heating/Cooling Load' },
       { key: 'setpoint', label: 'Setpoint' }
     ]);
 
@@ -2542,6 +2619,24 @@
       tb.ro('ΔT', (link.dT >= 0 ? '+' : '') + link.dT.toFixed(2) + ' K');
       tb.ro('Duty', (link.qW >= 0 ? '+' : '') + (link.qW / 1000).toFixed(2) + ' kW');
       if (link.limit) tb.ro('Limited by', link.limit);
+
+      /* THE DEFICIT, in red (Michael, 2026-08-05). A source/sink that misses
+       * its setpoint still REPORTS a leaving temperature, and read on its own
+       * that number looks like an achieved result. The gap between what it was
+       * asked for and what it managed is the thing an engineer needs to see, so
+       * it is stated rather than left to be worked out from two other rows. */
+      if (isSource && isFinite(Number(e.tSet))) {
+        var miss = link.tOut - Number(e.tSet);
+        if (Math.abs(miss) > 0.05) {
+          var mr = tb.ro('Setpoint deficit',
+            (miss > 0 ? '+' : '') + miss.toFixed(2) + ' K ' +
+            (miss > 0 ? 'above' : 'below') + ' ' + Number(e.tSet).toFixed(1) + ' °C');
+          mr.classList.add('deficit');
+          var dh = el('p', 'hint warn', 'Not reaching setpoint' +
+                      (link.limit ? ' — limited by ' + link.limit : '') + '.');
+          tb.box.appendChild(dh);
+        }
+      }
     }
   }
 
@@ -2814,21 +2909,15 @@
     /* With no curve, the way to GET one is the offer \u2014 not a paragraph saying
      * where to look. The generator opens pre-filled with this pump's design
      * duty, which is the first thing it asks for. */
+    /* No jump to TOOLS any more (Michael, 2026-08-05). The Sizing selector in
+     * the Design box generates a curve from the duty this pump already has, so
+     * the round trip through the generator — retyping a number the app just
+     * calculated — is gone. The generator stays on the TOOLS tab for anyone who
+     * wants to build a curve from scratch. */
     if (!c) {
-      var gen = el('button', 'btn', 'New curve\u2026');
-      gen.title = 'Open TOOLS \u25b8 Pump Curve Generator, pre-filled with this ' +
-                  'pump\u2019s design duty.';
-      gen.addEventListener('click', function () {
-        var dp = pumpDesignPoint(p);
-        if (FD.tools && FD.tools.prefill) {
-          FD.tools.prefill(
-            dp.q === null ? '' : FD.units.fmtFlow(dp.q, fu),
-            dp.h === null ? '' : FD.units.fmtPressure(headToPa(dp.h), pu));
-        }
-        if (app.showTab) app.showTab('pane-tools');
-        if (FD.tools) FD.tools.render(app);
-      });
-      row.appendChild(gen);
+      host.appendChild(el('p', 'hint',
+        'No curve. Set Sizing to Auto or Manual above to generate one from the ' +
+        'design duty, or paste a manufacturer curve below.'));
     }
 
     var paste = el('button', 'btn', 'Paste curve data\u2026');
@@ -3014,7 +3103,73 @@
     /* A pump's design duty read as a resistance, so it can be compared with the
      * terminals it is feeding on the same basis. */
     designKRow(db, dp.q, dp.h === null ? 0 : headToPa(dp.h));
-    if (p.pump.mode === 'auto') {
+    /* HOW THE DUTY IS ARRIVED AT (Michael, 2026-08-05). Three ways, and the
+     * difference is only WHERE the numbers come from — the curve is generated
+     * the same way in the first two:
+     *
+     *   AUTO    the solve sizes the pump, and the curve follows from the duty
+     *           it lands on. Nothing to type.
+     *   MANUAL  you state the design flow and pressure; the curve follows.
+     *   CURVE   you paste a manufacturer's curve and neither is derived.
+     *
+     * The point of the first two is that SIMULATION needs a curve and there was
+     * no way to get one without going to TOOLS and typing the duty a second
+     * time. A curve generated from the design point is not a substitute for a
+     * real one, and the panel says so — but it is a great deal better than
+     * being unable to simulate at all. */
+    if (!p.pump.sizing) {
+      p.pump.sizing = p.pump.curve && p.pump.curve.source === 'fitted'
+        ? 'curve' : (p.pump.mode === 'auto' ? 'auto' : 'manual');
+    }
+    var sizeSel = el('select');
+    [['auto', 'Auto'], ['manual', 'Manual'], ['curve', 'Curve']].forEach(function (o) {
+      var opt = el('option', '', o[1]); opt.value = o[0];
+      if (o[0] === p.pump.sizing) opt.selected = true;
+      sizeSel.appendChild(opt);
+    });
+    var szf = el('div', 'field');
+    szf.appendChild(el('label', '', 'Sizing'));
+    szf.appendChild(sizeSel);
+    infoMark(szf.querySelector('label'),
+             'Auto: the solve sizes it. Manual: you state the duty. Curve: you ' +
+             'paste a manufacturer curve. Auto and Manual generate a curve from ' +
+             'the design point so the model can be simulated.');
+    db.box.appendChild(szf);
+    sizeSel.addEventListener('change', function () {
+      pushUndo();
+      p.pump.sizing = sizeSel.value;
+      p.pump.mode = (p.pump.sizing === 'auto') ? 'auto' : 'fixed';
+      if (p.pump.sizing === 'auto') autoSizePump(p);
+      if (p.pump.sizing !== 'curve') regenerateCurve(p);
+      renderProperties(); changed();
+    });
+
+    if (p.pump.sizing === 'manual') {
+      var mq = el('input'); mq.type = 'text';
+      mq.value = dp.q === null ? '' : FD.units.fmtFlow(dp.q, d.flow);
+      field(db.box, 'Design flow (' + d.flow + ')', mq)
+        .addEventListener('change', function () {
+          var v = FD.units.parse(mq.value);
+          if (!(isFinite(v) && v > 0)) { renderProperties(); return; }
+          pushUndo();
+          p.pump.qDesign = FD.units.toSIFlow(v, d.flow);
+          regenerateCurve(p); renderProperties(); changed();
+        });
+      var mh = el('input'); mh.type = 'text';
+      mh.value = dp.h === null ? '' : FD.units.fmtPressure(headToPa(dp.h), d.pressure);
+      field(db.box, 'Design pressure (' + d.pressure + ')', mh)
+        .addEventListener('change', function () {
+          var v = FD.units.parse(mh.value);
+          if (!(isFinite(v) && v > 0)) { renderProperties(); return; }
+          pushUndo();
+          var pa = FD.units.toSIPressure(v, d.pressure);
+          p.pump.head = pa / (m.settings.fluid.density * 9.81);
+          p.pump.hDesign = p.pump.head;
+          regenerateCurve(p); renderProperties(); changed();
+        });
+    }
+
+    if (p.pump.sizing === 'auto') {
       var rrow = el('div', 'btn-row');
       var btn = el('button', 'btn', 'Re-size');
       if (m.settings.calcMode === 'simulation') {
@@ -3023,7 +3178,8 @@
                     'decides the operating point.';
       }
       btn.addEventListener('click', function () {
-        pushUndo(); autoSizePump(p); renderProperties(); changed();
+        pushUndo(); autoSizePump(p); regenerateCurve(p);
+        renderProperties(); changed();
       });
       rrow.appendChild(btn);
       db.box.appendChild(rrow);
@@ -3059,6 +3215,102 @@
 
   /* Auto-size: solve, find the largest demand shortfall, raise the pump by that
    * much plus the safety factor, and re-solve until it stops moving. */
+  /* A CURVE FROM THE DESIGN POINT.
+   *
+   * SIMULATION needs a curve, and until now the only way to get one was to go
+   * to TOOLS, retype the duty, and paste the result back — for a duty the app
+   * had just calculated. Michael, 2026-08-05.
+   *
+   * Three points, the shape the TOOLS generator has always used and the one the
+   * NFPA 20 worked example follows: shutoff at 140% of duty head, the duty
+   * point itself, and 65% of duty head at 150% of duty flow. They are then
+   * FITTED to H = H0 − a·Q^b, which is the form the solver consumes, so the
+   * curve behaves exactly like a pasted one.
+   *
+   * It is NOT a substitute for a manufacturer's curve and the panel says so.
+   * But it is a great deal better than being unable to simulate at all, and a
+   * generated curve that passes through the duty point is right about the one
+   * thing the model actually knows. */
+  function regenerateCurve(p) {
+    if (!p || !p.pump) return null;
+    if (p.pump.sizing === 'curve') return p.pump.curve || null;
+    var dp = pumpDesignPoint(p);
+    if (!(dp.q > 0) || !(dp.h > 0)) { delete p.pump.curve; return null; }
+    var pts = [
+      { q: 0,            h: dp.h * 1.40 },
+      { q: dp.q,         h: dp.h },
+      { q: dp.q * 1.5,   h: dp.h * 0.65 }
+    ];
+    var c = FD.pumps.fit(pts);
+    if (!c) { delete p.pump.curve; return null; }
+    c.Qd = dp.q;
+    c.Hd = dp.h;
+    c.source = 'generated';
+    p.pump.curve = c;
+    return c;
+  }
+
+  /* What travels when properties are copied. Everything a device IS, and
+   * nothing about where it sits. */
+  var PROP_KEYS = {
+    pipe:   ['size', 'schedule', 'C', 'insulation_mm'],
+    pump:   ['pump'],
+    valve:  ['valve'],
+    equip:  ['equip'],
+    sensor: ['sensor']
+  };
+
+  function selectedPipe() {
+    var sel = app.view.selection || [];
+    if (sel.length !== 1 || sel[0].kind !== 'pipe') return null;
+    return M.pipe(app.model, sel[0].id);
+  }
+
+  function copyProps() {
+    var p = selectedPipe();
+    if (!p) { toast('Select one pipe or device to copy from.', 'error'); return; }
+    var keys = PROP_KEYS.pipe.concat(PROP_KEYS[p.kind] || []);
+    var out = { kind: p.kind };
+    keys.forEach(function (k) {
+      if (p[k] !== undefined) out[k] = JSON.parse(JSON.stringify(p[k]));
+    });
+    /* A control LINK points at one specific machine, so it is not a property
+     * of the device — it is a relationship on the drawing. */
+    ['pump', 'valve'].forEach(function (k) { if (out[k]) delete out[k].control; });
+    app.propClipboard = out;
+    toast('Copied ' + (p.tag || p.id) + ' properties.');
+  }
+
+  function pasteProps() {
+    var src = app.propClipboard;
+    if (!src) { toast('Nothing copied yet.', 'error'); return; }
+    var sel = (app.view.selection || []).filter(function (x) { return x.kind === 'pipe'; });
+    if (!sel.length) { toast('Select the pipes to paste onto.', 'error'); return; }
+    pushUndo();
+    var n = 0;
+    sel.forEach(function (s2) {
+      var p = M.pipe(app.model, s2.id);
+      if (!p) return;
+      PROP_KEYS.pipe.forEach(function (k) {
+        if (src[k] !== undefined) p[k] = src[k];
+      });
+      /* Device properties only land on the same KIND of device. Pasting a
+       * pump's curve onto a valve is not a thing anyone means. */
+      if (src.kind === p.kind) {
+        (PROP_KEYS[p.kind] || []).forEach(function (k) {
+          if (src[k] !== undefined) {
+            var copy = JSON.parse(JSON.stringify(src[k]));
+            if (p[k] && p[k].control) copy.control = p[k].control;   // keep its own link
+            p[k] = copy;
+          }
+        });
+      }
+      n++;
+    });
+    renderProperties(); changed();
+    toast('Pasted onto ' + n + ' item' + (n === 1 ? '' : 's') + '.');
+  }
+
   function autoSizePump(p) {
     var m = app.model;
     for (var i = 0; i < 12; i++) {
@@ -5003,6 +5255,18 @@
       e.target.value = '';
     });
 
+    /* COPY / PASTE PROPERTIES (Michael, 2026-08-05). Drawing a run of six
+     * identical coils means typing the same six numbers six times; this copies
+     * the properties of whatever is selected and stamps them onto the next
+     * selection.
+     *
+     * GEOMETRY IS NEVER COPIED. A pipe's ends, its riser column, its id and its
+     * tag stay where they are — pasting a size and a schedule onto a run is
+     * useful, pasting one pipe's endpoints onto another would move it. And a
+     * tag is a unique reference on a drawing: duplicating one would be worse
+     * than leaving it blank. */
+    $('btn-copy-props').addEventListener('click', copyProps);
+    $('btn-paste-props').addEventListener('click', pasteProps);
     $('btn-undo').addEventListener('click', undo);
     $('btn-redo').addEventListener('click', redo);
     $('btn-fit').addEventListener('click', function () { app.view.zoomToFit(); });

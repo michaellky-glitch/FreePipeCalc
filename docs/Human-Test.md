@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1391
+This is deliberately separate from the automated suites. Those cover 1419
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-05 (v0.12.6)
+Last updated: 2026-08-05 (v0.13.0)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -202,6 +202,25 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 4N. v0.13.0 — the rest of the list
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| N.1 | Dead legs hold the water's temperature | ✅ | Engine-tested. Also answers your Simulate-mode item. `Source Water Temperature` no longer leaks into dead ends. |
+| N.2 | Risers stack, and skip floors | ⬜ | New `examples/stacked-riser.pnet.json`: four storeys, coils on L1/L2/L4, **Level 3 skipped** — the top riser span is 7.00 m against 3.50 m for the others. Solves clean. |
+| N.3 | `RISER_OPEN_END` | ⬜ | Dashed amber ring and "top/bottom open" on the level it happens on, plus a warning. |
+| N.4 | Pump Sizing: Auto / Manual / Curve | ⬜ | **The one to judge.** Verified live: switching to Manual exposed Design flow/pressure and generated a curve (6.89 L/s @ 17.49 m, `source: 'generated'`). Shape is shutoff 140%, duty, 65% at 150% flow — the same shape the TOOLS generator uses. Say if you want a different one. |
+| N.5 | TOOLS link removed from the pump panel | ⬜ | Generator still on the TOOLS tab. |
+| N.6 | Pressure sensor | ⬜ | Reads its own inlet. Glyph letter `P`. |
+| N.7 | dP / dT sensors | ⬜ | **Differs from what you described.** You asked for a floating box probing two pipes; I built it as a *reference pipe* on the ordinary sensor — pick the second pipe on the drawing. Same measurement, reuses the sensor's drawing, panel and control wiring. Overrule me if you want the free-standing box. |
+| N.8 | Setpoint deficit in red on a Source/Sink | ⬜ | Shows the gap and what limited it, only when it misses by more than 0.05 K. |
+| N.9 | Copy/paste properties in FILE | ⬜ | ⧉ and ⎀ buttons. Verified live. Geometry, id, tag and control links never travel; device properties only land on the same kind of device. |
+| N.10 | Heating/Cooling Load on the drawing | ⬜ | New "Heating/Cooling Load" toggle in Show on drawing. |
+| N.11 | Sensor Setpoint toggle | ⬜ | Was source/sink only, so it did nothing on a sensor. |
+| N.12 | Control link steps 1 m off the pipe | ⬜ | Only the DEFAULT route, and only when the two ends are level — a dragged bend stays put. |
+
+**Your three models, rechecked** — `20260805-3` now solves clean: all four AHUs at 0.80 L/s and 15 K, chiller at 200 kW, valves modulating 61/100/100/100%. `-1` still reports `NO_CONVERGE` (logged in KNOWN-ISSUES — two pumps an order of magnitude apart, imbalance 8.5e-6, essentially converged but not certified). `-2` has a pump curve of 0.5 m, which is why nothing flows; the new sizing modes prevent that being generated.
 
 ## 4M. THE BLOCKER and the follow-ups (v0.12.5 / v0.12.6)
 

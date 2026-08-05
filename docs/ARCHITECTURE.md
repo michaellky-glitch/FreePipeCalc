@@ -1271,6 +1271,29 @@ meant to be shut or open, and a cracked-open one is a deliberate act.
 
 ## 17D. The pipe sensor
 
+### It measures five things
+
+Temperature, flow, pressure, and two DIFFERENTIALS — Δp and ΔT between this
+sensor and a referenced pipe. A pressure or differential reading is taken at the
+sensor's **inlet node**: the water arriving, which is what a tapping on that
+pipe would read.
+
+The differential is a **reference on the ordinary in-line sensor**, not a
+free-standing object. Michael asked for a floating box that probes two pipes; a
+sensor is already a pipe, already drawn, already a valid control target and
+already carries a setpoint, so "and compare with that pipe" reuses all of it
+where a separate object would need its own storage, hit-testing, drawing and
+control wiring for the same measurement. The second pipe is picked on the
+drawing, the same gesture as a control link.
+
+**The differential modes are `dPdiff` and `dTdiff`, not `dP`/`dT`.** A piece of
+equipment already offers a setpoint called `dT` — its own Design ΔT — and the
+two are different measurements: one is the difference across a single machine,
+the other between two separate pipes. Sharing a name routed the equipment's ΔT
+into the differential reader, which then went looking for a reference pipe that
+was never going to be there.
+
+
 New in v0.12.0, at Michael's request. An **instrument**, not a device: it reads
 the water where it sits and states a setpoint for something else to hold.
 
@@ -1377,6 +1400,30 @@ of a 100 kW load in a lagged loop with no heat rejection: 200 passes still left
 the energy balance **69 kW** out. That is not a tolerance to tune — it is the
 wrong method for a linear problem. Solving it also retires "did it converge?",
 which was never a physical question here.
+
+### A dead leg is at the temperature of the water it touches
+
+Nothing carries a temperature to a capped branch or a shut-off standby, so the
+mixing relation has nothing to say and the row needs filling some other way. It
+used to be filled with the **seed** — the source water temperature — which is
+what Michael saw as "the temperature is resetting at the source and dead-end
+pipes" (2026-08-05).
+
+A dead leg is not at the supply temperature; it is at the temperature of the
+water it is connected to, because that is the water that is in it. So each such
+node is tied to a neighbour:
+
+    T_dead − T_neighbour = 0
+
+still linear, still exact. His own statement of the rule: *"if one end is a tee
+with flow in another direction, use the temperature of the other end."*
+
+The neighbour is found by **breadth-first search outward from the live nodes**,
+so every dead node points at something nearer the live water than itself. That
+ordering is what keeps the system non-singular — two dead nodes pointing at each
+other would be `T1 − T2 = 0` twice over, which has no unique solution. A node
+with no path to live water at all falls back to the seed, because there genuinely
+is nothing else to say about it.
 
 ### The loads set the flow, not the plant
 
@@ -1616,7 +1663,7 @@ sheet**, which is the thing that gets issued.
 
 ## 15. Testing
 
-Seven suites, 1391 assertions, no dependencies:
+Seven suites, 1419 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

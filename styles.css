@@ -400,6 +400,9 @@ table.sheet td.dim  { color: var(--text-mute); }
 .setpoint-row.drop-target { box-shadow: inset 0 2px 0 var(--accent); }
 .setpoint-row .switch { flex: 1 1 auto; min-width: 0; }
 .setpoint-rank { font-size: 10px; color: var(--text-mute); letter-spacing: .3px; }
+/* A machine that is not reaching its setpoint: the gap, stated and coloured,
+   because a leaving temperature read on its own looks like an achieved one. */
+.kv.deficit .v { color: var(--error); font-weight: 700; }
 .slider-row input:disabled { cursor: not-allowed; }
 
 /* A published value that cannot be typed over — a named fluid's properties.

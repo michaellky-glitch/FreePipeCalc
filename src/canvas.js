@@ -61,6 +61,7 @@
      * relationship is a surprise waiting to happen. */
     this.showControl = true;
     this.controlPick = null;          // {pipeId} while picking a target
+    this.refPick = null;              // {pipeId} while picking a differential's 2nd pipe
     this.selection = [];             // [{kind,id}]
     this.marquee = null;
     this.conflict = null;          // pipe ids highlighted red by a geometry conflict
@@ -542,6 +543,22 @@
       /* Picking a control target: the next click on a piece of equipment
        * links it. Anything else cancels, so a mis-click does not leave the
        * canvas in a mode the user cannot see. */
+      /* Picking the SECOND pipe for a differential sensor — same gesture as a
+       * control link, and cancelled the same way. */
+      if (self.refPick) {
+        var refHit = (self.pipeAt(w.x, w.y) || {}).pipe;
+        var refSrc = M.pipe(m0, self.refPick.pipeId);
+        self.refPick = null;
+        if (refHit && refSrc && refSrc.sensor && refHit.id !== refSrc.id) {
+          self.onBeforeEdit();
+          refSrc.sensor.ref = refHit.id;
+          self.onMessage('Measuring against ' + (refHit.tag || refHit.id) + '.');
+        } else {
+          self.onMessage('Reference cancelled.', 'error');
+        }
+        self.changed();
+        return;
+      }
       if (self.controlPick) {
         var pickHit = self.deviceAt(w.x, w.y) || (self.pipeAt(w.x, w.y) || {}).pipe;
         var src = M.pipe(m0, self.controlPick.pipeId);
@@ -945,7 +962,10 @@
       }
 
       if (e.key === 'Escape') {
-        if (self.controlPick) { self.controlPick = null; self.onMessage('Cancelled.'); self.render(); }
+        if (self.controlPick || self.refPick) {
+          self.controlPick = null; self.refPick = null;
+          self.onMessage('Cancelled.'); self.render();
+        }
         else if (self.calibrating) self.cancelCalibration();
         else if (self.lengthEntry) { self.lengthEntry = null; self.render(); }
         else if (self.draft) self.endDraft();
@@ -1337,11 +1357,35 @@
         this.onMessage && this.onMessage('This level is already on that riser column.', 'error');
         return;
       }
+      /* RISERS STACK (Michael, 2026-08-05). A column that already joins two
+       * floors is an established vertical line, so a THIRD floor joins it
+       * where it is — the column position wins, and the new attachment is made
+       * at that point rather than wherever the click landed.
+       *
+       * The align-everything-to-the-click behaviour below was written for the
+       * SECOND attachment, where there is no established line yet and the two
+       * floors have to be brought into agreement. Applying it to a third floor
+       * is what stopped risers stacking: with two columns in a model both
+       * lower levels are locked, nothing could move, and the column was
+       * dragged to the new click anyway — breaking the two attachments it
+       * already had. */
+      var result = { moved: [], blocked: [] };
+      if (col.attachments.length >= 2) {
+        var joinNode = this.nodeOnLevelAt(M.level(m, m.activeLevel), col.x, col.y);
+        M.attachRiser(m, col.id, m.activeLevel, joinNode.id);
+        M.riserPipes(m);
+        this.selection = [{ kind: 'node', id: joinNode.id }];
+        this.onMessage && this.onMessage(
+          'Riser column extended to this level, on the column line.');
+        this.changed();
+        return;
+      }
+
       /* The ACTIVE level is authoritative: every other floor already on this
        * column slides so its attachment lands underneath the point just
        * clicked. Moving a level is an OFFSET change only — no geometry and no
        * pipe length is touched (spec §7.1). */
-      var result = alignColumn(m, col, wn);
+      result = alignColumn(m, col, wn);
       col.x = wn.x;
       col.y = wn.y;
       M.attachRiser(m, col.id, m.activeLevel, node.id);
@@ -2186,6 +2230,14 @@
    * complete the connection from this floor (spec §7.2 step 2). */
   View.prototype.drawRisers = function () {
     var m = this.getModel(), ctx = this.ctx, self = this;
+    /* Which columns stop in mid-air, and at which end. Drawn on the level the
+     * open end is ON, so it appears where the fix has to be made. */
+    var open = {};
+    (M.riserOpenEnds ? M.riserOpenEnds(m) : []).forEach(function (o) {
+      if (o.level !== m.activeLevel) return;
+      if (!open[o.riser]) open[o.riser] = [];
+      open[o.riser].push(o.end);
+    });
     m.risers.forEach(function (r) {
       var here = r.attachments.some(function (a) { return a.level === m.activeLevel; });
       var s = self.toScreen(r.x, r.y);
@@ -2229,6 +2281,24 @@
         ctx.textAlign = 'center';
         ctx.fillStyle = here ? self.theme.flow : self.theme.mute;
         ctx.fillText('R' + r.attachments.length, s.x, s.y - 13);
+      }
+
+      /* AN OPEN END. The column hands over to horizontal pipework at its top
+       * and bottom; if that node carries nothing else, the riser stops in mid
+       * air. Marked with an open half-circle and the word, in the warning
+       * colour — it is a modelling error, not a fault of the plant. */
+      if (open[r.id] && open[r.id].length) {
+        ctx.save();
+        ctx.strokeStyle = self.theme.warn;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath(); ctx.arc(s.x, s.y, 14, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.font = '600 9px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = self.theme.warn;
+        ctx.fillText(open[r.id].join('/') + ' open', s.x, s.y + 25);
+        ctx.restore();
       }
     });
   };
@@ -2343,7 +2413,8 @@
     var ctx = this.ctx;
     var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
     var colour = selected ? this.theme.select : this.theme.warn;
-    var mode = (p.sensor && p.sensor.mode === 'flow') ? 'F' : 'T';
+    var mode = (p.sensor && p.sensor.mode === 'flow') ? 'F'
+             : (p.sensor && p.sensor.mode === 'pressure') ? 'P' : 'T';
 
     /* PERPENDICULAR TO THE PIPE (Michael, 2026-08-04). It used to stand
      * straight up in screen space, which reads as perpendicular only on a
@@ -2785,9 +2856,30 @@
           if (tl.limit) lines.push('(' + tl.limit + ')');
         }
       }
-      if (flags.setpoint && obj.equip && obj.equip.equipType === 'source' &&
-          obj.equip.tSet !== undefined && obj.equip.tSet !== null) {
-        lines.push('SP ' + Number(obj.equip.tSet).toFixed(1) + '\u00b0C');
+      /* SETPOINT, for anything that states one — it used to be source/sink
+       * only, so the toggle did nothing on a sensor (Michael, 2026-08-05). */
+      if (flags.setpoint) {
+        if (obj.equip && obj.equip.equipType === 'source' &&
+            obj.equip.tSet !== undefined && obj.equip.tSet !== null) {
+          lines.push('SP ' + Number(obj.equip.tSet).toFixed(1) + '\u00b0C');
+        }
+        if (obj.sensor) {
+          var sp = M.sensorSetpoint(obj);
+          if (sp) {
+            lines.push('SP ' + (sp.mode === 'flow'
+              ? FD.units.fmtFlow(sp.value, d.flow, true)
+              : sp.mode === 'pressure'
+                ? FD.units.fmtPressure(sp.value, d.pressure, true)
+                : sp.value.toFixed(1) + '\u00b0C'));
+          }
+        }
+      }
+      /* THE DESIGN LOAD on an exchanger — what it was sized for, beside what it
+       * is doing. Michael, 2026-08-05. */
+      if (flags.load && obj.equip && obj.equip.equipType === 'exchanger' &&
+          obj.equip.duty !== undefined && obj.equip.duty !== null) {
+        lines.push('Q\u1d48 ' + (obj.equip.duty >= 0 ? '+' : '') +
+                   (Number(obj.equip.duty) / 1000).toFixed(1) + ' kW');
       }
     }
     if (!lines.length) return;

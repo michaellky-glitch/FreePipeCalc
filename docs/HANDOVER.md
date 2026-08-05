@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1391 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1419 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,27 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **v0.13.0 — the rest of Michael's list.** In one release:
+  - **Dead legs take the temperature of the water they touch**, not the source
+    water temperature. One fix for two of his symptoms ("resetting at source and
+    dead ends", and "temperature should stay constant on pipes with no flow").
+    Each no-flow node is tied to a neighbour found by breadth-first search
+    outward from the live water, which keeps the system non-singular.
+  - **Risers stack.** A column with two attachments is an established line, so a
+    third floor joins it WHERE IT IS instead of dragging the column to the click.
+    Skipping floors already worked. `RISER_OPEN_END` flags a column that stops
+    in mid-air, drawn on the level it happens on.
+  - **Pump sizing modes** — Auto / Manual / Curve. Auto and Manual GENERATE a
+    three-point curve from the design point, so a model can be simulated without
+    the round trip through TOOLS to retype a duty the app just calculated. The
+    TOOLS jump is gone from the panel; the generator stays for advanced use.
+  - **Pressure and differential sensors**, the differential built as a reference
+    on the in-line sensor rather than a floating object.
+  - **Setpoint deficit in red** on a source/sink that misses its setpoint.
+  - **Copy/paste properties** in the FILE group. Geometry, ids, tags and control
+    links never travel.
+  - Heating/Cooling Load on the drawing; the sensor Setpoint toggle now does
+    something; the control link's middle segment steps 1 m off the pipe.
 * **ADIABATIC EQUIPMENT** (v0.12.6) — a third type, for filters and strainers:
   real pressure drop, no thermal side, not a control target, and not one of the
   loads that sizes a circuit.

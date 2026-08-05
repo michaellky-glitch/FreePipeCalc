@@ -8,6 +8,24 @@ is, why it is deferred, and where the fix would go.
 
 ## Open
 
+### NO_CONVERGE on two pumps of very different scale
+
+`debug/20260805-1.json` reports `NO_CONVERGE` after the full 100 iterations
+while the nodal imbalance is **8.5e-6 m³/s** — three orders of magnitude inside
+the 0.01 L/s the spec asks for. The answer is essentially converged; the
+iteration simply will not certify it.
+
+The model runs two pumps whose curves are an order of magnitude apart —
+0.80 L/s at 79.9 m against 25.7 L/s at 14.4 m. A Newton step sized for one is
+wrong for the other, and the head correction oscillates below the 1 mm
+tolerance without settling.
+
+NOT fixed by loosening the tolerance. `TOL_HEAD` (1 mm) and `TOL_FLOW`
+(0.01 L/s) are spec §3.4 figures and moving them is Michael's decision, not a
+bug fix — and a solver that reports convergence it has not achieved is exactly
+what `ARCHITECTURE.md` §15 warns about. The right fix is scaling the Newton
+step per link, which is a solver change worth doing deliberately.
+
 ### A pump's "Design pressure" can be stale after a bad DESIGN solve
 
 `recordDesignPoint` writes `pump.hDesign` on every DESIGN solve and never

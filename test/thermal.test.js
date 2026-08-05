@@ -1670,4 +1670,187 @@ section('Adiabatic equipment: pressure drop, no thermal side');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * A DEAD LEG IS AT THE TEMPERATURE OF THE WATER IT TOUCHES
+ *
+ * Michael, 2026-08-05: "the temperature is resetting at the source and dead-end
+ * pipes", and separately "temperature should remain constant on pipes with no
+ * flow — if one end is a tee with flow in another direction, use the
+ * temperature of the other end." One fix, both symptoms.
+ *
+ * Nothing carries a temperature to a dead leg, so the mixing relation has
+ * nothing to say. It used to fall back to the SEED — the source water
+ * temperature — which is not where that water is; it is at the temperature of
+ * the main it hangs off.
+ * ----------------------------------------------------------------------- */
+section('A dead leg takes the temperature of the water it is connected to');
+{
+  /* Source at 60 °C -> main -> tee -> outflow, with a capped branch off the
+   * tee that carries nothing. The system water is 60 °C throughout (adiabatic
+   * pipework), so the dead leg must read 60 — NOT the 6 °C seed. */
+  function rig(seedTemp) {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: seedTemp, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), tee = M.addNode(m, lv, 4, 0);
+    const out = M.addNode(m, lv, 8, 0);
+    const dead1 = M.addNode(m, lv, 4, 3), dead2 = M.addNode(m, lv, 4, 6);
+    M.setSource(m, a.id, 400e3); a.device.temperature = 60;
+    out.device = { kind: 'demand', flow: 0.005, reqPressure: 100e3, include: true };
+    M.addPipe(m, a.id, tee.id, { size: 'DN50', schedule: 'sch40' });
+    M.addPipe(m, tee.id, out.id, { size: 'DN50', schedule: 'sch40' });
+    /* Two pipes of capped branch — the second is a further hop from the live
+     * water, which is what tests that the search walks OUTWARD. */
+    M.addPipe(m, tee.id, dead1.id, { size: 'DN50', schedule: 'sch40' });
+    M.addPipe(m, dead1.id, dead2.id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+    return { m, tee, dead1, dead2, res: NET.solveModel(m) };
+  }
+
+  const t = rig(6);
+  const T = t.res.thermal.temperature;
+  near('The live main is at the source temperature', T[t.tee.id], 60, 1e-9);
+  near('The dead branch takes the tee temperature, not the seed',
+       T[t.dead1.id], 60, 1e-9);
+  near('...and so does the node beyond it', T[t.dead2.id], 60, 1e-9);
+  ok('...which is emphatically not the 6 °C source water temperature',
+     Math.abs(T[t.dead1.id] - 6) > 50, String(T[t.dead1.id]));
+
+  /* And the answer does not depend on the seed at all any more — the setting
+   * Michael suspected of leaking into places it should not. */
+  {
+    const t2 = rig(80);
+    const T2 = t2.res.thermal.temperature;
+    near('Changing the source water temperature moves nothing here',
+         T2[t2.dead1.id], T[t.dead1.id], 1e-9);
+  }
+
+  /* A genuinely ISOLATED island — no path to any live water — still has to be
+   * given something, and the seed is the only thing left to say. */
+  {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: 33, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 4, 0);
+    const c = M.addNode(m, lv, 8, 0);
+    const i1 = M.addNode(m, lv, 0, 9), i2 = M.addNode(m, lv, 4, 9);
+    M.setSource(m, a.id, 400e3); a.device.temperature = 60;
+    c.device = { kind: 'demand', flow: 0.005, reqPressure: 100e3, include: true };
+    M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    M.addPipe(m, b.id, c.id, { size: 'DN50', schedule: 'sch40' });
+    M.addPipe(m, i1.id, i2.id, { size: 'DN50', schedule: 'sch40' });   // orphan
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+    const T3 = NET.solveModel(m).thermal.temperature;
+    near('An orphaned island falls back to the source water temperature',
+         T3[i1.id], 33, 1e-9);
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * PRESSURE AND DIFFERENTIAL SENSORS  (Michael, 2026-08-05)
+ *
+ * A pressure sensor reads its own inlet — the water arriving, which is what a
+ * tapping on that pipe reads. A DIFFERENTIAL reads the same thing at two pipes
+ * and reports the magnitude of the gap.
+ *
+ * The differential is built as a REFERENCE on the ordinary in-line sensor
+ * rather than a free-standing object: the sensor is already a pipe, already
+ * drawn, already a valid control target and already carries a setpoint. A
+ * separate object would need its own storage, hit-testing, drawing and control
+ * wiring for the same measurement.
+ * ----------------------------------------------------------------------- */
+section('Pressure and differential sensors');
+{
+  function rig(mode, extra) {
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    m.settings.thermal = { ambient: 20, supplyTemp: 20, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 7; i++) n.push(M.addNode(m, lv, i * 2, 0));
+    M.setSource(m, n[0].id, 400e3); n[0].device.temperature = 60;
+    n[6].device = { kind: 'demand', flow: 0.005, reqPressure: 100e3, include: true };
+    M.addPipe(m, n[0].id, n[1].id, { size: 'DN50', schedule: 'sch40' });
+    const s1 = M.addPipe(m, n[1].id, n[2].id, { kind: 'sensor' });
+    s1.tag = 'PS-1';
+    s1.sensor = Object.assign({ mode: mode }, extra || {});
+    M.addPipe(m, n[2].id, n[3].id, { size: 'DN50', schedule: 'sch40' });
+    const eq = M.addPipe(m, n[3].id, n[4].id, { kind: 'equip' });
+    eq.equip = { qRated: 0.005, pdRated: 150e3, equipType: 'exchanger', duty: 40000 };
+    const s2 = M.addPipe(m, n[4].id, n[5].id, { kind: 'sensor' });
+    s2.tag = 'REF-1'; s2.sensor = { mode: 'temperature' };
+    M.addPipe(m, n[5].id, n[6].id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+    return { m, s1, s2, eq, res: NET.solveModel(m) };
+  }
+
+  // ---- a plain pressure sensor
+  {
+    const t = rig('pressure', { pSet: 300e3 });
+    const sp = M.sensorSetpoint(t.s1);
+    ok('It states a pressure setpoint', sp && sp.mode === 'pressure',
+       JSON.stringify(sp));
+    near('...at the value typed', sp.value, 300e3, 1e-9);
+    const o = M.controlOptions(t.m, t.s1.id);
+    ok('...and offers it as a control option',
+       o.length === 1 && o[0].mode === 'pressure', JSON.stringify(o));
+    ok('...labelled as a pressure setpoint', o[0].label === 'Pressure setpoint');
+  }
+  {
+    const t = rig('pressure', {});
+    ok('A blank pressure setpoint states nothing',
+       M.sensorSetpoint(t.s1) === null);
+  }
+
+  // ---- a differential
+  {
+    const t = rig('dP', { dpSet: 150e3 });
+    t.s1.sensor.ref = t.s2.id;
+    const sp = M.sensorSetpoint(t.s1);
+    ok('A differential states a dP setpoint', sp && sp.mode === 'dPdiff',
+       JSON.stringify(sp));
+    ok('...carrying the pipe it measures against', sp.ref === t.s2.id);
+
+    /* The reading is the gap between the two inlets, and across this rig that
+     * is the coil's own pressure drop plus the pipe between them — checked
+     * against the solve rather than assumed. */
+    const res = NET.solveModel(t.m);
+    const p1 = res.pressure[t.s1.a], p2 = res.pressure[t.s2.a];
+    ok('The two tappings differ by the plant between them',
+       Math.abs(p1 - p2) > 100e3, ((p1 - p2) / 1000).toFixed(1) + ' kPa');
+  }
+  {
+    const t = rig('dP', { dpSet: 150e3 });
+    ok('A differential with no reference states nothing',
+       M.sensorSetpoint(t.s1) === null);
+  }
+  {
+    const t = rig('dT', { dtSet: 8 });
+    t.s1.sensor.ref = t.s2.id;
+    const sp = M.sensorSetpoint(t.s1);
+    ok('A ΔT differential is distinguished from equipment ΔT',
+       sp.mode === 'dTdiff', sp.mode);
+    near('...as a magnitude', sp.value, 8, 1e-12);
+  }
+
+  /* THE NAME COLLISION THAT BIT. Equipment already offers a setpoint called
+   * 'dT' — its own Design ΔT — and routing that into the differential reader
+   * sent it looking for a reference pipe that was never going to exist. The
+   * two must stay distinguishable. */
+  {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const e = M.addPipe(m, a.id, b.id, { kind: 'equip' });
+    e.equip = { qRated: 0.002, pdRated: 100e3, equipType: 'source',
+                tSet: 6, qMax: -50000, dTMax: 8 };
+    const opts = M.controlOptions(m, e.id);
+    ok('Equipment ΔT is mode "dT"', opts[1].mode === 'dT', opts[1].mode);
+    ok('...not the differential mode', opts[1].mode !== 'dTdiff');
+  }
+}
+
 report();

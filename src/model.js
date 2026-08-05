@@ -462,6 +462,35 @@
     return m;
   }
 
+  /* A riser END that connects to nothing.
+   *
+   * The top and bottom attachments of a column are where it hands over to
+   * horizontal pipework. If that node carries NO other pipe, the column stops
+   * in mid-air: water arrives at the top of the riser and has nowhere to go.
+   * It is the riser form of the disconnection the ⚠️ glyph already catches on
+   * the flat, and it is invisible on a level plan because the riser is drawn as
+   * a marker rather than a line (Michael, 2026-08-05).
+   *
+   * Reported for the ENDS only. A middle attachment with nothing else on it is
+   * a pass-through: the column simply continues, which is ordinary. */
+  function riserOpenEnds(m) {
+    var out = [];
+    m.risers.forEach(function (r) {
+      if (r.attachments.length < 2) return;
+      [[r.attachments[0], 'top'],
+       [r.attachments[r.attachments.length - 1], 'bottom']].forEach(function (pair) {
+        var att = pair[0];
+        var others = m.pipes.filter(function (p) {
+          if (p.kind === 'riser') return false;
+          return p.a === att.node || p.b === att.node;
+        });
+        if (others.length) return;
+        out.push({ riser: r.id, end: pair[1], level: att.level, node: att.node });
+      });
+    });
+    return out;
+  }
+
   function riserPipes(m) {
     var out = [];
     m.risers.forEach(function (r) {
@@ -1045,6 +1074,39 @@
       var q = Number(sn.qSet);
       return isFinite(q) && q > 0 ? { mode: 'flow', value: q } : null;
     }
+    /* PRESSURE (2026-08-05). The commonest real control signal of the three: a
+     * pump holding a differential or a header pressure. Read at the sensor's
+     * inlet node, so it is the pressure of the water arriving — which is what a
+     * tapping on that pipe would read. */
+    if (sn.mode === 'pressure') {
+      var pr = Number(sn.pSet);
+      return isFinite(pr) && pr > 0 ? { mode: 'pressure', value: pr } : null;
+    }
+    /* DIFFERENTIAL — dP or dT between THIS sensor and a referenced pipe.
+     *
+     * Michael, 2026-08-05, asked for a floating box that probes two pipes. It
+     * is built as a second PIPE REFERENCE on the ordinary in-line sensor
+     * instead: the sensor is already a pipe, already drawn, already a valid
+     * control target, and already carries a setpoint. Adding "and compare with
+     * that pipe" reuses all of it, where a free-standing object would need its
+     * own storage, hit-testing, drawing and control wiring for the same
+     * measurement.
+     *
+     * The reading is taken at each sensor's INLET node — the water arriving —
+     * so a dP across a set of coils is the difference between the two tappings
+     * you would actually fit. */
+    if (sn.mode === 'dP' || sn.mode === 'dT') {
+      if (!sn.ref) return null;
+      var dv = Number(sn.mode === 'dP' ? sn.dpSet : sn.dtSet);
+      /* Reported as 'dPdiff'/'dTdiff' rather than 'dP'/'dT'. A piece of
+       * EQUIPMENT already offers a setpoint called 'dT' — its own Design ΔT —
+       * and the two are different measurements: one is the difference across a
+       * single machine, the other between two separate pipes. Sharing a name
+       * routed the equipment's ΔT into the differential reader, which then
+       * looked for a reference pipe that was never going to be there. */
+      return isFinite(dv)
+        ? { mode: sn.mode + 'diff', value: Math.abs(dv), ref: sn.ref } : null;
+    }
     var t = Number(sn.tSet);
     return isFinite(t) ? { mode: 'temperature', value: t } : null;
   }
@@ -1077,7 +1139,12 @@
     if (p.kind === 'sensor') {
       var sp = sensorSetpoint(p);
       return sp ? [{ key: 'set', pipe: p, mode: sp.mode, value: sp.value,
-                     label: sp.mode === 'flow' ? 'Flow setpoint' : 'Temperature setpoint' }]
+                     ref: sp.ref,
+                     label: sp.mode === 'flow' ? 'Flow setpoint'
+                          : sp.mode === 'pressure' ? 'Pressure setpoint'
+                          : sp.mode === 'dPdiff' ? 'Differential pressure'
+                          : sp.mode === 'dTdiff' ? 'Differential temperature'
+                          : 'Temperature setpoint' }]
                 : [];
     }
     if (p.kind !== 'equip' || !p.equip || p.equip.off) return [];
@@ -1321,12 +1388,39 @@
     var a = deviceMid(m, p), b = deviceMid(m, pipe(m, c.equip));
     if (!a || !b) return null;
     var horiz = (c.axis !== 'v');
-    var mid = (c.mid === null || c.mid === undefined)
-      ? (horiz ? (a.x + b.x) / 2 : (a.y + b.y) / 2)
-      : c.mid;
-    var pts = horiz
-      ? [a, { x: mid, y: a.y }, { x: mid, y: b.y }, b]
-      : [a, { x: a.x, y: mid }, { x: b.x, y: mid }, b];
+    /* THE MIDDLE SEGMENT IS OFFSET BY 1 m (Michael, 2026-08-05). Halfway
+     * between two devices on the SAME run puts the middle segment straight down
+     * the pipe, where it is unreadable — a dashed green line lying on top of
+     * the pipework it is meant to be distinguished from. One metre off is
+     * enough to read and small enough not to look like a route of its own.
+     *
+     * Only the DEFAULT moves. A `mid` that has been dragged is left exactly
+     * where it was put. */
+    var CTRL_OFFSET = 1;
+    var mid;
+    if (c.mid === null || c.mid === undefined) {
+      mid = horiz ? (a.x + b.x) / 2 : (a.y + b.y) / 2;
+      var along = horiz ? Math.abs(a.y - b.y) : Math.abs(a.x - b.x);
+      /* Only when the two ends are level with each other — that is the case
+       * where the route would otherwise lie along the pipe. */
+      if (along < 1e-6) mid = (horiz ? a.y : a.x) + CTRL_OFFSET;
+    } else {
+      mid = c.mid;
+    }
+    /* When the ends are level the offset is PERPENDICULAR to the run, so the
+     * route steps off the pipe, along, and back. Otherwise `mid` is the
+     * ordinary Z bend along the chosen axis. */
+    var level = horiz ? (Math.abs(a.y - b.y) < 1e-6) : (Math.abs(a.x - b.x) < 1e-6);
+    var pts;
+    if (level && (c.mid === null || c.mid === undefined)) {
+      pts = horiz
+        ? [a, { x: a.x, y: mid }, { x: b.x, y: mid }, b]
+        : [a, { x: mid, y: a.y }, { x: mid, y: b.y }, b];
+    } else {
+      pts = horiz
+        ? [a, { x: mid, y: a.y }, { x: mid, y: b.y }, b]
+        : [a, { x: a.x, y: mid }, { x: b.x, y: mid }, b];
+    }
     /* Drop a bend that has collapsed onto its neighbour, so an L really is
      * three points and not four with a zero-length segment. */
     var out = [pts[0]];
@@ -1504,6 +1598,7 @@
     pipeBore: pipeBore,
 
     addRiser: addRiser, attachRiser: attachRiser, riserPipes: riserPipes,
+    riserOpenEnds: riserOpenEnds,
     removeRiser: removeRiser, setRiserProps: setRiserProps,
     copyLevel: copyLevel,
     MIN_OUTFLOW_PRESSURE: MIN_OUTFLOW_PRESSURE,
