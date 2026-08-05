@@ -157,6 +157,22 @@
        * reported SELECTION duty at the pump only — it never enters the solve,
        * so it cannot inflate flow or friction (spec Q12.11, Q12.12). */
       pumpSafetyPct: 0,
+
+      /* THE SHAPE OF A GENERATED PUMP CURVE, as percentages of the duty point.
+       * Auto and Manual sizing build a three-point curve from the design duty:
+       * shutoff head at Q = 0, the duty point itself, and a runout point.
+       *
+       * The defaults are the shape the TOOLS generator has always used and the
+       * one the NFPA 20 worked example follows. They are a REPRESENTATIVE
+       * shape, not manufacturer data — a real curve differs, and Curve sizing
+       * exists for when you have one. Tweakable at Michael's request
+       * (2026-08-05) because how peaked a curve is changes where a VSD lands
+       * and how a parallel set shares. */
+      pumpCurve: {
+        shutoffPct: 140,      // % of duty head at zero flow
+        runoutFlowPct: 150,   // % of duty flow at the runout point
+        runoutHeadPct: 65     // % of duty head there
+      },
       theme: 'dark',
       /* `equipFlowRatio` is how far a piece of equipment may sit from its
        * rated flow before it is called out. Its pressure drop goes as the
@@ -1467,6 +1483,8 @@
                                        (obj.settings || {}).thermal || {});
     m.settings.control = Object.assign(defaultSettings().control,
                                        (obj.settings || {}).control || {});
+    m.settings.pumpCurve = Object.assign(defaultSettings().pumpCurve,
+                                         (obj.settings || {}).pumpCurve || {});
     /* Per schedule AND per size, so a shallow merge would replace a whole
      * schedule's row when the file only edited one size of it. */
     m.settings.insulation = {};

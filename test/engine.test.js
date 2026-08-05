@@ -1087,4 +1087,58 @@ section('Darcy-Weisbach fittings use the K method');
        FD.hydraulics.headloss(1000 + rK, q, 2), 1e-15);
 }
 
+/* --------------------------------------------------------------------------
+ * EVERY MESSAGE CODE IS DOCUMENTED
+ *
+ * `docs/MESSAGES.md` is the catalogue the UX pass works from, and a catalogue
+ * that quietly falls behind the code is worse than none — it reads as complete.
+ * So the doc is checked against the source: every `code:` the app can emit must
+ * appear in it.
+ *
+ * Two exclusions, both deliberate:
+ *   - `data/fittings.js` and `data/valves.js` carry `code:` fields too, but
+ *     those are DRAWING SYMBOLS (GV, CV, E90) rather than messages.
+ *   - two codes are assigned by expression rather than as a literal, so they
+ *     are listed here by hand.
+ * ----------------------------------------------------------------------- */
+section('docs/MESSAGES.md covers every message the app can emit');
+{
+  const fs = require('fs');
+  const path = require('path');
+  const ROOT = path.join(__dirname, '..');
+
+  const sources = fs.readdirSync(path.join(ROOT, 'src'))
+    .filter(f => f.endsWith('.js'))
+    .map(f => fs.readFileSync(path.join(ROOT, 'src', f), 'utf8'))
+    .join('\n');
+
+  const literal = [...new Set([...sources.matchAll(/code: '([A-Z_]{3,})'/g)]
+    .map(m => m[1]))];
+  /* Assigned by ternary in supplyWarnings, so the pattern above misses them. */
+  const computed = ['PUMP_DEAD_END', 'PUMP_NO_FLOW'];
+  const codes = [...new Set(literal.concat(computed))].sort();
+
+  const doc = fs.readFileSync(path.join(ROOT, 'docs', 'MESSAGES.md'), 'utf8');
+
+  ok('There are message codes to check', codes.length > 40, String(codes.length));
+  const missing = codes.filter(c => doc.indexOf('`' + c + '`') < 0);
+  ok('Every code appears in docs/MESSAGES.md', missing.length === 0,
+     'undocumented: ' + missing.join(', '));
+
+  /* And the other way: nothing in the doc that the app cannot produce, so the
+   * catalogue does not describe messages that were removed. */
+  const inDoc = [...new Set([...doc.matchAll(/`([A-Z_]{4,})`/g)].map(m => m[1]))];
+  /* Setting keys and a numerical constant are quoted the same way. */
+  const notCodes = ['CLOSED_R'];
+  const stale = inDoc.filter(c => codes.indexOf(c) < 0 && notCodes.indexOf(c) < 0);
+  ok('Nothing in the doc has been removed from the app', stale.length === 0,
+     'stale: ' + stale.join(', '));
+
+  /* The severity table has to name all three levels, since the whole document
+   * is organised on them. */
+  ['ERROR', 'WARNING', 'NOTICE'].forEach(function (lvl) {
+    ok('The severity table defines ' + lvl, doc.indexOf('**' + lvl + '**') > 0);
+  });
+}
+
 report();

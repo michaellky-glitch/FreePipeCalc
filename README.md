@@ -47,6 +47,8 @@ and readable, which **LOAD MODEL** reads back. Worked examples are in
 
 * `docs/ARCHITECTURE.md` — how the program works and why. **Start here.**
 * `docs/ENGINE.md` — the hydraulics maths, with hand-checkable worked examples.
+* `docs/MESSAGES.md` — every error, warning and notice, what raises it, and
+  which setting drives its threshold.
 * `docs/piping-friction-loss-spec.md` — the specification; §12 logs every
   deviation from it and the reason.
 * `docs/Human-Test.md` — what has been checked by hand, and what has not.

@@ -3236,10 +3236,15 @@
     if (p.pump.sizing === 'curve') return p.pump.curve || null;
     var dp = pumpDesignPoint(p);
     if (!(dp.q > 0) || !(dp.h > 0)) { delete p.pump.curve; return null; }
+    var shape = (app.model.settings && app.model.settings.pumpCurve) || {};
+    var so = (shape.shutoffPct > 100) ? shape.shutoffPct / 100 : 1.40;
+    var rq = (shape.runoutFlowPct > 100) ? shape.runoutFlowPct / 100 : 1.50;
+    var rh = (shape.runoutHeadPct > 0 && shape.runoutHeadPct < 100)
+      ? shape.runoutHeadPct / 100 : 0.65;
     var pts = [
-      { q: 0,            h: dp.h * 1.40 },
-      { q: dp.q,         h: dp.h },
-      { q: dp.q * 1.5,   h: dp.h * 0.65 }
+      { q: 0,          h: dp.h * so },
+      { q: dp.q,       h: dp.h },
+      { q: dp.q * rq,  h: dp.h * rh }
     ];
     var c = FD.pumps.fit(pts);
     if (!c) { delete p.pump.curve; return null; }
@@ -3309,6 +3314,21 @@
     });
     renderProperties(); changed();
     toast('Pasted onto ' + n + ' item' + (n === 1 ? '' : 's') + '.');
+  }
+
+  /* Rebuild every generated curve after the shape changes. A PASTED curve is
+   * left alone — the setting describes what the app generates, not what a
+   * manufacturer published. */
+  function regenerateAllCurves() {
+    var m = app.model, n = 0;
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'pump' || !p.pump) return;
+      if (p.pump.sizing === 'curve') return;
+      if (p.pump.curve && p.pump.curve.source === 'fitted') return;
+      if (regenerateCurve(p)) n++;
+    });
+    redrawAll();
+    if (n) toast('Regenerated ' + n + ' pump curve' + (n === 1 ? '' : 's') + '.');
   }
 
   function autoSizePump(p) {
@@ -3793,6 +3813,31 @@
      * is the engineer's judgement and belongs after the calculation, not as a
      * setting that quietly compounds with the margins already sitting in the C
      * factor, fitting allowances and equipment ratings. */
+
+    /* THE SHAPE OF A GENERATED CURVE. Three percentages of the duty point,
+     * because how peaked a curve is changes where a VSD lands and how a
+     * parallel set shares — and the defaults are a representative shape rather
+     * than anyone's product. */
+    host.appendChild(el('h2', '', 'Generated pump curve'));
+    var gpc = group2();
+    var pc = m.settings.pumpCurve || (m.settings.pumpCurve =
+      { shutoffPct: 140, runoutFlowPct: 150, runoutHeadPct: 65 });
+    num(gpc, 'Shutoff head (% of duty)', pc.shutoffPct, function (v) {
+      pc.shutoffPct = Math.max(101, Math.min(250, v)); regenerateAllCurves();
+    }, '1');
+    num(gpc, 'Runout flow (% of duty)', pc.runoutFlowPct, function (v) {
+      pc.runoutFlowPct = Math.max(101, Math.min(300, v)); regenerateAllCurves();
+    }, '1');
+    num(gpc, 'Runout head (% of duty)', pc.runoutHeadPct, function (v) {
+      pc.runoutHeadPct = Math.max(1, Math.min(99, v)); regenerateAllCurves();
+    }, '1');
+    var pch = el('p', 'hint',
+      'Applies to pumps sized Auto or Manual. ');
+    infoMark(pch, 'A representative shape, not manufacturer data. The defaults ' +
+                  '(140 / 150 / 65) are the ones the TOOLS generator uses and ' +
+                  'the NFPA 20 worked example follows. A pasted curve is not ' +
+                  'touched.');
+    host.appendChild(pch);
 
     // ---- presentation ----
     host.appendChild(el('h2', '', 'Display'));

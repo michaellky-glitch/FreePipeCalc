@@ -1661,9 +1661,24 @@ Both carry `verified: false`, both are listed by an `unverified()` helper, and
 the flag appears beside the control, on the THERMAL tab **and on the calculation
 sheet**, which is the thing that gets issued.
 
+## 14B. Messages
+
+`docs/MESSAGES.md` is the catalogue: every coded error, warning and notice, what
+raises it, and which setting drives its threshold. Written 2026-08-05 as the
+first step of the UX pass towards 1.0.
+
+**The codes are the contract.** Wording may be tightened; a code should not
+change without a reason, because it is what the sheet, the status chip and any
+future consumer key off.
+
+`engine.test.js` checks the catalogue against the source in BOTH directions —
+every emitted code must be documented, and nothing documented may have been
+removed from the app. A catalogue that quietly falls behind is worse than none,
+because it reads as complete.
+
 ## 15. Testing
 
-Seven suites, 1419 assertions, no dependencies:
+Seven suites, 1425 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

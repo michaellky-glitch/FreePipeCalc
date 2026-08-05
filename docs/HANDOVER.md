@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1419 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1425 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,13 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **`docs/MESSAGES.md`** (v0.13.1) — every error, warning and notice the app can
+  produce, what raises it, and which setting drives its threshold. The first
+  step of the UX pass towards 1.0. `engine.test.js` checks the catalogue against
+  the source in both directions, so it cannot quietly fall behind.
+* **The generated pump curve's SHAPE is a setting** (v0.13.1) — shutoff,
+  runout flow and runout head as percentages of the duty point, on SETTINGS.
+  Changing them regenerates every generated curve; a pasted one is untouched.
 * **v0.13.0 — the rest of Michael's list.** In one release:
   - **Dead legs take the temperature of the water they touch**, not the source
     water temperature. One fix for two of his symptoms ("resetting at source and
