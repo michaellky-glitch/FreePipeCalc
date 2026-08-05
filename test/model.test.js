@@ -2271,4 +2271,110 @@ section('Risers stack to any number of floors, and may skip them');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * THE CONTROL-LINK ROUTE  (Michael, 2026-08-05: "hits some limits or snaps
+ * oddly")
+ *
+ * `axis` names WHICH COORDINATE `mid` is, and therefore which way the middle
+ * segment runs:
+ *
+ *     'h'   mid is an X — the middle segment is VERTICAL
+ *     'v'   mid is a  Y — the middle segment is HORIZONTAL
+ *
+ * One meaning throughout, so the renderer, the drag handler and the stored
+ * value cannot disagree. They did: the level-ends case built its route from the
+ * OTHER coordinate while the drag handler still wrote this one, so the first
+ * drag made the route jump.
+ * ----------------------------------------------------------------------- */
+section('Control-link routing is one consistent rule');
+{
+  function rig(bx, by) {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    /* Two in-line devices, positioned so their MIDPOINTS land where asked. */
+    const a1 = M.addNode(m, lv, 0, 0), a2 = M.addNode(m, lv, 1, 0);
+    const pump = M.addPipe(m, a1.id, a2.id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 10 };
+    const b1 = M.addNode(m, lv, bx - 0.5, by), b2 = M.addNode(m, lv, bx + 0.5, by);
+    const eq = M.addPipe(m, b1.id, b2.id, { kind: 'equip' });
+    eq.equip = { qRated: 0.002, pdRated: 100e3, equipType: 'source', tSet: 6 };
+    M.setControl(m, pump, eq.id);
+    return { m, pump, eq };
+  }
+
+  /* ---- ENDS LEVEL: the default must step OFF the pipe, or the dashed route
+   * lies along the pipework it is meant to be distinguished from. */
+  {
+    const t = rig(10, 0);                     // both midpoints at y = 0
+    const r = M.controlRoute(t.m, t.pump);
+    ok('A level pair routes with a HORIZONTAL middle segment', r.axis === 'v',
+       r.axis);
+    near('...offset 1 m off the run', r.mid, 1, 1e-9);
+    ok('...so no point sits on the pipe itself',
+       r.points.slice(1, -1).every(q => Math.abs(q.y) > 0.5),
+       JSON.stringify(r.points));
+    ok('...and it is a proper Z, not a straight line', r.points.length === 4);
+  }
+
+  /* ---- DIAGONAL: an ordinary Z between the two, no offset needed. */
+  {
+    const t = rig(10, 6);
+    const r = M.controlRoute(t.m, t.pump);
+    ok('A diagonal pair keeps its natural axis', r.axis === 'h', r.axis);
+    /* Halfway between the two device MIDPOINTS — the pump spans x = 0…1, so
+     * its own midpoint is 0.5, not 0. */
+    const am = M.deviceMid(t.m, t.pump), bm = M.deviceMid(t.m, t.eq);
+    near('...bending halfway between them', r.mid, (am.x + bm.x) / 2, 1e-9);
+    near('...which is 5.25 here', r.mid, 5.25, 1e-9);
+  }
+
+  /* ---- A DRAGGED mid is honoured exactly, on either axis — and reading it
+   * back gives the same route, which is what "it snapped" was about. */
+  {
+    const t = rig(10, 6);
+    t.pump.pump.control.axis = 'h';
+    t.pump.pump.control.mid = 3;
+    let r = M.controlRoute(t.m, t.pump);
+    near('A dragged X is used as an X', r.mid, 3, 1e-12);
+    ok('...with the bends on that X',
+       Math.abs(r.points[1].x - 3) < 1e-9 && Math.abs(r.points[2].x - 3) < 1e-9,
+       JSON.stringify(r.points));
+
+    t.pump.pump.control.axis = 'v';
+    t.pump.pump.control.mid = 2;
+    r = M.controlRoute(t.m, t.pump);
+    near('A dragged Y is used as a Y', r.mid, 2, 1e-12);
+    ok('...with the bends on that Y',
+       Math.abs(r.points[1].y - 2) < 1e-9 && Math.abs(r.points[2].y - 2) < 1e-9,
+       JSON.stringify(r.points));
+  }
+
+  /* ---- THE LEVEL CASE STAYS PUT ONCE DRAGGED. This is the exact jump: the
+   * default used one coordinate and the first drag wrote the other. */
+  {
+    const t = rig(10, 0);
+    const before = M.controlRoute(t.m, t.pump);
+    /* Simulate the drag handler: it writes the axis AND the coordinate. */
+    t.pump.pump.control.axis = before.axis;
+    t.pump.pump.control.mid = before.mid;
+    const after = M.controlRoute(t.m, t.pump);
+    ok('Storing what was drawn redraws the same route',
+       JSON.stringify(after.points) === JSON.stringify(before.points),
+       JSON.stringify(before.points) + ' -> ' + JSON.stringify(after.points));
+  }
+
+  /* ---- Presentation only: neither axis nor mid may touch the answer. */
+  {
+    const t = rig(10, 6);
+    const base = NET.solveModel(t.m);
+    t.pump.pump.control.axis = 'v';
+    t.pump.pump.control.mid = -4;
+    const moved = NET.solveModel(t.m);
+    Object.keys(base.flow).forEach(function (id) {
+      near('Moving the route changes no flow (' + id + ')',
+           moved.flow[id], base.flow[id], 1e-12);
+    });
+  }
+}
+
 report();

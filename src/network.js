@@ -1485,7 +1485,18 @@
      * without a unit, and 0.05 m³/s is 50 L/s. Half a percent of setpoint,
      * floored at 0.01 L/s — tighter than any real flow meter. */
     function tolFor(pair) {
-      if (pair.mode === 'flow') return Math.max(1e-5, Math.abs(pair.target) * 0.005);
+      /* RELATIVE, with only a token absolute floor. It used to be
+       * `max(1e-5, 0.5%)`, and on a branch rated 0.8 L/s the 1e-5 floor is
+       * 0.01 L/s — 1.25% — which DOMINATED the relative term and made the
+       * deadband four times looser than it read. Michael, 2026-08-05: three
+       * valves sat wide open on `debug/20260805-5.json` with their branches
+       * 0.1-0.6% over, all inside that floor, while the fourth throttled to
+       * 59%. He expected them between 59% and 100%, and he was right.
+       *
+       * 0.2% of setpoint is tighter than any real flow meter and comfortably
+       * inside what one percent of valve travel can resolve. The 1e-7 floor is
+       * only there so a setpoint of zero cannot ask for infinite precision. */
+      if (pair.mode === 'flow') return Math.max(1e-7, Math.abs(pair.target) * 0.002);
       /* Half a percent of setpoint, floored at 100 Pa — tighter than any real
        * pressure transmitter and well inside the solver's own tolerance. */
       if (pair.mode === 'pressure' || pair.mode === 'dPdiff') {
@@ -1527,30 +1538,32 @@
       var e0 = errorOf(cur, pair);
       if (e0 === null) return { state: 'no-flow', x: x0, error: null, moved: false };
       if (Math.abs(e0) <= band) {
-        /* ALREADY ON SETPOINT — but is the actuator the reason?
+        /* ALREADY ON SETPOINT.
          *
-         * AT FULL TRAVEL IT CANNOT BE. There is nothing left to give and
-         * nothing to improve, so whatever is holding the setpoint, it is not
-         * this device: an unlimited chiller holds its LWT at any flow and the
-         * pump following it has no say (Michael, 2026-08-04, where a pump sat
-         * at 100% while the valve downstream strangled the flow on its own).
-         * Fall through to the next setpoint it was asked to hold, or say so.
+         * Off full travel the device is plainly the reason — it moved to get
+         * here — so it is holding it.
          *
-         * OFF full travel it plainly IS the reason — it moved to get here.
+         * AT full travel it is not modulating at all. That covers two cases
+         * which look identical from here and need the same response: a valve
+         * wide open on the furthest branch whose flow is already right (correct
+         * commissioning), and a pump following an unlimited chiller's LWT that
+         * it has no say over. Both should TRY THE NEXT SETPOINT if they were
+         * given one — that is what fixed the pump on 2026-08-04 — and both
+         * should simply report as holding it if they were not.
          *
-         * This was a PROBE until 2026-08-05, and the probe could not be made to
-         * work at any single distance. NEAR, it read solver noise: 5% of an
-         * equal-percentage valve's travel changes the flow by less than the
-         * solver's own convergence tolerance, so "the error did not move" meant
-         * "I could not measure it". FAR, it read the far field: a chiller that
-         * holds its setpoint comfortably at design flow will still miss it at
-         * quarter flow, so probing the minimum found an authority the device
-         * has no use for. The position alone answers the question without
-         * either failure, and costs nothing. */
-        if (x0 >= 1 - 1e-9) {
-          return { state: 'no-authority', x: x0, error: e0, moved: false };
-        }
-        return { state: 'on', x: x0, error: e0, moved: false };
+         * `idle` is the signal for exactly that: fall through if there is
+         * somewhere to fall to, otherwise it is `on`.
+         *
+         * THIS WAS A PROBE, TWICE, AND NEITHER WORKED. Near, it read solver
+         * noise: 5% of an equal-percentage valve's travel moves the flow by
+         * less than the solver's own tolerance. Far, it read the far field: a
+         * chiller comfortable at design flow still misses at quarter flow, so
+         * the probe "found" an authority the device has no use for. Michael's
+         * `20260805-5` then had three correctly-wide-open valves reported as
+         * having no authority. The position and the option list answer the
+         * question between them, without measuring anything. */
+        return { state: (x0 >= 1 - 1e-9) ? 'idle' : 'on',
+                 x: x0, error: e0, moved: false };
       }
 
       /* --- DOES BACKING OFF HELP? The sign question, answered not assumed.
@@ -1677,18 +1690,16 @@
     /* Worth trying the NEXT setpoint on the list. */
     function failed(st) {
       return st === 'at-max' || st === 'at-min' || st === 'unsettled' ||
-             st === 'no-authority';
+             st === 'idle';
     }
 
     /* THE SETPOINT IS GENUINELY LOST — a stronger statement than `failed`, and
      * the one that raises an error and parks the actuator at full.
      *
-     * `no-authority` is deliberately NOT in this set. It means the device
-     * cannot MOVE that setpoint, which is a different thing from the system
-     * being unable to hold it: on `debug/20260805-4.json` an unlimited chiller
-     * was holding 7.5 °C perfectly well, and the pump following it simply had
-     * no say. Reporting "System is unable to maintain setpoint" there was
-     * wrong, and it is what CONTROL_NO_AUTHORITY already says properly. */
+     * `idle` is deliberately NOT in this set. It means the device is at full
+     * travel with its setpoint already MET — a valve wide open on the furthest
+     * branch, or a pump following a setpoint another machine is holding. The
+     * setpoint is not lost; nobody is modulating for it. */
     function lostSetpoint(st) {
       return st === 'at-max' || st === 'at-min' || st === 'unsettled';
     }
@@ -1782,7 +1793,10 @@
         actual: measured,
         error: r.error === undefined ? null : r.error,
         value: pair.act.get(), min: pair.act.min,
-        state: r.state || 'on'
+        /* `idle` is an internal signal — "at full travel, nothing to do" — and
+         * the answer it describes is simply that the setpoint is met. */
+        state: (r.state === 'idle') ? 'on' : (r.state || 'on'),
+        idle: r.state === 'idle'
       };
       var name = d.tag || d.pipe, eqName = d.equipTag || d.equip;
       /* The setpoint may be a temperature or a flow, so the units come from
@@ -1821,16 +1835,6 @@
                    'actuator resolution is the limit, or nothing it can do ' +
                    'reaches it: check the machine\u2019s capacity and Design ' +
                    '\u0394T, and whether the setpoint is achievable at all.'
-        });
-      } else if (d.state === 'no-authority') {
-        warnings.push({
-          code: 'CONTROL_NO_AUTHORITY', pipe: d.pipe, equip: d.equip,
-          message: name + ' has no authority over ' + eqName + '\u2019s ' +
-                   (pair.label || 'setpoint') + ': it is held at ' + setTxt +
-                   ' whatever ' + name + ' does, so there is nothing to ' +
-                   'modulate towards. Hold a setpoint the ' +
-                   (pair.act.kind === 'pump' ? 'pump' : 'valve') +
-                   ' can actually move \u2014 Design \u0394T or design flow.'
         });
       } else if (d.state === 'no-flow') {
         warnings.push({

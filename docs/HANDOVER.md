@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1512 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1526 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,22 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **THE FLOW DEADBAND WAS FOUR TIMES LOOSER THAN IT READ** (v0.14.5) —
+  `max(0.5%, 1e-5 m³/s)`, and on a 0.8 L/s branch the absolute floor is 1.25%,
+  which dominated. Three valves on `20260805-5` sat wide open with their
+  branches 0.1–0.6% over while a fourth throttled to 59%; Michael expected them
+  in between, and was right. Now `max(0.2%, 1e-7)`, and they land at 59 / 67 /
+  100 / 100%.
+  `CONTROL_NO_AUTHORITY` was **withdrawn** in the same pass: the condition could
+  not be told from a device correctly not modulating, at any probe distance.
+  A device at full travel with its setpoint met now reports as holding it and
+  falls through to its next setpoint if it has one.
+* **THE CONTROL-LINK ROUTE** (v0.14.5) — one meaning for `axis`, the 1 m step
+  off the pipe expressed as a choice of axis rather than a special case, and
+  dragging can now FLIP the axis so the route moves in all four directions.
+* **ΔP AND ΔT SENSORS DRAW PROPERLY** (v0.14.5) — the bubble says `ΔP`/`ΔT`
+  rather than `T`, and a dotted line with an open square marks the SECOND pipe
+  being probed. Without it "Δp 150 kPa" on a drawing does not say across what.
 * **PARALLEL BRANCHES BALANCE** (v0.14.4) — `debug/20260805-4.json`: four
   control valves not throttling, and a spurious SETPOINT_LOST. FOUR faults:
   the solve budget was flat at 60 and the fifth device never got a turn;

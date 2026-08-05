@@ -577,7 +577,7 @@
       if (self.tool === 'view') {
         var ch = self.controlHandleAt(sx, sy);
         if (ch) {
-          self.dragControl = { pipe: ch.pipe, axis: ch.axis };
+          self.dragControl = { pipe: ch.pipe, axis: ch.axis, startW: w };
           c.setPointerCapture(e.pointerId);
           return;
         }
@@ -791,11 +791,28 @@
       if (self.dragControl) {
         /* Slide the whole middle segment. `mid` is a WORLD coordinate, so the
          * route stays where it was put through zoom and pan. Presentation
-         * only — nothing here reaches the calculation. */
+         * only — nothing here reaches the calculation.
+         *
+         * DRAGGABLE IN ALL FOUR DIRECTIONS (Michael, 2026-08-05). The axis used
+         * to be fixed when the link was made, so the segment could only ever
+         * slide one way and a drag across it did nothing — it read as hitting a
+         * limit. Pull it far enough across and the route SWITCHES axis: a Z
+         * that bends the other way is the same route seen from ninety degrees,
+         * and it is the shape you want when the devices are diagonal to each
+         * other.
+         *
+         * The 1.6 ratio is hysteresis. Flipping on the first pixel that crosses
+         * would make the route snap back and forth while the mouse wanders
+         * along the segment it is already on. */
         var dc = self.dragControl;
         var host = (dc.pipe.kind === 'pump') ? dc.pipe.pump : dc.pipe.valve;
         if (host && host.control) {
-          host.control.mid = (dc.axis === 'h') ? w.x : w.y;
+          var dx = Math.abs(w.x - dc.startW.x), dy = Math.abs(w.y - dc.startW.y);
+          var axis = host.control.axis === 'v' ? 'v' : 'h';
+          if (axis === 'h' && dy > dx * 1.6) axis = 'v';
+          else if (axis === 'v' && dx > dy * 1.6) axis = 'h';
+          host.control.axis = axis;
+          host.control.mid = (axis === 'h') ? w.x : w.y;
           self.render();
         }
         return;
@@ -2410,11 +2427,18 @@
    * Amber rather than green/red, because green and red are the in-service /
    * isolated pair on the devices that HAVE a service state. A sensor has none. */
   View.prototype.drawSensorGlyph = function (p, sa, sb, selected) {
-    var ctx = this.ctx;
+    var ctx = this.ctx, m = this.getModel();
     var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
     var colour = selected ? this.theme.select : this.theme.warn;
-    var mode = (p.sensor && p.sensor.mode === 'flow') ? 'F'
-             : (p.sensor && p.sensor.mode === 'pressure') ? 'P' : 'T';
+    /* WHAT IT MEASURES, on the bubble. A differential says so — Michael,
+     * 2026-08-05: a ΔP sensor was showing 'T', which is the one letter it is
+     * not. Two-character labels get a smaller font so they still fit the
+     * instrument bubble rather than spilling out of it. */
+    var sm = (p.sensor && p.sensor.mode) || 'temperature';
+    var mode = sm === 'flow' ? 'F'
+             : sm === 'pressure' ? 'P'
+             : sm === 'dP' ? '\u0394P'
+             : sm === 'dT' ? '\u0394T' : 'T';
 
     /* PERPENDICULAR TO THE PIPE (Michael, 2026-08-04). It used to stand
      * straight up in screen space, which reads as perpendicular only on a
@@ -2447,10 +2471,40 @@
     ctx.beginPath(); ctx.arc(bx, by, R, 0, Math.PI * 2);
     ctx.fill(); ctx.stroke();
     ctx.fillStyle = colour;
-    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.font = '600 ' + (mode.length > 1 ? 9 : 11) + 'px system-ui, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(mode, bx, by);
     ctx.restore();
+
+    /* A DIFFERENTIAL PROBES TWO PIPES, so the second one is drawn (Michael,
+     * 2026-08-05). Without it the reading is unreadable on the drawing: "Δp
+     * 150 kPa" across what? Dotted rather than dashed, so it does not read as
+     * the control link it sits beside — that one carries a signal to a device,
+     * this one only says where the other tapping is.
+     *
+     * Only when both ends are on the level being drawn; a line to a tapping on
+     * another floor would cut across pipework it has nothing to do with. */
+    if ((sm === 'dP' || sm === 'dT') && p.sensor.ref) {
+      var refPipe = M.pipe(m, p.sensor.ref);
+      var refMid = refPipe ? M.deviceMid(m, refPipe) : null;
+      var rn = refPipe ? M.node(m, refPipe.a) : null;
+      if (refMid && rn && rn.level === m.activeLevel) {
+        var rs = this.toScreen(refMid.x, refMid.y);
+        ctx.save();
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(rs.x, rs.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        /* A small open square at the far tapping — a different mark from the
+         * control link's ring, because it means a different thing. */
+        ctx.strokeRect(rs.x - 3.5, rs.y - 3.5, 7, 7);
+        ctx.restore();
+      }
+    }
 
     /* Draggable in VIEW, on its own offset key so it moves independently of
      * the tag above it. */

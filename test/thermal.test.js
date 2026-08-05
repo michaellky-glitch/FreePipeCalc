@@ -1524,19 +1524,26 @@ section('Control authority: a setpoint nothing can move is not being held');
     return { m, pump, coil, ch };
   }
 
-  // ---- 1. LWT alone: the pump cannot move it, and says so.
+  /* ---- 1. LWT ALONE: the chiller holds it whatever the pump does, so the
+   * pump is not modulating for it. Reported as ON — the setpoint IS met — and
+   * flagged `idle`, which is what makes it fall through when there is
+   * somewhere to fall to.
+   *
+   * This used to be `no-authority` with a warning. Michael's `20260805-5`
+   * showed why that was wrong: three valves wide open on the furthest branches,
+   * flows already correct, reported as having no authority when they were
+   * simply — and correctly — not throttling. */
   {
     const t = plantLoop({ link: true, use: { lwt: true } });
     const res = NET.solveModel(t.m);
     const d = res.controls.devices[0];
-    ok('The pump reports no authority over LWT', d.state === 'no-authority',
-       d.state);
+    ok('The setpoint is met, so it reports as holding it', d.state === 'on', d.state);
+    ok('...flagged as not modulating', d.idle === true);
     near('...and stays at full speed', d.value, 1, 1e-12);
-    const w = res.warnings.filter(x => x.code === 'CONTROL_NO_AUTHORITY')[0];
-    ok('CONTROL_NO_AUTHORITY is raised', !!w,
-       JSON.stringify(res.warnings.map(x => x.code)));
-    ok('...and it suggests what the pump CAN hold',
-       !!w && /Design ΔT|design flow/.test(w.message), w && w.message);
+    ok('...with no warning, because nothing is wrong',
+       !res.warnings.some(x => /^CONTROL_/.test(x.code)),
+       JSON.stringify(res.warnings.filter(x => /^CONTROL_/.test(x.code))
+                         .map(x => x.code)));
   }
 
   // ---- 2. LWT then ΔT: it falls through and does the work.
@@ -1557,8 +1564,8 @@ section('Control authority: a setpoint nothing can move is not being held');
     near('...at the flow that implies', Math.abs(res.flow[t.ch.id]), qHand,
          qHand * 0.01);
     near('...which is the coil design flow', qHand, 0.0008, 0.0008 * 0.01);
-    ok('No authority warning once it found something it can hold',
-       !res.warnings.some(x => x.code === 'CONTROL_NO_AUTHORITY'));
+    ok('No control warning once it found something it can hold',
+       !res.warnings.some(x => /^CONTROL_/.test(x.code)));
   }
 
   /* ---- 3. AUTHORITY IS NOT ASSUMED AWAY. Where the actuator really is the
@@ -1576,8 +1583,10 @@ section('Control authority: a setpoint nothing can move is not being held');
        d.state === 'on', d.state);
     ok('...without needing to move', d.value > 0.95,
        (d.value * 100).toFixed(0) + '%');
-    ok('...and nothing is reported as beyond its authority',
-       !res.warnings.some(x => x.code === 'CONTROL_NO_AUTHORITY'));
+    ok('...and no control warning is raised',
+       !res.warnings.some(x => /^CONTROL_/.test(x.code)),
+       JSON.stringify(res.warnings.filter(x => /^CONTROL_/.test(x.code))
+                         .map(x => x.code)));
   }
 
   // ---- 4. A device already off full travel is not re-probed.

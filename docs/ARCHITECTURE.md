@@ -1228,6 +1228,58 @@ on the controller. An option the stored order does not mention keeps its natural
 place after the ones it does, so a machine that grows a setpoint later never
 silently drops off the list.
 
+### At full travel with the setpoint met, nothing is being controlled
+
+Two cases look identical from inside the loop and want the same response: a
+valve wide open on the furthest branch whose flow is already right (correct
+commissioning), and a pump following a setpoint another machine is holding
+regardless. Both report the setpoint as **met**, and both **try the next
+setpoint** if they were given one. That internal signal is `idle`; it becomes
+`on` in the report, because the setpoint genuinely is met.
+
+**This was a probe twice, and neither distance worked.** NEAR it read solver
+noise — 5% of an equal-percentage valve's travel moves the flow by less than the
+solver's own convergence tolerance. FAR it read the far field — a chiller
+comfortable at design flow still misses at quarter flow, so the probe "found" an
+authority the device has no use for. `CONTROL_NO_AUTHORITY` was withdrawn with
+it: the condition it named could not be told from a device that is simply, and
+correctly, not modulating.
+
+### The flow deadband is relative
+
+`max(0.2% of setpoint, 1e-7 m³/s)`. It was `max(0.5%, 1e-5)`, and on a branch
+rated 0.8 L/s the 1e-5 floor is **0.01 L/s — 1.25%** — which dominated the
+relative term and made the deadband four times looser than it read. Three valves
+on `debug/20260805-5.json` sat wide open with their branches 0.1–0.6% over, all
+inside that floor, while a fourth throttled to 59%. Michael expected them in
+between, and was right.
+
+### The control-link route: one meaning for `axis`
+
+`axis` names WHICH COORDINATE `mid` is, and therefore which way the middle
+segment runs:
+
+| `axis` | `mid` is | middle segment |
+|---|---|---|
+| `'h'` | an X | vertical |
+| `'v'` | a Y | horizontal |
+
+One meaning throughout, so the renderer, the drag handler and the stored value
+cannot disagree — they did until 2026-08-05, where the level-ends case built its
+route from the *other* coordinate while the drag handler still wrote this one,
+so the first drag made the route jump.
+
+**The 1 m step off the pipe is a choice of AXIS, not a special case.** Two
+devices on the same run are level with each other, and a vertical middle segment
+between them collapses onto the pipe; a horizontal one 1 m above is exactly
+"step off, along, and back", and needs no second code path.
+
+**Dragging flips the axis.** It used to be fixed when the link was made, so the
+segment could only slide one way and a drag across it did nothing — it read as
+hitting a limit. Pull far enough across (1.6× the along-axis movement, as
+hysteresis) and the route switches: a Z that bends the other way is the same
+route seen from ninety degrees.
+
 ### Losing the setpoint: park at FULL, do not throttle
 
 `debug/20260804-3.json` — a 110 kW coil against a 100 kW chiller. The loop
@@ -1310,6 +1362,12 @@ meant to be shut or open, and a cracked-open one is a deliberate act.
 ## 17D. The pipe sensor
 
 ### It measures five things
+
+A **differential** draws the second pipe it probes: a dotted line from the
+bubble with an open square at the far tapping, deliberately a different mark
+from the control link's ring because it means a different thing. Without it
+"Δp 150 kPa" on a drawing does not say across what. The bubble carries `ΔP` or
+`ΔT` rather than the `T` it showed until 2026-08-05.
 
 Temperature, flow, pressure, and two DIFFERENTIALS — Δp and ΔT between this
 sensor and a referenced pipe. A pressure or differential reading is taken at the
@@ -1811,7 +1869,7 @@ is the strongest claim available.
 
 ## 15. Testing
 
-Seven suites, 1512 assertions, no dependencies:
+Seven suites, 1526 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

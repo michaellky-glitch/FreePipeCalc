@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1512
+This is deliberately separate from the automated suites. Those cover 1526
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -202,6 +202,26 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 4S. DEADBAND, ROUTES AND ΔP SYMBOLS (v0.14.5)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| DB.1 | Valves land between 59% and 100% | ✅ | `20260805-5`: 59 / 67 / 100 / 100%, no errors. The two at 100% are the furthest branches and are genuinely within tolerance wide open — which is what your dP-controlled pump is for. |
+| DB.2 | ΔP / ΔT bubble says so | ⬜ | Was showing `T`. Two-character labels use a smaller font to fit the bubble. |
+| DB.3 | The second probed pipe is drawn | ⬜ | Dotted line from the bubble to the reference pipe, with an open square at the far tapping — deliberately a different mark from the control link's ring, because it means a different thing. Drawn only when both are on the level being shown. |
+| DB.4 | Control links drag in all four directions | ⬜ | Pull across the current segment and the route flips axis (1.6× hysteresis so it does not chatter). Verified live on `20260805-5`: axis h → v, mid 44.88 → 8.53. |
+| DB.5 | **Is 0.2% the right flow deadband?** | ⬜ | **Your call.** Tighter than any flow meter, and comfortably inside what 1% of valve travel resolves — but it is what decides whether a nearly-right branch gets throttled at all. |
+
+## 4S. DEADBAND, ROUTES AND ΔP SYMBOLS (v0.14.5)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| DB.1 | Valves land between 59% and 100% | ✅ | `20260805-5`: 59 / 67 / 100 / 100%, no errors. The two at 100% are the furthest branches and are genuinely within tolerance wide open — which is what your dP-controlled pump is for. |
+| DB.2 | ΔP / ΔT bubble says so | ⬜ | Was showing `T`. Two-character labels use a smaller font to fit the bubble. |
+| DB.3 | The second probed pipe is drawn | ⬜ | Dotted line from the bubble to the reference pipe with an open square at the far tapping — a different mark from the control link's ring, because it means a different thing. Only when both are on the level being shown. |
+| DB.4 | Control links drag in all four directions | ⬜ | Pull across the current segment and the route flips axis (1.6× hysteresis so it does not chatter). Verified live: axis h → v, mid 44.88 → 8.53. |
+| DB.5 | **Is 0.2% the right flow deadband?** | ⬜ | **Your call.** Tighter than any flow meter and comfortably inside what 1% of valve travel resolves — but it is what decides whether a nearly-right branch gets throttled at all. |
 
 ## 4R. PARALLEL BRANCH BALANCING (v0.14.4)
 

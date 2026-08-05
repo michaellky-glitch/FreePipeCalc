@@ -60,7 +60,7 @@ Two conventions worth keeping:
 | `NO_PUMP_CURVE` | SIMULATION with a running pump that has no curve. A curve-less pump falls back to constant head, which answers a different question — the flow stops responding to the system, the one thing the mode exists to show. | Points at Sizing ▸ Auto/Manual or a pasted curve. |
 | `THERMAL_LIMIT` | A solved temperature is outside `thermal.tempMin … tempMax`. The runaway guard: the solve is exact, but a correct answer can still be absurd. | Quotes the worst node and the band. |
 | `PRESSURE_IMPLAUSIBLE` | A component ΔP or pump duty exceeds `warn.maxComponentPD` (default 2000 kPa). Shut valves are excluded — `CLOSED_R` is a numerical device, not a pressure. | "…past the 2000 kPa plausibility limit. The arithmetic is right — something in the model is not." |
-| `SETPOINT_LOST` | A controlled device runs out of travel with its setpoint still unmet. The actuator is returned to FULL first. **`no-authority` is deliberately NOT in this set** — a device that cannot MOVE a setpoint is a different thing from a system that cannot hold one, and `CONTROL_NO_AUTHORITY` already says it properly. | "System is unable to maintain setpoint. Check heat balance." — and it names what limited the machine where the thermal pass knows it. |
+| `SETPOINT_LOST` | A controlled device runs out of travel with its setpoint still unmet. The actuator is returned to FULL first. A device sitting at full travel with its setpoint already MET is deliberately NOT in this set — the setpoint is not lost, nobody is modulating for it. | "System is unable to maintain setpoint. Check heat balance." — and it names what limited the machine where the thermal pass knows it. |
 | `THERMAL_SINGULAR` | The temperature field has no unique solution — nothing sets a level and nothing ties the system to ambient. **Promoted from a warning on 2026-08-05**: the reported temperatures are then just the seed, and presenting a flat supply temperature beside `converged: true` is meaningless numbers dressed as an answer. | Names what to give it: a source temperature, or ambient coupling. |
 
 ### Errors from an edit, not a solve
@@ -109,7 +109,7 @@ the edit; nothing is changed.
 | `VALVE_SHUT` | A valve is fully closed, so its branch passes nothing. |
 | `CHECK_CLOSED` | A check valve is holding against reverse flow. Normal operation, reported so the zero flow is not a puzzle. |
 | `REVERSE_BLOCKED` | Equipment is holding against reverse flow — check its direction with the ‹ › button. |
-| `VALVE_OVERSIZED` | A CONTROL valve is below `warn.valveOversized` (10%) open. "…has insufficient control authority. Consider reducing size." A different sense of the word from `CONTROL_NO_AUTHORITY`: this valve HAS the movement but spends it all near its seat. Isolation valves and shut valves are exempt. |
+| `VALVE_OVERSIZED` | A CONTROL valve is below `warn.valveOversized` (10%) open. "…has insufficient control authority. Consider reducing size." Named for the fault: this valve HAS the movement but spends it all near its seat. Isolation valves and shut valves are exempt. |
 | `ZERO_LENGTH` | A pipe of zero length — degenerate, and would divide by zero downstream. |
 | `ORPHAN_NODE` | A node with nothing connected to it. |
 | `RISER_OPEN_END` | A riser column's top or bottom attachment carries no other pipe, so the column ends in mid-air. Invisible on a level plan, because a column is drawn as a marker rather than a line. Ends only — a middle attachment with nothing on it is an ordinary pass-through. |
@@ -128,7 +128,6 @@ the edit; nothing is changed.
 | Code | Raised when |
 |---|---|
 | `CONTROL_NO_SETPOINT` | A control link points at something that states nothing to hold. A drawn link that quietly does nothing is exactly the surprise the link was added to avoid. |
-| `CONTROL_NO_AUTHORITY` | The setpoint is met, but the actuator cannot MOVE it — an unlimited chiller holds its LWT at any flow. Names what the device CAN hold instead. Only raised when there is no other toggled setpoint to fall back to. |
 | `CONTROL_AT_LIMIT` | The device is on a stop (minimum speed, minimum opening, or full travel) and the setpoint is still missed. |
 | `CONTROL_NO_FLOW` | The controlled machine carries no flow, so there is nothing to control to. |
 | `CONTROL_UNSETTLED` | A device came to rest off setpoint. Names whether the actuator resolution is the limit or the setpoint is out of reach. |
@@ -186,8 +185,11 @@ Michael's instruction.
 
 1. **The two "authority" messages no longer share a word.** VALVE_AUTHORITY
    became **`VALVE_OVERSIZED`**, named for the fault rather than the symptom.
-   `CONTROL_NO_AUTHORITY` keeps its name: there, the actuator genuinely has no
-   authority over the setpoint.
+   CONTROL_NO_AUTHORITY was **withdrawn entirely** on 2026-08-05: the condition
+   it described could not be told from a device that is simply, and correctly,
+   not modulating — a valve wide open on the furthest branch with its flow
+   already right. A device at full travel with its setpoint met now reports as
+   holding it, and falls through to its next setpoint if it has one.
 
 2. **`CONTROL_UNSETTLED` was split.** It stays for a device that came to rest
    off setpoint; **`CONTROL_HUNTING`** is new, for a sweep that never settled.

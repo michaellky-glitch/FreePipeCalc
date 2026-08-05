@@ -1413,45 +1413,46 @@
   /* The orthogonal route as a list of world points. One bend is an L, two is a
    * Z — and an L is just the Z whose middle segment has collapsed, so there is
    * one code path and `mid` alone decides which you get. */
+  var CTRL_OFFSET = 1;                  // metres, the default step off the pipe
+
   function controlRoute(m, p) {
     var c = controlOf(p);
     if (!c) return null;
     var a = deviceMid(m, p), b = deviceMid(m, pipe(m, c.equip));
     if (!a || !b) return null;
-    var horiz = (c.axis !== 'v');
-    /* THE MIDDLE SEGMENT IS OFFSET BY 1 m (Michael, 2026-08-05). Halfway
-     * between two devices on the SAME run puts the middle segment straight down
-     * the pipe, where it is unreadable — a dashed green line lying on top of
-     * the pipework it is meant to be distinguished from. One metre off is
-     * enough to read and small enough not to look like a route of its own.
+    /* `axis` names WHICH COORDINATE `mid` is, and therefore which way the
+     * middle segment runs:
      *
-     * Only the DEFAULT moves. A `mid` that has been dragged is left exactly
-     * where it was put. */
-    var CTRL_OFFSET = 1;
-    var mid;
-    if (c.mid === null || c.mid === undefined) {
-      mid = horiz ? (a.x + b.x) / 2 : (a.y + b.y) / 2;
-      var along = horiz ? Math.abs(a.y - b.y) : Math.abs(a.x - b.x);
-      /* Only when the two ends are level with each other — that is the case
-       * where the route would otherwise lie along the pipe. */
-      if (along < 1e-6) mid = (horiz ? a.y : a.x) + CTRL_OFFSET;
-    } else {
-      mid = c.mid;
+     *     'h'  mid is an X — the middle segment is VERTICAL
+     *     'v'  mid is a  Y — the middle segment is HORIZONTAL
+     *
+     * One meaning throughout, so the renderer, the drag handler and the stored
+     * value cannot disagree. They did until 2026-08-05: the level-ends case
+     * below built its route from the OTHER coordinate while the drag handler
+     * still wrote this one, so the first drag made the route jump. Michael
+     * reported it as "hits some limits or snaps oddly". */
+    var horiz = (c.axis !== 'v');
+    var mid = c.mid;
+
+    if (mid === null || mid === undefined) {
+      /* THE DEFAULT STEPS 1 m OFF THE PIPE when the two ends are level with
+       * each other. Halfway between two devices on the same run puts the middle
+       * segment straight down the pipe, where a dashed green line is
+       * unreadable against the pipework it is meant to be distinguished from.
+       *
+       * Expressed by choosing the OTHER axis rather than by a special case in
+       * the route: a horizontal middle segment 1 m above a horizontal run is
+       * exactly "step off, along, and back", and it needs no second code path. */
+      var levelY = Math.abs(a.y - b.y) < 1e-6;
+      var levelX = Math.abs(a.x - b.x) < 1e-6;
+      if (levelY && horiz) { horiz = false; mid = a.y + CTRL_OFFSET; }
+      else if (levelX && !horiz) { horiz = true; mid = a.x + CTRL_OFFSET; }
+      else mid = horiz ? (a.x + b.x) / 2 : (a.y + b.y) / 2;
     }
-    /* When the ends are level the offset is PERPENDICULAR to the run, so the
-     * route steps off the pipe, along, and back. Otherwise `mid` is the
-     * ordinary Z bend along the chosen axis. */
-    var level = horiz ? (Math.abs(a.y - b.y) < 1e-6) : (Math.abs(a.x - b.x) < 1e-6);
-    var pts;
-    if (level && (c.mid === null || c.mid === undefined)) {
-      pts = horiz
-        ? [a, { x: a.x, y: mid }, { x: b.x, y: mid }, b]
-        : [a, { x: mid, y: a.y }, { x: mid, y: b.y }, b];
-    } else {
-      pts = horiz
-        ? [a, { x: mid, y: a.y }, { x: mid, y: b.y }, b]
-        : [a, { x: a.x, y: mid }, { x: b.x, y: mid }, b];
-    }
+
+    var pts = horiz
+      ? [a, { x: mid, y: a.y }, { x: mid, y: b.y }, b]
+      : [a, { x: a.x, y: mid }, { x: b.x, y: mid }, b];
     /* Drop a bend that has collapsed onto its neighbour, so an L really is
      * three points and not four with a zero-length segment. */
     var out = [pts[0]];
