@@ -928,7 +928,14 @@
      * value would let "I deleted the load" wipe the design flow as well, and a
      * field the user emptied is not a statement about the other two. */
     if (value === undefined || value === null || value === '') {
-      if (key !== 'dT') e[key] = undefined;
+      /* Through the FIELD MAP, not the raw key. A source/sink keeps its
+       * capacity in `qMax`, so clearing it was writing `duty = undefined` and
+       * leaving the capacity untouched — "blank = unlimited" simply did not
+       * take. Michael, 2026-08-05. */
+      var Fc = trioFields(p);
+      if (key === 'duty') e[Fc.duty] = undefined;
+      else if (key === 'qRated') e.qRated = undefined;
+      else if (Fc.dT) e[Fc.dT] = undefined;
       return null;
     }
 
@@ -939,7 +946,19 @@
     })[0];
 
     var F = trioFields(p);
+    /* THE SIGN IS CARRIED WHEN RECOMPUTING, AND TYPED WHEN TYPED.
+     *
+     * A duty's sign is the DIRECTION the machine works in (§18), so re-flowing
+     * a chiller must leave it a chiller — that is what carrying it is for. But
+     * when the engineer types the duty, the sign they typed IS the statement,
+     * and applying the stored one over the top makes a cooling load impossible
+     * to enter. Michael, 2026-08-05, and it blocked all his testing: typing
+     * −60 kW into a coil that held +50 kW came back as +60 kW. */
     var sign = (Number(e[F.duty]) < 0) ? -1 : 1;
+    if (key === 'duty' && value !== undefined && value !== null && value !== '') {
+      var typed = Number(value);
+      if (isFinite(typed) && typed !== 0) sign = (typed < 0) ? -1 : 1;
+    }
     function getDuty() { return Math.abs(Number(e[F.duty]) || 0); }
     function setDuty(v) {
       e[F.duty] = (v === undefined) ? undefined : sign * Math.abs(v);

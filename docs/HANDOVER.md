@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1368 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1381 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,18 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **A COOLING LOAD WAS UNTYPEABLE** (v0.12.5) — the blocker. `setEquipTrio`
+  captured the duty's sign from the STORED value and applied it to whatever was
+  typed, so −60 kW came back as +60 kW. The sign is now CARRIED when the duty
+  is recomputed (re-flowing a chiller leaves it a chiller) and TYPED when it is
+  typed. Also fixed: "blank = unlimited" wrote the wrong field on a source/sink,
+  whose capacity lives in `qMax`, so clearing the box did nothing.
+* **THE CONTROL VALVE IS EQUAL PERCENTAGE** (v0.12.5) — Michael's table. It was
+  near-linear, which gave it almost no authority: 50% open passed 55% of Kv, so
+  nothing happened until it was nearly shut. The interpolator had to be fixed
+  too — breakpoints were hard-coded to the quarter points and returned NaN for
+  any other tabulation. On the mixing rig the valve now does its controlling at
+  69% of travel instead of 33%.
 * **LOSING THE SETPOINT PARKS AT FULL** (v0.12.4) — Michael simulated an
   overload (110 kW coil, 100 kW chiller) and the loop walked the pump DOWN to
   its 25% floor while the loop ran away to 3000 °C. Throttling a machine that

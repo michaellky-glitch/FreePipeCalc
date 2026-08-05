@@ -614,12 +614,43 @@ section('Valves — Kv law');
   ok('Globe opening curve is monotonic',
      gKvs.every((v, i) => i === 0 || v > gKvs[i - 1]), gKvs.join(','));
   ok('Globe 0% is shut', gKvs[0] === 0 && FD.valves.isClosed('globe', 0));
-  /* The point of a globe valve: at half travel it still passes a meaningful
-   * fraction, where a gate valve has barely begun to throttle. */
-  ok('Globe throttles more evenly than a gate at 50% travel',
-     gKvs[2] / gKvs[4] > FD.valves.effectiveKv('gate', 100, 50) / FD.valves.effectiveKv('gate', 100, 100),
-     'globe ' + (gKvs[2] / gKvs[4]).toFixed(2) +
-     ' vs gate ' + (FD.valves.effectiveKv('gate', 100, 50) / FD.valves.effectiveKv('gate', 100, 100)).toFixed(2));
+  /* THE CONTROL VALVE IS EQUAL PERCENTAGE (Michael, 2026-08-05), which is the
+   * OPPOSITE of the near-linear shape this used to assert. The defining
+   * property is that equal increments of travel change the flow by equal
+   * PERCENTAGES of the current flow — so the ratio between successive tabulated
+   * points is roughly constant, and it passes only a small fraction of Kv at
+   * half travel. That is what gives it authority in series with fixed
+   * resistance: a valve that passes 55% of Kv at 50% open does nothing until it
+   * is nearly shut, and then does everything at once.
+   *
+   * Checked as the RATIO TEST, on his own table:
+   *     0.02/0.01 = 2.00   0.04/0.02 = 2.00   0.08/0.04 = 2.00
+   *     0.15/0.08 = 1.88   0.25/0.15 = 1.67   0.40/0.25 = 1.60
+   * — a constant multiplier over the bottom half, easing off near the top as
+   * every real equal-percentage valve does. */
+  ok('The control valve passes a SMALL fraction at half travel',
+     FD.valves.effectiveKv('globe', 100, 50) / 100 < 0.2,
+     String(FD.valves.effectiveKv('globe', 100, 50) / 100));
+  ok('...smaller than an isolation valve at the same position',
+     FD.valves.effectiveKv('globe', 100, 50) < FD.valves.effectiveKv('gate', 100, 50),
+     'control ' + FD.valves.effectiveKv('globe', 100, 50).toFixed(1) +
+     ' vs isolation ' + FD.valves.effectiveKv('gate', 100, 50).toFixed(1));
+  {
+    /* Equal percentage: successive ratios are near-constant over the range
+     * where it does its controlling. */
+    const f = [10, 20, 30, 40, 50].map(o => FD.valves.effectiveKv('globe', 1, o));
+    const ratios = f.slice(1).map((v, i) => v / f[i]);
+    ok('Successive tabulated points are a near-constant multiple',
+       ratios.every(r => r > 1.5 && r < 2.5), ratios.map(r => r.toFixed(2)).join(', '));
+  }
+  {
+    /* Interpolation between his tabulated points, by hand: 45% sits halfway
+     * between 40% (8%) and 50% (15%), so 11.5%. */
+    near('Interpolates between the tabulated points',
+         FD.valves.effectiveKv('globe', 100, 45), 11.5, 1e-9);
+    near('...and at 95%, halfway between 85 and 100',
+         FD.valves.effectiveKv('globe', 100, 95), 92.5, 1e-9);
+  }
 }
 
 section('Valves — in a solved network');
@@ -2066,6 +2097,89 @@ section('A control valve throttling near its seat is called out');
     ok('...and the keys are untouched',
        FD.valves.type('gate').key === 'gate' && FD.valves.type('globe').key === 'globe');
   }
+}
+
+/* --------------------------------------------------------------------------
+ * A COOLING LOAD MUST BE TYPEABLE  (Michael, 2026-08-05 — it blocked all his
+ * testing)
+ *
+ * `setEquipTrio` captured the sign from the STORED duty and applied it to
+ * whatever was typed, so a coil holding +50 kW came back as +60 kW when −60 was
+ * entered. The sign of a duty is the DIRECTION the machine works in (§18), so
+ * it must be CARRIED when the duty is recomputed from flow and ΔT — re-flowing
+ * a chiller leaves it a chiller — and TYPED when the engineer types it.
+ * ----------------------------------------------------------------------- */
+section('Typing a negative duty means a negative duty');
+{
+  function coil(duty) {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const p = M.addPipe(m, a.id, b.id, { kind: 'equip' });
+    p.equip = { qRated: 0.020, pdRated: 200e3, equipType: 'exchanger', duty: duty };
+    return { m, p, e: p.equip };
+  }
+  function plant(cap) {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const p = M.addPipe(m, a.id, b.id, { kind: 'equip' });
+    p.equip = { qRated: 0.0016, pdRated: 200e3, equipType: 'source',
+                tSet: 20, qMax: cap, dTMax: 15 };
+    return { m, p, e: p.equip };
+  }
+
+  {
+    const t = coil(50000);
+    M.setEquipTrio(t.m, t.p, 'duty', -60000);
+    ok('A heating coil can be retyped as cooling', t.e.duty === -60000,
+       String(t.e.duty));
+  }
+  {
+    const t = coil(-50000);
+    M.setEquipTrio(t.m, t.p, 'duty', 60000);
+    ok('...and back again', t.e.duty === 60000, String(t.e.duty));
+  }
+  {
+    const t = plant(100000);
+    M.setEquipTrio(t.m, t.p, 'duty', -80000);
+    ok('A source/sink capacity takes a typed minus too', t.e.qMax === -80000,
+       String(t.e.qMax));
+  }
+
+  /* THE SIGN IS STILL CARRIED when the duty is RECOMPUTED — that is what stops
+   * a chiller turning into a boiler because someone changed its flow. */
+  {
+    const t = coil(-50000);
+    M.setEquipTrio(t.m, t.p, 'qRated', 0.010);
+    ok('Re-flowing a cooling coil leaves it cooling', t.e.duty < 0, String(t.e.duty));
+    const t2 = coil(-50000);
+    M.setEquipTrio(t2.m, t2.p, 'dT', 10);
+    ok('...and so does retyping its ΔT', t2.e.duty < 0, String(t2.e.duty));
+    const t3 = coil(50000);
+    M.setEquipTrio(t3.m, t3.p, 'dT', 10);
+    ok('...with heating unaffected', t3.e.duty > 0, String(t3.e.duty));
+  }
+
+  /* BLANK IS UNLIMITED, and it has to reach the right field. The early return
+   * was writing `duty` on a source/sink, whose capacity lives in `qMax`, so
+   * clearing the box did nothing at all. */
+  {
+    const t = plant(-100000);
+    M.setEquipTrio(t.m, t.p, 'duty', undefined);
+    ok('Clearing the capacity really clears it', t.e.qMax === undefined,
+       String(t.e.qMax));
+    ok('...and does not leave a stray duty behind', t.e.duty === undefined);
+  }
+  {
+    const t = plant(-100000);
+    M.setEquipTrio(t.m, t.p, 'dT', undefined);
+    ok('Clearing Design ΔT clears dTMax', t.e.dTMax === undefined,
+       String(t.e.dTMax));
+  }
+  /* That an unlimited machine then holds its setpoint at any duty is the
+   * THERMAL half of "blank", and is asserted in thermal.test.js — this suite
+   * does not load the thermal module. */
 }
 
 report();

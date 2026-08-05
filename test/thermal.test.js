@@ -1157,8 +1157,12 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
     const qV = Math.abs(r.flow[t.eq.id]);
     ok('The settled flow is at or under the hand-calculated boundary',
        qV <= qHandV + 1e-9, `${qV} vs ${qHandV}`);
+    /* One percent of travel, which on an equal-percentage valve is a larger
+     * step in FLOW than the old near-linear shape gave — that is the trade for
+     * doing the controlling in the middle of the range rather than at the
+     * seat. Measured, not assumed. */
     ok('...and within one percent of valve travel of it',
-       qV > qHandV * 0.985, `${((qV / qHandV - 1) * 100).toFixed(2)}%`);
+       qV > qHandV * 0.97, `${((qV / qHandV - 1) * 100).toFixed(2)}%`);
     ok('The report names the opening', r.controls.devices[0].quantity === 'opening');
     ok('...and the position is a whole percent',
        t.valve.valve.opening === Math.round(t.valve.valve.opening));
@@ -1302,11 +1306,16 @@ section('Pipe sensor: thermostatic mixing');
      * valve lands wherever it lands), and on this rig one percent of travel is
      * worth 0.26 K:
      *
-     *     34% open -> 44.845 °C        33% open -> 45.106 °C
+     *     70% open -> 44.589 °C        69% open -> 44.975 °C
      *
      * 45.000 falls between them, so no valve position holds it exactly and the
-     * honest answer is the closer of the two: 33% is 0.106 K out, 34% is
-     * 0.155 K out. The search settles on 33. */
+     * honest answer is the closer of the two: 69% is 0.025 K out, 70% is
+     * 0.411 K out. The search settles on 69.
+     *
+     * Those figures moved when the control valve became EQUAL PERCENTAGE
+     * (2026-08-05). It now does its throttling at 69% of travel rather than
+     * 33%, which is the point of the characteristic — the valve is working in
+     * the middle of its range instead of near its seat. */
     near('The sensor is held at its setpoint', l.tIn, 45, 0.15);
     ok('...as closely as a whole percent of valve travel allows',
        Math.abs(l.tIn - 45) < 0.13, l.tIn.toFixed(4) + ' °C');

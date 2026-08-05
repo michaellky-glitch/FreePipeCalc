@@ -42,20 +42,31 @@
        * all of the restriction happens in the last quarter. */
       curve: { 0: 0, 25: 0.12, 50: 0.38, 75: 0.72, 100: 1 }
     },
-    /* A globe valve throttles the same way a gate valve does — position sets a
-     * fraction of full-open Kv — so it is handled identically by the solver.
-     * What differs is magnitude and shape: the tortuous seat makes it roughly
-     * an order of magnitude more resistant when fully open (K ≈ 6 against
-     * 0.15), and it throttles far more evenly, which is why it is the valve you
-     * regulate with rather than merely isolate with. Same DERIVED-not-measured
-     * caveat as the rest of this file. */
+    /* A control valve throttles the same way an isolation valve does — position
+     * sets a fraction of full-open Kv — so the solver handles both identically.
+     * What differs is magnitude and SHAPE: the tortuous seat makes it roughly
+     * an order of magnitude more resistant fully open (K ≈ 6 against 0.15), and
+     * its characteristic is EQUAL PERCENTAGE rather than the near-linear shape
+     * an isolation valve has. The full-open Kv keeps the DERIVED-not-measured
+     * caveat above; the characteristic below is Michael's own table. */
     globe: {
       key: 'globe',
       name: 'Control valve',
       code: 'GLV',
       K: 6.0,
       adjustable: true,
-      curve: { 0: 0, 25: 0.30, 50: 0.55, 75: 0.80, 100: 1 }
+      /* EQUAL PERCENTAGE, supplied by Michael 2026-08-05 as the characteristic
+       * a control valve should have. It replaces a near-linear shape that gave
+       * the valve almost no authority over most of its travel: 50% open used to
+       * pass 55% of full Kv, so nothing happened until the valve was nearly
+       * shut and then everything happened at once.
+       *
+       * Equal percentage means each equal increment of travel changes the flow
+       * by an equal PERCENTAGE of the current flow, which is what makes a valve
+       * controllable across its range when it sits in series with fixed
+       * resistance. Tabulated at every 10% because that is how he gave it. */
+      curve: { 0: 0, 10: 0.01, 20: 0.02, 30: 0.04, 40: 0.08, 50: 0.15,
+               60: 0.25, 70: 0.40, 80: 0.65, 90: 0.85, 100: 1 }
     },
     check: {
       key: 'check',
@@ -71,26 +82,46 @@
   /* Opening is a FULL RANGE, 0-100% in 1% steps (Michael, 2026-08-03). It was
    * five fixed positions, which is not how a regulating valve is set: a
    * balancing valve lands wherever it lands, and quoting the nearest 25% throws
-   * away most of the adjustment. The curves above are still tabulated at the
-   * quarter points — that is the shape of the data — and anything between them
-   * is interpolated. */
+   * away most of the adjustment. Each curve above is tabulated wherever its own
+   * source is — quarter points for the isolation and check valves, every 10%
+   * for the control valve's equal-percentage table — and anything between is
+   * interpolated.
+   *
+   * Kept only for callers that still ask for the old quarter points. Nothing in
+   * the loss model reads it any more. */
   var CURVE_POINTS = [0, 25, 50, 75, 100];
 
   /* Fraction of full-open Kv at any opening, linear between the tabulated
-   * quarter points and clamped outside them. */
+   * points and clamped outside them.
+   *
+   * Breakpoints come from the CURVE ITSELF, not a fixed list.
+   *
+   * They used to be a hard-coded [0, 25, 50, 75, 100], which silently returned
+   * NaN the moment a characteristic was tabulated at anything else — and the
+   * equal-percentage curve Michael supplied on 2026-08-05 is at every 10%.
+   * Reading the keys means a table can be as coarse or as fine as its source
+   * is, which is the only sane rule for transcribed data. */
+  function breakpoints(curve) {
+    return Object.keys(curve).map(Number)
+      .filter(function (k) { return isFinite(k); })
+      .sort(function (a, b) { return a - b; });
+  }
+
   function openFraction(curve, opening) {
     var x = Number(opening);
     if (!isFinite(x)) return 1;
-    if (x <= 0) return curve[0];
-    if (x >= 100) return curve[100];
-    for (var i = 1; i < CURVE_POINTS.length; i++) {
-      var lo = CURVE_POINTS[i - 1], hi = CURVE_POINTS[i];
+    var pts = breakpoints(curve);
+    if (!pts.length) return 1;
+    if (x <= pts[0]) return curve[pts[0]];
+    if (x >= pts[pts.length - 1]) return curve[pts[pts.length - 1]];
+    for (var i = 1; i < pts.length; i++) {
+      var lo = pts[i - 1], hi = pts[i];
       if (x <= hi) {
-        var t = (x - lo) / (hi - lo);
+        var t = (hi === lo) ? 0 : (x - lo) / (hi - lo);
         return curve[lo] + t * (curve[hi] - curve[lo]);
       }
     }
-    return curve[100];
+    return curve[pts[pts.length - 1]];
   }
 
   /* Resistance high enough that a shut valve passes no meaningful flow, but
