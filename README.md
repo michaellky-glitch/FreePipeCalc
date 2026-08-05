@@ -49,7 +49,6 @@ and readable, which **LOAD MODEL** reads back. Worked examples are in
 * `docs/ENGINE.md` — the hydraulics maths, with hand-checkable worked examples.
 * `docs/piping-friction-loss-spec.md` — the specification; §12 logs every
   deviation from it and the reason.
-* `docs/ROADMAP.md` — what is agreed but not yet built, and what was ruled out.
 * `docs/Human-Test.md` — what has been checked by hand, and what has not.
 * `docs/PUBLISHING.md` — notes on releasing this repository.
 

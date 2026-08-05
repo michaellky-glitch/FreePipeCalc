@@ -1408,6 +1408,16 @@ still called out for everything, because that is the square-law trap the check
 exists for. A plant-only circuit still sizes on the plant — with no loads, the
 plant is the only statement of what flow the circuit wants.
 
+### Three equipment types
+
+**Adiabatic** joined the two below on 2026-08-05: a filter, a strainer, a flow
+meter. Real pipework with a real pressure drop and no thermal properties at all.
+It is a TYPE rather than a duty of zero because *"no thermal behaviour"* and
+*"a duty that happens to be zero"* are different statements — only the first
+should hide the thermal fields, refuse to be a control target, and stay out of
+the set of loads that sizes a circuit. It keeps its hydraulics: losing a
+strainer's ΔP would be a worse error than losing its thermal side.
+
 ### Two equipment types, split on what you know at design
 
 Michael's, 2026-08-03. The solver only ever needs `Q = f(T_in, ṁ)`, so the
@@ -1606,7 +1616,7 @@ sheet**, which is the thing that gets issued.
 
 ## 15. Testing
 
-Seven suites, 1381 assertions, no dependencies:
+Seven suites, 1391 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

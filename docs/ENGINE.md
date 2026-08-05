@@ -361,7 +361,7 @@ inflow nothing.
 
 This is not a bug to fix by picking numbers. It needs a sourced coefficient set,
 and the choice of source is an engineering judgement — see
-`docs/ROADMAP.md`. Until then, treat friction through heavily-branched
+`KNOWN-ISSUES.md`. Until then, treat friction through heavily-branched
 networks as approximate, and do not rely on the split between two legs of a
 combining tee.
 

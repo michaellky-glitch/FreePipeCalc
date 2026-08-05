@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1381 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1391 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,14 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **ADIABATIC EQUIPMENT** (v0.12.6) — a third type, for filters and strainers:
+  real pressure drop, no thermal side, not a control target, and not one of the
+  loads that sizes a circuit.
+* **THE PUMP CURVE IS DRAWN, not just tabulated** (v0.12.6) — "Show table"
+  became "Show curve" and puts the chart above the numbers, with the operating
+  point on it. The sheet's chart was factored into one shared builder
+  (`pumpCurveSvg`) so the two cannot drift.
+* **"System flow temperature" is now "Source Water Temperature"** (v0.12.6).
 * **A COOLING LOAD WAS UNTYPEABLE** (v0.12.5) — the blocker. `setEquipTrio`
   captured the duty's sign from the STORED value and applied it to whatever was
   typed, so −60 kW came back as +60 kW. The sign is now CARRIED when the duty

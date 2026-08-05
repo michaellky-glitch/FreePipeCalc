@@ -165,6 +165,9 @@
         cancelValue: true,
         submitOnEnter: false,
         build: function (body) {
+          /* Anything the caller wants ABOVE the text — the pump curve chart
+           * uses this to put the picture before the numbers. */
+          if (opts.prepend) body.appendChild(opts.prepend);
           if (opts.rows && opts.rows.length) {
             var pre = el('pre', 'report-body');
             pre.textContent = opts.rows.join('\n');

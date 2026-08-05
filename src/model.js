@@ -87,6 +87,11 @@
        * DEFAULT, not sourced data, and the UI says so. */
       thermal: {
         ambient: 20,                   // °C
+        /* SOURCE WATER TEMPERATURE (renamed 2026-08-05, was "system flow
+         * temperature"). What a SOURCE node holds when it does not state a
+         * temperature of its own, and the level a fully adiabatic circuit is
+         * pinned at when nothing else sets one. It is a default for the water
+         * arriving, not a setpoint — setpoints live on the equipment. */
         supplyTemp: 6,                 // °C — chilled water by default
         insulationK: 0.02,             // W/(m·K) — polyurethane
         surfaceCoeff: 8,               // W/(m²·K) — still indoor air
@@ -1078,6 +1083,10 @@
     if (p.kind !== 'equip' || !p.equip || p.equip.off) return [];
     var e = p.equip, out = [];
 
+    /* ADIABATIC states nothing to hold — a filter has no setpoint — so it is
+     * not a control target at all. */
+    if (e.equipType === 'adiabatic') return out;
+
     if (e.equipType === 'source') {
       var lwt = Number(e.tSet);
       if (isFinite(lwt)) {
@@ -1161,7 +1170,8 @@
   function canBeControlled(p) {
     if (!p) return false;
     if (p.kind === 'sensor') return true;
-    return p.kind === 'equip' && !!p.equip;
+    return p.kind === 'equip' && !!p.equip &&
+           p.equip.equipType !== 'adiabatic';
   }
 
   /* ------------------------------------------------------- control links

@@ -1084,8 +1084,11 @@
     var equips = m.pipes.filter(function (p) {
       return p.kind === 'equip' && p.equip && !p.equip.off && p.equip.qRated > 0;
     });
+    /* An ADIABATIC item — a filter, a strainer — is not a load either. It is
+     * pipework with a pressure drop, and it states nothing about what flow the
+     * circuit wants. */
     var loads = equips.filter(function (p) {
-      return p.equip.equipType !== 'source';
+      return p.equip.equipType !== 'source' && p.equip.equipType !== 'adiabatic';
     });
     if (!hasDemand && equips.length) {
       return autoSizeForFlow(m, res, autos, loads.length ? loads : equips);

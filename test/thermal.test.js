@@ -1592,4 +1592,82 @@ section('Control authority: a setpoint nothing can move is not being held');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * ADIABATIC EQUIPMENT — a filter, a strainer, a flow meter
+ *
+ * Michael, 2026-08-05. Real pipework with a real pressure drop and no thermal
+ * properties at all. A TYPE rather than a duty of zero, because "no thermal
+ * behaviour" and "a duty that happens to be zero" are different statements:
+ * only the first should hide the thermal fields and refuse to be controlled.
+ * ----------------------------------------------------------------------- */
+section('Adiabatic equipment: pressure drop, no thermal side');
+{
+  function rig(type) {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: 30, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), j = M.addNode(m, lv, 1, 0);
+    const k = M.addNode(m, lv, 2, 0), b = M.addNode(m, lv, 3, 0);
+    M.setSource(m, a.id, 600e3); a.device.temperature = 30;
+    b.device = { kind: 'demand', flow: 0.005, reqPressure: 100e3, include: true };
+    M.addPipe(m, a.id, j.id, { size: 'DN50', schedule: 'sch40' });
+    const e = M.addPipe(m, j.id, k.id, { kind: 'equip' });
+    e.tag = 'STR-1';
+    e.equip = { qRated: 0.005, pdRated: 30e3, equipType: type,
+                duty: 50000, tSet: 6, qMax: -100000, dTMax: 8 };
+    M.addPipe(m, k.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(x => { if (x.kind !== 'equip') x.insulation_mm = 0; });
+    return { m, e, res: NET.solveModel(m) };
+  }
+
+  const t = rig('adiabatic');
+  const l = t.res.thermal.links[t.e.id];
+  near('Water leaves as it arrived', l.dT, 0, 1e-12);
+  near('...with no duty at all', l.qW, 0, 1e-12);
+  near('...and the inlet is the source temperature', l.tIn, 30, 1e-9);
+  ok('...with nothing reported as limiting it', !l.limit, String(l.limit));
+
+  /* IT IS STILL PIPEWORK. A strainer has a real pressure drop, and losing that
+   * would be a worse error than losing the thermal side. */
+  {
+    const link = t.res.network.links.filter(x => x.id === t.e.id)[0];
+    const pd = 998 * 9.81 * Math.abs(FD.hydraulics.linkLoss(link, t.res.flow[t.e.id]));
+    near('It keeps its rated pressure drop', pd / 1000, 30, 0.5);
+  }
+
+  ok('It states nothing to control to', M.controlOptions(t.m, t.e.id).length === 0);
+  ok('...so it cannot be a control target', M.canBeControlled(t.e) === false);
+
+  /* The same item as an exchanger DOES have a thermal side — the type is what
+   * makes the difference, not the numbers, which are identical on both rigs. */
+  {
+    const x = rig('exchanger');
+    const lx = x.res.thermal.links[x.e.id];
+    ok('The same numbers as an exchanger do carry a duty', Math.abs(lx.qW) > 1,
+       lx.qW.toFixed(1));
+    ok('...and it can be controlled', M.canBeControlled(x.e) === true);
+  }
+
+  /* It must not set the circuit flow either: a filter is not a load. */
+  {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 5; i++) n.push(M.addNode(m, lv, i * 2, 0));
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 10 };
+    const coil = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
+    coil.equip = { qRated: 0.002, pdRated: 100e3, equipType: 'exchanger', duty: 30000 };
+    const filt = M.addPipe(m, n[2].id, n[3].id, { kind: 'equip' });
+    filt.tag = 'STR-2';
+    filt.equip = { qRated: 0.010, pdRated: 20e3, equipType: 'adiabatic' };
+    M.addPipe(m, n[3].id, n[4].id, { size: 'DN150', schedule: 'sch40' });
+    M.addPipe(m, n[4].id, n[0].id, { size: 'DN150', schedule: 'sch40' });
+    const res = NET.solveModel(m);
+    near('A filter does not set the circuit flow — the coil does',
+         Math.abs(res.flow[coil.id]), 0.002, 0.002 * 2e-3);
+  }
+}
+
 report();

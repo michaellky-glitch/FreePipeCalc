@@ -829,147 +829,11 @@
         return;
       }
       var secCurve = calcSection('Pump Curve');
-      var simulating = (m.settings.calcMode === 'simulation');
-      var svgNS = 'http://www.w3.org/2000/svg';
-      function svgEl(tag, attrs) {
-        var e = document.createElementNS(svgNS, tag);
-        Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); });
-        return e;
-      }
-
-      var FAMILY = [0.9, 0.8, 0.7, 0.6, 0.5];
-
       pumps.forEach(function (p) {
-        var c = p.pump.curve;
-        var off = p.pump.mode === 'off';
-        var sp = M.pumpSpeed(m, p);
-        var cRun = M.pumpCurve(m, p) || c;
-        var qNow = res && res.flow ? Math.abs(res.flow[p.id] || 0) : 0;
-        var hNow = M.pumpHead(m, p, qNow);
-
-        /* The system curve is a handful of extra solves, so it is only asked
-         * for where it means something. */
-        var sys = (simulating && !off && FD.network.systemCurve)
-          ? FD.network.systemCurve(m, p.id) : null;
-
-        /* CUT OFF AT 200% OF DESIGN FLOW (Michael, 2026-08-04). The axis used
-         * to run to wherever the curve reached zero head, which is 200% exactly
-         * for the single-point assumption but wanders with a FITTED curve — his
-         * own runs to 224%. Nobody selects a pump on what it does past twice
-         * duty, and letting the axis follow the fit made two pumps on the same
-         * sheet unreadable against each other. */
-        var qMax = (c.Qd > 0) ? c.Qd * 2 : (FD.pumps.maxFlow(c) || 0);
-        var hMax = FD.pumps.head(c, 0) || 1;
-        if (sys) {
-          sys.forEach(function (pt) {
-            if (pt.q <= qMax && pt.h > hMax) hMax = pt.h;
-          });
-        }
-        if (!(qMax > 0) || !(hMax > 0)) return;
-
-        var W = 440, H = 220, PADL = 40, PADB = 34;
-        var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'pump-curve' });
-        function X(q) { return PADL + (q / qMax) * (W - PADL - 14); }
-        function Y(h) { return (H - PADB) - (h / hMax) * (H - PADB - 14); }
-
-        // axes
-        svg.appendChild(svgEl('line', { x1: PADL, y1: H - PADB, x2: W - 8, y2: H - PADB,
-                                        stroke: 'currentColor', 'stroke-width': 1, opacity: .5 }));
-        svg.appendChild(svgEl('line', { x1: PADL, y1: 8, x2: PADL, y2: H - PADB,
-                                        stroke: 'currentColor', 'stroke-width': 1, opacity: .5 }));
-        function axisLabel(x, y, txt, anchor) {
-          var t = svgEl('text', { x: x, y: y, 'font-size': 10, fill: 'currentColor',
-                                  opacity: .7, 'text-anchor': anchor || 'middle' });
-          t.textContent = txt; svg.appendChild(t);
-        }
-        axisLabel(W - 8, H - PADB + 22, d.flow, 'end');
-        axisLabel(PADL, 8, d.pressure, 'end');
-        axisLabel(X(qMax), H - PADB + 12, FD.units.fmtFlow(qMax, d.flow), 'end');
-        axisLabel(PADL - 4, Y(hMax) + 4, FD.units.fmtPressure(headToPa(hMax), d.pressure), 'end');
-
-        function curvePts(cc) {
-          var pts = [];
-          for (var i = 0; i <= 60; i++) {
-            var q = qMax * i / 60;
-            var h = FD.pumps.head(cc, q);
-            if (h < 0) break;                 // past the end of the curve
-            pts.push(X(q).toFixed(1) + ',' + Y(h).toFixed(1));
-          }
-          return pts.join(' ');
-        }
-
-        // --- the speed family, dotted
-        FAMILY.forEach(function (n) {
-          var cs = FD.pumps.atSpeed(c, n);
-          if (!cs) return;
-          svg.appendChild(svgEl('polyline', {
-            points: curvePts(cs), fill: 'none', stroke: 'currentColor',
-            'stroke-width': 1, 'stroke-dasharray': '2 3', opacity: .5
-          }));
-          /* Label the family at its own shutoff, which is where the curves are
-           * furthest apart and nothing else is drawn. */
-          var t = svgEl('text', { x: X(0) + 3, y: Y(FD.pumps.head(cs, 0)) - 2,
-                                  'font-size': 9, fill: 'currentColor', opacity: .6 });
-          t.textContent = Math.round(n * 100) + '%';
-          svg.appendChild(t);
-        });
-
-        // --- the rated curve, solid
-        svg.appendChild(svgEl('polyline', {
-          points: curvePts(c), fill: 'none', stroke: 'currentColor', 'stroke-width': 2
-        }));
-
-        /* --- the curve it is ACTUALLY on, when that is neither the rated one
-         * nor one of the dotted family. */
-        if (sp < 0.999 && FAMILY.indexOf(Math.round(sp * 100) / 100) < 0) {
-          svg.appendChild(svgEl('polyline', {
-            points: curvePts(cRun), fill: 'none', stroke: 'currentColor',
-            'stroke-width': 1.5, 'stroke-dasharray': '6 3', opacity: .85
-          }));
-        }
-
-        // --- the system curve, red
-        var shown = sys ? sys.filter(function (pt) { return pt.q <= qMax; }) : null;
-        if (shown && shown.length >= 2) {
-          svg.appendChild(svgEl('polyline', {
-            points: shown.map(function (pt) {
-              return X(pt.q).toFixed(1) + ',' + Y(pt.h).toFixed(1);
-            }).join(' '),
-            fill: 'none', stroke: 'var(--error)', 'stroke-width': 2, opacity: .9
-          }));
-          var end = shown[shown.length - 1];
-          var sl = svgEl('text', { x: X(end.q) - 4, y: Y(end.h) - 6,
-                                   'font-size': 10, fill: 'var(--error)', 'text-anchor': 'end' });
-          sl.textContent = 'system';
-          svg.appendChild(sl);
-        }
-
-        // --- the operating point
-        if (!off && qNow > 0) {
-          svg.appendChild(svgEl('circle', { cx: X(qNow), cy: Y(hNow), r: 4,
-                                            fill: 'currentColor' }));
-          var lbl = svgEl('text', { x: X(qNow) + 7, y: Y(hNow) - 6,
-                                    'font-size': 11, fill: 'currentColor' });
-          lbl.textContent = FD.units.fmtFlow(qNow, d.flow, true) + ' @ ' +
-                            FD.units.fmtPressure(headToPa(hNow), d.pressure, true);
-          svg.appendChild(lbl);
-        }
-
-        var cap = (p.tag || p.id) +
-          (off ? ' — stopped'
-               : sp < 0.999 ? ' — ' + Math.round(sp * 100) + '% speed' : '');
-        var ch = el('p', 'hint', cap + ' ');
-        if (!simulating) {
-          infoMark(ch, 'The system curve is a SIMULATION result — it is traced ' +
-                       'by solving the network at a range of pump speeds. In ' +
-                       'DESIGN the demands impose the flow, so there is nothing ' +
-                       'to trace.');
-        } else if (!shown || shown.length < 2) {
-          infoMark(ch, 'No system curve: the network did not settle at enough ' +
-                       'distinct flows below 200% of duty to trace one.');
-        }
-        secCurve.appendChild(ch);
-        secCurve.appendChild(svg);
+        var built = pumpCurveSvg(m, res, p, { family: true, system: true });
+        if (!built) return;
+        secCurve.appendChild(built.caption);
+        secCurve.appendChild(built.svg);
       });
 
       var key = el('p', 'hint',
@@ -1953,6 +1817,182 @@
     }
   }
 
+  /* ONE PUMP CHART, shared by the calculation sheet and the pump panel.
+   *
+   * Returns { svg, caption } or null. `opts.family` draws the 90–50% speed
+   * curves, `opts.system` the solved system curve — the sheet wants both, the
+   * panel's quick look wants neither. Written once because the two were about
+   * to drift: a chart that disagrees with itself in two places is worse than
+   * no chart.
+   *
+   * The chart carries:
+   *   - the RATED curve, solid;
+   *   - the speed family, dotted (affinity-scaled, §17C — always true for the
+   *     pump, whatever the system is doing);
+   *   - the SYSTEM curve in red, SOLVED rather than assumed
+   *     (FD.network.systemCurve). The parabola through the origin that usually
+   *     gets drawn is only right with no static lift, no second pump and a
+   *     square law everywhere;
+   *   - the operating point, where the two meet.
+   */
+  function pumpCurveSvg(m, res, p, opts) {
+    opts = opts || {};
+    var d = m.settings.display;
+    var simulating = (m.settings.calcMode === 'simulation');
+    var svgNS = 'http://www.w3.org/2000/svg';
+    function svgEl(tag, attrs) {
+      var e = document.createElementNS(svgNS, tag);
+      Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); });
+      return e;
+    }
+    var FAMILY = opts.family ? [0.9, 0.8, 0.7, 0.6, 0.5] : [];
+    if (!p || !p.pump || !p.pump.curve) return null;
+
+    var c = p.pump.curve;
+    var off = p.pump.mode === 'off';
+    var sp = M.pumpSpeed(m, p);
+    var cRun = M.pumpCurve(m, p) || c;
+    var qNow = res && res.flow ? Math.abs(res.flow[p.id] || 0) : 0;
+    var hNow = M.pumpHead(m, p, qNow);
+
+    /* The system curve is a handful of extra solves, so it is only asked
+     * for where it means something. */
+    var sys = (opts.system && simulating && !off && FD.network.systemCurve)
+      ? FD.network.systemCurve(m, p.id) : null;
+
+    /* CUT OFF AT 200% OF DESIGN FLOW (Michael, 2026-08-04). The axis used
+     * to run to wherever the curve reached zero head, which is 200% exactly
+     * for the single-point assumption but wanders with a FITTED curve — his
+     * own runs to 224%. Nobody selects a pump on what it does past twice
+     * duty, and letting the axis follow the fit made two pumps on the same
+     * sheet unreadable against each other. */
+    var qMax = (c.Qd > 0) ? c.Qd * 2 : (FD.pumps.maxFlow(c) || 0);
+    var hMax = FD.pumps.head(c, 0) || 1;
+    if (sys) {
+      sys.forEach(function (pt) {
+        if (pt.q <= qMax && pt.h > hMax) hMax = pt.h;
+      });
+    }
+    if (!(qMax > 0) || !(hMax > 0)) return;
+
+    var W = 440, H = 220, PADL = 40, PADB = 34;
+    var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'pump-curve' });
+    function X(q) { return PADL + (q / qMax) * (W - PADL - 14); }
+    function Y(h) { return (H - PADB) - (h / hMax) * (H - PADB - 14); }
+
+    // axes
+    svg.appendChild(svgEl('line', { x1: PADL, y1: H - PADB, x2: W - 8, y2: H - PADB,
+                                    stroke: 'currentColor', 'stroke-width': 1, opacity: .5 }));
+    svg.appendChild(svgEl('line', { x1: PADL, y1: 8, x2: PADL, y2: H - PADB,
+                                    stroke: 'currentColor', 'stroke-width': 1, opacity: .5 }));
+    function axisLabel(x, y, txt, anchor) {
+      var t = svgEl('text', { x: x, y: y, 'font-size': 10, fill: 'currentColor',
+                              opacity: .7, 'text-anchor': anchor || 'middle' });
+      t.textContent = txt; svg.appendChild(t);
+    }
+    axisLabel(W - 8, H - PADB + 22, d.flow, 'end');
+    axisLabel(PADL, 8, d.pressure, 'end');
+    axisLabel(X(qMax), H - PADB + 12, FD.units.fmtFlow(qMax, d.flow), 'end');
+    axisLabel(PADL - 4, Y(hMax) + 4, FD.units.fmtPressure(headToPa(hMax), d.pressure), 'end');
+
+    function curvePts(cc) {
+      var pts = [];
+      for (var i = 0; i <= 60; i++) {
+        var q = qMax * i / 60;
+        var h = FD.pumps.head(cc, q);
+        if (h < 0) break;                 // past the end of the curve
+        pts.push(X(q).toFixed(1) + ',' + Y(h).toFixed(1));
+      }
+      return pts.join(' ');
+    }
+
+    // --- the speed family, dotted
+    FAMILY.forEach(function (n) {
+      var cs = FD.pumps.atSpeed(c, n);
+      if (!cs) return;
+      svg.appendChild(svgEl('polyline', {
+        points: curvePts(cs), fill: 'none', stroke: 'currentColor',
+        'stroke-width': 1, 'stroke-dasharray': '2 3', opacity: .5
+      }));
+      /* Label the family at its own shutoff, which is where the curves are
+       * furthest apart and nothing else is drawn. */
+      var t = svgEl('text', { x: X(0) + 3, y: Y(FD.pumps.head(cs, 0)) - 2,
+                              'font-size': 9, fill: 'currentColor', opacity: .6 });
+      t.textContent = Math.round(n * 100) + '%';
+      svg.appendChild(t);
+    });
+
+    // --- the rated curve, solid
+    svg.appendChild(svgEl('polyline', {
+      points: curvePts(c), fill: 'none', stroke: 'currentColor', 'stroke-width': 2
+    }));
+
+    /* --- the curve it is ACTUALLY on, when that is neither the rated one
+     * nor one of the dotted family. */
+    if (sp < 0.999 && FAMILY.indexOf(Math.round(sp * 100) / 100) < 0) {
+      svg.appendChild(svgEl('polyline', {
+        points: curvePts(cRun), fill: 'none', stroke: 'currentColor',
+        'stroke-width': 1.5, 'stroke-dasharray': '6 3', opacity: .85
+      }));
+    }
+
+    // --- the system curve, red
+    var shown = sys ? sys.filter(function (pt) { return pt.q <= qMax; }) : null;
+    if (shown && shown.length >= 2) {
+      svg.appendChild(svgEl('polyline', {
+        points: shown.map(function (pt) {
+          return X(pt.q).toFixed(1) + ',' + Y(pt.h).toFixed(1);
+        }).join(' '),
+        fill: 'none', stroke: 'var(--error)', 'stroke-width': 2, opacity: .9
+      }));
+      var end = shown[shown.length - 1];
+      var sl = svgEl('text', { x: X(end.q) - 4, y: Y(end.h) - 6,
+                               'font-size': 10, fill: 'var(--error)', 'text-anchor': 'end' });
+      sl.textContent = 'system';
+      svg.appendChild(sl);
+    }
+
+    // --- the operating point
+    if (!off && qNow > 0) {
+      svg.appendChild(svgEl('circle', { cx: X(qNow), cy: Y(hNow), r: 4,
+                                        fill: 'currentColor' }));
+      var lbl = svgEl('text', { x: X(qNow) + 7, y: Y(hNow) - 6,
+                                'font-size': 11, fill: 'currentColor' });
+      lbl.textContent = FD.units.fmtFlow(qNow, d.flow, true) + ' @ ' +
+                        FD.units.fmtPressure(headToPa(hNow), d.pressure, true);
+      svg.appendChild(lbl);
+    }
+
+    var cap = (p.tag || p.id) +
+      (off ? ' — stopped'
+           : sp < 0.999 ? ' — ' + Math.round(sp * 100) + '% speed' : '');
+    var ch = el('p', 'hint', cap + ' ');
+    if (!simulating) {
+      infoMark(ch, 'The system curve is a SIMULATION result — it is traced ' +
+                   'by solving the network at a range of pump speeds. In ' +
+                   'DESIGN the demands impose the flow, so there is nothing ' +
+                   'to trace.');
+    } else if (!shown || shown.length < 2) {
+      infoMark(ch, 'No system curve: the network did not settle at enough ' +
+                   'distinct flows below 200% of duty to trace one.');
+    }
+
+    var cap = (p.tag || p.id) +
+      (off ? ' — stopped'
+           : sp < 0.999 ? ' — ' + Math.round(sp * 100) + '% speed' : '');
+    var ch = el('p', 'hint', cap + ' ');
+    if (opts.system && !simulating) {
+      infoMark(ch, 'The system curve is a SIMULATION result — it is traced ' +
+                   'by solving the network at a range of pump speeds. In ' +
+                   'DESIGN the demands impose the flow, so there is nothing ' +
+                   'to trace.');
+    } else if (opts.system && (!shown || shown.length < 2)) {
+      infoMark(ch, 'No system curve: the network did not settle at enough ' +
+                   'distinct flows below 200% of duty to trace one.');
+    }
+    return { svg: svg, caption: ch };
+  }
+
   /* A setpoint written the way its own quantity reads. */
   function fmtSetpoint(o) {
     var d = app.model.settings.display;
@@ -2365,7 +2405,8 @@
   function renderEquipThermal(host, p) {
     var m = app.model;
     var e = p.equip;
-    if (e.equipType !== 'source' && e.equipType !== 'exchanger') {
+    if (e.equipType !== 'source' && e.equipType !== 'exchanger' &&
+        e.equipType !== 'adiabatic') {
       e.equipType = 'exchanger';
     }
     var isSource = (e.equipType === 'source');
@@ -2377,7 +2418,8 @@
     host.appendChild(el('h3', 'sub', 'Thermal'));
 
     var typeSel = el('select');
-    [['source', 'Source / Sink'], ['exchanger', 'Heat Exchanger']].forEach(function (o) {
+    [['source', 'Source / Sink'], ['exchanger', 'Heat Exchanger'],
+     ['adiabatic', 'Adiabatic']].forEach(function (o) {
       var opt = el('option', '', o[1]); opt.value = o[0];
       if (o[0] === e.equipType) opt.selected = true;
       typeSel.appendChild(opt);
@@ -2414,6 +2456,18 @@
      * are the same quantity read from two directions. */
     var SIGN = 'Positive value indicates heat entering fluid. Negative value ' +
                'indicates heat removed from fluid.';
+
+    /* ADIABATIC has no thermal side at all — a filter, a strainer, a flow
+     * meter. It keeps its hydraulics (a filter has a real pressure drop) and
+     * offers nothing else, which is the whole point of the type. */
+    if (e.equipType === 'adiabatic') {
+      var ah = el('p', 'hint', 'No thermal properties. ');
+      infoMark(ah, 'A filter, strainer or meter: real pipework with a real ' +
+                   'pressure drop, and water that leaves as it arrived. It ' +
+                   'states no setpoint, so nothing can control to it.');
+      host.appendChild(ah);
+      return;
+    }
 
     if (isSource) {
       /* ORDER: Type, Capacity, % Load, LWT Setpoint, Design ΔT (Michael,
@@ -2821,7 +2875,7 @@
     row.appendChild(paste);
 
     if (c) {
-      var tbl = el('button', 'btn', 'Show table');
+      var tbl = el('button', 'btn', 'Show curve');
       tbl.addEventListener('click', function () {
         var rows = FD.pumps.table(c);
         var lines = ['   %      Flow (' + fu + ')      Head (' + pu + ')'].concat(
@@ -2830,10 +2884,17 @@
                    FD.units.fmtFlow(r.q, fu).padStart(12) + '   ' +
                    FD.units.fmtPressure(headToPa(r.h), pu).padStart(14);
           }));
+        /* THE CURVE, not just the numbers (Michael, 2026-08-05). A table of
+         * twelve rows does not tell you the shape, and the shape is the whole
+         * reason to look — where the duty sits on it, and how far it is from
+         * the knee. The operating point is drawn on it. Same builder as the
+         * calculation sheet, so the two cannot disagree. */
+        var built = pumpCurveSvg(app.model, app.results, p, {});
         FD.dialog.report({
           title: 'Pump curve \u2014 ' + (p.tag || p.id),
           message: 'Generated from H = H\u2080 \u2212 a\u00b7Q^b, 0\u2013150% of design flow.',
-          rows: lines
+          rows: lines,
+          prepend: built ? built.svg : null
         });
       });
       row.appendChild(tbl);
@@ -3650,7 +3711,7 @@
     numField(g1, 'Ambient air temperature', th.ambient,
       function (v) { m.settings.thermal.ambient = v; renderThermal(); redrawAll(); },
       '(°C)');
-    numField(g1, 'System flow temperature', th.supplyTemp,
+    numField(g1, 'Source Water Temperature', th.supplyTemp,
       function (v) { m.settings.thermal.supplyTemp = v; renderThermal(); redrawAll(); },
       '(°C)');
     var ch = el('p', 'hint', 'Flow temperature is the reference. ');

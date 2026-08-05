@@ -120,4 +120,4 @@ The round trip through `H₀ − a·Q^b` is the weak link, and it exists only be
 the solver's curve form predates this tool. Teaching the solver to carry
 `a + b·q + c·q²` directly would remove the loss entirely — the form is no harder
 to differentiate (`dh/dq = b + 2c·q`) than the power law it already handles.
-Logged in `ROADMAP.md`; not done, because it changes the stored model format.
+Not done, because it changes the stored model format.

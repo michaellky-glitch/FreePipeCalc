@@ -188,6 +188,7 @@
     var best = null, bestQ = 0;
     m.pipes.forEach(function (p) {
       if (p.kind !== 'equip' || !p.equip || p.equip.off) return;
+      if (p.equip.equipType === 'adiabatic') return;      // states no temperature
       var q = Math.abs(statedDuty(m, p, res, 1));   // magnitude only, for ranking
       if (best === null || q > bestQ) { best = p; bestQ = q; }
     });
@@ -238,6 +239,14 @@
    * output — "CH-01 limited by ΔT_max" is the sentence an engineer wants. */
   function equipOutlet(e, tIn, C) {
     var lim = null;
+
+    /* ADIABATIC — a filter, a strainer, a flow meter. Real pipework with a real
+     * pressure drop and no thermal properties at all, so the water leaves as it
+     * arrived. Michael, 2026-08-05. It is a TYPE rather than a zero duty
+     * because "no thermal behaviour" and "a duty that happens to be zero" are
+     * different statements: only the first should hide the thermal fields and
+     * refuse to be a control target. */
+    if (e.equipType === 'adiabatic') return { tOut: tIn, limit: null };
 
     function clampToLimit(t, from) {
       /* A machine cannot take the fluid PAST its physical limit — a tower
@@ -385,7 +394,8 @@
       if (p.kind === 'pipe' || p.kind === 'riser') {
         return pipeOutlet(tIn, prm.ambient, c.UperM, c.L, c.mdot, cp);
       }
-      if (p.kind === 'equip' && p.equip && !p.equip.off) {
+      if (p.kind === 'equip' && p.equip && !p.equip.off &&
+          p.equip.equipType !== 'adiabatic') {
         return equipOutlet(p.equip, tIn, c.C).tOut;
       }
       /* Pumps, valves, SENSORS, isolated equipment: straight through. A
@@ -429,7 +439,8 @@
         var e = Math.exp(-x);
         return { a: e, b: prm.ambient * (1 - e) };
       }
-      if (p.kind === 'equip' && p.equip && !p.equip.off) {
+      if (p.kind === 'equip' && p.equip && !p.equip.off &&
+          p.equip.equipType !== 'adiabatic') {
         /* Piecewise linear: which branch applies depends on the inlet
          * temperature, which is what the solve is for. The ACTIVE SET is
          * frozen for this pass — `c.active` — and the outer loop below
@@ -499,6 +510,7 @@
       carriers.forEach(function (c) {
         var p = c.pipe;
         if (p.kind !== 'equip' || !p.equip || p.equip.off) return;
+        if (p.equip.equipType === 'adiabatic') return;
         var e = p.equip;
         var tIn = T[c.from];
         var r2 = equipOutlet(e, tIn, c.C);
