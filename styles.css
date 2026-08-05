@@ -403,6 +403,14 @@ table.sheet td.dim  { color: var(--text-mute); }
 /* A machine that is not reaching its setpoint: the gap, stated and coloured,
    because a leaving temperature read on its own looks like an achieved one. */
 .kv.deficit .v { color: var(--error); font-weight: 700; }
+
+/* A MODEL DEFECT sits between a warning and an error: the arithmetic is sound,
+   what was drawn is not what was meant. Coloured as a warning that means it. */
+.chip.defect { background: var(--warn); color: #1b2027; font-weight: 700; }
+h4.warn-group { margin: 10px 0 2px; font-size: 12px; letter-spacing: .3px; }
+h4.warn-group.defect { color: var(--warn); }
+h4.warn-group.warning { color: var(--text-dim); }
+h4.warn-group.notice { color: var(--text-mute); }
 .slider-row input:disabled { cursor: not-allowed; }
 
 /* A published value that cannot be typed over — a named fluid's properties.

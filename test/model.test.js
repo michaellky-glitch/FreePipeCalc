@@ -2034,7 +2034,7 @@ section('A control valve throttling near its seat is called out');
 {
   function rig(type, opening, limit) {
     const m = M.create();
-    if (limit !== undefined) m.settings.warn.valveAuthority = limit;
+    if (limit !== undefined) m.settings.warn.valveOversized = limit;
     const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
     const c = M.addNode(m, lv, 2, 0), d = M.addNode(m, lv, 3, 0);
@@ -2049,8 +2049,8 @@ section('A control valve throttling near its seat is called out');
 
   {
     const t = rig('globe', 6);
-    const w = (t.res.warnings || []).filter(x => x.code === 'VALVE_AUTHORITY')[0];
-    ok('VALVE_AUTHORITY is raised at 6% open', !!w,
+    const w = (t.res.warnings || []).filter(x => x.code === 'VALVE_OVERSIZED')[0];
+    ok('VALVE_OVERSIZED is raised at 6% open', !!w,
        JSON.stringify((t.res.warnings || []).map(x => x.code)));
     ok('...in Michael\u2019s own words', !!w &&
        /has insufficient control authority\. Consider reducing size\./.test(w.message),
@@ -2061,7 +2061,7 @@ section('A control valve throttling near its seat is called out');
   {
     const t = rig('globe', 40);
     ok('A valve with room to move raises nothing',
-       !(t.res.warnings || []).some(x => x.code === 'VALVE_AUTHORITY'));
+       !(t.res.warnings || []).some(x => x.code === 'VALVE_OVERSIZED'));
   }
   {
     /* AN ISOLATION VALVE IS EXEMPT. It is meant to be shut or open, and a
@@ -2069,21 +2069,21 @@ section('A control valve throttling near its seat is called out');
      * error. */
     const t = rig('gate', 6);
     ok('An isolation valve is not a control valve',
-       !(t.res.warnings || []).some(x => x.code === 'VALVE_AUTHORITY'));
+       !(t.res.warnings || []).some(x => x.code === 'VALVE_OVERSIZED'));
   }
   {
     /* SHUT is not "throttled" — it is off, and VALVE_SHUT already says so. */
     const t = rig('globe', 0);
     ok('A shut valve is not an authority problem',
-       !(t.res.warnings || []).some(x => x.code === 'VALVE_AUTHORITY'));
+       !(t.res.warnings || []).some(x => x.code === 'VALVE_OVERSIZED'));
   }
   {
     const t = rig('globe', 15, 25);
     ok('The threshold is adjustable',
-       (t.res.warnings || []).some(x => x.code === 'VALVE_AUTHORITY'));
+       (t.res.warnings || []).some(x => x.code === 'VALVE_OVERSIZED'));
     const t2 = rig('globe', 6, 0);
     ok('...and 0 disables it',
-       !(t2.res.warnings || []).some(x => x.code === 'VALVE_AUTHORITY'));
+       !(t2.res.warnings || []).some(x => x.code === 'VALVE_OVERSIZED'));
   }
 
   /* The names changed, the keys did not — every saved file uses the keys. */

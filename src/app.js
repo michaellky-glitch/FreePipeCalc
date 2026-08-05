@@ -161,6 +161,32 @@
     download(name + '.pnet.json', data, 'application/json');
   }
 
+  /* DXF EXPORT — experimental, and the toast says so.
+   *
+   * Geometry and text only, at Michael's scope: no properties, no results, no
+   * calculation sheet. Model space in metres at true size, with real Z, so a
+   * riser opens as a vertical line rather than a marker to be interpreted.
+   *
+   * FLAGGED EXPERIMENTAL because the structure is verified but the file has
+   * never been opened in a real CAD package from this environment — the same
+   * "no pixels" limit that governs every visual item, one step further out.
+   * Until someone opens it in AutoCAD or BricsCAD, "it should work" is the
+   * strongest claim available. */
+  function exportDxf() {
+    if (!FD.dxf) { toast('DXF export is not loaded.', 'error'); return; }
+    var m = app.model;
+    if (!m.pipes.length) { toast('Nothing to export.', 'error'); return; }
+    var name = (m.settings.meta.project || 'network')
+      .replace(/[^\w\-]+/g, '_').toLowerCase() || 'network';
+    try {
+      download(name + '.dxf', FD.dxf.build(m), 'application/dxf');
+      toast('DXF exported (experimental) — geometry and text only. ' +
+            'Please check it opens correctly in your CAD.');
+    } catch (e) {
+      toast('DXF export failed: ' + e.message, 'error');
+    }
+  }
+
   function download(filename, text, mime) {
     var blob = new Blob([text], { type: mime + ';charset=utf-8' });
     var url = URL.createObjectURL(blob);
@@ -278,7 +304,23 @@
     chip.title = '';
 
     var list = computeWarnings(res);
+    /* DEFECTS OUTRANK WARNINGS on the chip (Michael, 2026-08-05). "Your drawing
+     * does not mean what it looks like" and "this pipe is a bit fast" were
+     * counted together, and only one of them means the answer is about a
+     * different system than the one you drew. */
+    var defects = list.filter(function (w) { return w.level === 'defect'; });
     var warn = list.length;
+    if (defects.length) {
+      chip.textContent = defects.length + ' model defect' +
+                         (defects.length > 1 ? 's' : '') +
+                         (warn > defects.length
+                           ? ', ' + (warn - defects.length) + ' warning' +
+                             (warn - defects.length > 1 ? 's' : '') : '');
+      chip.className = 'chip defect';
+      chip.title = defects.map(function (w) { return w.message; }).join('\n\n');
+      chip.onclick = function () { app.showTab('pane-calculation'); };
+      return;
+    }
     if (warn) {
       chip.textContent = warn + ' warning' + (warn > 1 ? 's' : '');
       chip.className = 'chip warn';
@@ -369,6 +411,7 @@
           FD.units.fmtPdm(w.limit, d.pdm, true) + ' limit.';
         return where;
       }
+      where.level = w.level || 'warning';
       where.message = w.message;
       return where;
     });
@@ -852,10 +895,26 @@
      * source shared with the status chip, so the two cannot disagree. */
     var warnings = computeWarnings(res);
     if (warnings.length) {
+      /* SPLIT BY LEVEL. The two questions an engineer asks — "is my drawing
+       * right?" and "is my design right?" — stopped sharing one list on
+       * 2026-08-05. Notices are things that need no action at all and go last. */
       var secWarn = calcSection('Warnings', { note: String(warnings.length) });
-      var ul = el('ul');
-      warnings.forEach(function (w) { ul.appendChild(el('li', '', w.message)); });
-      secWarn.appendChild(ul);
+      [['defect', 'Model defects', 'What was drawn is not what was meant. ' +
+                                   'The arithmetic is sound; the model is not.'],
+       ['warning', 'Warnings', 'The answer stands — worth an engineer’s eye.'],
+       ['notice', 'Notices', 'Nothing to do. Stated so a number is not a puzzle.']
+      ].forEach(function (grp) {
+        var rows = warnings.filter(function (w) {
+          return (w.level || 'warning') === grp[0];
+        });
+        if (!rows.length) return;
+        secWarn.appendChild(el('h4', 'warn-group ' + grp[0],
+                               grp[1] + ' (' + rows.length + ')'));
+        secWarn.appendChild(el('p', 'hint', grp[2]));
+        var ul = el('ul');
+        rows.forEach(function (w) { ul.appendChild(el('li', '', w.message)); });
+        secWarn.appendChild(ul);
+      });
     }
 
     // =============================================================== 5. APPENDIX
@@ -4708,8 +4767,8 @@
     numField(wg, 'Equipment flow ratio', m.settings.warn.equipFlowRatio,
       function (v) { pushUndo(); m.settings.warn.equipFlowRatio = v; redrawAll(); },
       '(×rated)');
-    numField(wg, 'Min control valve opening', m.settings.warn.valveAuthority,
-      function (v) { pushUndo(); m.settings.warn.valveAuthority = v; redrawAll(); },
+    numField(wg, 'Min control valve opening', m.settings.warn.valveOversized,
+      function (v) { pushUndo(); m.settings.warn.valveOversized = v; redrawAll(); },
       '(%)');
     numField(wg, 'Max component pressure', (m.settings.warn.maxComponentPD || 0) / 1000,
       function (v) {
@@ -5291,6 +5350,7 @@
       window.print();
     }
 
+    $('btn-dxf').addEventListener('click', exportDxf);
     $('btn-print').addEventListener('click', function () { printAs('plans'); });
     $('btn-print-2').addEventListener('click', function () { printAs('sheet'); });
 

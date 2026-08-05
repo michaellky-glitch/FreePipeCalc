@@ -3,7 +3,7 @@
  */
 'use strict';
 const { load, ok, near, section, report } = require('./harness');
-const FD = load(['src/model.js', 'src/network.js', 'src/geometry.js']);
+const FD = load(['src/model.js', 'src/network.js', 'src/geometry.js', 'src/dxf.js']);
 const M = FD.model, G = FD.geometry;
 const fs = require('fs');
 const path = require('path');
@@ -347,6 +347,158 @@ section('Layout pipes are level, and edit on their plan length');
   if (riser) {
     ok('A riser still refuses a typed length',
        G.changeLength(fixture, riser.id, 4).code === 'RISER');
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * DXF EXPORT (EXPERIMENTAL)
+ *
+ * Structure only. Nothing here can open the file in AutoCAD or BricsCAD, which
+ * is exactly why the feature is flagged experimental in the UI — the same "no
+ * pixels" limit that governs every visual item, one step further out. What CAN
+ * be checked is that the file is well formed R12: the sections in order, the
+ * layer table matching the layers actually used, real metres in model space,
+ * and risers as true verticals.
+ * ----------------------------------------------------------------------- */
+section('DXF export writes a well-formed R12 file');
+{
+  /* Two levels, a pipe on each, a device, and a riser between them — one of
+   * everything the exporter handles. */
+  function tower() {
+    const m = M.create();
+    const G = m.levels[0];
+    G.name = 'Ground'; G.altitude = 0;
+    const L1 = M.addLevel(m); L1.name = 'Level 1'; L1.altitude = 4;
+    m.levels.sort((a, b) => b.altitude - a.altitude);
+
+    const g1 = M.addNode(m, G.id, 0, 0), g2 = M.addNode(m, G.id, 6, 0);
+    const gR = M.addNode(m, G.id, 10, 0);
+    g1.tag = 'N-GND';
+    M.addPipe(m, g1.id, g2.id, { size: 'DN50', schedule: 'sch40' });
+    const pump = M.addPipe(m, g2.id, gR.id, { kind: 'pump' });
+    pump.tag = 'CHWP-01'; pump.pump = { mode: 'auto', head: 20 };
+
+    const a1 = M.addNode(m, L1.id, 10, 0), a2 = M.addNode(m, L1.id, 4, 0);
+    M.addPipe(m, a1.id, a2.id, { size: 'DN50', schedule: 'sch40' });
+
+    const r = M.addRiser(m, 10, 0);
+    M.attachRiser(m, r.id, G.id, gR.id);
+    M.attachRiser(m, r.id, L1.id, a1.id);
+    M.riserPipes(m);
+    return m;
+  }
+
+  const dxf = FD.dxf.build(tower());
+  const L = dxf.split('\r\n');
+
+  // ---- shape of the file
+  ok('It starts with a SECTION', L[0] === '0' && L[1] === 'SECTION');
+  ok('...and the first is the HEADER', L[2] === '2' && L[3] === 'HEADER');
+  ok('It declares R12', dxf.indexOf('AC1009') > 0);
+  /* Pairs are (code, value), so the value sits ONE line after its code:
+   *     9 | $INSUNITS | 70 | 6 */
+  ok('...in metres', L[L.indexOf('$INSUNITS') + 2] === '6',
+     L.slice(L.indexOf('$INSUNITS'), L.indexOf('$INSUNITS') + 3).join('|'));
+  ok('It ends with EOF', L[L.length - 2] === 'EOF', JSON.stringify(L.slice(-3)));
+  ok('Sections are balanced',
+     L.filter(v => v === 'SECTION').length === L.filter(v => v === 'ENDSEC').length,
+     L.filter(v => v === 'SECTION').length + ' vs ' + L.filter(v => v === 'ENDSEC').length);
+  ok('There are three of them', L.filter(v => v === 'SECTION').length === 3);
+  ok('Lines are CRLF-terminated', dxf.indexOf('\r\n') > 0);
+
+  // ---- the LAYER table must match what the entities actually use
+  {
+    /* Walked as PAIRS throughout. Scanning for a bare '8' finds every
+     * coordinate that happens to equal 8 as well — the naive version of this
+     * check reported the ACI colour as an undeclared layer. */
+    const declared = [];
+    for (let i = 0; i < L.length - 1; i += 2) {
+      if (L[i] === '0' && L[i + 1] === 'LAYER') {
+        for (let j = i + 2; j < L.length - 1 && L[j] !== '0'; j += 2) {
+          if (L[j] === '2') { declared.push(L[j + 1]); break; }
+        }
+      }
+    }
+    const used = new Set();
+    for (let i = 0; i < L.length - 1; i += 2) {
+      if (L[i] === '8') used.add(L[i + 1]);
+    }
+    ok('Every layer used is declared',
+       [...used].every(u => declared.indexOf(u) >= 0),
+       [...used].filter(u => declared.indexOf(u) < 0).join(', '));
+    const tblAt = L.indexOf('LAYER');
+    ok('...and the table count matches',
+       Number(L[tblAt + 2]) === declared.length,
+       L[tblAt + 2] + ' vs ' + declared.length);
+    ok('Layers are named per level and per kind',
+       declared.some(d => /^FPC-Ground-PIPE$/.test(d)) &&
+       declared.some(d => /^FPC-Level_1-PIPE$/.test(d)),
+       declared.join(', '));
+  }
+
+  // ---- entities, and REAL metres
+  function entities(kind) {
+    const out = [];
+    for (let i = 0; i < L.length - 1;) {
+      if (L[i] === '0' && L[i + 1] === kind) {
+        let j = i + 2; const e = {};
+        while (j < L.length - 1 && L[j] !== '0') { e[L[j]] = L[j + 1]; j += 2; }
+        out.push(e); i = j;
+      } else i += 2;
+    }
+    return out;
+  }
+
+  const lines = entities('LINE');
+  ok('Pipes come out as LINE entities', lines.length >= 3, String(lines.length));
+  {
+    /* The 6 m pipe on the ground floor is 6 m in the file — model space at true
+     * size, no page transform. That is the whole reason this exporter is
+     * simpler than the SVG one. */
+    const six = lines.filter(e =>
+      Math.abs(Math.hypot(+e['11'] - +e['10'], +e['21'] - +e['20']) - 6) < 1e-9);
+    ok('A 6 m pipe is 6 m in the file — metres, at true size', six.length >= 1);
+  }
+  {
+    /* RISERS ARE TRUE VERTICALS: same x and y, 4 m of Z. On a stack of flat
+     * plans a riser is a marker to interpret; in 3D it is simply there. */
+    const vert = lines.filter(e => /RISER/.test(e['8'] || ''));
+    ok('The riser is exported', vert.length === 1, String(vert.length));
+    const v = vert[0];
+    near('...vertical in X', +v['10'], +v['11'], 1e-9);
+    near('...vertical in Y', +v['20'], +v['21'], 1e-9);
+    near('...spanning the floor-to-floor height', Math.abs(+v['31'] - +v['30']), 4, 1e-9);
+  }
+
+  ok('The pump becomes a CIRCLE and a chevron',
+     entities('CIRCLE').length >= 1);
+  {
+    const texts = entities('TEXT');
+    ok('Tags are written as TEXT', texts.some(e => e['1'] === 'CHWP-01'),
+       texts.map(e => e['1']).join(','));
+    ok('...and so are node tags', texts.some(e => e['1'] === 'N-GND'));
+    ok('Text has a real model height',
+       texts.every(e => +e['40'] > 0.05 && +e['40'] < 1));
+  }
+
+  /* NON-ASCII IS TRANSLITERATED. R12 has no escaping and no UTF-8 guarantee, so
+   * a Δ or a ° in a tag would come out as mojibake in a reader that assumes the
+   * drawing's own code page. */
+  {
+    ok('Delta becomes d', FD.dxf.ascii('\u0394T') === 'dT');
+    ok('Degree becomes deg', FD.dxf.ascii('45\u00b0C') === '45degC');
+    ok('An arrow becomes a hyphen', FD.dxf.ascii('a \u2192 b') === 'a - b');
+    ok('Anything else becomes a question mark',
+       FD.dxf.ascii('\u4e2d') === '?');
+    ok('Plain ASCII is untouched', FD.dxf.ascii('AHU-1 DN50') === 'AHU-1 DN50');
+  }
+
+  /* An empty model must not produce a broken file. */
+  {
+    const empty = FD.dxf.build(M.create());
+    ok('An empty model still writes a valid file',
+       empty.indexOf('EOF') > 0 &&
+       empty.split('\r\n').filter(v => v === 'SECTION').length === 3);
   }
 }
 

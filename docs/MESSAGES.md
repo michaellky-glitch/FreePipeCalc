@@ -13,13 +13,26 @@ a silent version of the same condition cost real time — the notes say which.
 
 ## 1. How severity works
 
-Three levels, and the difference is not cosmetic.
+Four levels, and the difference is not cosmetic.
 
 | Level | What it does | When it is right |
 |---|---|---|
-| **ERROR** | Clears `converged`, takes the status chip. The numbers are still reported. | Every figure downstream is describing something that cannot exist. |
-| **WARNING** | Listed on the calculation sheet and in the status chip count. | The answer stands, but something about it needs an engineer's eye. |
-| **NOTICE** | A dialog on load, or a toast. Not part of the result. | Something was changed or assumed on the user's behalf. |
+| **ERROR** | Clears `converged`, takes the status chip in red. The numbers are still reported. | Every figure downstream is describing something that cannot exist. |
+| **DEFECT** | Takes the chip ahead of any warning; grouped first on the sheet. Does NOT clear `converged`. | The MODEL is wrong. The solve is valid for what was drawn, but what was drawn is not what was meant. |
+| **WARNING** | Counted on the chip, grouped on the sheet. | The answer stands, but something about it needs an engineer's eye. |
+| **NOTICE** | Grouped last, or a toast. Nothing to do. | Stated so a number is not a puzzle — a seated check valve, a pinned datum. |
+
+**Why DEFECT exists** (Michael, 2026-08-05): a velocity of 2.5 m/s and two nodes
+that look joined and are not were listed identically, and they are not the same
+kind of thing. One is a judgement about the engineering; the other is a drawing
+that does not mean what it looks like. The two questions an engineer asks — *is
+my drawing right?* and *is my design right?* — should not share one list.
+
+A defect does not clear `converged` because the arithmetic is sound, and hiding
+the numbers would leave nothing to diagnose from. `DEFECT_CODES` and
+`NOTICE_CODES` in `network.js` name the members; **anything unlisted is a
+warning**, which is the safe default — a new message is a judgement until
+someone decides otherwise.
 
 Two conventions worth keeping:
 
@@ -95,7 +108,7 @@ the edit; nothing is changed.
 | `VALVE_SHUT` | A valve is fully closed, so its branch passes nothing. |
 | `CHECK_CLOSED` | A check valve is holding against reverse flow. Normal operation, reported so the zero flow is not a puzzle. |
 | `REVERSE_BLOCKED` | Equipment is holding against reverse flow — check its direction with the ‹ › button. |
-| `VALVE_AUTHORITY` | A CONTROL valve is below `warn.valveAuthority` (10%) open. "…has insufficient control authority. Consider reducing size." A different sense of the word from `CONTROL_NO_AUTHORITY`: this valve HAS the movement but spends it all near its seat. Isolation valves and shut valves are exempt. |
+| `VALVE_OVERSIZED` | A CONTROL valve is below `warn.valveOversized` (10%) open. "…has insufficient control authority. Consider reducing size." A different sense of the word from `CONTROL_NO_AUTHORITY`: this valve HAS the movement but spends it all near its seat. Isolation valves and shut valves are exempt. |
 | `ZERO_LENGTH` | A pipe of zero length — degenerate, and would divide by zero downstream. |
 | `ORPHAN_NODE` | A node with nothing connected to it. |
 | `RISER_OPEN_END` | A riser column's top or bottom attachment carries no other pipe, so the column ends in mid-air. Invisible on a level plan, because a column is drawn as a marker rather than a line. Ends only — a middle attachment with nothing on it is an ordinary pass-through. |
@@ -117,7 +130,8 @@ the edit; nothing is changed.
 | `CONTROL_NO_AUTHORITY` | The setpoint is met, but the actuator cannot MOVE it — an unlimited chiller holds its LWT at any flow. Names what the device CAN hold instead. Only raised when there is no other toggled setpoint to fall back to. |
 | `CONTROL_AT_LIMIT` | The device is on a stop (minimum speed, minimum opening, or full travel) and the setpoint is still missed. |
 | `CONTROL_NO_FLOW` | The controlled machine carries no flow, so there is nothing to control to. |
-| `CONTROL_UNSETTLED` | Either a device came to rest off setpoint, or the sweep was still moving after four passes — check whether two devices are working against each other. |
+| `CONTROL_UNSETTLED` | A device came to rest off setpoint. Names whether the actuator resolution is the limit or the setpoint is out of reach. |
+| `CONTROL_HUNTING` | The sweep was still moving after four passes — the devices are working against each other rather than settling. Split from `CONTROL_UNSETTLED` on 2026-08-05: "this device cannot get there" and "these devices are fighting" have nothing alike about their fixes. |
 
 ### Thermal
 
@@ -151,7 +165,7 @@ DEFAULTS a user can change — none is transcribed data.
 | `warn.pumpRunout` | 120% | `PUMP_RUNOUT` | HYDRAULIC |
 | `warn.equipFlowRatio` | 2× | `EQUIP_OFF_RATING` | HYDRAULIC |
 | `warn.maxComponentPD` | 2000 kPa | `PRESSURE_IMPLAUSIBLE` | HYDRAULIC |
-| `warn.valveAuthority` | 10% | `VALVE_AUTHORITY` | HYDRAULIC |
+| `warn.valveOversized` | 10% | `VALVE_OVERSIZED` | HYDRAULIC |
 | `thermal.tempMin` / `tempMax` | −50 / +50 °C | `THERMAL_LIMIT` | THERMAL |
 | `control.minSpeed` | 0.25 | `CONTROL_AT_LIMIT` | THERMAL |
 | `control.minOpening` | 10% | `CONTROL_AT_LIMIT` | THERMAL |
@@ -162,25 +176,34 @@ where the band itself is the meaning.
 
 ---
 
-## 6. For the UX pass — what is worth changing
+## 6. The UX pass — what was done, 2026-08-05
 
-Observations from writing this out, offered rather than acted on.
+All five observations from the first draft of this document, acted on at
+Michael's instruction.
 
-1. **Two different "authority" messages.** `VALVE_AUTHORITY` (the valve is
-   oversized) and `CONTROL_NO_AUTHORITY` (the setpoint cannot be moved) share a
-   word and mean unrelated things. Worth renaming one.
+1. **The two "authority" messages no longer share a word.** VALVE_AUTHORITY
+   became **`VALVE_OVERSIZED`**, named for the fault rather than the symptom.
+   `CONTROL_NO_AUTHORITY` keeps its name: there, the actuator genuinely has no
+   authority over the setpoint.
 
-2. **`CONTROL_UNSETTLED` covers two conditions** — a device off setpoint, and a
-   sweep that never settled. They deserve separate codes.
+2. **`CONTROL_UNSETTLED` was split.** It stays for a device that came to rest
+   off setpoint; **`CONTROL_HUNTING`** is new, for a sweep that never settled.
 
-3. **Nothing distinguishes "wrong" from "not ideal".** `VELOCITY` at 2.5 m/s and
-   `COINCIDENT_NODES` are both listed the same way, but one is a judgement and
-   the other is a drawing that does not mean what it looks like. A severity
-   between warning and error, or grouping on the sheet, would help.
+3. **`DEFECT` was added between warning and error** — see §1.
 
-4. **Several messages name an id where a tag would read better** —
-   `ORPHAN_NODE`, `ISLAND`, `RISER_OPEN_END`. An engineer works from tags.
+4. **Messages name tags where they have them.** `ORPHAN_NODE`, `ISLAND`,
+   `COINCIDENT_NODES`, `ZERO_LENGTH` and `RISER_OPEN_END` all fall back to the
+   id only when there is no tag.
 
-5. **No message says what to DO** except `NO_PUMP_CURVE`, `EQUIP_OFF_RATING`,
-   `CONTROL_NO_AUTHORITY` and `SETPOINT_LOST`. Those four are the most useful
-   ones in practice, which is probably not a coincidence.
+5. **More messages say what to DO.** `VELOCITY`, `PDM`, `ZERO_LENGTH`,
+   `ORPHAN_NODE`, `ISLAND`, `COINCIDENT_NODES`, `RISER_OPEN_END` and
+   `CONTROL_UNSETTLED` now end with the action, not just the observation.
+
+### Still worth considering
+
+* **Not every message has an action yet.** The ones without are mostly results
+  (`OUTFLOW_SHORT`, `SUPPLY_INSUFFICIENT`) where the action is the whole design.
+* **`NOTICE` is under-used.** Only three codes are in it; several warnings that
+  describe normal operation could join them.
+* **No message links to the thing it is about.** The chip can point at a pipe;
+  the sheet list cannot.

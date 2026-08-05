@@ -1262,10 +1262,10 @@ half the range from it.
 
 ### Control valve authority is a different word
 
-`VALVE_AUTHORITY` is about a valve that HAS the movement but spends it all near
+`VALVE_OVERSIZED` is about a valve that HAS the movement but spends it all near
 its seat, where a small change in position is a large change in Kv: twitchy to
 control, hard to commission, and wearing where it throttles. Below
-`warn.valveAuthority` (default 10%) it reports *"CV-01 has insufficient control
+`warn.valveOversized` (default 10%) it reports *"CV-01 has insufficient control
 authority. Consider reducing size."* Control valves only — an isolation valve is
 meant to be shut or open, and a cracked-open one is a deliberate act.
 
@@ -1676,9 +1676,40 @@ every emitted code must be documented, and nothing documented may have been
 removed from the app. A catalogue that quietly falls behind is worse than none,
 because it reads as complete.
 
+## 14C. DXF export (EXPERIMENTAL)
+
+`src/dxf.js`. Writes the DRAWING — pipework, risers, device symbols and text.
+No properties, no results, no calculation sheet; Michael's scope.
+
+**R12 ASCII**, because it is plain text — group-code/value pairs and a fixed
+section order. That matters more here than anywhere else: the app has no build
+step and must run from `file://`, so a binary writer or a library dependency
+would break the constraint everything else is shaped around (§2.1). R12 also
+needs no object handles, no class table and no extended entity data, and the
+four entities used — LINE, CIRCLE, ARC, TEXT — have been readable since 1990.
+
+**Model space, in metres, at true size, with real Z.** No transform at all: the
+app already stores world coordinates in metres, which is exactly what DXF wants,
+so this exporter is *simpler* than the SVG one in `printer.js` — that has to fit
+a building onto a page. Elevation becomes Z, so a riser exports as a genuine
+vertical line and the model opens as a 3D layout rather than a stack of
+unrelated plans.
+
+One layer per level and per kind of content (`FPC-Level_1-PIPE`,
+`FPC-RISERS-RISER`), so anything can be frozen independently. Non-ASCII is
+transliterated — R12 has no escaping and no UTF-8 guarantee, so a Δ in a tag
+would come out as mojibake in a reader that assumes the drawing's own code page.
+
+**EXPERIMENTAL, and honestly so.** `geometry.test.js` checks the structure —
+sections in order and balanced, the layer table matching the layers actually
+used, metres at true size, risers vertical — but nothing in this environment can
+open the file in AutoCAD or BricsCAD. That is the "no pixels" limit one step
+further out. Until it has been opened in a real CAD package, *"it should work"*
+is the strongest claim available.
+
 ## 15. Testing
 
-Seven suites, 1425 assertions, no dependencies:
+Seven suites, 1452 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

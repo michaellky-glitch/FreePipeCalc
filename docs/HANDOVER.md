@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1425 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1452 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,19 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **DXF EXPORT** (v0.14.0, EXPERIMENTAL) — `src/dxf.js`, R12 ASCII, geometry
+  and text only. Model space in metres at true size with REAL Z, so risers
+  export as genuine verticals and the model opens as a 3D layout. Simpler than
+  the SVG printer because there is no page to fit to. Flagged experimental
+  because the structure is tested but nothing here can open it in a CAD package
+  — that needs Michael. `ARCHITECTURE.md` §14C.
+* **THE UX PASS on messages** (v0.14.0) — all five observations from
+  `MESSAGES.md` §6 acted on: `VALVE_AUTHORITY` → `VALVE_OVERSIZED` (the two
+  "authority" messages meant unrelated things), `CONTROL_UNSETTLED` split from
+  the new `CONTROL_HUNTING`, a **DEFECT** severity added between warning and
+  error, tags used in place of ids, and eight more messages now say what to DO.
+  The defect level is the substantive one: "your drawing does not mean what it
+  looks like" and "this pipe is a bit fast" were being counted together.
 * **`docs/MESSAGES.md`** (v0.13.1) — every error, warning and notice the app can
   produce, what raises it, and which setting drives its threshold. The first
   step of the UX pass towards 1.0. `engine.test.js` checks the catalogue against
@@ -385,7 +398,7 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
   `CONTROL_NO_AUTHORITY`. Michael's model now runs the pump at 57% holding
   15.0 K with the valve wide open. `ARCHITECTURE.md` §17C.
 * **VALVE UX** (v0.12.3) — Isolation valve / Control valve names, opening
-  controls disabled under a control link, `VALVE_AUTHORITY` below 10% open, and
+  controls disabled under a control link, `VALVE_OVERSIZED` below 10% open, and
   a valve's tag and value box finally DRAWN: `drawValveGlyph` never called
   `drawTag`, so a valve showed neither while every other in-line device did.
 * **THE LOADS SET THE FLOW** (v0.12.1) — Michael's diagnosis of the high-ΔP

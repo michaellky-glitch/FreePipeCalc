@@ -1128,8 +1128,11 @@ section('docs/MESSAGES.md covers every message the app can emit');
   /* And the other way: nothing in the doc that the app cannot produce, so the
    * catalogue does not describe messages that were removed. */
   const inDoc = [...new Set([...doc.matchAll(/`([A-Z_]{4,})`/g)].map(m => m[1]))];
-  /* Setting keys and a numerical constant are quoted the same way. */
-  const notCodes = ['CLOSED_R'];
+  /* Not every SHOUTING_NAME in the doc is a message code: a numerical constant,
+   * the two tables that classify severity, and the severity levels themselves
+   * are all written the same way. */
+  const notCodes = ['CLOSED_R', 'DEFECT_CODES', 'NOTICE_CODES',
+                    'ERROR', 'DEFECT', 'WARNING', 'NOTICE'];
   const stale = inDoc.filter(c => codes.indexOf(c) < 0 && notCodes.indexOf(c) < 0);
   ok('Nothing in the doc has been removed from the app', stale.length === 0,
      'stale: ' + stale.join(', '));

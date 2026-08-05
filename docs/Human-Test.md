@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1425
+This is deliberately separate from the automated suites. Those cover 1452
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -10,7 +10,7 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-05 (v0.13.0)
+Last updated: 2026-08-05 (v0.14.0)
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -203,6 +203,20 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 4P. DXF EXPORT and the message UX pass (v0.14.0)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| DX.1 | **Does the DXF open in your CAD?** | ⬜ | **The one that matters, and I cannot check it.** R12 ASCII, model space in metres at true size, real Z. Try `examples/stacked-riser.pnet.json` → DXF: risers should come out as vertical lines, and the 14→7 m one skips Level 3. |
+| DX.2 | Layers | ⬜ | One per level and per kind — `FPC-Level_1-PIPE`, `FPC-RISERS-RISER`, `…-SYMBOL`, `…-TAG`, `…-NODE`. Freeze what you don't want. |
+| DX.3 | Symbol and text sizes | ⬜ | Text 0.25 m, symbols 0.25 m radius, both in model space. Guessed for 1:50 — tell me what they should be. |
+| DX.4 | Non-ASCII in tags | ⬜ | Δ → `d`, ° → `deg`, → → `-`. R12 has no UTF-8 guarantee. |
+| UX.1 | `VALVE_OVERSIZED` replaces `VALVE_AUTHORITY` | ⬜ | The two "authority" messages meant unrelated things. |
+| UX.2 | `CONTROL_HUNTING` split out | ⬜ | "These devices are fighting" is not "this device cannot get there". |
+| UX.3 | **DEFECT severity** | ⬜ | **Worth your eye.** The chip now reads e.g. "1 model defect, 2 warnings" and the sheet groups them. Verified live. Membership is `DEFECT_CODES` in network.js — say if anything is in the wrong bucket. |
+| UX.4 | Tags instead of ids | ⬜ | e.g. "Node ORPH-1 has no pipe connected to it. Draw a pipe to it, or delete it." |
+| UX.5 | Eight more messages say what to do | ⬜ | Velocity, friction rate, zero length, orphan, island, coincident nodes, riser open end, control unsettled. |
+
 ## 4N. v0.13.0 — the rest of the list
 
 | # | What | Status | Notes |
@@ -256,7 +270,7 @@ Driven live on `20260804-2.json`.
 | CA.3 | **Is falling through the right behaviour?** | ⬜ | **Your call.** With both toggled it silently moves to the second. The alternative is to refuse and make you pick. I chose silent-with-a-`(fallback)`-label in the panel. |
 | CA.4 | Isolation valve / Control valve names | ⬜ | Dropdown reads Isolation valve / Control valve / Check valve. Keys in saved files unchanged. |
 | CA.5 | Opening controls greyed out when controlled | ⬜ | Slider and box `disabled`, row at 50% opacity. Verified live. |
-| CA.6 | `VALVE_AUTHORITY` below 10% open | ⬜ | Your wording exactly. Control valves only; a shut valve and an isolation valve are exempt. Threshold on HYDRAULIC ▸ Warning thresholds. |
+| CA.6 | `VALVE_OVERSIZED` below 10% open | ⬜ | Your wording exactly. Control valves only; a shut valve and an isolation valve are exempt. Threshold on HYDRAULIC ▸ Warning thresholds. |
 | CA.7 | Valve tag, flow and PD now draw | ⬜ | **Was a real bug** — `drawValveGlyph` never called `drawTag`, so a valve showed neither its tag nor its value box while every other in-line device did. The %-open label moved below the glyph to make room. |
 
 ## 4J. THE HIGH-ΔP FIX and the panel rework (v0.12.1 / v0.12.2)

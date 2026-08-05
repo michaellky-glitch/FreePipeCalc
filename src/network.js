@@ -632,7 +632,13 @@
     // Zero-length pipes are degenerate and would divide by zero downstream.
     links.forEach(function (l) {
       if (l.kind === 'pipe' && l._L < 1e-6) {
-        warnings.push({ code: 'ZERO_LENGTH', message: 'Pipe has zero length.', pipe: l.id });
+        warnings.push({
+          code: 'ZERO_LENGTH', pipe: l.id,
+          message: 'Pipe ' + ((M.pipe(m, l.id) || {}).tag || l.id) +
+                   ' has zero length, so it has no friction and cannot be ' +
+                   'sized. Drag one end apart, or delete it and join the two ' +
+                   'nodes into one.'
+        });
       }
     });
 
@@ -771,7 +777,7 @@
     res.warnings = res.warnings.concat(flowRegimeWarnings(m, net, res));
     res.warnings = res.warnings.concat(supplyWarnings(m, net, res));
     res.warnings = res.warnings.concat(equipRatingWarnings(m, res));
-    res.warnings = res.warnings.concat(valveAuthorityWarnings(m, res));
+    res.warnings = res.warnings.concat(valveOversizedWarnings(m, res));
 
     /* A pressure nothing will ever be built to is an ERROR, not a warning —
      * the thermal runaway guard's reasoning, applied to pressure. */
@@ -790,8 +796,10 @@
       res.warnings = (res.warnings || []).concat([{
         code: 'RISER_OPEN_END', node: o.node, riser: o.riser,
         message: 'Riser ' + o.riser + ' has nothing connected at its ' + o.end +
-                 ' (node ' + o.node + '). The column ends in mid-air — water ' +
-                 'arriving there has nowhere to go.'
+                 ' (' + ((M.node(m, o.node) || {}).tag || o.node) + '). The ' +
+                 'column ends in mid-air, so water arriving there has nowhere ' +
+                 'to go. Draw a pipe from that node, or detach the ' + o.end +
+                 ' floor from the column.'
       }]);
     });
 
@@ -859,6 +867,11 @@
         res.converged = false;
       }
     }
+    /* LAST, so every message — including the thermal pass's, which are appended
+     * after everything else — gets a level. Doing it earlier stamped only the
+     * ones raised so far, which is the sort of half-applied rule that is worse
+     * than none. */
+    classify(res.warnings);
     return res;
   }
 
@@ -923,7 +936,8 @@
           code: 'VELOCITY', pipe: l.id, section: section,
           velocity: v, limit: warn.velocity,
           message: 'Section ' + section + ': velocity ' + v.toFixed(2) +
-                   ' m/s exceeds the ' + warn.velocity + ' m/s limit.'
+                   ' m/s exceeds the ' + warn.velocity + ' m/s limit. Go up a ' +
+                   'pipe size, or raise the limit on the HYDRAULIC tab.'
         });
       }
 
@@ -935,7 +949,8 @@
             code: 'PDM', pipe: l.id, section: section,
             pdm: pdm, limit: warn.pdm,
             message: 'Section ' + section + ': friction rate ' + pdm.toFixed(0) +
-                     ' Pa/m exceeds the ' + warn.pdm + ' Pa/m limit.'
+                     ' Pa/m exceeds the ' + warn.pdm + ' Pa/m limit. Go up a ' +
+                     'pipe size, or raise the limit on the HYDRAULIC tab.'
           });
         }
       }
@@ -1675,11 +1690,17 @@
       });
     }
     if (moving) {
+      /* THE SWEEP never settled — a different condition from a single device
+       * coming to rest off setpoint, and the two used to share a code. One is
+       * "this device cannot get there", the other is "these devices are
+       * fighting", and the fixes are nothing alike. Split 2026-08-05. */
       warnings.push({
-        code: 'CONTROL_UNSETTLED',
+        code: 'CONTROL_HUNTING',
         message: 'The controlled devices were still moving after ' + sweep +
-                 ' sweeps. The last answer is reported; check whether two ' +
-                 'devices are working against each other on the same setpoint.'
+                 ' sweeps, so they are working against each other rather than ' +
+                 'settling. The last answer is reported. Check whether two of ' +
+                 'them follow the same setpoint; if so, switch one off or give ' +
+                 'it a different one to hold.'
       });
     }
 
@@ -1731,8 +1752,10 @@
         warnings.push({
           code: 'CONTROL_UNSETTLED', pipe: d.pipe, equip: d.equip,
           message: name + ' could not hold ' + eqName + ' at ' + setTxt +
-                   ' — it came to rest ' + off + ' setpoint. The actuator ' +
-                   'resolution may be the limit, or nothing it can do reaches it.'
+                   ' — it came to rest ' + off + ' setpoint. Either the ' +
+                   'actuator resolution is the limit, or nothing it can do ' +
+                   'reaches it: check the machine\u2019s capacity and Design ' +
+                   '\u0394T, and whether the setpoint is achievable at all.'
         });
       } else if (d.state === 'no-authority') {
         warnings.push({
@@ -1784,7 +1807,54 @@
     };
   }
 
-  /* ------------------------------------------- control valve authority
+  /* ============================================ WHAT KIND OF PROBLEM IT IS
+   *
+   * Michael, 2026-08-05: a velocity of 2.5 m/s and two nodes that look joined
+   * and are not were listed the same way, and they are not the same kind of
+   * thing at all. One is a judgement about the engineering; the other is a
+   * drawing that does not mean what it looks like.
+   *
+   * So there are now THREE levels below an error:
+   *
+   *   DEFECT   the MODEL is wrong. The solve is valid for what was drawn, but
+   *            what was drawn is not what was meant — a node connected to
+   *            nothing, equipment at 25× its rating, a control link that holds
+   *            nothing. Fix the model and re-run.
+   *   WARNING  the answer stands and an engineer should look at it. A velocity
+   *            over the limit, a pump past runout, a machine at its capacity.
+   *   NOTICE   nothing to do; stated so a number is not a puzzle. A seated
+   *            check valve, a pinned thermal datum.
+   *
+   * A defect does NOT clear `converged` — the arithmetic is sound and hiding
+   * the numbers would leave nothing to diagnose from, which is the same rule
+   * the plausibility guards follow. It is separated so the two questions an
+   * engineer asks ("is my drawing right?" and "is my design right?") stop
+   * sharing one list.
+   *
+   * Anything not named here stays a warning, which is the safe default: a new
+   * message is a judgement until someone decides otherwise. */
+  var DEFECT_CODES = {
+    ZERO_LENGTH: 1, ORPHAN_NODE: 1, RISER_OPEN_END: 1,
+    EQUIP_OFF_RATING: 1, NO_CHARACTERISTIC: 1,
+    CONTROL_NO_SETPOINT: 1, CONTROL_NO_AUTHORITY: 1, REVERSE_BLOCKED: 1
+  };
+  var NOTICE_CODES = {
+    CHECK_CLOSED: 1, VALVE_SHUT: 1, THERMAL_DATUM: 1
+  };
+
+  /* Stamp a level onto every message that does not already carry one. Done in
+   * ONE place, after everything has been collected, so a level cannot depend on
+   * which function happened to raise the message. */
+  function classify(list) {
+    (list || []).forEach(function (w) {
+      if (w.level) return;
+      w.level = DEFECT_CODES[w.code] ? 'defect'
+              : NOTICE_CODES[w.code] ? 'notice' : 'warning';
+    });
+    return list;
+  }
+
+  /* ------------------------------------------- an OVERSIZED control valve
    *
    * A control valve doing all its work in the bottom of its travel is the wrong
    * size. Near the seat a small movement is a large change in Kv, so the loop
@@ -1792,15 +1862,18 @@
    * it throttles. The rule of thumb an engineer applies is "if it is nearly
    * shut at design, it is too big".
    *
-   * A DIFFERENT sense of the word from the control loop's `no-authority`, which
-   * is about a setpoint the actuator cannot move at all. This one is about
-   * having the movement but in the wrong part of the travel.
+   * NAMED FOR THE FAULT, NOT THE SYMPTOM (renamed 2026-08-05). It was
+   * VALVE_AUTHORITY, which shared a word with the control loop's
+   * CONTROL_NO_AUTHORITY and meant something unrelated: that one is about a
+   * setpoint the actuator cannot move AT ALL, this one about having the
+   * movement but spending it in the wrong part of the travel. Two messages that
+   * share a word and not a meaning are two messages nobody can keep straight.
    *
    * Applies to control valves only. An isolation valve is meant to be shut or
    * open, and 5% on one is a deliberate crack rather than a selection error. */
-  function valveAuthorityWarnings(m, res) {
+  function valveOversizedWarnings(m, res) {
     var out = [];
-    var lim = (m.settings.warn && m.settings.warn.valveAuthority);
+    var lim = (m.settings.warn && m.settings.warn.valveOversized);
     if (!(lim > 0)) return out;
     m.pipes.forEach(function (p) {
       if (p.kind !== 'valve' || !p.valve || p.valve.type !== 'globe') return;
@@ -1810,7 +1883,7 @@
       var q = res.flow[p.id];
       if (q === undefined || Math.abs(q) < FD.hydraulics.Q_MIN) return;
       out.push({
-        code: 'VALVE_AUTHORITY', pipe: p.id, opening: open, limit: lim,
+        code: 'VALVE_OVERSIZED', pipe: p.id, opening: open, limit: lim,
         message: (p.tag || p.id) + ' has insufficient control authority. ' +
                  'Consider reducing size. (' + open + '% open, below the ' +
                  lim + '% limit.)'
@@ -2305,10 +2378,12 @@
           issues.push({
             code: 'COINCIDENT_NODES', nodes: [a.id, b.id], distance: d,
             severity: 'error',
-            message: 'Nodes ' + a.id + ' and ' + b.id + ' are ' +
+            message: 'Nodes ' + (a.tag || a.id) + ' and ' + (b.tag || b.id) +
+                     ' are ' +
                      (d < 1e-9 ? 'in exactly the same place' :
                       (d * 1000).toFixed(0) + ' mm apart') +
-                     ' but are not joined. The drawing looks continuous; the network is not.'
+                     ' but are not joined. The drawing looks continuous; the ' +
+                     'network is not. Drag one onto the other to join them.'
           });
         }
       }
@@ -2319,7 +2394,8 @@
       if (deg[n.id] === 0) {
         issues.push({
           code: 'ORPHAN_NODE', nodes: [n.id], severity: 'warn',
-          message: 'Node ' + n.id + ' has no pipe connected to it.'
+          message: 'Node ' + (n.tag || n.id) + ' has no pipe connected to it. ' +
+                   'Draw a pipe to it, or delete it.'
         });
       }
     });
@@ -2345,7 +2421,11 @@
         issues.push({
           code: 'ISLAND', nodes: c, severity: 'error',
           message: c.length + ' node(s) form a separate island with no pipe ' +
-                   'connecting them to the main network.'
+                   'connecting them to the main network (' +
+                   c.slice(0, 4).map(function (id) {
+                     return (M.node(m, id) || {}).tag || id;
+                   }).join(', ') + (c.length > 4 ? ', …' : '') + '). Draw a pipe ' +
+                   'to join it, or delete it.'
         });
       });
     }
