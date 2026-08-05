@@ -1377,6 +1377,72 @@
     return FD.pumps.atSpeed(p.pump.curve, s);
   }
 
+  /* WHERE THE DUTY COMES FROM — 'auto', 'manual' or 'curve'. See ARCHITECTURE
+   * §16C.
+   *
+   * Derived here rather than read straight off `p.pump.sizing`, because a pump
+   * that has never had its panel opened does not have one: `insertInline`
+   * creates `{mode:'auto', head:20}` and the panel used to be the only thing
+   * that filled the field in. Every reader must derive it the same way or they
+   * disagree about a pump nobody has clicked on yet — which is exactly how an
+   * auto-sized pump reached SIMULATION with no curve (Michael, 2026-08-06). */
+  function pumpSizing(p) {
+    if (!p || !p.pump) return 'auto';
+    if (p.pump.sizing) return p.pump.sizing;
+    if (p.pump.curve && p.pump.curve.source === 'fitted') return 'curve';
+    return p.pump.mode === 'auto' ? 'auto' : 'manual';
+  }
+
+  /* The mode a RUNNING pump should be in for its sizing. 'auto' hands it to
+   * `autoSizePumps`; anything else holds the duty it was given. */
+  function pumpRunMode(p) { return pumpSizing(p) === 'auto' ? 'auto' : 'fixed'; }
+
+  /* THE THREE-POINT CURVE GENERATED FROM A DESIGN POINT.
+   *
+   * Shutoff, the duty, and a runout point — the shape an engineer sketches when
+   * no manufacturer data is to hand, with the three percentages on SETTINGS.
+   *
+   * It lives here, not in the panel, because SIMULATION requires a curve and
+   * the panel is not always visited: an auto-sized pump drawn and left alone
+   * had no curve at all, and the mode switch refused to run. The sizer now
+   * calls this itself, so a solve in DESIGN always leaves an auto pump ready to
+   * simulate. Michael, 2026-08-06.
+   *
+   * Never generated for sizing 'curve' — a pasted manufacturer curve is data,
+   * not something to be recomputed. Returns the curve, or null if the design
+   * point is not yet known. */
+  function generateCurve(m, p) {
+    if (!p || !p.pump) return null;
+    if (pumpSizing(p) === 'curve') return p.pump.curve || null;
+    var q = p.pump.qDesign;
+    /* ON AUTO THE HEAD IS THE DUTY — `pump.head` is what the sizer just wrote
+     * and what the solver ran on, so read it directly. `hDesign` is a REPORT of
+     * that, written back after the solve, and reading it here would build the
+     * curve from the previous duty on any path that regenerates without solving
+     * first (the panel's Re-size button). On manual and curve it is the other
+     * way round: `hDesign` is what was typed. */
+    var h = (pumpSizing(p) === 'auto')
+      ? (p.pump.head > 0 ? p.pump.head : p.pump.hDesign)
+      : ((p.pump.hDesign >= 0) ? p.pump.hDesign : p.pump.head);
+    if (!(q > 0) || !(h > 0)) { delete p.pump.curve; return null; }
+    var shape = (m && m.settings && m.settings.pumpCurve) || {};
+    var so = (shape.shutoffPct > 100) ? shape.shutoffPct / 100 : 1.40;
+    var rq = (shape.runoutFlowPct > 100) ? shape.runoutFlowPct / 100 : 1.50;
+    var rh = (shape.runoutHeadPct > 0 && shape.runoutHeadPct < 100)
+      ? shape.runoutHeadPct / 100 : 0.65;
+    var c = FD.pumps.fit([
+      { q: 0,       h: h * so },
+      { q: q,       h: h },
+      { q: q * rq,  h: h * rh }
+    ]);
+    if (!c) { delete p.pump.curve; return null; }
+    c.Qd = q;
+    c.Hd = h;
+    c.source = 'generated';
+    p.pump.curve = c;
+    return c;
+  }
+
   function canControl(p) {
     if (!p) return false;
     if (p.kind === 'pump') return true;
@@ -1650,7 +1716,8 @@
     controlOptions: controlOptions, controlChoice: controlChoice,
     controlOrdered: controlOrdered,
     canBeControlled: canBeControlled,
-    pumpSpeed: pumpSpeed, pumpCurve: pumpCurve,
+    pumpSpeed: pumpSpeed,
+    pumpSizing: pumpSizing, pumpRunMode: pumpRunMode, generateCurve: generateCurve, pumpCurve: pumpCurve,
     pumpSpeedIgnored: pumpSpeedIgnored, pumpHead: pumpHead,
     controlRoute: controlRoute, deviceMid: deviceMid,
     equipRatedC: equipRatedC,

@@ -2170,22 +2170,71 @@ section('A fill on a dead leg absorbs nothing; one in the return line does');
     ok('...and says so', (t.res.warnings || []).some(w => w.code === 'HEAT_IMBALANCE'));
   }
 
-  /* ---- AND THE INDETERMINATE CASE IS AN ERROR, not a plausible-looking answer.
+  /* ---- AND THE TWO MUST AGREE, because they are the SAME PHYSICS.
    *
-   * A dead-leg fill with a plant that cannot keep up: 20 kW into a sealed
-   * adiabatic loop with nothing to absorb it has NO steady state. The solve
-   * detects that, but it used to report the seed temperature — a flat 11 °C —
-   * beside `converged: true`. Meaningless numbers presented as an answer. */
+   * A dead-leg fill and an in-line fill on a sealed circuit both pass zero net
+   * water across the boundary. 20 kW into a sealed adiabatic loop has no steady
+   * state either way, and where the fill happens to be drawn cannot change
+   * that — which is the whole of Michael's 2026-08-06 report. It used to:
+   * in-line it absorbed the surplus, on a dead leg it was THERMAL_SINGULAR.
+   *
+   * Both now pin a datum and report the surplus. By hand: the coil is stated at
+   * +60 kW and the chiller is capped at −40 kW, so the loop is 20 kW over and
+   * the datum absorbs exactly that. The datum lands at the outlet of the
+   * equipment moving the most heat — the 60 kW coil, not the 40 kW chiller —
+   * and the chiller then drops the water 40000/C below it, C = ρ·Q·cp. */
   {
-    const t = circuit('deadleg', -40000);
-    ok('An indeterminate temperature field is an ERROR',
-       (t.res.errors || []).some(e => e.code === 'THERMAL_SINGULAR'),
-       JSON.stringify((t.res.errors || []).map(e => e.code)));
-    ok('...and it clears converged', t.res.converged === false);
+    const dead = circuit('deadleg', -40000).res;
+    const line2 = circuit('inline').res;
+    near('A dead-leg fill and an in-line one give the SAME shortfall',
+         dead.thermal.sourceDuty, line2.thermal.sourceDuty, 1);
+    near('...which is the 20 kW the chiller is short by',
+         dead.thermal.sourceDuty, -20000, 1);
+    ok('...reported as a heat imbalance, not as an indeterminate field',
+       (dead.warnings || []).some(w => w.code === 'HEAT_IMBALANCE') &&
+       !(dead.errors || []).some(e => e.code === 'THERMAL_SINGULAR'),
+       JSON.stringify((dead.warnings || []).map(w => w.code)));
+    ok('...and the datum is declared', (dead.warnings || []).some(w => w.code === 'THERMAL_DATUM'));
+
+    /* The spread is the chiller's capped duty over the capacity rate, and it is
+     * the same number in both drawings. C = 998 × 0.004 × 4187 = 16 714 W/K,
+     * so 40 000 / 16 714 = 2.393 K. */
+    const C = RHO * 0.004 * CP;
+    near('The spread is the chiller cap over the capacity rate',
+         dead.thermal.totals.max - dead.thermal.totals.min, 40000 / C, 0.02);
+    near('...and identical in the other drawing',
+         line2.thermal.totals.max - line2.thermal.totals.min,
+         dead.thermal.totals.max - dead.thermal.totals.min, 1e-6);
+    near('...with the balance still closing', dead.thermal.residual, 0, 1);
+  }
+
+  /* ---- THERMAL_SINGULAR still exists, for a circuit with nothing to pin TO.
+   *
+   * A sealed adiabatic ring of bare pipework: no source, no equipment, so there
+   * is no candidate datum and no statement of temperature anywhere. That field
+   * really has no unique solution and there is nothing to do about it. */
+  {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: 11, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 4; i++) n.push(M.addNode(m, lv, i * 3, 0));
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 15 };
+    M.addPipe(m, n[1].id, n[2].id, { size: 'DN65', schedule: 'sch40' });
+    M.addPipe(m, n[2].id, n[3].id, { size: 'DN65', schedule: 'sch40' });
+    M.addPipe(m, n[3].id, n[0].id, { size: 'DN65', schedule: 'sch40' });
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+    const r = NET.solveModel(m);
+    ok('Nothing to pin to is still an ERROR',
+       (r.errors || []).some(e => e.code === 'THERMAL_SINGULAR'),
+       JSON.stringify((r.errors || []).map(e => e.code)));
+    ok('...and it clears converged', r.converged === false);
     /* The numbers are still reported — hiding them would leave nothing to
      * diagnose from — and they are transparently the seed. */
     ok('...with the temperatures still shown',
-       t.res.thermal && t.res.thermal.totals.max !== null);
+       r.thermal && r.thermal.totals.max !== null);
   }
 
   /* ---- The shipped example must stay a PROPER fill connection. */
@@ -2338,6 +2387,103 @@ section('Overshooting the setpoint still counts as finding it');
   ok('...having actually moved', v.valve.opening < 100, v.valve.opening + '%');
   ok('...and reports as holding it', res.controls.devices[0].state === 'on',
      res.controls.devices[0].state);
+}
+
+/* =====================================================================
+ * A SOURCE ON A LIVE MAIN MIXES. IT DOES NOT RESET.
+ *
+ * Michael, 2026-08-06: "Sources placed on pipes are still acting as a
+ * temperature reset. Temporary workaround is to place the source on a branch
+ * pipe — this happens often in practice, but placing on the main line is an
+ * equally valid choice."
+ *
+ * A source states the temperature of THE WATER IT BRINGS IN. At the end of a
+ * branch that is all of the water, so the node sits at the source temperature
+ * and nothing changes. Teed into a main it is only the make-up, and the rest is
+ * flowing past — which a hard pin overwrote.
+ * ===================================================================== */
+section('A source teed into a live main mixes with it');
+{
+  /* Two supplies into one outflow. HOT enters at N0 at 60 °C; COLD is teed in
+   * at the junction J at 10 °C; the outflow draws from beyond J.
+   *
+   * The split is set by the hydraulics, so the expectation is written as the
+   * MIXING RELATION and evaluated on the solved mass flows — the physics by
+   * hand, not a number read back out of the thermal module:
+   *
+   *     T_J = (ṁ_hot·T_hot + ṁ_cold·T_cold) / (ṁ_hot + ṁ_cold)
+   *
+   * Adiabatic pipework throughout, so nothing else can move a temperature. */
+  const m = M.create();
+  m.settings.thermal = { ambient: 20, supplyTemp: 60, insulationK: 0.02,
+                         surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+  const lv = m.levels[0].id;
+  const hot = M.addNode(m, lv, 0, 0);
+  const mid = M.addNode(m, lv, 1, 0);
+  const j   = M.addNode(m, lv, 10, 0);
+  const out = M.addNode(m, lv, 20, 0);
+  M.setSource(m, hot.id, 400e3); hot.device.temperature = 60;
+  /* THE ONE UNDER TEST: a second supply ON the main, not at the end of it. */
+  M.setSource(m, j.id, 400e3);   j.device.temperature = 10;
+  out.device = { kind: 'demand', flow: 0.008, reqPressure: 100e3, include: true };
+  /* A PUMP ON THE HOT BRANCH, and it is what makes the case exist at all: the
+   * source at J FIXES the pressure there, so an unassisted branch at the same
+   * pressure delivers nothing and the near source takes the lot. With the pump
+   * pushing against that fixed pressure the hot side delivers, and the source
+   * at J makes up only the remainder — which is exactly what a make-up
+   * connection on a live main does. */
+  const pump = M.addPipe(m, hot.id, mid.id, { kind: 'pump' });
+  pump.pump = { mode: 'fixed', sizing: 'manual', head: 5 };
+  M.addPipe(m, mid.id, j.id, { size: 'DN25', schedule: 'sch40' });
+  M.addPipe(m, j.id, out.id, { size: 'DN50', schedule: 'sch40' });
+  m.pipes.forEach(x => { x.insulation_mm = 0; });
+  const res = NET.solveModel(m);
+  const th = res.thermal;
+
+  const qHot = Math.abs(res.flow[m.pipes[1].id]);          // mid -> J
+  const qTot = Math.abs(res.flow[m.pipes[2].id]);          // J -> outflow
+  const qCold = qTot - qHot;                               // injected at J
+
+  ok('Both supplies actually carry water', qHot > 1e-6 && qCold > 1e-6,
+     (qHot * 1000).toFixed(3) + ' + ' + (qCold * 1000).toFixed(3) + ' L/s');
+
+  const expect = (qHot * 60 + qCold * 10) / qTot;
+  near('The junction is the mass-weighted mix of the two supplies',
+       th.temperature[j.id], expect, 1e-6);
+  ok('...so it is NOT reset to the source temperature',
+     Math.abs(th.temperature[j.id] - 10) > 1,
+     th.temperature[j.id].toFixed(2) + ' °C');
+  ok('...and it lies between the two', th.temperature[j.id] > 10 && th.temperature[j.id] < 60);
+  near('...and the outflow sees the mixed water', th.temperature[out.id], expect, 1e-6);
+
+  /* The heat balance must still close, and the make-up must be booked in at
+   * ITS OWN temperature — using the mixed value would invent energy. */
+  near('The balance still closes', th.residual, 0, 1);
+  near('Nothing is absorbed at the source', th.sourceDuty, 0, 1e-6);
+}
+
+section('A source at the end of a branch is unchanged');
+{
+  /* The same water, the same duty, the fill on a stub instead. Every drop that
+   * leaves the source node came from the source, so the mixing relation has one
+   * term and gives exactly the source temperature — which is why Michael's
+   * workaround worked and why this must not move. */
+  const m = M.create();
+  m.settings.thermal = { ambient: 20, supplyTemp: 60, insulationK: 0.02,
+                         surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+  const lv = m.levels[0].id;
+  const s = M.addNode(m, lv, 0, 0);
+  const j = M.addNode(m, lv, 0, 5);
+  const out = M.addNode(m, lv, 10, 5);
+  M.setSource(m, s.id, 400e3); s.device.temperature = 12;
+  out.device = { kind: 'demand', flow: 0.006, reqPressure: 100e3, include: true };
+  M.addPipe(m, s.id, j.id, { size: 'DN40', schedule: 'sch40' });
+  M.addPipe(m, j.id, out.id, { size: 'DN50', schedule: 'sch40' });
+  m.pipes.forEach(x => { x.insulation_mm = 0; });
+  const th = NET.solveModel(m).thermal;
+  near('The source node is at its stated temperature', th.temperature[s.id], 12, 1e-9);
+  near('...and so is everything it feeds', th.temperature[out.id], 12, 1e-9);
+  near('...absorbing nothing', th.sourceDuty, 0, 1e-9);
 }
 
 report();

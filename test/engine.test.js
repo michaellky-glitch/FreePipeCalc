@@ -5,6 +5,9 @@
 'use strict';
 const { load, ok, near, section, report } = require('./harness');
 const FD = load();
+/* model/geometry/network are loaded lazily for the pump-sizing section at the
+ * end; the hydraulic tests above need none of them. */
+const FD2 = load(['src/model.js', 'src/geometry.js', 'src/network.js']);
 
 const HW_N = 1.852;
 const RHO_G = 998 * 9.81;
@@ -1142,6 +1145,98 @@ section('docs/MESSAGES.md covers every message the app can emit');
   ['ERROR', 'WARNING', 'NOTICE'].forEach(function (lvl) {
     ok('The severity table defines ' + lvl, doc.indexOf('**' + lvl + '**') > 0);
   });
+}
+
+/* =====================================================================
+ * PUMP SIZING MODES: what the sizer may write, and what it must not.
+ * ===================================================================== */
+section('Auto sizing generates a curve; manual sizing is left alone');
+{
+  const M2 = FD2.model, NET2 = FD2.network;
+
+  /* A minimal open system: source -> pump -> pipe -> outflow. */
+  function rig(pumpProps) {
+    const m = M2.create();
+    const lv = m.levels[0].id;
+    const a = M2.addNode(m, lv, 0, 0), b = M2.addNode(m, lv, 1, 0);
+    const c = M2.addNode(m, lv, 12, 0);
+    /* The source alone cannot reach the outflow's required pressure, so the
+     * pump has real work to do and the sizer lands on a non-zero head. */
+    M2.setSource(m, a.id, 100e3);
+    c.device = { kind: 'demand', flow: 0.004, reqPressure: 250e3, include: true };
+    const pump = M2.addPipe(m, a.id, b.id, { kind: 'pump' });
+    pump.pump = pumpProps;
+    M2.addPipe(m, b.id, c.id, { size: 'DN50', schedule: 'sch40' });
+    return { m, pump, res: NET2.solveModel(m) };
+  }
+
+  /* ---- AUTO: nothing typed, and the curve must exist afterwards.
+   *
+   * A pump drawn and left alone has `{mode:'auto', head:20}` and no `sizing`
+   * field at all — the panel used to be the only thing that filled one in, so
+   * switching to SIMULATION asked for a curve the app could have generated
+   * itself. Michael, 2026-08-06. */
+  {
+    const t = rig({ mode: 'auto', head: 20 });
+    const c = t.pump.pump.curve;
+    ok('An auto-sized pump has a curve after a DESIGN solve', !!c,
+       c ? c.source : 'none');
+    ok('...marked as generated, not as manufacturer data',
+       !!c && c.source === 'generated');
+    near('...at the duty the solve landed on', c.Qd, Math.abs(t.res.flow[t.pump.id]), 1e-9);
+    near('...and the head the solve used', c.Hd, t.pump.pump.head, 1e-9);
+
+    /* The three points are the SETTINGS percentages of the duty, by hand:
+     * shutoff 140%, runout 150% flow at 65% head. Read the fitted curve back
+     * at those flows rather than trusting the stored coefficients. */
+    near('Shutoff is 140% of the duty head',
+         FD2.pumps.head(c, 0), c.Hd * 1.40, 1e-6);
+    near('...the duty point is on it', FD2.pumps.head(c, c.Qd), c.Hd, 1e-6);
+    near('...and runout is 65% of it at 150% flow',
+         FD2.pumps.head(c, c.Qd * 1.50), c.Hd * 0.65, 1e-6);
+  }
+
+  /* ---- MANUAL: the duty is an INPUT and the solve must not touch it.
+   *
+   * `recordDesignPoint` used to write the solved flow back over `qDesign` for
+   * every running pump, so "Manual" meant manual until you pressed Solve. */
+  {
+    const t = rig({ mode: 'fixed', sizing: 'manual', head: 31,
+                    qDesign: 0.009, hDesign: 31 });
+    near('A manual design flow survives the solve', t.pump.pump.qDesign, 0.009, 1e-12);
+    near('...and so does the manual head', t.pump.pump.hDesign, 31, 1e-12);
+    ok('...and the head itself is untouched', t.pump.pump.head === 31,
+       String(t.pump.pump.head));
+    /* The demand is 4 L/s, so the solve definitely saw a different flow — the
+     * point is that seeing it changed nothing. */
+    ok('...even though the solve ran at a different flow',
+       Math.abs(Math.abs(t.res.flow[t.pump.id]) - 0.009) > 1e-4,
+       (Math.abs(t.res.flow[t.pump.id]) * 1000).toFixed(3) + ' L/s');
+  }
+
+  /* ---- CURVE: a pasted manufacturer curve is data. Neither is derived. */
+  {
+    const fitted = FD2.pumps.fit([{ q: 0, h: 40 }, { q: 0.005, h: 30 }, { q: 0.01, h: 12 }]);
+    const t = rig({ mode: 'fixed', sizing: 'curve', head: 30,
+                    qDesign: 0.005, hDesign: 30, curve: fitted });
+    ok('A pasted curve is not regenerated', t.pump.pump.curve.source === 'fitted',
+       t.pump.pump.curve.source);
+    near('...and its design flow is left alone', t.pump.pump.qDesign, 0.005, 1e-12);
+  }
+
+  /* ---- The effective sizing mode is derived the same way everywhere. */
+  {
+    ok('A pump with no sizing field and mode auto reads as auto',
+       M2.pumpSizing({ pump: { mode: 'auto' } }) === 'auto');
+    ok('...with a fitted curve it reads as curve',
+       M2.pumpSizing({ pump: { mode: 'fixed', curve: { source: 'fitted' } } }) === 'curve');
+    ok('...otherwise as manual',
+       M2.pumpSizing({ pump: { mode: 'fixed' } }) === 'manual');
+    ok('Turning a manual pump back on does not make it auto',
+       M2.pumpRunMode({ pump: { mode: 'off', sizing: 'manual' } }) === 'fixed');
+    ok('...while an auto one does go back to auto',
+       M2.pumpRunMode({ pump: { mode: 'off', sizing: 'auto' } }) === 'auto');
+  }
 }
 
 report();

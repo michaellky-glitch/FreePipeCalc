@@ -890,10 +890,23 @@
     if (m.settings.calcMode === 'simulation') return;
     m.pipes.forEach(function (p) {
       if (p.kind !== 'pump' || !p.pump || p.pump.mode === 'off') return;
+      /* ONLY FOR A PUMP THAT IS BEING SIZED.
+       *
+       * On MANUAL the design point is an INPUT — Michael states the flow and
+       * the head, and the solve then reported back whatever flow it happened to
+       * land on, silently replacing the number he typed (2026-08-06). On CURVE
+       * it is the manufacturer's, and equally not ours to move. Writing it back
+       * unconditionally made "Manual" mean "manual until you press Solve". */
+      if (M.pumpSizing(p) !== 'auto') return;
       var q = res.flow[p.id];
       if (q === undefined) return;
       p.pump.qDesign = Math.abs(q);
       p.pump.hDesign = p.pump.head || 0;
+      /* And the curve follows from the duty, HERE, so an auto-sized pump that
+       * has never had its panel opened can still be simulated. Generating it
+       * only in the panel meant drawing a pump and switching to SIMULATION hit
+       * "Pump curve required" for a duty the app had already worked out. */
+      M.generateCurve(m, p);
     });
   }
 

@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1526
+This is deliberately separate from the automated suites. Those cover 1561
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -203,15 +203,18 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
-## 4S. DEADBAND, ROUTES AND ΔP SYMBOLS (v0.14.5)
+## 4T. PUMP SIZING AND SOURCE MIXING (v0.14.7)
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| DB.1 | Valves land between 59% and 100% | ✅ | `20260805-5`: 59 / 67 / 100 / 100%, no errors. The two at 100% are the furthest branches and are genuinely within tolerance wide open — which is what your dP-controlled pump is for. |
-| DB.2 | ΔP / ΔT bubble says so | ⬜ | Was showing `T`. Two-character labels use a smaller font to fit the bubble. |
-| DB.3 | The second probed pipe is drawn | ⬜ | Dotted line from the bubble to the reference pipe, with an open square at the far tapping — deliberately a different mark from the control link's ring, because it means a different thing. Drawn only when both are on the level being shown. |
-| DB.4 | Control links drag in all four directions | ⬜ | Pull across the current segment and the route flips axis (1.6× hysteresis so it does not chatter). Verified live on `20260805-5`: axis h → v, mid 44.88 → 8.53. |
-| DB.5 | **Is 0.2% the right flow deadband?** | ⬜ | **Your call.** Tighter than any flow meter, and comfortably inside what 1% of valve travel resolves — but it is what decides whether a nearly-right branch gets throttled at all. |
+| PS.1 | An auto-sized pump goes straight to SIMULATE | ✅ | Draw a pump, leave it alone, switch mode. The SIZER generates the curve now, so the panel no longer has to be visited. Verified with a pump created exactly as the canvas creates it: generated curve after one DESIGN solve, gate passes. |
+| PS.2 | Manual values survive | ✅ | Typed 9.0 L/s / 31 m, solved, isolated the pump, put it back, solved again — unchanged throughout, and it returned as `fixed` rather than `auto`. |
+| PS.3 | A pasted manufacturer curve is untouched | ⬜ | Neither the sizer nor the panel regenerates a curve marked `fitted`. |
+| PS.4 | **A pump the sizer puts at ZERO head** | ⬜ | **Known gap, your call.** If the source alone satisfies every outflow, auto sizing lands on 0 m; there is no duty to build a curve from, and SIMULATE still says "Pump curve required" — which is not a useful way to say "this pump has nothing to do". Say the word and it gets its own message. |
+| SM.1 | A source on a main MIXES | ⬜ | Your report. 1.76 L/s of 60 °C meeting 6.24 L/s of 10 °C make-up gives 20.99 °C; it used to read a flat 10 °C. |
+| SM.2 | A source on a branch is unchanged | ⬜ | Your workaround has to keep working: every drop leaving the node came from the source, so the node sits at the source temperature exactly. |
+| SM.3 | **A fill absorbs nothing, wherever it is drawn** | ⬜ | **This is the answer to TH.8.** A dead-leg fill and an in-line one on the same sealed circuit now report the SAME 20 kW shortfall, against a pinned datum rather than against the fill. Your expansion-tank objection was right — the tank was never absorbing anything, the pin was. |
+| SM.4 | THERMAL_DATUM may appear where it did not before | ⬜ | It is now raised when the solve genuinely cannot pick a temperature level, and NOT raised when a chiller setpoint already sets one. On one test model the old pin was overriding a chiller holding 6 °C and booking the 83.6 kW difference as absorbed heat. Worth watching for on a model that used to be quiet. |
 
 ## 4S. DEADBAND, ROUTES AND ΔP SYMBOLS (v0.14.5)
 
@@ -220,10 +223,10 @@ the preview browser renders no pixels.
 | DB.1 | Valves land between 59% and 100% | ✅ | `20260805-5`: 59 / 67 / 100 / 100%, no errors. The two at 100% are the furthest branches and are genuinely within tolerance wide open — which is what your dP-controlled pump is for. |
 | DB.2 | ΔP / ΔT bubble says so | ⬜ | Was showing `T`. Two-character labels use a smaller font to fit the bubble. |
 | DB.3 | The second probed pipe is drawn | ⬜ | Dotted line from the bubble to the reference pipe with an open square at the far tapping — a different mark from the control link's ring, because it means a different thing. Only when both are on the level being shown. |
-| DB.6 | The reference line is orthogonal | ⬜ | Right-angle Z like the control link, not the diagonal you photographed. Leaves along the stem so it cannot double back across the sensor's own pipe. Verified: H → V → H, ending on the square. |
-| DB.7 | DXF: ΔP/ΔT bubble and its reference line | ⬜ | Same defect was in the export — it said `T` too, and drew no reference line. Now `dP`/`dT` and the same orthogonal route, solid rather than dotted (R12 has no dotted linetype without an LTYPE table). Still unopened in real CAD — see DX.1. |
 | DB.4 | Control links drag in all four directions | ⬜ | Pull across the current segment and the route flips axis (1.6× hysteresis so it does not chatter). Verified live: axis h → v, mid 44.88 → 8.53. |
 | DB.5 | **Is 0.2% the right flow deadband?** | ⬜ | **Your call.** Tighter than any flow meter and comfortably inside what 1% of valve travel resolves — but it is what decides whether a nearly-right branch gets throttled at all. |
+| DB.6 | The reference line is orthogonal | ⬜ | Right-angle Z like the control link, not the diagonal you photographed. Leaves along the stem so it cannot double back across the sensor's own pipe. Verified: H → V → H, ending on the square. |
+| DB.7 | DXF: ΔP/ΔT bubble and its reference line | ⬜ | Same defect was in the export — it said `T` too, and drew no reference line. Now `dP`/`dT` and the same orthogonal route, solid rather than dotted (R12 has no dotted linetype without an LTYPE table). Still unopened in real CAD — see DX.1. |
 
 ## 4R. PARALLEL BRANCH BALANCING (v0.14.4)
 
@@ -244,7 +247,7 @@ the preview browser renders no pixels.
 | TH.4 | Pipework heat gain / loss | ⬜ | Every pipe: length, insulation, U′, in/out, Q in watts. Totals for gain, loss, net, and **net as a % of equipment duty** — the number you actually use it for. On the example: +0.178 kW, 2.9%. |
 | TH.5 | Every pipe is listed, including zero rows | ⬜ | Deliberate: a zero row on a well-insulated main is a result, and leaving it out makes the total impossible to check by adding up. Say if you'd rather they were suppressed. |
 | TH.6 | The section is collapsed by default | ⬜ | So it does not print unless you open it, per the existing convention. |
-| **TH.8** | **⚑ HEAT ABSORPTION AT A SOURCE — Michael is not satisfied this is right** | ⚠️ | **FLAGGED FOR HIS EYE, 2026-08-05. Do not treat as settled.** His objection: an expansion tank tees off the return with NO FLOW through it, can only lose a trickle by conduction at the tee, and that is normally disregarded. So absent a runaway there should be little or no absorption. See the note below — the experiment says he is right, and the app is right, and my own example was wrong. |
+| **TH.8** | **⚑ HEAT ABSORPTION AT A SOURCE — RESOLVED in v0.14.7, see SM.3** | ✅ | **FLAGGED FOR HIS EYE, 2026-08-05. Do not treat as settled.** His objection: an expansion tank tees off the return with NO FLOW through it, can only lose a trickle by conduction at the tee, and that is normally disregarded. So absent a runaway there should be little or no absorption. See the note below. **The verdict, 2026-08-06: he was right and the app was not.** A source no longer absorbs anything at all — it mixes its own make-up into whatever is flowing past — so a fill absorbs nothing wherever it is drawn, and the shortfall shows against a pinned datum instead. The dead-leg-versus-in-line distinction this row was written around has gone: it was never physics, it was where the pin happened to land. |
 | TH.7 | `HEAT_IMBALANCE` warning (v0.14.2) | ⬜ | Fires above 2% of circulating duty (adjustable, HYDRAULIC ▸ Heat balance tolerance). On the stacked-riser example: "6.3 kW is being removed at the source to hold its stated temperature… the cooling plant is short by that much, or the stated temperature is wrong." |
 
 ### TH.8 — what the experiment showed

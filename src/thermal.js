@@ -154,22 +154,53 @@
 
   /* Which nodes hold a known temperature, and at what.
    *
-   * A source holds its own supply temperature, defaulting to the system flow
-   * temperature on the THERMAL tab. With no source at all — a sealed circuit —
-   * one node is pinned instead, at the OUTLET of whatever removes the most
-   * heat. In a chilled or heating circuit that is the plant, and its leaving
-   * temperature is the number an engineer quotes as the flow temperature. */
-  function referenceNodes(m, res, prm, coupled) {
-    var refs = {}, pinned = null;
+   * A SOURCE states the temperature of THE WATER IT BRINGS IN, which is not the
+   * same as the temperature of the node it sits on — see `sources` below. With
+   * no source at all — a sealed circuit — one node is pinned instead, at the
+   * OUTLET of whatever removes the most heat. In a chilled or heating circuit
+   * that is the plant, and its leaving temperature is the number an engineer
+   * quotes as the flow temperature.
+   *
+   * Two returned collections, and the difference is the whole of the 2026-08-06
+   * fix:
+   *
+   *   refs     a HARD PIN. T = value, whatever arrives. Only the datum.
+   *   sources  a STREAM at a stated temperature, mixed with whatever arrives.
+   */
+  function referenceNodes(m, res, prm, coupled, carriers, rho) {
+    var refs = {}, sources = {}, srcMdot = {}, pinned = null;
     var any = false;
     m.nodes.forEach(function (n) {
       if (!n.device || n.device.kind !== 'source') return;
       var t = (n.device.temperature !== undefined && n.device.temperature !== null)
         ? Number(n.device.temperature) : prm.supply;
-      refs[n.id] = t;
-      any = true;
+      sources[n.id] = t;
+      /* HOW MUCH WATER IT ACTUALLY BRINGS IN, by continuity: whatever leaves
+       * the node that did not arrive at it. Negative means water is leaving the
+       * system here — a return to a tank, which states no temperature. */
+      var out = 0, into = 0;
+      (carriers || []).forEach(function (c) {
+        if (c.from === n.id) out += c.mdot;
+        if (c.to === n.id) into += c.mdot;
+      });
+      /* AGAINST THE SOLVER'S OWN ZERO, not against literal zero. Round a closed
+       * ring the flow in and the flow out of a node differ in the last bit —
+       * 1.1e-13 kg/s on the sealed-circuit test — and `> 0` read that as a
+       * source introducing water, which suppressed the datum and left the loop
+       * with no temperature reference at all (4.3e13 °C). ρ·Q_MIN is the same
+       * threshold that decided which links carry water in the first place. */
+      var floor = rho * FD.hydraulics.Q_MIN;
+      srcMdot[n.id] = (out - into > floor) ? (out - into) : 0;
+      if (srcMdot[n.id] > 0) any = true;
     });
-    if (any) return { refs: refs, pinned: null };
+    /* ONLY A SOURCE THAT INTRODUCES WATER sets the level. A fill connection on
+     * a sealed circuit carries nothing, and it does NOT hold the loop at mains
+     * temperature — the loop floats and finds its own, which is the whole point
+     * of the datum below. Counting any source at all here is what let a
+     * zero-flow fill suppress the datum AND pin the loop, two ways of saying
+     * the same wrong thing. Michael, 2026-08-06. */
+    if (any) return { refs: refs, sources: sources, srcMdot: srcMdot,
+                      pinned: null, datum: null };
 
     /* AMBIENT IS A REFERENCE, and pinning on top of it would be wrong.
      *
@@ -183,8 +214,17 @@
      * no pipe exchanging heat with ambient. That is a genuinely adiabatic
      * circuit — a balanced chiller and coil round insulated pipework — where
      * the temperature really can sit anywhere and something has to say where. */
-    if (coupled) return { refs: refs, pinned: null, floating: true };
-
+    /* A CANDIDATE DATUM, NOT A PIN. It is applied only if the temperature
+     * field turns out to have no unique solution — see the solve loop.
+     *
+     * Imposing it up front was wrong in the one direction that matters: a
+     * chiller holding a setpoint ALREADY sets the level, and pinning its outlet
+     * at the system flow temperature overrode the setpoint and booked the
+     * difference as 83.6 kW absorbed at a fill connection that carries no
+     * water. Nothing was singular; the pin invented the problem it was there to
+     * solve. It only ever earned its place when the solve genuinely cannot pick
+     * a level, and `solveLinear` says exactly when that is. Michael,
+     * 2026-08-06. */
     var best = null, bestQ = 0;
     m.pipes.forEach(function (p) {
       if (p.kind !== 'equip' || !p.equip || p.equip.off) return;
@@ -192,13 +232,11 @@
       var q = Math.abs(statedDuty(m, p, res, 1));   // magnitude only, for ranking
       if (best === null || q > bestQ) { best = p; bestQ = q; }
     });
-    if (best) {
-      /* The outlet is b: devices pass flow a→b and nothing runs them
-       * backwards (ARCHITECTURE §4A). */
-      refs[best.b] = prm.supply;
-      pinned = { node: best.b, pipe: best.id };
-    }
-    return { refs: refs, pinned: pinned };
+    /* The outlet is b: devices pass flow a→b and nothing runs them backwards
+     * (ARCHITECTURE §4A). */
+    var datum = best ? { node: best.b, pipe: best.id, value: prm.supply } : null;
+    return { refs: refs, sources: sources, srcMdot: srcMdot,
+             pinned: pinned, datum: datum, floating: !!coupled };
   }
 
   /* The duty a piece of equipment states, in watts, signed. Used for ranking
@@ -347,16 +385,8 @@
              lossPerMetreK(pipeOD(m, p), thicknessOf(m, p), prm.k, prm.h) > 0;
     });
 
-    var ref = referenceNodes(m, res, prm, coupled);
-    if (ref.pinned) {
-      warnings.push({
-        code: 'THERMAL_DATUM', node: ref.pinned.node, pipe: ref.pinned.pipe,
-        message: 'No source, so there is no stated supply temperature. ' +
-                 (prm.supply).toFixed(1) + ' °C has been pinned at the outlet of ' +
-                 ref.pinned.pipe + ', the equipment moving the most heat. Every ' +
-                 'other temperature is relative to that.'
-      });
-    } else if (!Object.keys(ref.refs).length) {
+    var ref = referenceNodes(m, res, prm, coupled, carriers, rho);
+    if (!Object.keys(ref.sources).length && !ref.datum) {
       warnings.push({
         code: 'NO_THERMAL_REFERENCE',
         message: 'Nothing sets a temperature: no source and no equipment. ' +
@@ -377,6 +407,16 @@
     var inTo = {};
     carriers.forEach(function (c) { (inTo[c.to] = inTo[c.to] || []).push(c); });
 
+    /* What each source actually brings in — worked out with the references,
+     * because whether a source introduces water is what decides if it sets the
+     * temperature level at all. This is what makes a source a STREAM rather
+     * than a reset: at the end of a branch it brings in everything that leaves,
+     * so the node is at the source temperature and nothing changes; teed into a
+     * live main it brings in only its make-up, and the rest of the water is
+     * flowing past — which is why pinning the node overwrote it, and why
+     * Michael's workaround of moving the source onto a branch worked. */
+    var srcMdot = ref.srcMdot || {};
+
     // ---- seed ----
     /* Seed. A FLOATING system — no source, no pin, finding its own level
      * against ambient — starts AT ambient, because that is the answer with no
@@ -385,7 +425,8 @@
     var seed = ref.floating ? prm.ambient : prm.supply;
     var T = {};
     m.nodes.forEach(function (n) {
-      T[n.id] = (ref.refs[n.id] !== undefined) ? ref.refs[n.id] : seed;
+      T[n.id] = (ref.refs[n.id] !== undefined) ? ref.refs[n.id]
+              : (ref.sources[n.id] !== undefined) ? ref.sources[n.id] : seed;
     });
 
     /* Outlet temperature of one link, given its inlet. */
@@ -508,7 +549,8 @@
         var arriving = inTo[id];
         var den = 0;
         if (arriving) arriving.forEach(function (c) { den += c.mdot; });
-        if (ref.refs[id] !== undefined || (arriving && arriving.length && den > 0)) {
+        if (ref.refs[id] !== undefined || srcMdot[id] > 0 ||
+            (arriving && arriving.length && den > 0)) {
           live[id] = true;
           queue.push(id);
         }
@@ -549,7 +591,37 @@
         var den = 0;
         if (arriving) arriving.forEach(function (c) { den += c.mdot; });
 
+        /* A SOURCE IS ONE MORE STREAM INTO THE MIXING, at its stated
+         * temperature and carrying only the water it actually introduces. It
+         * used to be a hard pin — T = the source temperature, whatever arrived
+         * — so a source teed into a live main RESET every drop flowing past it.
+         * On a branch the source brings in all of the flow, the term below is
+         * the only one, and the answer is unchanged; on a main it now mixes,
+         * which is what a make-up connection does. Michael, 2026-08-06. */
+        var sm = srcMdot[id] || 0;
+        if (sm > 0) {
+          var tot = den + sm;
+          A[i][i] = 1;
+          if (arriving) {
+            arriving.forEach(function (c) {
+              var co2 = outletCoef(c);
+              var w2 = c.mdot / tot;
+              A[i][index[c.from]] -= w2 * co2.a;
+              bvec[i] += w2 * co2.b;
+            });
+          }
+          bvec[i] += (sm / tot) * ref.sources[id];
+          return;
+        }
+
         if (!arriving || !arriving.length || !(den > 0)) {
+          /* A source moving no water at all still STATES a temperature — it is
+           * a stated boundary that happens to be idle, not a dead leg guessing
+           * from its neighbour. */
+          if (ref.sources[id] !== undefined) {
+            A[i][i] = 1; bvec[i] = ref.sources[id];
+            return;
+          }
           /* No flow arriving: take the temperature of the water this node is
            * connected to, not the seed. */
           var par = deadParent[id];
@@ -608,9 +680,28 @@
      * it is written reads as a bug even when hoisting saves it. */
     var errors = [];
     var solved = null, singular = false, sig = refreshActiveSet(), passes = 0;
+    var datumTried = false;
     for (var pass = 0; pass < MAX_SETS; pass++) {
       passes = pass + 1;
       solved = assembleAndSolve();
+      /* NO UNIQUE SOLUTION — so now the datum earns its place. An adiabatic
+       * loop with nothing stating a level really can sit anywhere, and one
+       * temperature has to be declared before any of them mean anything.
+       * `solveLinear` returning null is the exact test for that, which is why
+       * the pin waits for it rather than being applied on suspicion. */
+      if (!solved && !datumTried && ref.datum && index[ref.datum.node] !== undefined) {
+        datumTried = true;
+        ref.refs[ref.datum.node] = ref.datum.value;
+        ref.pinned = ref.datum;
+        warnings.push({
+          code: 'THERMAL_DATUM', node: ref.datum.node, pipe: ref.datum.pipe,
+          message: 'Nothing sets a temperature level in this circuit. ' +
+                   (prm.supply).toFixed(1) + ' °C has been pinned at the outlet of ' +
+                   ref.datum.pipe + ', the equipment moving the most heat. Every ' +
+                   'other temperature is relative to that.'
+        });
+        solved = assembleAndSolve();
+      }
       if (!solved) { singular = true; break; }
       ids.forEach(function (id, i) {
         if (isFinite(solved[i])) T[id] = solved[i];
@@ -707,16 +798,28 @@
       });
       Object.keys(T).forEach(function (id) {
         var net = (arrive[id] || 0) - (leave[id] || 0);   // + = leaving the system
-        if (Math.abs(net) > 1e-12 && isFinite(T[id])) boundary += net * cp * T[id];
+        if (!(Math.abs(net) > 1e-12)) return;
+        /* Water ENTERING at a source does so at the SOURCE's temperature, not
+         * at the node's. The two are the same at a branch-end source, which is
+         * why this was never wrong before the mixing fix; teed into a main they
+         * differ, and using the mixed value would book the make-up in at a
+         * temperature it never had. */
+        var tb = (net < 0 && ref.sources[id] !== undefined) ? ref.sources[id] : T[id];
+        if (isFinite(tb)) boundary += net * cp * tb;
       });
 
-      /* ---- HEAT ADDED OR REMOVED AT A REFERENCE NODE
+      /* ---- HEAT ADDED OR REMOVED AT A PINNED NODE
        *
-       * A source HOLDS its stated temperature whatever arrives, which means it
-       * is a heat source in its own right: an infinite reservoir does not warm
-       * up. The energy involved is the flow through it times the difference
-       * between what it holds and what it would otherwise have mixed to, and it
-       * belongs in the balance like any other duty.
+       * A PIN holds its stated temperature whatever arrives, which makes it a
+       * heat source in its own right: an infinite reservoir does not warm up.
+       * The energy involved is the flow through it times the difference between
+       * what it holds and what it would otherwise have mixed to, and it belongs
+       * in the balance like any other duty.
+       *
+       * SOURCES ARE NO LONGER IN HERE (2026-08-06). A source mixes now, so it
+       * absorbs nothing — the enthalpy it brings in is a BOUNDARY term above,
+       * which is where make-up water belongs. Only the datum pin remains, and
+       * that is the one case where a temperature really is being held.
        *
        * On the stacked-riser example this is where a 6.3 kW residual came from
        * and what it means: with the coils adding 150.2 kW and the chiller only

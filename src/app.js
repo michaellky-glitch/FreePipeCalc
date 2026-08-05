@@ -3279,8 +3279,12 @@
     statusToggle(host, p.pump.mode !== 'off', 'Running', 'Off (isolated, no flow)',
       function (on) {
         pushUndo();
-        p.pump.mode = on ? 'auto' : 'off';
-        if (on) autoSizePump(p);
+        /* Turning a pump back ON restores the mode ITS SIZING implies. It used
+         * to switch every pump to 'auto' and re-size it, so isolating a
+         * manually-sized pump and putting it back threw the duty away —
+         * Michael, 2026-08-06. */
+        p.pump.mode = on ? M.pumpRunMode(p) : 'off';
+        if (on && M.pumpSizing(p) === 'auto') autoSizePump(p);
         renderProperties(); changed();
       });
 
@@ -3320,10 +3324,7 @@
      * time. A curve generated from the design point is not a substitute for a
      * real one, and the panel says so — but it is a great deal better than
      * being unable to simulate at all. */
-    if (!p.pump.sizing) {
-      p.pump.sizing = p.pump.curve && p.pump.curve.source === 'fitted'
-        ? 'curve' : (p.pump.mode === 'auto' ? 'auto' : 'manual');
-    }
+    if (!p.pump.sizing) p.pump.sizing = M.pumpSizing(p);
     var sizeSel = el('select');
     [['auto', 'Auto'], ['manual', 'Manual'], ['curve', 'Curve']].forEach(function (o) {
       var opt = el('option', '', o[1]); opt.value = o[0];
@@ -3341,9 +3342,9 @@
     sizeSel.addEventListener('change', function () {
       pushUndo();
       p.pump.sizing = sizeSel.value;
-      p.pump.mode = (p.pump.sizing === 'auto') ? 'auto' : 'fixed';
-      if (p.pump.sizing === 'auto') autoSizePump(p);
-      if (p.pump.sizing !== 'curve') regenerateCurve(p);
+      if (p.pump.mode !== 'off') p.pump.mode = M.pumpRunMode(p);
+        if (p.pump.sizing === 'auto') autoSizePump(p);
+      regenerateCurve(p);
       renderProperties(); changed();
     });
 
@@ -3434,28 +3435,17 @@
    * But it is a great deal better than being unable to simulate at all, and a
    * generated curve that passes through the duty point is right about the one
    * thing the model actually knows. */
+  /* The generation itself is `M.generateCurve` — the SIZER calls it too, and
+   * two copies of the shape would drift. This only supplies the design point
+   * the panel is showing, which on an auto pump that has not been solved yet
+   * comes from the last results rather than from the pump. */
   function regenerateCurve(p) {
     if (!p || !p.pump) return null;
-    if (p.pump.sizing === 'curve') return p.pump.curve || null;
+    if (M.pumpSizing(p) === 'curve') return p.pump.curve || null;
     var dp = pumpDesignPoint(p);
-    if (!(dp.q > 0) || !(dp.h > 0)) { delete p.pump.curve; return null; }
-    var shape = (app.model.settings && app.model.settings.pumpCurve) || {};
-    var so = (shape.shutoffPct > 100) ? shape.shutoffPct / 100 : 1.40;
-    var rq = (shape.runoutFlowPct > 100) ? shape.runoutFlowPct / 100 : 1.50;
-    var rh = (shape.runoutHeadPct > 0 && shape.runoutHeadPct < 100)
-      ? shape.runoutHeadPct / 100 : 0.65;
-    var pts = [
-      { q: 0,          h: dp.h * so },
-      { q: dp.q,       h: dp.h },
-      { q: dp.q * rq,  h: dp.h * rh }
-    ];
-    var c = FD.pumps.fit(pts);
-    if (!c) { delete p.pump.curve; return null; }
-    c.Qd = dp.q;
-    c.Hd = dp.h;
-    c.source = 'generated';
-    p.pump.curve = c;
-    return c;
+    if (!(p.pump.qDesign > 0) && dp.q > 0) p.pump.qDesign = dp.q;
+    if (!(p.pump.hDesign > 0) && dp.h > 0) p.pump.hDesign = dp.h;
+    return M.generateCurve(app.model, p);
   }
 
   /* What travels when properties are copied. Everything a device IS, and
@@ -3526,7 +3516,7 @@
     var m = app.model, n = 0;
     m.pipes.forEach(function (p) {
       if (p.kind !== 'pump' || !p.pump) return;
-      if (p.pump.sizing === 'curve') return;
+      if (M.pumpSizing(p) === 'curve') return;
       if (p.pump.curve && p.pump.curve.source === 'fitted') return;
       if (regenerateCurve(p)) n++;
     });

@@ -289,7 +289,10 @@
   View.prototype.toggleDevice = function (p) {
     if (!this.canToggle(p)) return false;
     var off = this.isDeviceOff(p);
-    if (p.kind === 'pump') p.pump.mode = off ? 'auto' : 'off';
+    /* Back into service in the mode ITS SIZING implies, not always 'auto' — a
+     * manually-sized pump toggled off and on would otherwise be handed to the
+     * sizer and lose its duty. */
+    if (p.kind === 'pump') p.pump.mode = off ? M.pumpRunMode(p) : 'off';
     else if (off) delete p.equip.off; else p.equip.off = true;
     return !off ? true : false;
   };
