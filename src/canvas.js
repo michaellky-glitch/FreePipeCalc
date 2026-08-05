@@ -2426,6 +2426,25 @@
    *
    * Amber rather than green/red, because green and red are the in-service /
    * isolated pair on the devices that HAVE a service state. A sensor has none. */
+  /* A right-angle Z between two screen points, in the same convention as
+   * `M.controlRoute`: `horiz` true means the MIDDLE segment is vertical, so the
+   * route leaves and arrives horizontally. Bends that collapse onto a
+   * neighbour are dropped, so a straight run really is two points and an L is
+   * three — a zero-length segment puts a doubled dot on a dotted line. */
+  function orthoRoute(ax, ay, bx2, by2, horiz) {
+    var pts = horiz
+      ? [{ x: ax, y: ay }, { x: (ax + bx2) / 2, y: ay },
+         { x: (ax + bx2) / 2, y: by2 }, { x: bx2, y: by2 }]
+      : [{ x: ax, y: ay }, { x: ax, y: (ay + by2) / 2 },
+         { x: bx2, y: (ay + by2) / 2 }, { x: bx2, y: by2 }];
+    var out = [pts[0]];
+    for (var i = 1; i < pts.length; i++) {
+      var q = out[out.length - 1];
+      if (Math.abs(pts[i].x - q.x) > 0.5 || Math.abs(pts[i].y - q.y) > 0.5) out.push(pts[i]);
+    }
+    return out;
+  }
+
   View.prototype.drawSensorGlyph = function (p, sa, sb, selected) {
     var ctx = this.ctx, m = this.getModel();
     var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
@@ -2490,13 +2509,21 @@
       var rn = refPipe ? M.node(m, refPipe.a) : null;
       if (refMid && rn && rn.level === m.activeLevel) {
         var rs = this.toScreen(refMid.x, refMid.y);
+        /* ORTHOGONAL, like the control link (Michael, 2026-08-05). A diagonal
+         * across a drawing of nothing but horizontal and vertical runs reads as
+         * a mistake — the eye takes it for a pipe drawn wrong before it takes
+         * it for an annotation. Same Z route as `M.controlRoute`, and it LEAVES
+         * ALONG THE STEM: the first segment continues the direction the bubble
+         * already stands off the pipe in, so the two read as one gesture rather
+         * than as a line that happens to start near a circle. */
+        var pts = orthoRoute(bx, by, rs.x, rs.y, Math.abs(nx) > Math.abs(ny));
         ctx.save();
         ctx.strokeStyle = colour;
         ctx.lineWidth = 1.2;
         ctx.setLineDash([2, 3]);
         ctx.beginPath();
-        ctx.moveTo(bx, by);
-        ctx.lineTo(rs.x, rs.y);
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (var pi = 1; pi < pts.length; pi++) ctx.lineTo(pts[pi].x, pts[pi].y);
         ctx.stroke();
         ctx.setLineDash([]);
         /* A small open square at the far tapping — a different mark from the

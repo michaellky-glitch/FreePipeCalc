@@ -139,15 +139,36 @@
       var bx = mx - s * SYM_R * 2.5, by = my + c * SYM_R * 2.5;
       line(out, layer, mx, my, mz, bx, by, mz);
       circle(out, layer, bx, by, mz, SYM_R * 0.8);
-      text(out, layer, bx - SYM_R * 0.3, by - TEXT_H * 0.4, mz, TEXT_H * 0.7,
-           (p && p.sensor && p.sensor.mode === 'flow') ? 'F'
-           : (p && p.sensor && p.sensor.mode === 'pressure') ? 'P' : 'T');
+      var sm = (p && p.sensor && p.sensor.mode) || 'temperature';
+      var lbl = sm === 'flow' ? 'F' : sm === 'pressure' ? 'P'
+              : sm === 'dP' ? 'dP' : sm === 'dT' ? 'dT' : 'T';
+      text(out, layer, bx - SYM_R * (lbl.length > 1 ? 0.6 : 0.3),
+           by - TEXT_H * 0.4, mz, TEXT_H * 0.7, lbl);
+      // where the reference line starts, and which way the stem points
+      return { x: bx, y: by, nx: -s, ny: c };
     } else {                                   // equipment
       circle(out, layer, mx, my, mz, SYM_R);
       poly(out, layer, [at(-SYM_R * 0.5, -SYM_R * 0.5), at(SYM_R * 0.5, -SYM_R * 0.5),
                         at(SYM_R * 0.5, SYM_R * 0.5), at(-SYM_R * 0.5, SYM_R * 0.5),
                         at(-SYM_R * 0.5, -SYM_R * 0.5)], mz);
     }
+  }
+
+  /* A right-angle route between two model points, in the same convention as
+   * `M.controlRoute` and the canvas: `horiz` true means the MIDDLE segment is
+   * VERTICAL, so the route leaves and arrives horizontally. A diagonal on
+   * a drawing of nothing but horizontal and vertical runs reads as a pipe drawn
+   * wrong before it reads as an annotation — Michael, 2026-08-05. */
+  function orthoRoute(ax, ay, bx, by, horiz) {
+    var pts = horiz
+      ? [[ax, ay], [(ax + bx) / 2, ay], [(ax + bx) / 2, by], [bx, by]]
+      : [[ax, ay], [ax, (ay + by) / 2], [bx, (ay + by) / 2], [bx, by]];
+    var out = [pts[0]];
+    for (var i = 1; i < pts.length; i++) {
+      var q = out[out.length - 1];
+      if (Math.abs(pts[i][0] - q[0]) > 1e-6 || Math.abs(pts[i][1] - q[1]) > 1e-6) out.push(pts[i]);
+    }
+    return out;
   }
 
   // ------------------------------------------------------------ the file
@@ -184,7 +205,30 @@
         if (p.kind !== 'pipe') {
           var mx = (wa.x + wb.x) / 2, my = (wa.y + wb.y) / 2, mz = (za + zb) / 2;
           var ang = Math.atan2(wb.y - wa.y, wb.x - wa.x);
-          deviceSymbol(ents, Lsym, p.kind, mx, my, mz, ang, p);
+          var sym = deviceSymbol(ents, Lsym, p.kind, mx, my, mz, ang, p);
+
+          /* A DIFFERENTIAL PROBES TWO PIPES, so the second one is drawn — the
+           * same mark as on screen, because "dp 150 kPa" on a drawing does not
+           * say across what. R12 has no dotted linetype without a LTYPE table
+           * entry, so this is a solid polyline; the open square at the far
+           * tapping is what identifies it. */
+          var sMode = p.kind === 'sensor' && p.sensor && p.sensor.mode;
+          if (sym && (sMode === 'dP' || sMode === 'dT') && p.sensor.ref) {
+            var rp = M.pipe(m, p.sensor.ref);
+            var rmid = rp ? M.deviceMid(m, rp) : null;
+            var rna = rp ? M.node(m, rp.a) : null;
+            if (rmid && rna && rna.level === lv.id) {
+              var rz = M.elevation(m, rna);
+              poly(ents, Lsym,
+                   orthoRoute(sym.x, sym.y, rmid.x, rmid.y,
+                              Math.abs(sym.nx) > Math.abs(sym.ny)), rz);
+              poly(ents, Lsym, [[rmid.x - SYM_R * 0.25, rmid.y - SYM_R * 0.25],
+                                [rmid.x + SYM_R * 0.25, rmid.y - SYM_R * 0.25],
+                                [rmid.x + SYM_R * 0.25, rmid.y + SYM_R * 0.25],
+                                [rmid.x - SYM_R * 0.25, rmid.y + SYM_R * 0.25],
+                                [rmid.x - SYM_R * 0.25, rmid.y - SYM_R * 0.25]], rz);
+            }
+          }
           if (p.tag) text(ents, Ltag, mx + SYM_R * 1.4, my + SYM_R * 1.4, mz, TEXT_H, p.tag);
         } else if (opts.sizes !== false) {
           text(ents, Ltag, (wa.x + wb.x) / 2, (wa.y + wb.y) / 2 + TEXT_H * 0.4,

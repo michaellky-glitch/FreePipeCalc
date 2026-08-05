@@ -1369,6 +1369,15 @@ from the control link's ring because it means a different thing. Without it
 "Δp 150 kPa" on a drawing does not say across what. The bubble carries `ΔP` or
 `ΔT` rather than the `T` it showed until 2026-08-05.
 
+**The line is ORTHOGONAL**, on the same Z route as the control link — a diagonal
+across a drawing of nothing but horizontal and vertical runs reads as a pipe
+drawn wrong before it reads as an annotation. It **leaves along the stem**: the
+first segment continues the direction the bubble already stands off the pipe in,
+so the two read as one gesture, and it cannot double back across the sensor's
+own pipe the way a route chosen by the longer delta would. The DXF export uses
+the same route, as a solid polyline — R12 has no dotted linetype without an
+LTYPE table entry, so there the open square is what identifies it.
+
 Temperature, flow, pressure, and two DIFFERENTIALS — Δp and ΔT between this
 sensor and a referenced pipe. A pressure or differential reading is taken at the
 sensor's **inlet node**: the water arriving, which is what a tapping on that

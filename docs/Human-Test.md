@@ -220,6 +220,8 @@ the preview browser renders no pixels.
 | DB.1 | Valves land between 59% and 100% | ✅ | `20260805-5`: 59 / 67 / 100 / 100%, no errors. The two at 100% are the furthest branches and are genuinely within tolerance wide open — which is what your dP-controlled pump is for. |
 | DB.2 | ΔP / ΔT bubble says so | ⬜ | Was showing `T`. Two-character labels use a smaller font to fit the bubble. |
 | DB.3 | The second probed pipe is drawn | ⬜ | Dotted line from the bubble to the reference pipe with an open square at the far tapping — a different mark from the control link's ring, because it means a different thing. Only when both are on the level being shown. |
+| DB.6 | The reference line is orthogonal | ⬜ | Right-angle Z like the control link, not the diagonal you photographed. Leaves along the stem so it cannot double back across the sensor's own pipe. Verified: H → V → H, ending on the square. |
+| DB.7 | DXF: ΔP/ΔT bubble and its reference line | ⬜ | Same defect was in the export — it said `T` too, and drew no reference line. Now `dP`/`dT` and the same orthogonal route, solid rather than dotted (R12 has no dotted linetype without an LTYPE table). Still unopened in real CAD — see DX.1. |
 | DB.4 | Control links drag in all four directions | ⬜ | Pull across the current segment and the route flips axis (1.6× hysteresis so it does not chatter). Verified live: axis h → v, mid 44.88 → 8.53. |
 | DB.5 | **Is 0.2% the right flow deadband?** | ⬜ | **Your call.** Tighter than any flow meter and comfortably inside what 1% of valve travel resolves — but it is what decides whether a nearly-right branch gets throttled at all. |
 
