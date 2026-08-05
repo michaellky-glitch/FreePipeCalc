@@ -4911,6 +4911,9 @@
     numField(wg, 'Equipment flow ratio', m.settings.warn.equipFlowRatio,
       function (v) { pushUndo(); m.settings.warn.equipFlowRatio = v; redrawAll(); },
       '(×rated)');
+    numField(wg, 'Heat balance tolerance', m.settings.warn.heatBalance,
+      function (v) { pushUndo(); m.settings.warn.heatBalance = v; redrawAll(); },
+      '(%)');
     numField(wg, 'Min control valve opening', m.settings.warn.valveOversized,
       function (v) { pushUndo(); m.settings.warn.valveOversized = v; redrawAll(); },
       '(%)');

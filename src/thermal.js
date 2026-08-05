@@ -747,6 +747,57 @@
       });
     });
 
+    /* ---- A HEAT IMBALANCE ABSORBED AT A PINNED NODE ---------------------
+     *
+     * Michael, 2026-08-05: "a heat imbalance needs to be a warning."
+     *
+     * WHY IT WAS NEVER SEEN. This is not new behaviour — a reference node has
+     * held its temperature whatever arrives since v0.10.0, the first thermal
+     * commit, because an infinite reservoir does not warm up. What is new is
+     * that `sourceDuty` now MEASURES it. Before, the same 20 kW shortfall
+     * simply vanished into the pin and the model reported a plausible answer.
+     *
+     * A runaway was the only version of this anyone saw, and only in the cases
+     * where NOTHING pins the temperature — a loop coupled to ambient, where the
+     * surplus has to raise the water until the pipework sheds it. Put a source
+     * or a pinned datum in the same model and the surplus is absorbed silently
+     * instead. That is the worse failure of the two: a runaway announces
+     * itself, this does not.
+     *
+     * The threshold is RELATIVE, because a fill connection legitimately carries
+     * a trickle and a watt on a 100 kW plant is noise. Below `warn.heatBalance`
+     * percent of the circulating duty, with an absolute floor, it is not worth
+     * saying. */
+    var pctLim = (m.settings.warn && m.settings.warn.heatBalance);
+    if (pctLim === undefined) pctLim = 2;
+    if (pctLim > 0 && Math.abs(sourceDuty) > 0) {
+      var circIn = 0, circOut = 0;
+      Object.keys(links).forEach(function (id) {
+        var q = links[id].qW;
+        if (!isFinite(q)) return;
+        if (q > 0) circIn += q; else circOut -= q;
+      });
+      var scale = Math.max(circIn, circOut);
+      if (Math.abs(sourceDuty) > Math.max(100, scale * pctLim / 100)) {
+        var where = ref.pinned
+          ? 'the pinned datum at ' + ref.pinned.node
+          : 'the source';
+        var removing = sourceDuty < 0;
+        warnings.push({
+          code: 'HEAT_IMBALANCE',
+          watts: sourceDuty,
+          node: ref.pinned ? ref.pinned.node : null,
+          message: Math.abs(sourceDuty / 1000).toFixed(1) + ' kW is being ' +
+                   (removing ? 'removed at ' : 'added at ') + where +
+                   ' to hold its stated temperature, and nothing in the model ' +
+                   'does that work. Either the ' +
+                   (removing ? 'cooling' : 'heating') + ' plant is short by ' +
+                   'that much, or the stated temperature is wrong. See the ' +
+                   'heat balance on the calculation sheet.'
+        });
+      }
+    }
+
     var errors = [];
     var outside = [];
     Object.keys(T).forEach(function (id) {

@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1468
+This is deliberately separate from the automated suites. Those cover 1478
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -208,11 +208,12 @@ the preview browser renders no pixels.
 | # | What | Status | Notes |
 |---|---|---|---|
 | TH.1 | Heat balance, leading on the residual | ⬜ | Verified live on the stacked-riser example: residual −0.000 kW, "balanced". |
-| TH.2 | **The source/fill term** | ⬜ | **Worth your eye.** A source holds its temperature whatever arrives, so it is a duty. On the example it reads "Absorbed at the source −6.30 kW — the plant is short by this much". That is a real finding about the example, not a rounding error. |
+| TH.2 | **The source/fill term**, now with a warning | ⬜ | **Worth your eye.** A source holds its temperature whatever arrives, so it is a duty. On the example it reads "Absorbed at the source −6.30 kW — the plant is short by this much". That is a real finding about the example, not a rounding error. |
 | TH.3 | Equipment duty table | ⬜ | Tag, type, flow, in/out, ΔT, Q, and what limited it. |
 | TH.4 | Pipework heat gain / loss | ⬜ | Every pipe: length, insulation, U′, in/out, Q in watts. Totals for gain, loss, net, and **net as a % of equipment duty** — the number you actually use it for. On the example: +0.178 kW, 2.9%. |
 | TH.5 | Every pipe is listed, including zero rows | ⬜ | Deliberate: a zero row on a well-insulated main is a result, and leaving it out makes the total impossible to check by adding up. Say if you'd rather they were suppressed. |
 | TH.6 | The section is collapsed by default | ⬜ | So it does not print unless you open it, per the existing convention. |
+| TH.7 | `HEAT_IMBALANCE` warning (v0.14.2) | ⬜ | Fires above 2% of circulating duty (adjustable, HYDRAULIC ▸ Heat balance tolerance). On the stacked-riser example: "6.3 kW is being removed at the source to hold its stated temperature… the cooling plant is short by that much, or the stated temperature is wrong." |
 
 ## 4P. DXF EXPORT and the message UX pass (v0.14.0)
 

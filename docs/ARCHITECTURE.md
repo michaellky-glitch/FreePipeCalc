@@ -1649,6 +1649,23 @@ terms were missing, and both are real physics rather than bookkeeping:
   temperature datum, because mass is conserved and an arbitrary offset in T
   cancels between the two sums.
 
+**And a significant `sourceDuty` is now a WARNING** (`HEAT_IMBALANCE`, v0.14.2,
+Michael's instruction). Measuring it was not enough: a plant that cannot keep up
+would otherwise report a perfectly plausible answer while the fill quietly does
+impossible work.
+
+Worth being clear that the BEHAVIOUR is not new — a reference node has held its
+temperature whatever arrives since v0.10.0, the first thermal commit. The only
+version of it anyone ever saw was a thermal RUNAWAY, and only in models where
+nothing pins the temperature at all: there the surplus has to raise the water
+until the pipework sheds it. Put a source or a pinned datum in the same model
+and it vanishes instead, which is the worse failure of the two because a runaway
+announces itself.
+
+The threshold is relative — `warn.heatBalance`, default 2% of the circulating
+duty — because a fill connection legitimately carries a trickle and a watt on a
+100 kW plant is noise.
+
 `residual = pipeLoss + equipDuty + sourceDuty − boundary`, and it closes in all
 three cases. `imbalance` is kept beside it because every sealed-circuit
 expectation in the suite reads it, and for a sealed circuit the two are the same
@@ -1740,7 +1757,7 @@ is the strongest claim available.
 
 ## 15. Testing
 
-Seven suites, 1468 assertions, no dependencies:
+Seven suites, 1478 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

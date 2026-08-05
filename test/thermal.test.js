@@ -1946,6 +1946,123 @@ section('The heat balance closes, sealed or open');
          th.sourceDuty, -20000, 50);
   }
 
+  /* ---- 2b. AND IT IS NOW SAID OUT LOUD.
+   *
+   * The behaviour is not new — a reference node has held its temperature
+   * whatever arrives since v0.10.0. What was new in v0.14.1 was MEASURING it,
+   * and Michael's point (2026-08-05) is that measuring it is not enough: a
+   * plant that cannot keep up must raise a warning, or the model reports a
+   * perfectly plausible answer while the fill quietly does impossible work.
+   *
+   * The only version of this anyone ever saw was a thermal RUNAWAY, and only in
+   * models where nothing pins the temperature at all — there the surplus has to
+   * raise the water until the pipework sheds it. Put a source or a pinned datum
+   * in the same model and it vanishes instead. That is the worse failure of the
+   * two, because a runaway announces itself. */
+  {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: 11, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 2, 0));
+    M.setSource(m, n[0].id, 250e3); n[0].device.temperature = 11;
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 15 };
+    const coil = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
+    coil.equip = { qRated: 0.004, pdRated: 50e3, equipType: 'exchanger', duty: 60000 };
+    const ch = M.addPipe(m, n[2].id, n[3].id, { kind: 'equip' });
+    ch.equip = { qRated: 0.004, pdRated: 50e3, equipType: 'source',
+                 tSet: 6, qMax: -40000 };
+    M.addPipe(m, n[3].id, n[4].id, { size: 'DN65', schedule: 'sch40' });
+    M.addPipe(m, n[4].id, n[0].id, { size: 'DN65', schedule: 'sch40' });
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+    const res = NET.solveModel(m);
+
+    const w = (res.warnings || []).filter(x => x.code === 'HEAT_IMBALANCE')[0];
+    ok('HEAT_IMBALANCE is raised', !!w,
+       JSON.stringify((res.warnings || []).map(x => x.code)));
+    near('...quantifying the shortfall', w && w.watts, -20000, 50);
+    ok('...saying which way round it is',
+       !!w && /removed at/.test(w.message) && /cooling plant is short/.test(w.message),
+       w && w.message);
+    ok('...and it is a warning, not a defect', w && w.level === 'warning', w && w.level);
+
+    /* The temperatures are perfectly plausible — 11 to 14.6 °C — which is
+     * exactly why this needed saying. Nothing else in the result objects. */
+    ok('Everything else looks fine, which is the point',
+       res.converged === true &&
+       res.thermal.totals.max < 20 && res.thermal.totals.min > 5,
+       res.thermal.totals.min.toFixed(1) + '…' + res.thermal.totals.max.toFixed(1));
+  }
+  /* ---- 2c. A BALANCED plant says nothing.
+   *
+   * SEALED, with no source at all, so the reference is the datum pinned at the
+   * chiller outlet — and the chiller is already holding that node at exactly
+   * the pinned temperature, so the pin has no work to do. That is what a
+   * balanced circuit looks like: the plant removes what the load adds, and
+   * nothing is left over for a reference node to absorb.
+   *
+   * Getting this rig right took two attempts, and the first failure is worth
+   * recording. A fill connection stated at 11 °C in the return of a circuit
+   * that naturally returns at 9.59 °C makes the pin ADD 83.6 kW — the warning
+   * fired, correctly, on a rig that was labelled "balanced" and was not. A
+   * source in a return line is a temperature-setting device, not a bystander. */
+  {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: 6, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 2, 0));
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 15 };
+    const coil = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
+    coil.equip = { qRated: 0.004, pdRated: 50e3, equipType: 'exchanger', duty: 60000 };
+    const ch = M.addPipe(m, n[2].id, n[3].id, { kind: 'equip' });
+    ch.equip = { qRated: 0.004, pdRated: 50e3, equipType: 'source',
+                 tSet: 6, qMax: -200000 };     // ample, and holds 6 C
+    M.addPipe(m, n[3].id, n[4].id, { size: 'DN65', schedule: 'sch40' });
+    M.addPipe(m, n[4].id, n[5].id, { size: 'DN65', schedule: 'sch40' });
+    M.addPipe(m, n[5].id, n[0].id, { size: 'DN65', schedule: 'sch40' });
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+    const res = NET.solveModel(m);
+
+    near('The chiller removes exactly what the coil adds',
+         res.thermal.totals.equipDuty, 0, 50);
+    near('...so nothing is absorbed at the reference',
+         res.thermal.sourceDuty, 0, 100);
+    ok('A plant that keeps up raises nothing',
+       !(res.warnings || []).some(x => x.code === 'HEAT_IMBALANCE'),
+       JSON.stringify((res.warnings || []).filter(x => x.code === 'HEAT_IMBALANCE')
+                         .map(x => x.message)));
+    near('...and the balance closes', res.thermal.residual, 0, 1e-6);
+  }
+  {
+    /* The threshold is a setting, like every other. */
+    const m = M.create();
+    m.settings.warn.heatBalance = 0;
+    m.settings.thermal = { ambient: 20, supplyTemp: 11, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 2, 0));
+    M.setSource(m, n[0].id, 250e3); n[0].device.temperature = 11;
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 15 };
+    const coil = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
+    coil.equip = { qRated: 0.004, pdRated: 50e3, equipType: 'exchanger', duty: 60000 };
+    const ch = M.addPipe(m, n[2].id, n[3].id, { kind: 'equip' });
+    ch.equip = { qRated: 0.004, pdRated: 50e3, equipType: 'source',
+                 tSet: 6, qMax: -40000 };
+    M.addPipe(m, n[3].id, n[4].id, { size: 'DN65', schedule: 'sch40' });
+    M.addPipe(m, n[4].id, n[0].id, { size: 'DN65', schedule: 'sch40' });
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+    const res = NET.solveModel(m);
+    ok('Zero disables the check',
+       !(res.warnings || []).some(x => x.code === 'HEAT_IMBALANCE'));
+  }
+
   /* ---- 3. A GENUINELY SEALED, BALANCED circuit: no source at all, so nothing
    * is pinned and the two figures agree. This is the case every earlier test in
    * this file reads, and it must not have moved. */

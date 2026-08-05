@@ -137,6 +137,7 @@ the edit; nothing is changed.
 
 | Code | Raised when |
 |---|---|
+| `HEAT_IMBALANCE` | More than `warn.heatBalance` (2%) of the circulating duty is being absorbed at a source or a pinned datum. **A reference node holds its temperature whatever arrives — an infinite reservoir does not warm up — so a plant that cannot keep up hides there.** Silent since v0.10.0 until `sourceDuty` measured it in v0.14.1. The only version anyone saw was a runaway, and only in models where nothing pins the temperature at all. |
 | `THERMAL_DATUM` | No source and no ambient coupling, so a reference temperature was pinned. Reported, never silent. |
 | `THERMAL_SINGULAR` | The temperature field has no unique solution: nothing sets a level and nothing ties the system to ambient. |
 | `THERMAL_LIMIT_OSCILLATION` | Which equipment limit binds kept changing over 30 passes. Check for two machines fighting for the same setpoint. |
@@ -166,6 +167,7 @@ DEFAULTS a user can change — none is transcribed data.
 | `warn.equipFlowRatio` | 2× | `EQUIP_OFF_RATING` | HYDRAULIC |
 | `warn.maxComponentPD` | 2000 kPa | `PRESSURE_IMPLAUSIBLE` | HYDRAULIC |
 | `warn.valveOversized` | 10% | `VALVE_OVERSIZED` | HYDRAULIC |
+| `warn.heatBalance` | 2% | `HEAT_IMBALANCE` | HYDRAULIC |
 | `thermal.tempMin` / `tempMax` | −50 / +50 °C | `THERMAL_LIMIT` | THERMAL |
 | `control.minSpeed` | 0.25 | `CONTROL_AT_LIMIT` | THERMAL |
 | `control.minOpening` | 10% | `CONTROL_AT_LIMIT` | THERMAL |

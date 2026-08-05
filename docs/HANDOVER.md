@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1468 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1478 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,12 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **`HEAT_IMBALANCE`** (v0.14.2) — Michael: "a heat imbalance needs to be a
+  warning." He also asked whether the behaviour was new. **It is not**: a
+  reference node has absorbed any surplus since v0.10.0. The only version anyone
+  saw was a thermal runaway, and only where NOTHING pins the temperature — with
+  a source or a pinned datum present it vanished silently, which is worse.
+  Threshold `warn.heatBalance`, default 2% of the circulating duty.
 * **THE THERMAL SECTION on the calculation sheet** (v0.14.1) — Michael's
   request. Three parts: a HEAT BALANCE leading on the residual, equipment duty,
   and pipework heat gain/loss per pipe with a total and its percentage of the

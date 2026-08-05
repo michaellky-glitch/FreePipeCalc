@@ -188,8 +188,14 @@
        * a large change in Kv. That is a selection problem, not a setting one:
        * the valve is too big. Isolation valves are exempt; a cracked-open
        * isolating valve is a deliberate act. */
+      /* `heatBalance` is how much of the circulating duty may be quietly
+       * absorbed at a source or pinned datum before it is called out, as a
+       * PERCENTAGE. A fill connection legitimately carries a trickle; a plant
+       * that cannot keep up hides in the same place, and used to do so
+       * silently. */
       warn: { velocity: 2.4, pdm: 400, laminar: true, pumpRunout: 120,
-              equipFlowRatio: 2, maxComponentPD: 2000e3, valveOversized: 10 },
+              equipFlowRatio: 2, maxComponentPD: 2000e3, valveOversized: 10,
+              heatBalance: 2 },
       floorToFloor: 3.5,
       grid: { minor: 0.5, major: 5, snap: true },
 
