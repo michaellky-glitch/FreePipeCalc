@@ -1666,6 +1666,22 @@ The threshold is relative — `warn.heatBalance`, default 2% of the circulating
 duty — because a fill connection legitimately carries a trickle and a watt on a
 100 kW plant is noise.
 
+**And it is usually a DRAWING problem.** Michael's objection, 2026-08-05: an
+expansion tank tees off the return with no flow through it, and can only lose a
+trickle by conduction at the tee. He is right, and so is the app — a source only
+imposes its temperature on water that flows THROUGH it, and no water flows
+through a dead leg. Run the same circuit twice:
+
+| Fill connection | Absorbed | Reported |
+|---|---|---|
+| In the return line | −20.0 kW | `HEAT_IMBALANCE` |
+| On a dead-leg tee | **0.0 kW** | nothing |
+
+So `HEAT_IMBALANCE` most often means *"your fill is in the flow path"* — which
+makes it a mains connection rather than an expansion tank.
+`examples/stacked-riser.pnet.json` was drawn that way and has been corrected;
+its 6.3 kW was the example's fault, not the model's.
+
 `residual = pipeLoss + equipDuty + sourceDuty − boundary`, and it closes in all
 three cases. `imbalance` is kept beside it because every sealed-circuit
 expectation in the suite reads it, and for a sealed circuit the two are the same
@@ -1757,7 +1773,7 @@ is the strongest claim available.
 
 ## 15. Testing
 
-Seven suites, 1478 assertions, no dependencies:
+Seven suites, 1490 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

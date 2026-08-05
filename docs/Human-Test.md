@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1478
+This is deliberately separate from the automated suites. Those cover 1490
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -213,7 +213,46 @@ the preview browser renders no pixels.
 | TH.4 | Pipework heat gain / loss | ⬜ | Every pipe: length, insulation, U′, in/out, Q in watts. Totals for gain, loss, net, and **net as a % of equipment duty** — the number you actually use it for. On the example: +0.178 kW, 2.9%. |
 | TH.5 | Every pipe is listed, including zero rows | ⬜ | Deliberate: a zero row on a well-insulated main is a result, and leaving it out makes the total impossible to check by adding up. Say if you'd rather they were suppressed. |
 | TH.6 | The section is collapsed by default | ⬜ | So it does not print unless you open it, per the existing convention. |
+| **TH.8** | **⚑ HEAT ABSORPTION AT A SOURCE — Michael is not satisfied this is right** | ⚠️ | **FLAGGED FOR HIS EYE, 2026-08-05. Do not treat as settled.** His objection: an expansion tank tees off the return with NO FLOW through it, can only lose a trickle by conduction at the tee, and that is normally disregarded. So absent a runaway there should be little or no absorption. See the note below — the experiment says he is right, and the app is right, and my own example was wrong. |
 | TH.7 | `HEAT_IMBALANCE` warning (v0.14.2) | ⬜ | Fires above 2% of circulating duty (adjustable, HYDRAULIC ▸ Heat balance tolerance). On the stacked-riser example: "6.3 kW is being removed at the source to hold its stated temperature… the cooling plant is short by that much, or the stated temperature is wrong." |
+
+### TH.8 — what the experiment showed
+
+Michael's objection is correct, and it turned out to be about WHERE the fill is
+drawn rather than about the thermal model.
+
+The same sealed circuit — 60 kW coil, 40 kW chiller, adiabatic pipework — run
+twice, differing only in where the fill connects:
+
+| Fill connection | Absorbed at source | Circuit temperatures | Reported |
+|---|---|---|---|
+| **In the return line** (every drop passes through it) | −20.0 kW | 11.0 – 14.6 °C | `HEAT_IMBALANCE` |
+| **On a dead-leg tee** (no flow through it) | **0.0 kW** | flat 11 °C | `THERMAL_SINGULAR` |
+
+So:
+
+* **A properly drawn expansion/fill connection absorbs nothing**, exactly as he
+  says. A source only imposes its temperature on water that flows THROUGH it,
+  and no water flows through a dead leg.
+* **The 6.3 kW in `examples/stacked-riser.pnet.json` was my example's fault.** I
+  drew the fill in the return line, where every drop passes through it — which
+  is a mains connection with full flow, not an expansion tank. The example has
+  been corrected.
+* **`HEAT_IMBALANCE` is therefore as much a DRAWING warning as a plant one.**
+  "Your fill is in the flow path" is the commonest way to trigger it.
+
+**And it exposed a real defect, now fixed.** With the fill on a dead leg and the
+plant short, the circuit is genuinely indeterminate — 20 kW into a sealed
+adiabatic loop with nothing to absorb it has no steady state. The solve was
+correctly detecting that (`THERMAL_SINGULAR`) but reporting a **flat 11 °C**,
+which is just the seed, while `converged` stayed **true**. Meaningless numbers
+presented as an answer: the exact silent failure this project keeps having to
+stamp out. `THERMAL_SINGULAR` now clears `converged` like every other
+"these numbers describe nothing" condition.
+
+**Still for Michael:** whether `HEAT_IMBALANCE`'s threshold and wording are
+right once he has seen it on a job, and whether a source in a flow path should
+be called out on its own rather than only through its thermal consequence.
 
 ## 4P. DXF EXPORT and the message UX pass (v0.14.0)
 

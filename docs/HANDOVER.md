@@ -21,7 +21,7 @@ Michael is a Building Services Engineer. He wrote the specification
 whether a result *looks* right to someone who sizes pipes for a living.
 
 Run it: open `index.html` in a browser, or serve the folder over HTTP.
-Tests: `node test/<name>.test.js` — seven files, **1478 assertions, all passing**.
+Tests: `node test/<name>.test.js` — seven files, **1490 assertions, all passing**.
 (The datacentre parallel-pump baseline in `simulation.test.js` was regenerated
 2026-07-30 after the model was rebuilt by hand — see §2.)
 
@@ -315,6 +315,16 @@ the broken example in §2 which solves cleanly and is geometric nonsense.
 
 ## 6. What changed in the last few sessions
 
+* **A FILL ON A DEAD LEG ABSORBS NOTHING** (v0.14.3) — Michael pushed back on
+  the heat-absorption idea: an expansion tank tees off the return with no flow
+  through it. He was right, and so was the app; what was wrong was my EXAMPLE,
+  which drew the fill in the return line where every drop passes through it.
+  Corrected, and both cases are now pinned by tests. `HEAT_IMBALANCE` therefore
+  usually means "your fill is in the flow path".
+  Checking it also found a real defect: a sealed adiabatic loop whose plant
+  cannot keep up is genuinely indeterminate, and `THERMAL_SINGULAR` reported a
+  flat seed temperature beside `converged: true`. It is now an ERROR.
+  **Still flagged for Michael** — Human-Test TH.8.
 * **`HEAT_IMBALANCE`** (v0.14.2) — Michael: "a heat imbalance needs to be a
   warning." He also asked whether the behaviour was new. **It is not**: a
   reference node has absorbed any surplus since v0.10.0. The only version anyone

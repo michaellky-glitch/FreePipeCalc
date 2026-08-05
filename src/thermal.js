@@ -603,6 +603,10 @@
     }
 
     var MAX_SETS = 30;
+    /* Declared here rather than beside the runaway guard below, because the
+     * singular check needs it too — and a `var` that is used 180 lines before
+     * it is written reads as a bug even when hoisting saves it. */
+    var errors = [];
     var solved = null, singular = false, sig = refreshActiveSet(), passes = 0;
     for (var pass = 0; pass < MAX_SETS; pass++) {
       passes = pass + 1;
@@ -624,7 +628,17 @@
       });
     }
     if (singular) {
-      warnings.push({
+      /* NOT a warning any more (2026-08-05). When the temperature field has no
+       * unique solution the reported temperatures are the SEED — a flat
+       * supplyTemp everywhere — and nothing else. Reporting that beside
+       * `converged: true` is meaningless numbers presented as an answer, which
+       * is the failure this project keeps having to stamp out. It is now an
+       * error like every other "these numbers describe nothing" condition, and
+       * the numbers are still shown, because hiding them would leave nothing to
+       * diagnose from. Found while checking Michael's expansion-tank objection:
+       * a sealed adiabatic loop whose plant cannot keep up is genuinely
+       * indeterminate, and said so only in a warning nobody would read. */
+      errors.push({
         code: 'THERMAL_SINGULAR',
         message: 'The temperature field has no unique solution: nothing sets a ' +
                  'level and nothing ties the system to ambient. Give a source a ' +
@@ -798,7 +812,6 @@
       }
     }
 
-    var errors = [];
     var outside = [];
     Object.keys(T).forEach(function (id) {
       var v = T[id];

@@ -61,6 +61,7 @@ Two conventions worth keeping:
 | `THERMAL_LIMIT` | A solved temperature is outside `thermal.tempMin … tempMax`. The runaway guard: the solve is exact, but a correct answer can still be absurd. | Quotes the worst node and the band. |
 | `PRESSURE_IMPLAUSIBLE` | A component ΔP or pump duty exceeds `warn.maxComponentPD` (default 2000 kPa). Shut valves are excluded — `CLOSED_R` is a numerical device, not a pressure. | "…past the 2000 kPa plausibility limit. The arithmetic is right — something in the model is not." |
 | `SETPOINT_LOST` | A controlled device runs out of travel with its setpoint still unmet. The actuator is returned to FULL first. | "System is unable to maintain setpoint. Check heat balance." |
+| `THERMAL_SINGULAR` | The temperature field has no unique solution — nothing sets a level and nothing ties the system to ambient. **Promoted from a warning on 2026-08-05**: the reported temperatures are then just the seed, and presenting a flat supply temperature beside `converged: true` is meaningless numbers dressed as an answer. | Names what to give it: a source temperature, or ambient coupling. |
 
 ### Errors from an edit, not a solve
 
@@ -137,9 +138,8 @@ the edit; nothing is changed.
 
 | Code | Raised when |
 |---|---|
-| `HEAT_IMBALANCE` | More than `warn.heatBalance` (2%) of the circulating duty is being absorbed at a source or a pinned datum. **A reference node holds its temperature whatever arrives — an infinite reservoir does not warm up — so a plant that cannot keep up hides there.** Silent since v0.10.0 until `sourceDuty` measured it in v0.14.1. The only version anyone saw was a runaway, and only in models where nothing pins the temperature at all. |
+| `HEAT_IMBALANCE` | More than `warn.heatBalance` (2%) of the circulating duty is being absorbed at a source or a pinned datum. **Usually a DRAWING problem**: a fill drawn IN the return line has every drop passing through it, which makes it a mains connection rather than an expansion tank. A fill on a dead-leg tee absorbs nothing, which is what an expansion connection really does. **A reference node holds its temperature whatever arrives — an infinite reservoir does not warm up — so a plant that cannot keep up hides there.** Silent since v0.10.0 until `sourceDuty` measured it in v0.14.1. The only version anyone saw was a runaway, and only in models where nothing pins the temperature at all. |
 | `THERMAL_DATUM` | No source and no ambient coupling, so a reference temperature was pinned. Reported, never silent. |
-| `THERMAL_SINGULAR` | The temperature field has no unique solution: nothing sets a level and nothing ties the system to ambient. |
 | `THERMAL_LIMIT_OSCILLATION` | Which equipment limit binds kept changing over 30 passes. Check for two machines fighting for the same setpoint. |
 | `NO_THERMAL_REFERENCE` | Nothing in the model states a temperature. |
 

@@ -2090,4 +2090,109 @@ section('The heat balance closes, sealed or open');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * A FILL CONNECTION IS A DEAD LEG, AND ABSORBS NOTHING
+ *
+ * Michael's objection, 2026-08-05, and he was right: an expansion tank tees off
+ * the return with NO FLOW through it. It can only lose a trickle by conduction
+ * at the tee, which is normally disregarded. So absent a runaway there should
+ * be little or no heat absorbed there.
+ *
+ * The app already behaves that way, because a source only imposes its
+ * temperature on water that flows THROUGH it — and no water flows through a
+ * dead leg. What was wrong was the EXAMPLE: `stacked-riser` had the fill in the
+ * return line, where every drop passes through it, which is a mains connection
+ * rather than an expansion tank.
+ *
+ * Both cases are pinned here so the distinction cannot quietly reverse.
+ * ----------------------------------------------------------------------- */
+section('A fill on a dead leg absorbs nothing; one in the return line does');
+{
+  /* One circuit, one difference: where the fill connects. Coil +60 kW, chiller
+   * −40 kW, adiabatic pipework — deliberately 20 kW short, so any absorption
+   * has somewhere obvious to show up. */
+  function circuit(where, cap) {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: 11, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 3, 0));
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 15 };
+    const coil = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
+    coil.equip = { qRated: 0.004, pdRated: 50e3, equipType: 'exchanger', duty: 60000 };
+    const ch = M.addPipe(m, n[2].id, n[3].id, { kind: 'equip' });
+    ch.equip = { qRated: 0.004, pdRated: 50e3, equipType: 'source',
+                 tSet: 6, qMax: cap === undefined ? -40000 : cap };
+    M.addPipe(m, n[3].id, n[4].id, { size: 'DN65', schedule: 'sch40' });
+    M.addPipe(m, n[4].id, n[0].id, { size: 'DN65', schedule: 'sch40' });
+    if (where === 'inline') {
+      M.setSource(m, n[0].id, 250e3); n[0].device.temperature = 11;
+    } else {
+      const t = M.addNode(m, lv, 12, 4);
+      M.addPipe(m, n[4].id, t.id, { size: 'DN20', schedule: 'sch40' });
+      M.setSource(m, t.id, 250e3); t.device.temperature = 11;
+    }
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+    return { m, res: NET.solveModel(m) };
+  }
+
+  /* ---- THE ONE THAT MATTERS: a real expansion connection. */
+  {
+    const t = circuit('deadleg', -200000);          // plant ample, so determinate
+    const th = t.res.thermal;
+    near('A dead-leg fill absorbs nothing', th.sourceDuty, 0, 1);
+    ok('...and raises no heat-imbalance warning',
+       !(t.res.warnings || []).some(w => w.code === 'HEAT_IMBALANCE'),
+       JSON.stringify((t.res.warnings || []).map(w => w.code)));
+    ok('...while the circuit still develops a real temperature spread',
+       th.totals.max - th.totals.min > 3,
+       th.totals.min.toFixed(2) + ' … ' + th.totals.max.toFixed(2) + ' °C');
+    near('...and the balance closes', th.residual, 0, 1);
+  }
+
+  /* ---- THE SAME FILL IN THE RETURN LINE is a different device: every drop
+   * passes through it, so it sets the temperature and absorbs the shortfall. */
+  {
+    const t = circuit('inline');
+    const th = t.res.thermal;
+    near('In the return line it absorbs the whole shortfall', th.sourceDuty, -20000, 50);
+    ok('...and says so', (t.res.warnings || []).some(w => w.code === 'HEAT_IMBALANCE'));
+  }
+
+  /* ---- AND THE INDETERMINATE CASE IS AN ERROR, not a plausible-looking answer.
+   *
+   * A dead-leg fill with a plant that cannot keep up: 20 kW into a sealed
+   * adiabatic loop with nothing to absorb it has NO steady state. The solve
+   * detects that, but it used to report the seed temperature — a flat 11 °C —
+   * beside `converged: true`. Meaningless numbers presented as an answer. */
+  {
+    const t = circuit('deadleg', -40000);
+    ok('An indeterminate temperature field is an ERROR',
+       (t.res.errors || []).some(e => e.code === 'THERMAL_SINGULAR'),
+       JSON.stringify((t.res.errors || []).map(e => e.code)));
+    ok('...and it clears converged', t.res.converged === false);
+    /* The numbers are still reported — hiding them would leave nothing to
+     * diagnose from — and they are transparently the seed. */
+    ok('...with the temperatures still shown',
+       t.res.thermal && t.res.thermal.totals.max !== null);
+  }
+
+  /* ---- The shipped example must stay a PROPER fill connection. */
+  {
+    const fs = require('fs');
+    const path = require('path');
+    const raw = fs.readFileSync(
+      path.join(__dirname, '..', 'examples', 'stacked-riser.pnet.json'), 'utf8');
+    const ex = NET.solveModel(M.fromJSON(JSON.parse(raw)));
+    near('examples/stacked-riser absorbs nothing at its fill',
+         ex.thermal.sourceDuty, 0, 1);
+    ok('...and raises no heat-imbalance warning',
+       !(ex.warnings || []).some(w => w.code === 'HEAT_IMBALANCE'));
+    ok('...and still solves clean', ex.converged === true,
+       JSON.stringify((ex.errors || []).map(e => e.code)));
+  }
+}
+
 report();
