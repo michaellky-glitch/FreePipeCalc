@@ -2141,6 +2141,84 @@ sibling file is blocked by the same rule that rules out ES modules. That is not
 a bug to fix; the tab detects it and says so, pointing at the files on disk.
 Serving the folder over HTTP makes it work.
 
+## 17E. The four modes, and why DESIGN and SIMULATE stay separate
+
+Michael asked (2026-08-06) whether the two are still different enough to be
+modes, or whether they should merge and show simulation values throughout. They
+must stay. They are not two views of one calculation — they are **different
+boundary conditions**, and every one of these is a genuine `if` in the engine:
+
+| | DESIGN | SIMULATION |
+|---|---|---|
+| An outflow is | an **imposed flow** | a **resistance**, `K = Q/√ΔP` — it takes what it is given |
+| A pump is | a fixed head the sizer solves for | its **curve**; the operating point is curve ∩ system |
+| `autoSizePumps` | runs | skipped — the duty is an input |
+| VFD speed | ignored (§17C) | applied, scaling the curve |
+| Control loops | not run | `runControls` runs |
+| Parallel pumps | need a synthesised droop characteristic | real curves already remove the degeneracy |
+
+DESIGN asks *"what size must this be for these flows?"* — flows given, sizes the
+answer. SIMULATION asks *"given these sizes, what happens?"* — sizes given, flows
+the answer. **Merging them would remove the ability to size anything**, and
+SIMULATION cannot even start without a curve, which is something DESIGN produces.
+
+**What is actually hybrid is one thing, and it is worth naming.** `res.actual`
+— the pressure-driven second pass reported in brackets — is computed in DESIGN
+too, and it is a simulation-shaped number appearing in a design answer. That is
+the leak Michael can feel. It is deliberate (a design that cannot deliver should
+say so on the spot) but it is the only one.
+
+### A mode is a tool palette; two of them also set the calculation
+
+DESIGN draw it · CONTROL wire it up · SIMULATE run it · ANNOTATION arrange it.
+
+DESIGN and SIMULATE set `calcMode`, because it would be strange for the button
+named SIMULATE not to simulate. **CONTROL and ANNOTATION deliberately do not.**
+A control link only does anything in SIMULATION, so forcing CONTROL back to
+DESIGN would blank every valve position at the exact moment you went to look at
+them. `app.uiMode` is the single answer to "where am I", and picking a tool from
+anywhere pulls the ribbon to the mode that tool lives in, so the palette and the
+tool cannot disagree.
+
+Tools are grouped by **what the thing is** — Pipe, Hydraulic, Thermal, Valves —
+with the group named on the ribbon, so a tool is found by asking "what am I
+placing?" rather than by remembering where it sits. The valve type was a
+dropdown and the equipment type was not choosable at all (you placed generic
+equipment and then found Type in the panel); both are buttons now, one per kind,
+carried as a `data-variant` on a single tool so that hit-testing, insertion and
+the mode hint stay one code path.
+
+## 17F. The property panel: three levels
+
+    L1  what is selected       the panel heading
+    L2  a category of data     a collapsible section
+    L3  the individual fields
+
+Every device is built from the same sections in the same order — **Details,
+Design, Actual, Control, Display** — so the panel does not rearrange itself
+between one device and the next. "The flow it is actually doing" is in the same
+place on a pump as on a coil.
+
+**Open/closed is remembered per SECTION NAME, not per device**, in
+`localStorage`. `renderProperties` rebuilds this DOM from scratch on every solve,
+so the state cannot live in the elements; and keyed by name, collapsing Display
+collapses it everywhere, which is what someone who does not use it wants.
+
+Two rules that fall out of it:
+
+* **A value that is not yours to type is shown, not hidden.** A pump's design
+  duty is editable on Manual and read-only on Auto and Curve. Hiding it made the
+  panel change height and shuffle everything below it whenever the dropdown
+  moved, and left you unable to read the duty the sizer had chosen without
+  switching to Manual.
+* **Display is always present.** It used to appear only while the VIEW tool was
+  active — a control you had to already know about, since you cannot discover it
+  from a different mode. As a section it costs one line closed.
+
+`field()` returns the CONTROL, not the wrapper, because that is what callers
+wire their change handler to. `fieldLabel(control)` goes back up for the
+`<label>`; doing it inline reads as though `field` returned the wrapper.
+
 ## 17A. UI text is terse
 
 A control gets a label. If a note is genuinely required it goes behind a 🛈

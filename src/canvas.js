@@ -583,7 +583,7 @@
         if (ch) {
           self.dragControl = { pipe: ch.pipe, host: ch.host, key: ch.key,
                                axis: ch.axis, from: ch.from, to: ch.to,
-                               startW: w };
+                               tap: ch.tap, startW: w };
           c.setPointerCapture(e.pointerId);
           return;
         }
@@ -640,6 +640,26 @@
         var pp = self.pipeAt(w.x, w.y, PROBE_PX);
         self.probe = pp ? { pipe: pp.pipe, t: pp.t, point: pp.point } : null;
         self.render();
+        return;
+      }
+      /* THE CONTROL LINK TOOL. Click the controller, then its target — the
+       * same two-click gesture the panel button already started, but reachable
+       * without first selecting the pump and finding the button. Michael's UI
+       * pass, 2026-08-06: linking is a thing you DO on the drawing, so it
+       * belongs on the ribbon beside the sensors it links to.
+       *
+       * The second click is handled by the `controlPick` branch above, so there
+       * is one implementation of "what may be linked to what". */
+      if (self.tool === 'link') {
+        var lp = self.deviceAt(w.x, w.y) || (self.pipeAt(w.x, w.y) || {}).pipe;
+        if (lp && M.canControl(lp)) {
+          self.controlPick = { pipeId: lp.id };
+          self.onMessage('Now click the sensor or equipment ' +
+                         (lp.tag || lp.id) + ' should follow.');
+          self.render();
+        } else {
+          self.onMessage('Click a pump or a control valve first.', 'error');
+        }
         return;
       }
       if (self.tool === 'pipe') { self.drawClick(w); return; }
@@ -828,6 +848,22 @@
          * `valve.control` or `sensor.route`. Resolving it from the pipe's KIND
          * worked while only pumps and valves had routes; the differential
          * sensor has one too now, and one route object is one drag handler. */
+        /* THE FAR TAPPING: projected onto its pipe and stored as a fraction
+         * along, so it stays ON the run however far off it the mouse strays. */
+        if (dc.host && dc.tap) {
+          var rpp = M.pipe(self.getModel(), dc.host.ref);
+          var rna = rpp && M.node(self.getModel(), rpp.a);
+          var rnb = rpp && M.node(self.getModel(), rpp.b);
+          if (rna && rnb) {
+            var wa2 = M.worldXY(self.getModel(), rna), wb2 = M.worldXY(self.getModel(), rnb);
+            var vx = wb2.x - wa2.x, vy = wb2.y - wa2.y;
+            var l2 = vx * vx + vy * vy;
+            var t2 = l2 > 0 ? ((w.x - wa2.x) * vx + (w.y - wa2.y) * vy) / l2 : 0.5;
+            dc.host.refT = Math.max(0, Math.min(1, t2));
+            self.render();
+          }
+          return;
+        }
         if (dc.host) {
           var route = dc.host[dc.key] || (dc.host[dc.key] = {});
           var dx = Math.abs(w.x - dc.startW.x), dy = Math.abs(w.y - dc.startW.y);
@@ -1113,6 +1149,11 @@
     if (tool !== 'probe') { this.probe = null; this.probeHover = null; }
     this.tool = tool;
     this.calibrating = null;
+    /* A half-finished pick belongs to the tool that started it. Leaving one
+     * armed across a tool change meant the next click anywhere linked something
+     * you had stopped trying to link. */
+    this.controlPick = null;
+    this.refPick = null;
     this.canvas.style.cursor = (tool === 'edit') ? 'default'
                             : (tool === 'view' || tool === 'trace' || tool === 'align') ? 'move'
                             : 'crosshair';
@@ -1220,7 +1261,7 @@
    * that prefix, so deleting PMP-2 and drawing another gives PMP-2 back rather
    * than climbing forever. */
   var TAG_PREFIX = { source: 'SRC', demand: 'OF', pump: 'PMP', equip: 'AHU',
-                     sensor: 'TS' };
+                     adiabatic: 'STR', sensor: 'TS' };
 
   /* In-line 2-port devices: they sit IN a pipe rather than at a node, are drawn
    * as a point symbol on a short link, and are hit-tested at their midpoint. */
@@ -1317,27 +1358,64 @@
     if (pmp && !pmp.tag) { pmp.tag = this.nextTag('pump'); this.changed(); }
   };
 
-  /* SENSOR: an instrument dropped into a run. Defaults to a temperature
-   * setpoint, because thermostatic mixing is the case it was asked for. */
+  /* SENSOR: an instrument dropped into a run. `toolVariant` says WHICH, from
+   * the ribbon — one button per measurement rather than a generic sensor you
+   * then have to retype in the panel (Michael's UI pass, 2026-08-06). The
+   * setpoint default goes with it, since a flow sensor defaulting to 45 °C was
+   * never going to be right.
+   *
+   * A DIFFERENTIAL is placed without a reference and asks for the second pipe
+   * straight away: it is not a usable sensor until it has one, so waiting for
+   * the user to find the button in the panel is a step with no decision in it. */
+  var SENSOR_DEFAULT = {
+    temperature: { mode: 'temperature', tSet: 45 },
+    flow:        { mode: 'flow' },
+    pressure:    { mode: 'pressure' },
+    dP:          { mode: 'dP' },
+    dT:          { mode: 'dT' }
+  };
   View.prototype.sensorClick = function (w) {
+    var def = SENSOR_DEFAULT[this.toolVariant] || SENSOR_DEFAULT.temperature;
     var sn = this.insertInline(w, 'sensor', {
-      sensor: { mode: 'temperature', tSet: 45 }
+      sensor: JSON.parse(JSON.stringify(def))
     }, 'sensor');
-    if (sn && !sn.tag) { sn.tag = this.nextTag('sensor'); this.changed(); }
+    if (!sn) return;
+    if (!sn.tag) { sn.tag = this.nextTag('sensor'); this.changed(); }
+    if (def.mode === 'dP' || def.mode === 'dT') {
+      this.refPick = { pipeId: sn.id };
+      this.onMessage && this.onMessage('Now click the second pipe to measure against.');
+      this.render();
+    }
   };
 
+  /* EQUIPMENT, likewise one button per TYPE. The defaults differ because the
+   * two types state different things: a source/sink states a leaving
+   * temperature, an exchanger states a load, and an adiabatic item states
+   * neither. */
+  var EQUIP_DEFAULT = {
+    source:    { qRated: 0.02, pdRated: 200000, qOut: 0.02,
+                 equipType: 'source', tSet: 6, dTMax: 6 },
+    exchanger: { qRated: 0.02, pdRated: 200000, qOut: 0.02,
+                 equipType: 'exchanger', duty: 20000 },
+    adiabatic: { qRated: 0.02, pdRated: 20000, qOut: 0.02,
+                 equipType: 'adiabatic' }
+  };
   View.prototype.equipClick = function (w) {
+    var def = EQUIP_DEFAULT[this.toolVariant] || EQUIP_DEFAULT.exchanger;
     var eq = this.insertInline(w, 'equip', {
-      equip: { qRated: 0.02, pdRated: 200000, qOut: 0.02 }
+      equip: JSON.parse(JSON.stringify(def))
     }, 'equipment');
-    if (eq && !eq.tag) { eq.tag = this.nextTag('equip'); this.changed(); }
+    if (eq && !eq.tag) {
+      eq.tag = this.nextTag(def.equipType === 'adiabatic' ? 'adiabatic' : 'equip');
+      this.changed();
+    }
   };
 
   View.prototype.valveClick = function (w) {
     var m = this.getModel();
     var hit = this.pipeAt(w.x, w.y, DEVICE_SNAP_PX);
     var bore = hit ? M.pipeBore(m, hit.pipe) * 1000 : 50;
-    var type = this.valveType || 'gate';
+    var type = this.toolVariant || this.valveType || 'gate';
     this.insertInline(w, 'valve', {
       valve: {
         type: type,
@@ -2595,6 +2673,16 @@
             x: g.x - 7, y: g.y - 7, w: 14, h: 14
           });
         });
+        /* AND THE FAR TAPPING SLIDES ALONG ITS OWN PIPE (Michael, 2026-08-06).
+         * A separate kind of handle because it has a different freedom: the
+         * route's vertices move the annotation, this one moves WHERE ON THE
+         * PIPE the reading is taken from. Constrained to the pipe, so it cannot
+         * be dragged off the thing it is measuring. */
+        self.labelHandle(lastP.x - 5, lastP.y - 5, 10, 10);
+        self._controlHandles.push({
+          pipe: p, host: p.sensor, key: 'refT', tap: true,
+          x: lastP.x - 7, y: lastP.y - 7, w: 14, h: 14
+        });
       }
 
       this.drawTag(p, mx, my);
@@ -3652,13 +3740,21 @@
     });
   };
 
+  /* THE NEAREST handle, not the last one drawn.
+   *
+   * Handles overlap — a sensor's tapping can sit under a control link's bend —
+   * and "whichever was pushed last" made which one you got depend on draw
+   * order, which is not something the user can see. Nearest centre is the
+   * answer they would predict from where they clicked. */
   View.prototype.controlHandleAt = function (sx, sy) {
-    var hs = this._controlHandles || [];
-    for (var i = hs.length - 1; i >= 0; i--) {
+    var hs = this._controlHandles || [], best = null, bestD = Infinity;
+    for (var i = 0; i < hs.length; i++) {
       var h = hs[i];
-      if (sx >= h.x && sx <= h.x + h.w && sy >= h.y && sy <= h.y + h.h) return h;
+      if (sx < h.x || sx > h.x + h.w || sy < h.y || sy > h.y + h.h) continue;
+      var d = Math.hypot(sx - (h.x + h.w / 2), sy - (h.y + h.h / 2));
+      if (d < bestD) { bestD = d; best = h; }
     }
-    return null;
+    return best;
   };
 
   FD.View = View;

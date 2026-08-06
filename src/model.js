@@ -1575,17 +1575,37 @@
    * is far better, and it is the same object the control link already is.
    *
    * Null when the sensor is not differential or has no reference yet. */
+  /* WHERE THE SECOND TAPPING SITS ON ITS PIPE. `refT` is the fraction along it,
+   * defaulting to the middle.
+   *
+   * A tapping is a physical point on a run and the middle is rarely where you
+   * would actually fit one — Michael, 2026-08-06: "please also allow the user
+   * to drag the second point of the dP/dT sensor along the pipe". It moves the
+   * DRAWING only: the reading is taken at the pipe's inlet node either way,
+   * because a pipe is one link with one pressure at each end and there is no
+   * pressure profile along it to read from. */
+  function sensorRefPoint(m, p) {
+    var ref = pipe(m, p.sensor.ref);
+    if (!ref) return null;
+    var a = node(m, ref.a), b = node(m, ref.b);
+    if (!a || !b) return null;
+    var wa = worldXY(m, a), wb = worldXY(m, b);
+    var t = Number(p.sensor.refT);
+    if (!isFinite(t)) t = 0.5;
+    t = Math.max(0, Math.min(1, t));
+    return { x: wa.x + (wb.x - wa.x) * t, y: wa.y + (wb.y - wa.y) * t,
+             pipe: ref, t: t };
+  }
+
   function sensorRoute(m, p) {
     if (!p || p.kind !== 'sensor' || !p.sensor) return null;
     var sm = p.sensor.mode;
     if (sm !== 'dP' && sm !== 'dT') return null;
     if (!p.sensor.ref) return null;
-    var ref = pipe(m, p.sensor.ref);
-    if (!ref) return null;
-    var a = deviceMid(m, p), b = deviceMid(m, ref);
+    var a = deviceMid(m, p), b = sensorRefPoint(m, p);
     if (!a || !b) return null;
     var r = p.sensor.route || {};
-    return zRoute(a, b, r.axis, r.mid);
+    return zRoute(a, { x: b.x, y: b.y }, r.axis, r.mid);
   }
 
   function clearDevice(m, nodeId) {
@@ -1779,6 +1799,7 @@
     pumpSizing: pumpSizing, pumpRunMode: pumpRunMode, generateCurve: generateCurve, pumpCurve: pumpCurve,
     pumpSpeedIgnored: pumpSpeedIgnored, pumpHead: pumpHead,
     controlRoute: controlRoute, sensorRoute: sensorRoute, zRoute: zRoute,
+    sensorRefPoint: sensorRefPoint,
     deviceMid: deviceMid,
     equipRatedC: equipRatedC,
     equipDutyFromDT: equipDutyFromDT,

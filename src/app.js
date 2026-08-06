@@ -1840,6 +1840,15 @@
     return control;
   }
 
+  /* The <label> of a field, for hanging an info marker on. `field` returns the
+   * CONTROL — that is what callers wire their change handler to — so reaching
+   * the label means going back up one. Worth a name, because doing it inline
+   * reads as though `field` returned the wrapper, and it does not. */
+  function fieldLabel(control) {
+    return control && control.parentNode
+      ? control.parentNode.querySelector('label') : null;
+  }
+
   /* The design K factor of anything that behaves as a resistance: an outflow,
    * a pump's design duty, a piece of equipment. K = Q_d/√ΔP_d — the same
    * design point the solver turns into r = ΔP_d/(ρ·g·Q_d²), stated the way an
@@ -1905,40 +1914,53 @@
     var c = M.controlOf(p);
     var target = c ? M.pipe(m, c.equip) : null;
 
-    var wrap = el('div', 'field');
-    var lbl = el('label', '', 'Control');
-    infoMark(lbl, 'Modulate to hold a piece of equipment’s setpoint. Shown as a ' +
-                  'dashed green line.');
-    wrap.appendChild(lbl);
-
-    var row = el('div', 'btn-row');
+    /* L2 CONTROL. `Monitoring` names what it watches, `Holding` lists the
+     * setpoints it may chase. Renamed at Michael's request, 2026-08-06: "Clear
+     * control" and "Reset route" are what they do to the MODEL, and the panel
+     * should say what they do to the link. */
+    var sec = section(host, 'Control');
     var picking = !!(app.view.controlPick && app.view.controlPick.pipeId === p.id);
-    var btn = el('button', 'btn' + (picking ? ' active' : ''),
-      picking ? 'Pick equipment…' : (c ? 'Clear control' : 'Control'));
-    btn.addEventListener('click', function () {
-      if (picking) { app.view.controlPick = null; }
-      else if (c) { pushUndo(); M.setControl(m, p, null); changed(); }
-      else { app.view.controlPick = { pipeId: p.id };
-             toast('Click the equipment to follow.'); }
-      renderProperties(); app.view.render();
-    });
-    row.appendChild(btn);
-    if (c) row.appendChild(resetRouteBtn(c));
-    wrap.appendChild(row);
-    host.appendChild(wrap);
-    if (!target) return;
 
-    /* WHAT IT IS MONITORING, then WHAT IT IS HOLDING — Michael's structure,
-     * 2026-08-04. The machine on its own line, then one switch per setpoint it
-     * offers, in the order they are chased.
+    sec.ro('Monitoring', target ? (target.tag || target.id) : '\u2014');
+    var row = el('div', 'btn-row');
+    if (!c || picking) {
+      var link = el('button', 'btn' + (picking ? ' active' : ''),
+        picking ? 'Pick a target\u2026' : 'Link sensor');
+      link.title = 'Follow a sensor\u2019s setpoint, or a machine\u2019s own';
+      link.addEventListener('click', function () {
+        if (picking) { app.view.controlPick = null; }
+        else { app.view.controlPick = { pipeId: p.id };
+               toast('Click the sensor or equipment to follow.'); }
+        renderProperties(); app.view.render();
+      });
+      row.appendChild(link);
+    } else {
+      var rm = el('button', 'btn', 'Remove control');
+      rm.addEventListener('click', function () {
+        pushUndo(); M.setControl(m, p, null); changed();
+        renderProperties(); app.view.render();
+      });
+      row.appendChild(rm);
+      var rl = resetRouteBtn(c);
+      rl.textContent = 'Reset link';
+      row.appendChild(rl);
+    }
+    sec.box.appendChild(row);
+    if (!target) {
+      infoMark(sec.box.querySelector('.kv .k'),
+               'Modulate to hold a setpoint. Shown as a dashed green line on ' +
+               'the drawing.');
+      return;
+    }
+    host = sec.box;
+
+    /* WHAT IT IS HOLDING — one switch per setpoint the target offers, in the
+     * order they are chased. Michael's structure, 2026-08-04.
      *
      * More than one can be on, and the ORDER is a fallback rather than a blend:
      * chase the first, and only if it turns out to be unreachable chase the
      * next. One actuator cannot hold two things at once, and pretending it can
      * is how a control loop starts oscillating. */
-    var mon = readoutBox(host, null);
-    mon.ro('Monitoring', target.tag || target.id);
-
     /* Rendered in the order the engine will chase them, which is the stored
      * one if there is one — the list and the solve must not disagree about
      * which is primary. */
@@ -1962,6 +1984,7 @@
      * of radio buttons ever would. The chosen order is stored on the CONTROLLER
      * as `control.order`, beside the toggles, because two pumps following one
      * machine may legitimately rank its setpoints differently. */
+    host.appendChild(el('div', 'kv-head', 'Holding'));
     var listWrap = el('div', 'setpoint-list');
     opts.forEach(function (o, i) {
       var row = el('div', 'setpoint-row');
@@ -2031,7 +2054,9 @@
 
     if (dev) {
       var ab = readoutBox(host, null);
-      ab.ro('Holding', (dev.holding || '—') +
+      /* WHICH of the switches above it actually ended up chasing, which is the
+       * fallback rule's visible outcome — not a second "Holding" heading. */
+      ab.ro('Now holding', (dev.holding || '—') +
             (dev.fellBack ? ' (fallback)' : ''));
       ab.ro(dev.quantity === 'speed' ? 'Speed' : 'Opening',
             Math.round(dev.value * 100) + '%' +
@@ -2409,16 +2434,38 @@
   /* VIEW mode: which of this entity's values are echoed on the drawing.
    * Only offered in VIEW, because that is the mode for arranging a drawing
    * for print — in EDIT they would be noise. */
+  /* L2 DISPLAY — what this item writes on the drawing.
+   *
+   * It used to appear only while the VIEW tool was active, which meant the
+   * switches were somewhere you had to already know about: you cannot discover
+   * a control by being in a different mode from it. As a collapsible section it
+   * is always in the same place and costs one line when closed. Michael's UI
+   * pass, 2026-08-06. */
   function displayChecks(host, obj, opts) {
-    if (app.view.tool !== 'view') return;
-    host.appendChild(el('h3', 'sub', 'Show on drawing'));
+    var sec = section(host, 'Display');
     opts.forEach(function (o) {
-      switchRow(host, o.label, !!M.displayFlags(obj)[o.key], function (on) {
+      switchRow(sec.box, o.label, !!M.displayFlags(obj)[o.key], function (on) {
         pushUndo();
         M.setDisplayFlag(obj, o.key, on);
         changed(); renderProperties();
       });
     });
+  }
+
+  /* The id the model knows this item by — P7, N33. Not the user's tag: it is
+   * what every message, the calculation sheet and any debug file refer to, so
+   * it belongs on the panel rather than only in the heading. */
+  function idRow(sec, p) { sec.ro('Internal tag', p.id); }
+
+  /* ONLINE / OFFLINE rather than Running / Off (Michael, 2026-08-06). One pair
+   * of words for every device, so a pump, a coil and a valve all read the same
+   * way — and "Off (isolated, no flow)" was describing the modelling rather
+   * than the state. What it MEANS stays behind the marker. */
+  function onlineToggle(host, isOn, apply, why) {
+    var sw = statusToggle(host, isOn, 'Online', 'Offline', apply);
+    var lbl = sw.parentNode && sw.parentNode.querySelector('label');
+    if (lbl && why) infoMark(lbl, why);
+    return sw;
   }
 
   /* Equipment tag. Shared by every in-line device — it is the reference the
@@ -3032,6 +3079,65 @@
    * already uses for its actual duty. Returns the box plus a `ro(k, v)` to add
    * rows with; the box is appended straight away so buttons can follow the
    * rows inside it. */
+  /* ============================================ L2: A COLLAPSIBLE CATEGORY
+   *
+   * Michael's three levels (2026-08-06):
+   *
+   *     L1  what is selected        the panel heading
+   *     L2  a category of data      this
+   *     L3  the individual fields
+   *
+   * Every device panel is built from the same sections in the same order —
+   * Details, Design, Actual, Control, Display — so the panel does not
+   * rearrange itself as you click around a model, and "the flow it is actually
+   * doing" is in the same place on a pump as on a coil.
+   *
+   * OPEN/CLOSED IS REMEMBERED PER SECTION NAME, not per device. `renderProperties`
+   * rebuilds this DOM from scratch on every solve, so the state cannot live in
+   * the elements; and keyed by name it means collapsing "Display" collapses it
+   * for everything, which is what someone who does not use it wants. */
+  var sectionOpen = {};
+  try {
+    var storedSections = window.localStorage.getItem('fpc.sections');
+    if (storedSections) sectionOpen = JSON.parse(storedSections) || {};
+  } catch (e) { /* private browsing, or no storage. Defaults are fine. */ }
+
+  function section(host, name) {
+    var closed = sectionOpen[name] === false;
+    var wrap = el('div', 'sect' + (closed ? ' closed' : ''));
+    var head = el('button', 'sect-head');
+    head.type = 'button';
+    var caret = el('span', 'sect-caret', closed ? '\u25b8' : '\u25be');
+    head.appendChild(caret);
+    head.appendChild(el('span', 'sect-name', name));
+    var body = el('div', 'sect-body');
+    head.addEventListener('click', function () {
+      var nowClosed = !wrap.classList.contains('closed');
+      wrap.classList.toggle('closed', nowClosed);
+      caret.textContent = nowClosed ? '\u25b8' : '\u25be';
+      sectionOpen[name] = !nowClosed;
+      try {
+        window.localStorage.setItem('fpc.sections', JSON.stringify(sectionOpen));
+      } catch (e2) { /* nothing to do; the panel still works for this session */ }
+    });
+    wrap.appendChild(head);
+    wrap.appendChild(body);
+    host.appendChild(wrap);
+
+    /* The same `ro` a readout box offers, so an existing panel body moves into
+     * a section without being rewritten around a different helper. */
+    return {
+      box: body,
+      ro: function (k, v) {
+        var r = el('div', 'kv');
+        r.appendChild(el('span', 'k', k));
+        r.appendChild(el('span', 'v', v));
+        body.appendChild(r);
+        return r;
+      }
+    };
+  }
+
   function readoutBox(host, title) {
     var box = el('div', 'readout');
     if (title) box.appendChild(el('h4', 'readout-title', title));
@@ -3082,13 +3188,15 @@
    * statistics were all shown here once; they describe the curve rather than
    * the duty, and pushed the two numbers that matter off the bottom. The
    * fit-quality warning is kept — a curve that does not fit must stay visible. */
-  function renderPumpCurve(host, p) {
+  /* L2 ACTUAL — what the pump is doing right now, as against what it was sized
+   * for. The two sit in fixed places so they can be read against each other. */
+  function pumpActualSection(host, p) {
     var m = app.model;
     var pu = m.settings.display.pressure, fu = m.settings.display.flow;
-
     var c = p.pump.curve;
+    var sec = section(host, 'Actual');
+    var d = sec.box;
     {
-      var d = readoutBox(host, 'Actual').box;
       function ro(k, v) {
         var r = el('div', 'kv'); r.appendChild(el('span', 'k', k));
         r.appendChild(el('span', 'v', v)); d.appendChild(r);
@@ -3140,7 +3248,15 @@
         }
       }
     }
+  }
 
+  /* The curve controls, which belong with DESIGN because a curve IS the design
+   * statement on a pump sized from one. Renamed at Michael's request: Input /
+   * Show / Clear, three verbs of one word rather than "Paste curve data…". */
+  function pumpCurveButtons(host, p) {
+    var m = app.model;
+    var pu = m.settings.display.pressure, fu = m.settings.display.flow;
+    var c = p.pump.curve;
     var row = el('div', 'btn-row');
 
     /* With no curve, the way to GET one is the offer \u2014 not a paragraph saying
@@ -3157,7 +3273,8 @@
         'design duty, or paste a manufacturer curve below.'));
     }
 
-    var paste = el('button', 'btn', 'Paste curve data\u2026');
+    var paste = el('button', 'btn', 'Input');
+    paste.title = 'Paste a manufacturer curve: two columns, flow then head';
     paste.addEventListener('click', function () {
       FD.dialog.form({
         title: 'Paste pump curve',
@@ -3201,7 +3318,8 @@
     row.appendChild(paste);
 
     if (c) {
-      var tbl = el('button', 'btn', 'Show curve');
+      var tbl = el('button', 'btn', 'Show');
+      tbl.title = 'Plot the curve with the operating point on it';
       tbl.addEventListener('click', function () {
         var rows = FD.pumps.table(c);
         var lines = ['   %      Flow (' + fu + ')      Head (' + pu + ')'].concat(
@@ -3295,69 +3413,55 @@
    * What replaces it is the same two-box shape equipment uses: what the pump
    * was SIZED FOR, and what it is DOING. In DESIGN those agree by
    * construction; in SIMULATION the gap between them is the whole answer. */
+  /* ============================================ L1: PUMP
+   *
+   * Michael's structure, 2026-08-06 — the same five sections every device gets:
+   *
+   *   DETAILS  what it is        DESIGN  what it was sized for
+   *   ACTUAL   what it is doing  CONTROL what it follows
+   *   DISPLAY  what it writes on the drawing
+   *
+   * The order is deliberate and fixed: the panel must not rearrange itself
+   * between one device and the next, or the eye has to re-find everything each
+   * time you click.
+   */
   function renderPumpProps(host, p) {
     var m = app.model, d = m.settings.display;
-    var h3 = el('h3', '', 'Pump ' + p.id);
+    var h3 = el('h3', '', 'Pump ' + (p.tag || p.id));
     infoMark(h3, PUMP_INFO);
     host.appendChild(h3);
 
-    tagField(host, p);
-    /* Not in the requested order, but a pump that cannot be turned round has to
-     * be redrawn to be reversed. Kept between Tag and Status. */
-    flipField(host, p);
+    // ---------------------------------------------------------- L2 DETAILS
+    var det = section(host, 'Details');
+    idRow(det, p);
+    tagField(det.box, p);
+    flipField(det.box, p);
+    onlineToggle(det.box, p.pump.mode !== 'off', function (on) {
+      pushUndo();
+      /* Turning a pump back ON restores the mode ITS SIZING implies. It used
+       * to switch every pump to 'auto' and re-size it, so isolating a
+       * manually-sized pump and putting it back threw the duty away —
+       * Michael, 2026-08-06. */
+      p.pump.mode = on ? M.pumpRunMode(p) : 'off';
+      if (on && M.pumpSizing(p) === 'auto') autoSizePump(p);
+      renderProperties(); changed();
+    }, 'Offline is modelled as ISOLATED — no flow passes through it at all. ' +
+       'Without that, a running pump short-circuits backwards through its idle ' +
+       'neighbours.');
 
-    /* Just running or not. There is no sizing choice to make: DESIGN always
-     * auto-sizes, and SIMULATION always reads the curve. A 'fixed head' option
-     * only ever meant 'a pump that ignores its own curve', which is not a thing
-     * worth being able to model. */
-    statusToggle(host, p.pump.mode !== 'off', 'Running', 'Off (isolated, no flow)',
-      function (on) {
-        pushUndo();
-        /* Turning a pump back ON restores the mode ITS SIZING implies. It used
-         * to switch every pump to 'auto' and re-size it, so isolating a
-         * manually-sized pump and putting it back threw the duty away —
-         * Michael, 2026-08-06. */
-        p.pump.mode = on ? M.pumpRunMode(p) : 'off';
-        if (on && M.pumpSizing(p) === 'auto') autoSizePump(p);
-        renderProperties(); changed();
-      });
-
-    controlField(host, p);
-
-    // ---- design: what this pump was sized for ----
+    // ----------------------------------------------------------- L2 DESIGN
     var dp = pumpDesignPoint(p);
-    var db = readoutBox(host, 'Design');
-    db.ro('Design flow', dp.q === null ? '—' : FD.units.fmtFlow(dp.q, d.flow, true));
-    db.ro('Design pressure', dp.h === null ? '—'
-          : FD.units.fmtPressure(headToPa(dp.h), d.pressure, true) +
-            '  (' + dp.h.toFixed(2) + ' m)');
-    /* The safety factor is a SELECTION margin, not part of the hydraulics.
-     * Baking it into the solve made a 10% margin push 21 L/s through equipment
-     * rated for 20, so it is reported here instead. */
-    var pct = m.settings.pumpSafetyPct || 0;
-    if (pct && dp.h !== null) {
-      var dutyH = dp.h * (1 + pct / 100);
-      db.ro('Select against (+' + pct + '%)',
-            FD.units.fmtPressure(headToPa(dutyH), d.pressure, true) +
-            '  (' + dutyH.toFixed(2) + ' m)');
-    }
-    /* A pump's design duty read as a resistance, so it can be compared with the
-     * terminals it is feeding on the same basis. */
-    designKRow(db, dp.q, dp.h === null ? 0 : headToPa(dp.h));
-    /* HOW THE DUTY IS ARRIVED AT (Michael, 2026-08-05). Three ways, and the
-     * difference is only WHERE the numbers come from — the curve is generated
-     * the same way in the first two:
+    var des = section(host, 'Design');
+
+    /* HOW THE DUTY IS ARRIVED AT. Three ways, and the difference is only WHERE
+     * the numbers come from — the curve is generated the same way in the first
+     * two:
      *
      *   AUTO    the solve sizes the pump, and the curve follows from the duty
      *           it lands on. Nothing to type.
      *   MANUAL  you state the design flow and pressure; the curve follows.
      *   CURVE   you paste a manufacturer's curve and neither is derived.
-     *
-     * The point of the first two is that SIMULATION needs a curve and there was
-     * no way to get one without going to TOOLS and typing the duty a second
-     * time. A curve generated from the design point is not a substitute for a
-     * real one, and the panel says so — but it is a great deal better than
-     * being unable to simulate at all. */
+     */
     if (!p.pump.sizing) p.pump.sizing = M.pumpSizing(p);
     var sizeSel = el('select');
     [['auto', 'Auto'], ['manual', 'Manual'], ['curve', 'Curve']].forEach(function (o) {
@@ -3365,81 +3469,101 @@
       if (o[0] === p.pump.sizing) opt.selected = true;
       sizeSel.appendChild(opt);
     });
-    var szf = el('div', 'field');
-    szf.appendChild(el('label', '', 'Sizing'));
-    szf.appendChild(sizeSel);
-    infoMark(szf.querySelector('label'),
+    field(des.box, 'Sizing', sizeSel);
+    infoMark(fieldLabel(sizeSel),
              'Auto: the solve sizes it. Manual: you state the duty. Curve: you ' +
              'paste a manufacturer curve. Auto and Manual generate a curve from ' +
              'the design point so the model can be simulated.');
-    db.box.appendChild(szf);
     sizeSel.addEventListener('change', function () {
       pushUndo();
       p.pump.sizing = sizeSel.value;
       if (p.pump.mode !== 'off') p.pump.mode = M.pumpRunMode(p);
-        if (p.pump.sizing === 'auto') autoSizePump(p);
+      if (p.pump.sizing === 'auto') autoSizePump(p);
       regenerateCurve(p);
       renderProperties(); changed();
     });
 
-    if (p.pump.sizing === 'manual') {
-      var mq = el('input'); mq.type = 'text';
-      mq.value = dp.q === null ? '' : FD.units.fmtFlow(dp.q, d.flow);
-      field(db.box, 'Design flow (' + d.flow + ')', mq)
-        .addEventListener('change', function () {
-          var v = FD.units.parse(mq.value);
-          if (!(isFinite(v) && v > 0)) { renderProperties(); return; }
-          pushUndo();
-          p.pump.qDesign = FD.units.toSIFlow(v, d.flow);
-          regenerateCurve(p); renderProperties(); changed();
-        });
-      var mh = el('input'); mh.type = 'text';
-      mh.value = dp.h === null ? '' : FD.units.fmtPressure(headToPa(dp.h), d.pressure);
-      field(db.box, 'Design pressure (' + d.pressure + ')', mh)
-        .addEventListener('change', function () {
-          var v = FD.units.parse(mh.value);
-          if (!(isFinite(v) && v > 0)) { renderProperties(); return; }
-          pushUndo();
-          var pa = FD.units.toSIPressure(v, d.pressure);
-          p.pump.head = pa / (m.settings.fluid.density * 9.81);
-          p.pump.hDesign = p.pump.head;
-          regenerateCurve(p); renderProperties(); changed();
-        });
+    /* THE DUTY IS ALWAYS TWO BOXES, whichever sizing mode is on — editable on
+     * Manual, shown but not yours to type on Auto and Curve (Michael,
+     * 2026-08-06). Hiding them made the panel change height and shuffle
+     * everything below it every time the dropdown moved, and left you unable to
+     * read the duty the sizer had chosen without switching to Manual. */
+    var manual = (p.pump.sizing === 'manual');
+    var mq = el('input'); mq.type = 'text';
+    mq.value = dp.q === null ? '' : FD.units.fmtFlow(dp.q, d.flow);
+    if (!manual) mq.readOnly = true;
+    field(des.box, 'Design flow (' + d.flow + ')', mq)
+      .addEventListener('change', function () {
+        if (!manual) return;
+        var v = FD.units.parse(mq.value);
+        if (!(isFinite(v) && v > 0)) { renderProperties(); return; }
+        pushUndo();
+        p.pump.qDesign = FD.units.toSIFlow(v, d.flow);
+        regenerateCurve(p); renderProperties(); changed();
+      });
+
+    var mh = el('input'); mh.type = 'text';
+    mh.value = dp.h === null ? '' : FD.units.fmtPressure(headToPa(dp.h), d.pressure);
+    if (!manual) mh.readOnly = true;
+    field(des.box, 'Design pressure (' + d.pressure + ')', mh)
+      .addEventListener('change', function () {
+        if (!manual) return;
+        var v = FD.units.parse(mh.value);
+        if (!(isFinite(v) && v > 0)) { renderProperties(); return; }
+        pushUndo();
+        var pa = FD.units.toSIPressure(v, d.pressure);
+        p.pump.head = pa / (m.settings.fluid.density * 9.81);
+        p.pump.hDesign = p.pump.head;
+        regenerateCurve(p); renderProperties(); changed();
+      });
+
+    if (dp.h !== null) des.ro('Design head', dp.h.toFixed(2) + ' m');
+    /* The safety factor is a SELECTION margin, not part of the hydraulics.
+     * Baking it into the solve made a 10% margin push 21 L/s through equipment
+     * rated for 20, so it is reported here instead. */
+    var pct = m.settings.pumpSafetyPct || 0;
+    if (pct && dp.h !== null) {
+      var dutyH = dp.h * (1 + pct / 100);
+      des.ro('Select against (+' + pct + '%)',
+             FD.units.fmtPressure(headToPa(dutyH), d.pressure, true) +
+             '  (' + dutyH.toFixed(2) + ' m)');
     }
+    /* A pump's design duty read as a resistance, so it can be compared with the
+     * terminals it is feeding on the same basis. */
+    designKRow(des, dp.q, dp.h === null ? 0 : headToPa(dp.h));
 
     if (p.pump.sizing === 'auto') {
       var rrow = el('div', 'btn-row');
-      var btn = el('button', 'btn', 'Re-size');
+      var rbtn = el('button', 'btn', 'Re-size');
       if (m.settings.calcMode === 'simulation') {
-        btn.disabled = true;
-        btn.title = 'Sizing is a DESIGN operation — in SIMULATION the curve ' +
-                    'decides the operating point.';
+        rbtn.disabled = true;
+        rbtn.title = 'Sizing is a DESIGN operation — in SIMULATION the curve ' +
+                     'decides the operating point.';
       }
-      btn.addEventListener('click', function () {
+      rbtn.addEventListener('click', function () {
         pushUndo(); autoSizePump(p); regenerateCurve(p);
         renderProperties(); changed();
       });
-      rrow.appendChild(btn);
-      db.box.appendChild(rrow);
+      rrow.appendChild(rbtn);
+      des.box.appendChild(rrow);
     }
-
-    // ---- actual: what it is doing, and where a curve comes from ----
     /* The curve is the INPUT to SIMULATION, so it has to be enterable in
      * DESIGN. Gating it behind SIMULATION created a deadlock: you could not
      * reach SIMULATION without a curve, and could not add a curve without
      * being in SIMULATION. It stays reachable on an OFF pump for the same
      * reason — the deadlock would just move. */
-    renderPumpCurve(host, p);
+    pumpCurveButtons(des.box, p);
 
-    if (p.pump.mode === 'off') {
-      host.appendChild(el('p', 'hint',
-        'An off pump is modelled as isolated — no flow passes through it. Without this, ' +
-        'a running pump short-circuits backwards through its idle neighbours.'));
-    }
+    // ----------------------------------------------------------- L2 ACTUAL
+    pumpActualSection(host, p);
 
+    // ---------------------------------------------------------- L2 CONTROL
+    controlField(host, p);
+
+    // ---------------------------------------------------------- L2 DISPLAY
     displayChecks(host, p, [
       { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
-      { key: 'head', label: 'Head' }, { key: 'vfd', label: 'VFD %' }
+      { key: 'head', label: 'Pressure' }, { key: 'vfd', label: 'VFD %' }
     ]);
 
     var del = el('button', 'btn danger', 'Remove pump');
@@ -5121,12 +5245,24 @@
      * calcMode is still whatever it was while you are in VIEW — it has to be,
      * the sheet keeps rendering — but lighting the button up made it look as
      * though clicking VIEW had not taken effect. */
-    var inView = (app.view && (app.view.tool === 'view' || app.view.tool === 'trace' ||
-                               app.view.tool === 'align' || app.view.tool === 'probe'));
-    [].slice.call(document.querySelectorAll('[data-mode]')).forEach(function (b) {
-      b.classList.toggle('active',
-        !inView && b.dataset.mode === app.model.settings.calcMode);
-    });
+    /* `app.uiMode` is the single answer to "where am I", and the buttons are
+     * lit from it. This used to light DESIGN/SIMULATE off `calcMode`, which was
+     * the same fact told twice — and told differently, since VIEW had to be
+     * special-cased out of it.
+     *
+     * What still has to happen here is the other direction: a calcMode that
+     * changed from somewhere else (loading a file, an undo) must move the
+     * ribbon, or SIMULATE's tools sit over a design calculation. */
+    if (app.model && app.model.settings) {
+      var want = app.model.settings.calcMode === 'simulation' ? 'simulate' : 'design';
+      /* Only when the current mode DISAGREES about the calculation. CONTROL and
+       * ANNOTATION carry no calculation of their own and must not be kicked out
+       * of. */
+      if (app.uiMode === 'design' || app.uiMode === 'simulate' || !app.uiMode) {
+        app.uiMode = want;
+      }
+    }
+    if (app.syncUIMode) app.syncUIMode();
   }
 
   /* Outflows without a required pressure have no characteristic K = Q/sqrt(dP),
@@ -5199,22 +5335,9 @@
     chip.title = d.reason;
   }
 
-  function initModeChip() {
-    [].slice.call(document.querySelectorAll('[data-mode]')).forEach(function (b) {
-      b.addEventListener('click', function () {
-        /* Selecting a mode also returns to the drawing tool: SIMULATE offers
-         * exactly the same drawing tools as DESIGN, so it must not leave you
-         * in VIEW. setCalcMode carries the guards (a running pump needs a
-         * curve; an outflow needs a required pressure). */
-        if (app.view.tool === 'view' || app.view.tool === 'trace' ||
-            app.view.tool === 'align' || app.view.tool === 'probe') {
-          app.view.setTool('edit');
-        }
-        setCalcMode(b.dataset.mode);
-        updateModeChip();
-      });
-    });
-  }
+  /* The mode buttons are wired in `initToolbar`, beside the tool sets they
+   * switch — one place that knows what a mode is. */
+  function initModeChip() {}
 
   function applyTheme() {
     document.documentElement.dataset.theme = app.model.settings.theme;
@@ -5308,11 +5431,14 @@
       toolButtons.forEach(function (o) {
         if (o.dataset.tool === 'disconnect') {
           o.classList.toggle('active', !!app.view.showDisconnects);
-        } else {
-          if (o.dataset.tool !== 'disconnect') {
-          o.classList.toggle('active', o.dataset.tool === app.view.tool);
+          return;
         }
-        }
+        /* The VARIANT is part of what is active: with one button per valve
+         * type, lighting all three whenever the valve tool is on says nothing
+         * about which one the next click places. */
+        o.classList.toggle('active',
+          o.dataset.tool === app.view.tool &&
+          (o.dataset.variant || null) === (app.view.toolVariant || null));
       });
     }
     toolButtons.forEach(function (b) {
@@ -5327,6 +5453,11 @@
           app.view.render();
           return;
         }
+        /* WHICH KIND, carried on the button. One tool with a variant rather
+         * than eight tools, because everything downstream of the click —
+         * hit-testing, insertion, the mode hint — is identical whichever
+         * equipment or valve or sensor it turns out to be. */
+        app.view.toolVariant = b.dataset.variant || null;
         app.view.setTool(b.dataset.tool);
         syncToolButtons();
       });
@@ -5344,31 +5475,109 @@
       demand: 'Click to place a demand',
       pump:   'Click a pipe to insert a pump into it',
       equip:  'Click a pipe to insert equipment into it',
-      valve:  'Click a pipe to insert a valve into it'
+      valve:  'Click a pipe to insert a valve into it',
+      sensor: 'Click a pipe to place a sensor \u00b7 a differential then needs a second pipe picking',
+      link:   'Click a pump or control valve, then the sensor or equipment it should follow'
     };
-    /* VIEW and DRAW are alternatives, not companions: VIEW is for arranging a
-     * finished drawing, and the placement tools do not apply there. Showing
-     * both meant the ribbon offered PIPE and RISER while in a mode where a
-     * click drags a label instead. TRACE lives in VIEW because tracing IS
-     * arranging the background you then draw over. */
+    /* A variant makes the hint say WHICH, since the ribbon button is no longer
+     * on screen once you have moved the mouse to the drawing. */
+    var VARIANT_HINTS = {
+      'equip:source':      'Click a pipe to insert a heat source or sink \u00b7 it holds a leaving temperature',
+      'equip:exchanger':   'Click a pipe to insert a heat exchanger \u00b7 it states a load',
+      'equip:adiabatic':   'Click a pipe to insert a strainer, filter or meter \u00b7 pressure drop only',
+      'valve:globe':       'Click a pipe to insert a control valve',
+      'valve:gate':        'Click a pipe to insert an isolation valve',
+      'valve:check':       'Click a pipe to insert a check valve',
+      'sensor:temperature':'Click a pipe to place a temperature sensor',
+      'sensor:flow':       'Click a pipe to place a flow sensor',
+      'sensor:pressure':   'Click a pipe to place a pressure sensor',
+      'sensor:dP':         'Click a pipe to place it, then pick the second pipe to measure against',
+      'sensor:dT':         'Click a pipe to place it, then pick the second pipe to measure against'
+    };
+    /* ============================================== THE FOUR MODES
+     *
+     * DESIGN draw it · CONTROL wire it up · SIMULATE run it · ANNOTATION
+     * arrange it for print. Michael's UI pass, 2026-08-06.
+     *
+     * A mode is a TOOL PALETTE. Two of them also set the calculation mode,
+     * because DESIGN and SIMULATE are genuinely the two questions the drawing
+     * answers and it would be strange for the button named SIMULATE not to
+     * simulate. CONTROL and ANNOTATION deliberately leave it alone: a control
+     * link only does anything in SIMULATION, so forcing CONTROL back to DESIGN
+     * would blank every valve position at the moment you went to look at them.
+     *
+     * Which tool each mode lands on is the one you almost always want first —
+     * SELECT everywhere except CONTROL, where you have come to place a sensor
+     * but might equally be re-selecting one. */
+    var UI_MODES = {
+      design:   { calc: 'design',     tool: 'edit' },
+      control:  { calc: null,         tool: 'edit' },
+      simulate: { calc: 'simulation', tool: 'edit' },
+      annotate: { calc: null,         tool: 'view' }
+    };
+    /* Which mode a tool belongs to, so picking a tool by keyboard or by any
+     * other route still moves the ribbon to the set the tool is in. */
+    var TOOL_MODE = {
+      edit: null, pipe: 'design', riser: 'design', source: 'design',
+      demand: 'design', pump: 'design', equip: 'design', valve: 'design',
+      sensor: 'control', link: 'control',
+      probe: 'simulate',
+      view: 'annotate', trace: 'annotate', align: 'annotate'
+    };
+
+    function setUIMode(name, opts) {
+      if (!UI_MODES[name]) return;
+      app.uiMode = name;
+      var def = UI_MODES[name];
+      if (def.calc && app.model.settings.calcMode !== def.calc) {
+        /* Through setCalcMode, so its guards still apply — a running pump
+         * without a curve must still stop the switch to SIMULATION. */
+        setCalcMode(def.calc);
+        if (app.model.settings.calcMode !== def.calc) {
+          /* Refused. Stay where we were rather than showing SIMULATE's tools
+           * over a design calculation. */
+          app.uiMode = (app.model.settings.calcMode === 'simulation')
+            ? 'simulate' : 'design';
+          syncUIMode();
+          return;
+        }
+      }
+      if (!(opts && opts.keepTool)) app.view.setTool(def.tool);
+      syncUIMode();
+    }
+
+    function syncUIMode() {
+      [].slice.call(document.querySelectorAll('[data-uimode]')).forEach(function (b) {
+        b.classList.toggle('active', b.dataset.uimode === app.uiMode);
+      });
+      [].slice.call(document.querySelectorAll('[data-uiset]')).forEach(function (g) {
+        g.hidden = g.dataset.uiset !== app.uiMode;
+      });
+    }
+
     function syncToolGroups() {
-      var inView = (app.view.tool === 'view' || app.view.tool === 'trace' ||
-                    app.view.tool === 'align' || app.view.tool === 'probe');
-      var setDraw = $('set-draw'), setView = $('set-view'), group = $('group-tools');
-      if (setDraw) setDraw.hidden = inView;
-      if (setView) setView.hidden = !inView;
-      /* The label stays COMMAND either way: the section is "what you can do
-       * right now", and renaming it as well as swapping its contents made the
-       * ribbon feel like it was rearranging itself. */
+      /* A tool chosen from anywhere moves the ribbon to the mode it lives in,
+       * so the palette and the tool can never disagree about which mode you
+       * are in. */
+      var want = TOOL_MODE[app.view.tool];
+      if (want && want !== app.uiMode) { app.uiMode = want; }
+      syncUIMode();
+      var group = $('group-tools');
       if (group) group.dataset.group = 'COMMAND';
     }
 
+    [].slice.call(document.querySelectorAll('[data-uimode]')).forEach(function (b) {
+      b.addEventListener('click', function () { setUIMode(b.dataset.uimode); });
+    });
+    app.setUIMode = setUIMode;
+    app.syncUIMode = syncUIMode;
+    if (!app.uiMode) {
+      app.uiMode = app.model.settings.calcMode === 'simulation' ? 'simulate' : 'design';
+    }
+    syncUIMode();
+
     function refreshToolButtons() {
-      toolButtons.forEach(function (o) {
-        if (o.dataset.tool !== 'disconnect') {
-          o.classList.toggle('active', o.dataset.tool === app.view.tool);
-        }
-      });
+      syncToolButtons();
       /* ANNOTATIONS is a panel belonging to VIEW, not a sticky mode. Leaving it
        * up after switching to EDIT meant the properties panel showed annotation
        * checkboxes while you were selecting pipework — the panel has to follow
@@ -5376,7 +5585,8 @@
       app.showAnnotations = false;
       updateModeChip();
       syncToolGroups();
-      var hint = MODE_HINTS[app.view.tool] || '';
+      var hint = VARIANT_HINTS[app.view.tool + ':' + app.view.toolVariant] ||
+                 MODE_HINTS[app.view.tool] || '';
       $('mode-hint').textContent = hint +
         '  \u00b7  scroll = zoom, middle-drag = pan';
     }
@@ -5492,17 +5702,12 @@
 
     $('btn-renumber').addEventListener('click', renumberNodes);
 
-    // Which valve the VALVE tool places; also switches the tool on.
-    $('valve-type').addEventListener('change', function () {
-      app.view.valveType = $('valve-type').value;
-      app.view.setTool('valve');
-      toolButtons.forEach(function (o) {
-        if (o.dataset.tool !== 'disconnect') {
-          o.classList.toggle('active', o.dataset.tool === app.view.tool);
-        }
-      });
-    });
-    app.view.valveType = $('valve-type').value;
+    /* The valve type used to be a dropdown beside one VALVE button, and the
+     * equipment type was not choosable at all — you placed generic equipment
+     * and then found the Type field in the panel. Both are BUTTONS now, one per
+     * kind, because "what am I placing?" is the question the ribbon should
+     * answer and a dropdown makes you open it to find out what it currently
+     * says. Michael's UI pass, 2026-08-06. */
 
     $('btn-save').addEventListener('click', saveModelFile);
     $('btn-save-2').addEventListener('click', saveModelFile);

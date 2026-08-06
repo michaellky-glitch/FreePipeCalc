@@ -998,3 +998,74 @@ a.brand:hover { color: var(--accent); }
   margin-left: 8px; align-self: center;
 }
 .info-mark:hover { color: var(--accent); }
+
+/* ============================================================ RIBBON SUB-GROUPS
+ *
+ * The mode's tools grouped by WHAT THE THING IS — Pipe, Hydraulic, Thermal,
+ * Valves — with the group named beside them. Michael's UI pass, 2026-08-06:
+ * twenty buttons in one row is a list to be memorised; five named clusters is
+ * something you can answer "what am I placing?" against. */
+.tool-set { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.tool-sub {
+  display: flex; gap: 3px; align-items: center;
+  padding-left: 9px;
+  border-left: 1px solid var(--line-soft);
+}
+.tool-sub:first-child { padding-left: 0; border-left: 0; }
+/* The sub-group name sits INLINE and vertical-ish rather than above, because
+ * the ribbon already spends its top edge on the group label and a second tier
+ * of floating text above the buttons read as belonging to neither. */
+.tool-sub > i {
+  font-style: normal;
+  font-size: 8.5px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  white-space: nowrap;
+  margin-right: 2px;
+}
+
+/* ============================================================ PROPERTY SECTIONS
+ *
+ * Three levels, and the middle one collapses (Michael, 2026-08-06):
+ *
+ *   L1  what is selected          the panel heading
+ *   L2  a category of data        this — Details / Design / Actual / Control
+ *   L3  the individual fields
+ *
+ * Every device panel is built from the same four or five L2 sections in the
+ * same order, so the panel does not rearrange itself as you click around a
+ * model. Open/closed is remembered per SECTION NAME, not per device, for the
+ * same reason: "Actual" stays where you left it whatever you select next. */
+.sect { border: 1px solid var(--line-soft); border-radius: 5px; margin-top: 10px;
+        background: var(--bg-raised); overflow: hidden; }
+.sect-head {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 6px 9px; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 11px; font-weight: 650;
+  letter-spacing: .6px; text-transform: uppercase; color: var(--text-mute);
+  text-align: left;
+}
+.sect-head:hover { color: var(--text); }
+.sect-caret { font-size: 9px; width: 9px; flex: 0 0 auto; }
+.sect-body { padding: 0 9px 9px; }
+.sect.closed .sect-body { display: none; }
+/* Inside a section the readout box would draw a second border around the same
+ * content, so it goes flat. */
+.sect-body .readout { border: 0; background: none; padding: 0; margin-top: 0; }
+.sect-body .readout + .readout { margin-top: 8px; }
+.sect-body .field:first-child { margin-top: 0; }
+
+/* A read-only value that would otherwise be an input — Design flow on an
+ * auto-sized pump. Shown, not hidden, so the panel keeps its shape whichever
+ * sizing mode is chosen; greyed and unfocusable so it is clearly not yours to
+ * type in. */
+.field input[readonly], .field select[disabled] {
+  color: var(--text-mute);
+  background: var(--bg);
+  border-style: dashed;
+  cursor: default;
+}
+
+/* Sub-heading inside an L3 group — "Holding" over the setpoint list. */
+.kv-head { font-size: 11px; color: var(--text-mute); margin: 8px 0 4px; }

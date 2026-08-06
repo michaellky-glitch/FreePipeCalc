@@ -203,6 +203,27 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 4W. UI PASS, FIRST STAGE (v0.15.0)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| UI.1 | Four modes | ✅ | DESIGN / CONTROL / SIMULATE / ANNOTATION, each with its own tools. Verified: each shows only its own set, and picking a tool from anywhere pulls the ribbon to that tool's mode. |
+| UI.2 | Only DESIGN and SIMULATE touch the calculation | ✅ | **Deliberate, and worth checking you agree.** CONTROL and ANNOTATION leave `calcMode` alone, so you can go SIMULATE → CONTROL and tune a link with the valve positions still on screen. Coupling them would blank every position at the moment you went to look. |
+| UI.3 | Tools grouped by what the thing IS | ⬜ | Edit · Pipe · Hydraulic · Thermal · Valves, named on the ribbon. |
+| UI.4 | One button per device type | ⬜ | The valve dropdown is gone and equipment type is choosable at placement: HEAT SOURCE/SINK and HEAT EXCHANGER get the right defaults, OTHER places an adiabatic item tagged STR-n. |
+| UI.5 | CONTROL LINK is a tool | ⬜ | Click the pump or control valve, then its target. The panel button still works and is now "Link sensor". |
+| UI.6 | Copy/Paste moved out of FILE | ⬜ | Into DESIGN ▸ Edit, beside the selection they act on. |
+| UI.7 | Property sections collapse and stay collapsed | ✅ | Verified across a re-render and a re-selection; stored in localStorage per section NAME, so closing Display closes it for every device. |
+| UI.8 | The pump panel in the new structure | ✅ | Details · Design · Actual · Control · Display, exactly your list. Renames done: Online/Offline, Input/Show/Clear, Link sensor, Remove control, Reset link. |
+| UI.9 | Design duty shown but not editable on Auto/Curve | ⬜ | Dashed, greyed, unfocusable. Your instruction — and it stops the panel changing height when the dropdown moves. |
+| DP.4 | The second dP/dT tapping drags along its pipe | ✅ | Your note. Clamped to the run: verified at t=0, t=1, and dragged well off the pipe. It moves the DRAWING only — the reading is still taken at the pipe's inlet node, since a pipe has one pressure at each end and no profile along it to read from. |
+| UI.10 | Overlapping drag handles pick the nearest | ✅ | Found while testing DP.4: a tapping under a control-link bend resolved by draw order, which is not something you can see. Nearest centre now. |
+
+**NOT in this stage, and staged next:** the Equipment, Adiabatic, Isolation
+Valve and Control Valve panels (the framework is in — they are mechanical now),
+and the two new drawing tools, Detail and Text Box. See the reply for why those
+two are their own piece of work.
+
 ## 4V. THE ΔP ROUTE, REBUILT (v0.14.9)
 
 | # | What | Status | Notes |

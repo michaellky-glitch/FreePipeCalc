@@ -41,54 +41,93 @@
       <button class="btn" id="btn-load">LOAD</button>
       <button class="btn" id="btn-print">PRINT</button>
       <button class="btn" id="btn-dxf" title="Export the drawing as a DXF (experimental) — geometry and text only, no properties or reports">DXF</button>
-      <button class="btn icon" id="btn-copy-props" title="Copy the selected item&#39;s properties">⧉</button>
-      <button class="btn icon" id="btn-paste-props" title="Paste properties onto the selection">⎀</button>
       <button class="btn icon" id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
       <button class="btn icon" id="btn-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
     </div>
     <div class="sep"></div>
-    <!-- DESIGN and SIMULATE are the two questions the same drawing answers
-         ("what pump do I need?" / "what will this pump do?"), so they are modes
-         rather than a chip toggle. Both offer the full set of drawing tools.
-         VIEW is the third: arranging what has been drawn. -->
-    <div class="tool-group" data-group="MODES">
-      <button class="btn" data-mode="design" title="Outflows state a required flow; the pump duty is calculated">DESIGN</button>
-      <button class="btn" data-mode="simulation" title="The pump curve is the input; flow is the result">SIMULATE</button>
-      <button class="btn" data-tool="view" title="Arrange the drawing for print: drag labels and value boxes, and trace over a background drawing">VIEW</button>
+    <!-- FOUR MODES, each with its own tools.
+         DESIGN and SIMULATE are also the two questions the same drawing answers
+         ("what size do I need?" / "what will this do?"), so they set the
+         calculation mode as well. CONTROL and ANNOTATION are tool palettes only
+         and leave the calculation where it was, so a control link can be tuned
+         while watching a simulation run. -->
+    <div class="tool-group" data-group="MODE">
+      <button class="btn" data-uimode="design" title="Draw the system. Outflows state a required flow; sizes are the answer">DESIGN</button>
+      <button class="btn" data-uimode="control" title="Place sensors and link them to pumps and valves">CONTROL</button>
+      <button class="btn" data-uimode="simulate" title="Run it. The pump curve is the input; flow is the answer">SIMULATE</button>
+      <button class="btn" data-uimode="annotate" title="Arrange the drawing for print">ANNOTATION</button>
     </div>
     <div class="sep"></div>
-    <!-- ONE section that swaps contents with the mode: the placement tools when
-         drawing, the arrangement tools in VIEW. Labelled COMMAND throughout, so
-         the ribbon keeps its shape and the tools you cannot use are simply not
-         there. -->
+    <!-- ONE section that swaps contents with the mode. Grouped by what the
+         thing IS, with the group named on the ribbon, so a tool is found by
+         asking "what am I placing?" rather than by remembering where it sits. -->
     <div class="tool-group" data-group="COMMAND" id="group-tools">
-      <span class="tool-set" id="set-draw">
-        <button class="btn" data-tool="pipe">PIPE</button>
-        <button class="btn" data-tool="riser">RISER</button>
-        <button class="btn" data-tool="source">SOURCE</button>
-        <button class="btn" data-tool="demand">OUTFLOW</button>
-        <button class="btn" data-tool="pump">PUMP</button>
-        <button class="btn" data-tool="equip">EQUIP</button>
-        <button class="btn" data-tool="valve" id="btn-valve">VALVE</button>
-        <button class="btn" data-tool="sensor" title="Place a pipe sensor: it states a temperature or flow setpoint for a pump or valve to hold">SENSOR</button>
-        <select id="valve-type" class="inline-select" title="Valve type to place">
-          <option value="gate">Gate</option>
-          <option value="globe">Globe</option>
-          <option value="check">Check</option>
-        </select>
+
+      <span class="tool-set" data-uiset="design">
+        <span class="tool-sub"><i>Edit</i>
+          <button class="btn" data-tool="edit" title="Select and move things">SELECT</button>
+          <button class="btn" id="btn-copy-props" title="Copy the selected item's properties">COPY</button>
+          <button class="btn" id="btn-paste-props" title="Paste properties onto the selection">PASTE</button>
+        </span>
+        <span class="tool-sub"><i>Pipe</i>
+          <button class="btn" data-tool="pipe">PIPE</button>
+          <button class="btn" data-tool="riser">RISER</button>
+        </span>
+        <span class="tool-sub"><i>Hydraulic</i>
+          <button class="btn" data-tool="source">SOURCE</button>
+          <button class="btn" data-tool="demand">OUTFLOW</button>
+          <button class="btn" data-tool="pump">PUMP</button>
+          <button class="btn" data-tool="equip" data-variant="adiabatic" title="Pipework with a pressure drop and no thermal behaviour: a strainer, a filter, a flow meter">OTHER</button>
+        </span>
+        <span class="tool-sub"><i>Thermal</i>
+          <button class="btn" data-tool="equip" data-variant="source" title="A machine that holds a leaving temperature: chiller, boiler, cooling tower">HEAT SOURCE/SINK</button>
+          <button class="btn" data-tool="equip" data-variant="exchanger" title="A machine that states a load: AHU, FCU, plate heat exchanger">HEAT EXCHANGER</button>
+        </span>
+        <span class="tool-sub"><i>Valves</i>
+          <button class="btn" data-tool="valve" data-variant="globe" title="A modulating globe valve — the only valve a controller can drive">CONTROL</button>
+          <button class="btn" data-tool="valve" data-variant="gate" title="A gate valve: open or shut, not for regulating">ISOLATION</button>
+          <button class="btn" data-tool="valve" data-variant="check" title="A non-return valve">CHECK</button>
+        </span>
       </span>
-      <span class="tool-set" id="set-view" hidden>
-        <button class="btn" data-tool="trace" title="Paste or drag in a background drawing and trace over it">TRACE</button>
-        <button class="btn" data-tool="align" title="Drag any node to move the WHOLE model — for putting a key node back on the grid">ALIGN</button>
-        <button class="btn" id="btn-annotations" title="What is labelled on the drawing and on printed plans">ANNOTATIONS</button>
-        <button class="btn" data-tool="probe" title="Read pressure, flow and velocity at any point along a pipe — click to pin the reading, Esc to clear">PROBE</button>
-        <button class="btn" id="btn-control-links" title="Show control links">CONTROL LINKS</button>
-        <span class="sep-inline"></span>
-        <button class="btn" data-viz="flow" title="Colour pipes by flow rate">FLOW</button>
-        <button class="btn" data-viz="velocity" title="Colour pipes by velocity, against the warning limit">VELOCITY</button>
-        <button class="btn" data-viz="pressure" title="Colour nodes by gauge pressure">PRESSURE</button>
-        <button class="btn" data-viz="temperature" title="Colour nodes by temperature">TEMPERATURE</button>
+
+      <span class="tool-set" data-uiset="control" hidden>
+        <span class="tool-sub"><i>Sensors</i>
+          <button class="btn" data-tool="sensor" data-variant="temperature">TEMPERATURE</button>
+          <button class="btn" data-tool="sensor" data-variant="flow">FLOW</button>
+          <button class="btn" data-tool="sensor" data-variant="pressure">PRESSURE</button>
+          <button class="btn" data-tool="sensor" data-variant="dP" title="Measured between this pipe and a second one you pick">DIFF. PRESSURE</button>
+          <button class="btn" data-tool="sensor" data-variant="dT" title="Measured between this pipe and a second one you pick">DIFF. TEMPERATURE</button>
+        </span>
+        <span class="tool-sub"><i>Controls</i>
+          <button class="btn" data-tool="link" title="Click a pump or control valve, then the sensor or equipment it should follow">CONTROL LINK</button>
+        </span>
       </span>
+
+      <span class="tool-set" data-uiset="simulate" hidden>
+        <span class="tool-sub"><i>Inspect</i>
+          <button class="btn" data-tool="edit" title="Select and inspect">SELECT</button>
+          <button class="btn" data-tool="probe" title="Read pressure, flow and velocity at any point along a pipe — click to pin the reading, Esc to clear">PROBE</button>
+        </span>
+      </span>
+
+      <span class="tool-set" data-uiset="annotate" hidden>
+        <span class="tool-sub"><i>Arrange</i>
+          <button class="btn" data-tool="view" title="Drag labels and value boxes into place for printing">SELECT</button>
+          <button class="btn" data-tool="trace" title="Paste or drag in a background drawing and trace over it">TRACE</button>
+          <button class="btn" data-tool="align" title="Drag any node to move the WHOLE model — for putting a key node back on the grid">ALIGN</button>
+          <button class="btn" id="btn-annotations" title="What is labelled on the drawing and on printed plans">DISPLAY TAGS</button>
+        </span>
+      </span>
+    </div>
+    <div class="sep"></div>
+    <!-- SHOWN IN EVERY MODE: what is drawn on top of the model, rather than
+         what is being placed into it. -->
+    <div class="tool-group" data-group="SHOW">
+      <button class="btn" id="btn-control-links" title="Show control links">LINKS</button>
+      <button class="btn" data-viz="flow" title="Colour pipes by flow rate">FLOW</button>
+      <button class="btn" data-viz="velocity" title="Colour pipes by velocity, against the warning limit">VELOCITY</button>
+      <button class="btn" data-viz="pressure" title="Colour nodes by gauge pressure">PRESSURE</button>
+      <button class="btn" data-viz="temperature" title="Colour nodes by temperature">TEMPERATURE</button>
     </div>
     <div class="sep"></div>
     <div class="tool-group" data-group="MISC">
@@ -200,31 +239,31 @@
      the query when resolving a file:// path, so double-clicking still works;
      over HTTP, changing the token forces a reload instead of a stale copy.
      Bump the token on release, or during development after editing a module. -->
-<script src="data/schedules.js?v=0.14.9.3"></script>
-<script src="data/fittings.js?v=0.14.9.3"></script>
-<script src="data/valves.js?v=0.14.9.3"></script>
-<script src="data/ktable.js?v=0.14.9.3"></script>
-<script src="data/pumps.js?v=0.14.9.3"></script>
-<script src="data/fluids.js?v=0.14.9.3"></script>
-<script src="src/units.js?v=0.14.9.3"></script>
-<script src="src/hydraulics.js?v=0.14.9.3"></script>
-<script src="src/solver.js?v=0.14.9.3"></script>
-<script src="src/model.js?v=0.14.9.3"></script>
-<script src="src/geometry.js?v=0.14.9.3"></script>
-<script src="src/network.js?v=0.14.9.3"></script>
-<script src="src/thermal.js?v=0.14.9.3"></script>
-<script src="src/dialog.js?v=0.14.9.3"></script>
-<script src="src/trace.js?v=0.14.9.3"></script>
-<script src="src/canvas.js?v=0.14.9.3"></script>
-<script src="src/printer.js?v=0.14.9.3"></script>
-<script src="src/dxf.js?v=0.14.9.3"></script>
-<script src="src/tools.js?v=0.14.9.3"></script>
-<script src="src/docs.js?v=0.14.9.3"></script>
-<script src="src/app.js?v=0.14.9.3"></script>
+<script src="data/schedules.js?v=0.15.0.7"></script>
+<script src="data/fittings.js?v=0.15.0.7"></script>
+<script src="data/valves.js?v=0.15.0.7"></script>
+<script src="data/ktable.js?v=0.15.0.7"></script>
+<script src="data/pumps.js?v=0.15.0.7"></script>
+<script src="data/fluids.js?v=0.15.0.7"></script>
+<script src="src/units.js?v=0.15.0.7"></script>
+<script src="src/hydraulics.js?v=0.15.0.7"></script>
+<script src="src/solver.js?v=0.15.0.7"></script>
+<script src="src/model.js?v=0.15.0.7"></script>
+<script src="src/geometry.js?v=0.15.0.7"></script>
+<script src="src/network.js?v=0.15.0.7"></script>
+<script src="src/thermal.js?v=0.15.0.7"></script>
+<script src="src/dialog.js?v=0.15.0.7"></script>
+<script src="src/trace.js?v=0.15.0.7"></script>
+<script src="src/canvas.js?v=0.15.0.7"></script>
+<script src="src/printer.js?v=0.15.0.7"></script>
+<script src="src/dxf.js?v=0.15.0.7"></script>
+<script src="src/tools.js?v=0.15.0.7"></script>
+<script src="src/docs.js?v=0.15.0.7"></script>
+<script src="src/app.js?v=0.15.0.7"></script>
 <script>
   window.FD.APP_NAME = 'FreePipeCalc';
   window.FD.APP_SHORT = 'FPC';
-  window.FD.VERSION = '0.14.9';
+  window.FD.VERSION = '0.15.0';
   window.FD.FORMAT_VERSION = 1;
   try {
     window.FD.initApp();
