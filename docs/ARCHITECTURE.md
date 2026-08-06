@@ -1369,14 +1369,26 @@ from the control link's ring because it means a different thing. Without it
 "Δp 150 kPa" on a drawing does not say across what. The bubble carries `ΔP` or
 `ΔT` rather than the `T` it showed until 2026-08-05.
 
-**The line is ORTHOGONAL**, on the same Z route as the control link — a diagonal
-across a drawing of nothing but horizontal and vertical runs reads as a pipe
-drawn wrong before it reads as an annotation. It **leaves along the stem**: the
-first segment continues the direction the bubble already stands off the pipe in,
-so the two read as one gesture, and it cannot double back across the sensor's
-own pipe the way a route chosen by the longer delta would. The DXF export uses
-the same route, as a solid polyline — R12 has no dotted linetype without an
-LTYPE table entry, so there the open square is what identifies it.
+**Both leaders are ORTHOGONAL** — the stem from the pipe to the bubble, and the
+reference line from the bubble to the far tapping — on the same Z route as the
+control link. A diagonal across a drawing of nothing but horizontal and vertical
+runs reads as a pipe drawn wrong before it reads as an annotation. The stem
+looks like a single short segment until the bubble is dragged, which is why it
+was missed first time round. The DXF export uses the same route for the
+reference line, as a solid polyline — R12 has no dotted linetype without an LTYPE
+table entry, so there the open square is what identifies it.
+
+**The reference line leaves ALONG THE STEM when the far tapping is ahead of the
+bubble, and PERPENDICULAR when it is behind.** Always leaving along the stem
+sends the first leg back over it and then parallel to the sensor's own pipe a
+few pixels off it, which is what Michael photographed on 2026-08-06.
+
+The direction it arrives in has to be taken from **where the bubble actually
+is**, not from the nominal normal. The two agree until the bubble is dragged
+across the pipe to the other side, and then the normal says one thing and the
+leader does the opposite — which is exactly the case the retrace check exists
+for, so getting it from the normal made the check miss the case it was written
+to catch.
 
 Temperature, flow, pressure, and two DIFFERENTIALS — Δp and ΔT between this
 sensor and a referenced pipe. A pressure or differential reading is taken at the
@@ -1969,6 +1981,26 @@ codebase's history were the *test* being wrong, and fixing the code to match a
 bad test would have been worse than useless.
 
 ---
+
+## 15D. Modifier keys come from the pointer event
+
+`shiftDown` was set on `keydown` and cleared on `keyup`, and **a keyup that
+arrives somewhere else never clears it**. Hold Shift, Alt+Tab away — and
+Shift+Alt+Tab *is* the reverse application switch, so this is a gesture people
+make on purpose — and the release goes to the other window. It stays true for
+the rest of the session.
+
+Shift suppresses 15° angle snapping, so the symptom is *"pipes stopped snapping
+to 15 degree angles"* with nothing in the model to explain it and nothing in the
+snap code wrong: `angleSnap` had not been touched since v0.4.0.
+
+Every pointer event carries `shiftKey` as it actually is at that instant, and a
+`pointermove` always precedes the click that would use it, so **the pointer event
+is the authority** and stale state cannot survive one mouse movement. The key
+handlers and a `blur` listener stay as belt and braces.
+
+The general rule: **do not mirror input state you can read directly.** A mirror
+has to be invalidated, and the invalidation is what goes missing.
 
 ## 16C. Pump sizing: what may be written back, and what may not
 

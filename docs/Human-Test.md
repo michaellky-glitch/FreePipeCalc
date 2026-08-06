@@ -203,6 +203,17 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 4U. ANGLE SNAP AND THE ΔP LEADERS (v0.14.8)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| AS.1 | 15° snapping works again | ✅ | Nothing was wrong with `angleSnap` — untouched since v0.4.0. `shiftDown` was set on keydown and cleared on keyup, and **a keyup that arrives somewhere else never clears it**. Hold Shift, Alt+Tab away (Shift+Alt+Tab *is* the reverse app switch), and it stays suppressed for the rest of the session. Now read off the pointer event, so one mouse movement fixes it. Verified: forced the stuck state, drew three pipes, got exact 15° multiples. |
+| AS.2 | Shift still disables it while genuinely held | ✅ | Verified in the same run — held reads true, released reads false. |
+| AS.3 | Connecting still beats the bearing | ⬜ | Unchanged and deliberate: a node or pipe within the snap radius wins over the 15° constraint, so a run can still land exactly on existing work. One of the three test pipes came out at −30.18° for that reason. |
+| DP.1 | The ΔP stem is orthogonal | ⬜ | It was still a diagonal — I made the *reference* line orthogonal in v0.14.6 and left the leader from the pipe to the bubble alone, which only shows once the bubble is dragged. Both are Z routes now. |
+| DP.2 | The reference line no longer retraces the stem | ⬜ | On `20260805-5` it left the bubble going back over its own stem and then ran parallel to the sensor's pipe 9 px off it — the mess in your screenshot. It now leaves perpendicular when the far tapping is behind the bubble. Verified over five drag positions: no diagonals, no retracing, no zero-length segments. |
+| DP.3 | Drag the bubble to the far side of the pipe | ⬜ | The case that broke the first fix: the nominal normal points one way and the dragged leader arrives from the other. Worth a look in all four quadrants. |
+
 ## 4T. PUMP SIZING AND SOURCE MIXING (v0.14.7)
 
 | # | What | Status | Notes |

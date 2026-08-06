@@ -506,6 +506,7 @@
       var sx = e.clientX - r.left, sy = e.clientY - r.top;
       var w = self.toWorld(sx, sy);
       var m0 = self.getModel();
+      self.shiftDown = e.shiftKey;            // authoritative — see pointermove
 
       if (e.button === 1) {                       // middle drag = pan (§4)
         self.panning = { sx: sx, sy: sy, ox: self.originX, oy: self.originY };
@@ -759,6 +760,19 @@
       var sx = e.clientX - r.left, sy = e.clientY - r.top;
       var w = self.toWorld(sx, sy);
       self.cursor = w;
+      /* THE POINTER EVENT IS THE AUTHORITY ON SHIFT, not the key handlers.
+       *
+       * `shiftDown` was set on keydown and cleared on keyup, and a keyup that
+       * arrives somewhere else never clears it — hold Shift, Alt+Tab away
+       * (Shift+Alt+Tab IS the reverse app switch), come back, and it is stuck
+       * true forever. Shift suppresses 15° snapping, so the symptom is
+       * "pipes stopped snapping to 15 degree angles" with nothing in the model
+       * to explain it. Michael, 2026-08-06.
+       *
+       * Every pointer event carries the modifier state as it actually is at
+       * that instant, so reading it here cannot go stale — and a pointermove
+       * always precedes the click that would use it. */
+      self.shiftDown = e.shiftKey;
 
       if (self.panning) {
         self.originX = self.panning.ox + (sx - self.panning.sx);
@@ -1001,6 +1015,10 @@
     window.addEventListener('keyup', function (e) {
       if (e.key === 'Shift') self.shiftDown = false;
     });
+    /* Losing the window is the case the keyup never covers: the release
+     * happens in whatever took focus. Belt and braces beside the pointer
+     * events, which are what actually make this correct. */
+    window.addEventListener('blur', function () { self.shiftDown = false; });
   };
 
   /* A node dropped on top of another one JOINS it.
@@ -2448,6 +2466,21 @@
     return out;
   }
 
+  /* Pull the last point of a route back along its final segment, so a leader
+   * stops short of the bubble it points at instead of running under it. */
+  function trimLast(pts, by) {
+    if (pts.length < 2) return pts;
+    var b = pts[pts.length - 1], a = pts[pts.length - 2];
+    var dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+    if (!(d > 0)) return pts;
+    var k = Math.max(0, d - by) / d;
+    pts[pts.length - 1] = { x: a.x + dx * k, y: a.y + dy * k };
+    /* If trimming collapsed the last segment, drop the point rather than leave
+     * a zero-length one — it puts a doubled dot on a dotted line. */
+    if (pts.length > 2 && Math.hypot(dx * k, dy * k) < 0.5) pts.pop();
+    return pts;
+  }
+
   View.prototype.drawSensorGlyph = function (p, sa, sb, selected) {
     var ctx = this.ctx, m = this.getModel();
     var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
@@ -2476,17 +2509,32 @@
     var nx = -dy / len, ny = dx / len;
     if (ny > 0) { nx = -nx; ny = -ny; }          // prefer the upward normal
     var off = M.labelOffset(p, 'sensor');
-    var STEM = 9, R = 9, REACH = 18;
+    var R = 9, REACH = 18;
     var bx = mx + nx * REACH + off.dx, by = my + ny * REACH + off.dy;
-    /* The stem stops short of the bubble so the outline stays clean. */
-    var ux = bx - mx, uy = by - my, ul = Math.hypot(ux, uy) || 1;
+
+    /* THE STEM IS ORTHOGONAL TOO (Michael, 2026-08-06). Undragged it is a
+     * single short segment either way, so this only shows once the bubble has
+     * been moved — and then a diagonal leader across a drawing of horizontal
+     * and vertical runs is the same eyesore the reference line was. It leaves
+     * PERPENDICULAR to the pipe, which is where an instrument bubble stands. */
+    /* PERPENDICULAR TO THE PIPE decides the AXIS; the drag decides the SIDE.
+     * `arrX/arrY` is the direction the leader ARRIVES at the bubble in, and it
+     * has to come from where the bubble actually is — the nominal normal points
+     * one way and a bubble dragged to the other side of the pipe arrives from
+     * the opposite direction, which is how a "leaves along the stem" reference
+     * line ended up retracing it. */
+    var stemH = Math.abs(nx) > Math.abs(ny);
+    var arrX = stemH ? (bx >= mx ? 1 : -1) : 0;
+    var arrY = stemH ? 0 : (by >= my ? 1 : -1);
+    var stem = orthoRoute(mx, my, bx, by, stemH);
+    trimLast(stem, R);            // stop short of the bubble, outline stays clean
 
     ctx.save();
     ctx.strokeStyle = colour;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(mx, my);
-    ctx.lineTo(mx + ux / ul * Math.max(0, ul - R), my + uy / ul * Math.max(0, ul - R));
+    ctx.moveTo(stem[0].x, stem[0].y);
+    for (var si = 1; si < stem.length; si++) ctx.lineTo(stem[si].x, stem[si].y);
     ctx.stroke();
     ctx.fillStyle = this.theme.bg;
     ctx.lineWidth = 2;
@@ -2519,7 +2567,16 @@
          * ALONG THE STEM: the first segment continues the direction the bubble
          * already stands off the pipe in, so the two read as one gesture rather
          * than as a line that happens to start near a circle. */
-        var pts = orthoRoute(bx, by, rs.x, rs.y, Math.abs(nx) > Math.abs(ny));
+        /* AND IT MUST NOT DOUBLE BACK OVER THE STEM. Leaving along the stem is
+         * right only when the far tapping is AHEAD of the bubble; when it is
+         * behind, the midpoint route's first leg runs back over the stem and
+         * then parallel to the sensor's own pipe a few pixels off it, which is
+         * what Michael photographed. Then the route leaves PERPENDICULAR
+         * instead, which is the same gesture seen from ninety degrees and
+         * cannot retrace anything. */
+        var ahead = (rs.x - bx) * arrX + (rs.y - by) * arrY;
+        var pts = orthoRoute(bx, by, rs.x, rs.y,
+                             ahead < 0 ? !stemH : stemH);
         ctx.save();
         ctx.strokeStyle = colour;
         ctx.lineWidth = 1.2;
