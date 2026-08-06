@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1561
+This is deliberately separate from the automated suites. Those cover 1590
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -202,6 +202,17 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 4V. THE ΔP ROUTE, REBUILT (v0.14.9)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| DR.1 | One C/Z between the two tappings | ⬜ | Your design. On `20260805-5` it comes out as the C you drew: out 1 m, along 4.44 m, back 1 m, with ΔP at the geometric centre of the middle segment. An open square at **each** tapping — both ends are measurement points, unlike the control link's one-ended ring. |
+| DR.2 | Every vertex drags | ⬜ | The bubble and both bends are handles. They all move the same thing, because a three-segment orthogonal path between two **fixed** points has exactly one degree of freedom — move one bend and the other has to follow. Verified: bubble → mid 65.59, then a bend → mid 57.04. |
+| DR.3 | It cannot be flipped onto itself | ⬜ | Two tappings on the same riser have no horizontal middle segment to offer, so a hard sideways drag used to collapse the route onto the pipe and straight back. It now just keeps sliding along the axis it has. |
+| DR.4 | **Reset route** | ⬜ | Your request. On both the sensor panel and any pump/valve with a control link. Verified: slid the route 30 m off, reset put it back to 1 m. |
+| DR.5 | A ΔP whose reference is on another level | ⬜ | Falls back to the plain bubble-and-stem, since a route to another floor would cut across pipework it has nothing to do with. Worth a look — it is the one path the new code does not take. |
+| DR.6 | Setpoint switches show the right units | ✅ | Found while checking DR.4: a pump holding 200 kPa had its own switch reading **"Differential pressure 200000.0 °C"**. The formatter only knew flow, ΔT and °C, and the three modes the sensor added all fell through to °C. Now 200.0 kPa. |
 
 ## 4U. ANGLE SNAP AND THE ΔP LEADERS (v0.14.8)
 

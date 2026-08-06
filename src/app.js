@@ -1879,6 +1879,26 @@
    * Picking on the CANVAS rather than from a dropdown, because "which chiller"
    * is a question about the drawing and a list of P-numbers is not an answer
    * to it. */
+  /* RECOVERING A ROUTE THAT HAS BEEN DRAGGED SOMEWHERE USELESS.
+   *
+   * A Z between two fixed points has one degree of freedom, and it can be slid
+   * far enough away that its handles are off screen — or onto an axis where it
+   * collapses — and then there is nothing left to grab to get it back. Michael,
+   * 2026-08-06. Clearing `axis` and `mid` puts it back on the default the route
+   * would have had when it was made; nothing else about the link changes. */
+  function resetRouteBtn(route) {
+    var b = el('button', 'btn', 'Reset route');
+    b.title = 'Put the dashed route back where it started. Does not change ' +
+              'what is linked.';
+    b.addEventListener('click', function () {
+      pushUndo();
+      delete route.axis;
+      delete route.mid;
+      changed(); renderProperties(); app.view.render();
+    });
+    return b;
+  }
+
   function controlField(host, p) {
     if (!M.canControl(p)) return;
     var m = app.model;
@@ -1903,6 +1923,7 @@
       renderProperties(); app.view.render();
     });
     row.appendChild(btn);
+    if (c) row.appendChild(resetRouteBtn(c));
     wrap.appendChild(row);
     host.appendChild(wrap);
     if (!target) return;
@@ -2197,10 +2218,20 @@
   }
 
   /* A setpoint written the way its own quantity reads. */
+  /* Every mode gets its own units. The fall-through used to be °C, so the three
+   * modes the SENSOR added — pressure, and the two differentials — all came out
+   * as temperatures: a pump holding 200 kPa read "Differential pressure
+   * 200000.0 °C" on its own switch. Found 2026-08-06 while checking the reset
+   * button, which is the only reason it was on screen. */
   function fmtSetpoint(o) {
     var d = app.model.settings.display;
     if (o.mode === 'flow') return FD.units.fmtFlow(o.value, d.flow, true);
-    if (o.mode === 'dT') return o.value.toFixed(1) + ' K';
+    if (o.mode === 'pressure' || o.mode === 'dPdiff') {
+      return FD.units.fmtPressure(o.value, d.pressure, true);
+    }
+    /* A DIFFERENCE is in kelvin, an absolute temperature in °C — and 'dTdiff'
+     * is a difference between two pipes, not a temperature. */
+    if (o.mode === 'dT' || o.mode === 'dTdiff') return o.value.toFixed(1) + ' K';
     return o.value.toFixed(1) + ' °C';
   }
 
@@ -2491,6 +2522,9 @@
         renderProperties(); app.view.render();
       });
       rrow.appendChild(rb);
+      /* Same recovery as a control link — the ΔP route is the same Z and can be
+       * dragged just as far out of reach. */
+      if (refPipe) rrow.appendChild(resetRouteBtn(sn.route || (sn.route = {})));
       if (refPipe) rrow.appendChild(el('span', 'hint', refPipe.tag || refPipe.id));
       host.appendChild(rrow);
       if (!refPipe) {

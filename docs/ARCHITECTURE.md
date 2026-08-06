@@ -1254,6 +1254,36 @@ on `debug/20260805-5.json` sat wide open with their branches 0.1–0.6% over, al
 inside that floor, while a fourth throttled to 59%. Michael expected them in
 between, and was right.
 
+### The Z route: one shape, one degree of freedom
+
+`M.zRoute(a, b, axis, mid)` is three orthogonal segments between two **fixed**
+points, and it has exactly **one** degree of freedom. That is geometry, not a
+limitation: with both ends pinned, where the middle segment sits determines both
+bends. So every vertex is a grab handle and they all move the same thing — the
+answer to *"all vertices of the C/Z should be draggable"* is that they are, and
+that moving one necessarily moves the other.
+
+A **C** is the same route with `mid` outside the span of the two ends, so both
+end segments leave the same way. No special case.
+
+**An axis whose middle segment would have zero length is not a route.** With
+`axis` 'h' the middle segment spans `a.y→b.y` and vanishes when the ends are
+level; with 'v' it spans `a.x→b.x` and vanishes when they share a vertical.
+Either way the three segments collapse into a line that runs out and straight
+back along itself, which is what two tappings on the same riser produced when a
+drag flipped the axis onto them. The flip is refused at the drag, and `zRoute`
+normalises anyway — and when it overrides a stored axis it drops the stored
+`mid` with it, because that number is a coordinate on the *other* axis.
+
+Deciding this in two places is how it went wrong the first time: the axis choice
+for level ends lived both in the degeneracy guard and in the `mid` defaulting,
+and they disagreed. One place now; the defaulting only decides **how far** off.
+
+**Reset route** on the panel clears `axis` and `mid`. A route can be slid until
+its handles are off screen, and then there is nothing left to grab — Michael
+asked for the recovery on 2026-08-06, and it is one button rather than a rule
+about how far a drag may go.
+
 ### The control-link route: one meaning for `axis`
 
 `axis` names WHICH COORDINATE `mid` is, and therefore which way the middle
@@ -1369,26 +1399,26 @@ from the control link's ring because it means a different thing. Without it
 "Δp 150 kPa" on a drawing does not say across what. The bubble carries `ΔP` or
 `ΔT` rather than the `T` it showed until 2026-08-05.
 
-**Both leaders are ORTHOGONAL** — the stem from the pipe to the bubble, and the
-reference line from the bubble to the far tapping — on the same Z route as the
-control link. A diagonal across a drawing of nothing but horizontal and vertical
-runs reads as a pipe drawn wrong before it reads as an annotation. The stem
-looks like a single short segment until the bubble is dragged, which is why it
-was missed first time round. The DXF export uses the same route for the
-reference line, as a solid polyline — R12 has no dotted linetype without an LTYPE
-table entry, so there the open square is what identifies it.
+A **differential is ONE ROUTE BETWEEN THE TWO TAPPINGS**, with the bubble at the
+geometric centre of its middle segment. Michael, 2026-08-06: *"Could we just
+draw a C/Z between the 2 points and put the dP symbol at the geometric center of
+the middle section?"*
 
-**The reference line leaves ALONG THE STEM when the far tapping is ahead of the
-bubble, and PERPENDICULAR when it is behind.** Always leaving along the stem
-sends the first leg back over it and then parallel to the sensor's own pipe a
-few pixels off it, which is what Michael photographed on 2026-08-06.
+What it replaces is the lesson, and it took three goes to learn. A bubble hung
+off the sensor's own pipe **plus** a separate reference line to the far tapping
+is two leaders that have to be kept from colliding, and they never were: the
+reference line ran diagonally (v0.14.5), then it retraced the stem (v0.14.6),
+then it retraced it only when the bubble had been dragged across the pipe
+(v0.14.8). Each fix was correct and each left another case. One route has
+nothing to collide with — and it says what a ΔP *is* far better, because the
+symbol sits **between** the two things being measured.
 
-The direction it arrives in has to be taken from **where the bubble actually
-is**, not from the nominal normal. The two agree until the bubble is dragged
-across the pipe to the other side, and then the normal says one thing and the
-leader does the opposite — which is exactly the case the retrace check exists
-for, so getting it from the normal made the check miss the case it was written
-to catch.
+It is `M.zRoute`, the same object the control link uses, so there is one
+implementation of "orthogonal path between two fixed points" and one drag
+handler. An open square marks **each** tapping: both ends are measurement
+points and neither is the sender, which is exactly the difference from the
+control link's one-ended ring. Dotted rather than dashed, so the two do not read
+as the same thing.
 
 Temperature, flow, pressure, and two DIFFERENTIALS — Δp and ΔT between this
 sensor and a referenced pipe. A pressure or differential reading is taken at the
@@ -1939,7 +1969,7 @@ is the strongest claim available.
 
 ## 15. Testing
 
-Seven suites, 1561 assertions, no dependencies:
+Seven suites, 1590 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

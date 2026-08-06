@@ -581,7 +581,9 @@
       if (self.tool === 'view') {
         var ch = self.controlHandleAt(sx, sy);
         if (ch) {
-          self.dragControl = { pipe: ch.pipe, axis: ch.axis, startW: w };
+          self.dragControl = { pipe: ch.pipe, host: ch.host, key: ch.key,
+                               axis: ch.axis, from: ch.from, to: ch.to,
+                               startW: w };
           c.setPointerCapture(e.pointerId);
           return;
         }
@@ -822,14 +824,29 @@
          * would make the route snap back and forth while the mouse wanders
          * along the segment it is already on. */
         var dc = self.dragControl;
-        var host = (dc.pipe.kind === 'pump') ? dc.pipe.pump : dc.pipe.valve;
-        if (host && host.control) {
+        /* The handle names its own route holder — `pump.control`,
+         * `valve.control` or `sensor.route`. Resolving it from the pipe's KIND
+         * worked while only pumps and valves had routes; the differential
+         * sensor has one too now, and one route object is one drag handler. */
+        if (dc.host) {
+          var route = dc.host[dc.key] || (dc.host[dc.key] = {});
           var dx = Math.abs(w.x - dc.startW.x), dy = Math.abs(w.y - dc.startW.y);
-          var axis = host.control.axis === 'v' ? 'v' : 'h';
+          var axis = (route.axis || dc.axis) === 'v' ? 'v' : 'h';
           if (axis === 'h' && dy > dx * 1.6) axis = 'v';
           else if (axis === 'v' && dx > dy * 1.6) axis = 'h';
-          host.control.axis = axis;
-          host.control.mid = (axis === 'h') ? w.x : w.y;
+          /* REFUSE A FLIP THAT HAS NO SHAPE. Two tappings on the same riser
+           * have no horizontal middle segment to offer, so flipping to 'v'
+           * collapses the route onto the pipe and straight back. The segment
+           * just keeps sliding along the axis it has, which is the honest
+           * answer: there is nothing to flip TO. */
+          if (dc.from && dc.to) {
+            var levY = Math.abs(dc.from.y - dc.to.y) < 1e-6;
+            var levX = Math.abs(dc.from.x - dc.to.x) < 1e-6;
+            if (axis === 'h' && levY && !levX) axis = 'v';
+            else if (axis === 'v' && levX && !levY) axis = 'h';
+          }
+          route.axis = axis;
+          route.mid = (axis === 'h') ? w.x : w.y;
           self.render();
         }
         return;
@@ -1555,6 +1572,10 @@
     this.drawTrace();
     this.drawGrid();
     this.drawFadedLevel();
+    /* Cleared HERE, not in `drawControlLinks`, because the differential sensor
+     * route registers handles too and the sensors are drawn first — resetting
+     * the list later threw them away. */
+    this._controlHandles = [];
     this.drawRisers();
     this.drawPipes();
     this.drawNodes();
@@ -2482,7 +2503,7 @@
   }
 
   View.prototype.drawSensorGlyph = function (p, sa, sb, selected) {
-    var ctx = this.ctx, m = this.getModel();
+    var ctx = this.ctx, m = this.getModel(), self = this;
     var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
     var colour = selected ? this.theme.select : this.theme.warn;
     /* WHAT IT MEASURES, on the bubble. A differential says so — Michael,
@@ -2495,7 +2516,94 @@
              : sm === 'dP' ? '\u0394P'
              : sm === 'dT' ? '\u0394T' : 'T';
 
-    /* PERPENDICULAR TO THE PIPE (Michael, 2026-08-04). It used to stand
+    /* ================================================ A DIFFERENTIAL
+     *
+     * ONE ROUTE BETWEEN THE TWO TAPPINGS, with the bubble at the centre of its
+     * middle segment. Michael, 2026-08-06: "Could we just draw a C/Z between
+     * the 2 points and put the dP symbol at the geometric center of the middle
+     * section?"
+     *
+     * What it replaces is the lesson. A bubble hung off the sensor's own pipe
+     * plus a SEPARATE reference line to the far tapping is two leaders that
+     * have to be kept from colliding — and over three attempts they did not
+     * manage it: the reference line ran diagonally, then it retraced the stem,
+     * then it retraced it only when the bubble was dragged across the pipe. One
+     * route has nothing to collide with, and it says what a ΔP is far better:
+     * the symbol sits BETWEEN the two things being measured.
+     *
+     * Drawn only when both ends are on the level being shown; a route to a
+     * tapping on another floor would cut across pipework it has nothing to do
+     * with, and then the plain bubble below is the fallback. */
+    var route = M.sensorRoute(m, p);
+    if (route) {
+      var refPipe = M.pipe(m, p.sensor.ref);
+      var rn = M.node(m, refPipe.a), on2 = M.node(m, p.a);
+      if (!rn || !on2 || rn.level !== m.activeLevel || on2.level !== m.activeLevel) route = null;
+    }
+
+    if (route) {
+      var rp = route.points.map(function (q) { return self.toScreen(q.x, q.y); });
+      var ms = route.midSeg.map(function (q) { return self.toScreen(q.x, q.y); });
+      var cx = (ms[0].x + ms[1].x) / 2, cy = (ms[0].y + ms[1].y) / 2;
+      var R2 = 10;
+
+      ctx.save();
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = 1.5;
+      /* Dotted rather than the control link's dash, so the two do not read as
+       * the same thing: that one carries a signal to a device, this one only
+       * says what the reading is taken across. */
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(rp[0].x, rp[0].y);
+      for (var ri = 1; ri < rp.length; ri++) ctx.lineTo(rp[ri].x, rp[ri].y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      /* An open square at EACH tapping — both ends are measurement points and
+       * neither is the sender, which is exactly the difference from the control
+       * link's one-ended ring. */
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(rp[0].x - 3.5, rp[0].y - 3.5, 7, 7);
+      var lastP = rp[rp.length - 1];
+      ctx.strokeRect(lastP.x - 3.5, lastP.y - 3.5, 7, 7);
+
+      // the bubble, at the geometric centre of the middle segment
+      ctx.fillStyle = this.theme.bg;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, R2, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = colour;
+      ctx.font = '600 10px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(mode, cx, cy);
+      ctx.restore();
+
+      /* EVERY VERTEX IS A HANDLE, and so is the bubble. With both tappings
+       * pinned to their pipes the route has exactly one degree of freedom —
+       * where the middle segment sits — so whichever you grab, the same thing
+       * moves. That is the shape, not a shortcut: any orthogonal three-segment
+       * path between two fixed points is determined by its middle segment. */
+      if (this.tool === 'view') {
+        var grabs = [{ x: cx, y: cy }];
+        for (var gi = 1; gi < rp.length - 1; gi++) grabs.push(rp[gi]);
+        grabs.forEach(function (g) {
+          self.labelHandle(g.x - 5, g.y - 5, 10, 10);
+          self._controlHandles.push({
+            pipe: p, host: p.sensor, key: 'route', axis: route.axis,
+            from: route.from, to: route.to,
+            x: g.x - 7, y: g.y - 7, w: 14, h: 14
+          });
+        });
+      }
+
+      this.drawTag(p, mx, my);
+      return;
+    }
+
+    /* ================================================ EVERYTHING ELSE
+     *
+     * PERPENDICULAR TO THE PIPE (Michael, 2026-08-04). It used to stand
      * straight up in screen space, which reads as perpendicular only on a
      * horizontal run and sits ON the pipe on a vertical one. The normal is
      * taken from the run itself, and the side is chosen so the bubble goes
@@ -2512,21 +2620,11 @@
     var R = 9, REACH = 18;
     var bx = mx + nx * REACH + off.dx, by = my + ny * REACH + off.dy;
 
-    /* THE STEM IS ORTHOGONAL TOO (Michael, 2026-08-06). Undragged it is a
-     * single short segment either way, so this only shows once the bubble has
-     * been moved — and then a diagonal leader across a drawing of horizontal
-     * and vertical runs is the same eyesore the reference line was. It leaves
+    /* The stem is orthogonal too: undragged it is a single short segment either
+     * way, and once the bubble has been moved a diagonal leader across a
+     * drawing of horizontal and vertical runs is an eyesore. It leaves
      * PERPENDICULAR to the pipe, which is where an instrument bubble stands. */
-    /* PERPENDICULAR TO THE PIPE decides the AXIS; the drag decides the SIDE.
-     * `arrX/arrY` is the direction the leader ARRIVES at the bubble in, and it
-     * has to come from where the bubble actually is — the nominal normal points
-     * one way and a bubble dragged to the other side of the pipe arrives from
-     * the opposite direction, which is how a "leaves along the stem" reference
-     * line ended up retracing it. */
-    var stemH = Math.abs(nx) > Math.abs(ny);
-    var arrX = stemH ? (bx >= mx ? 1 : -1) : 0;
-    var arrY = stemH ? 0 : (by >= my ? 1 : -1);
-    var stem = orthoRoute(mx, my, bx, by, stemH);
+    var stem = orthoRoute(mx, my, bx, by, Math.abs(nx) > Math.abs(ny));
     trimLast(stem, R);            // stop short of the bubble, outline stays clean
 
     ctx.save();
@@ -2545,53 +2643,6 @@
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(mode, bx, by);
     ctx.restore();
-
-    /* A DIFFERENTIAL PROBES TWO PIPES, so the second one is drawn (Michael,
-     * 2026-08-05). Without it the reading is unreadable on the drawing: "Δp
-     * 150 kPa" across what? Dotted rather than dashed, so it does not read as
-     * the control link it sits beside — that one carries a signal to a device,
-     * this one only says where the other tapping is.
-     *
-     * Only when both ends are on the level being drawn; a line to a tapping on
-     * another floor would cut across pipework it has nothing to do with. */
-    if ((sm === 'dP' || sm === 'dT') && p.sensor.ref) {
-      var refPipe = M.pipe(m, p.sensor.ref);
-      var refMid = refPipe ? M.deviceMid(m, refPipe) : null;
-      var rn = refPipe ? M.node(m, refPipe.a) : null;
-      if (refMid && rn && rn.level === m.activeLevel) {
-        var rs = this.toScreen(refMid.x, refMid.y);
-        /* ORTHOGONAL, like the control link (Michael, 2026-08-05). A diagonal
-         * across a drawing of nothing but horizontal and vertical runs reads as
-         * a mistake — the eye takes it for a pipe drawn wrong before it takes
-         * it for an annotation. Same Z route as `M.controlRoute`, and it LEAVES
-         * ALONG THE STEM: the first segment continues the direction the bubble
-         * already stands off the pipe in, so the two read as one gesture rather
-         * than as a line that happens to start near a circle. */
-        /* AND IT MUST NOT DOUBLE BACK OVER THE STEM. Leaving along the stem is
-         * right only when the far tapping is AHEAD of the bubble; when it is
-         * behind, the midpoint route's first leg runs back over the stem and
-         * then parallel to the sensor's own pipe a few pixels off it, which is
-         * what Michael photographed. Then the route leaves PERPENDICULAR
-         * instead, which is the same gesture seen from ninety degrees and
-         * cannot retrace anything. */
-        var ahead = (rs.x - bx) * arrX + (rs.y - by) * arrY;
-        var pts = orthoRoute(bx, by, rs.x, rs.y,
-                             ahead < 0 ? !stemH : stemH);
-        ctx.save();
-        ctx.strokeStyle = colour;
-        ctx.lineWidth = 1.2;
-        ctx.setLineDash([2, 3]);
-        ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (var pi = 1; pi < pts.length; pi++) ctx.lineTo(pts[pi].x, pts[pi].y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        /* A small open square at the far tapping — a different mark from the
-         * control link's ring, because it means a different thing. */
-        ctx.strokeRect(rs.x - 3.5, rs.y - 3.5, 7, 7);
-        ctx.restore();
-      }
-    }
 
     /* Draggable in VIEW, on its own offset key so it moves independently of
      * the tag above it. */
@@ -3557,7 +3608,6 @@
    * Orthogonal, L or Z, because a diagonal across a floor plan reads as a pipe
    * run. The bend is draggable in VIEW and is presentation only. */
   View.prototype.drawControlLinks = function () {
-    this._controlHandles = [];
     if (!this.showControl) return;
     var m = this.getModel(), ctx = this.ctx, self = this;
 
@@ -3593,7 +3643,8 @@
         for (var j = 1; j < pts.length - 1; j++) {
           self.labelHandle(pts[j].x - 5, pts[j].y - 5, 10, 10);
           self._controlHandles.push({
-            pipe: p, axis: r.axis,
+            pipe: p, host: (p.kind === 'pump') ? p.pump : p.valve, key: 'control',
+            axis: r.axis, from: r.from, to: r.to,
             x: pts[j].x - 6, y: pts[j].y - 6, w: 12, h: 12
           });
         }

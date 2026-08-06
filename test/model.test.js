@@ -6,6 +6,16 @@ const { load, ok, near, section, report } = require('./harness');
 const FD = load(['src/model.js', 'src/network.js', 'src/printer.js']);
 const M = FD.model, NET = FD.network;
 
+/* Every segment of a route must be axis-aligned — the whole point of one. */
+function segsOrtho(pts) {
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    if (Math.abs(a.x - b.x) > 1e-9 && Math.abs(a.y - b.y) > 1e-9) return false;
+  }
+  return true;
+}
+function midOf(seg) { return { x: (seg[0].x + seg[1].x) / 2, y: (seg[0].y + seg[1].y) / 2 }; }
+
 /* Build a straight run of pipes along +x on one level.
  * Returns { m, nodes:[...] } with `n` nodes at `spacing` metres apart. */
 function line(count, spacing, size) {
@@ -2375,6 +2385,126 @@ section('Control-link routing is one consistent rule');
            moved.flow[id], base.flow[id], 1e-12);
     });
   }
+}
+
+/* =====================================================================
+ * THE Z ROUTE, and the differential sensor built on it.
+ * ===================================================================== */
+section('zRoute: one shape, one degree of freedom');
+{
+  const A = { x: 0, y: 0 };
+
+  /* ---- A DIAGONAL PAIR gets a Z through the midpoint of the longer delta. */
+  {
+    const r = M.zRoute(A, { x: 10, y: 4 });
+    ok('A wider-than-tall pair runs its middle segment vertically', r.axis === 'h', r.axis);
+    near('...at the halfway X', r.mid, 5, 1e-9);
+    ok('...as four points', r.points.length === 4, String(r.points.length));
+    ok('...every segment axis-aligned', segsOrtho(r.points), JSON.stringify(r.points));
+  }
+
+  /* ---- ENDS ON THE SAME VERTICAL: a horizontal middle segment would have zero
+   * length, so it must NOT be chosen. This is the ΔP-on-a-riser case, and it is
+   * the one that collapsed the route onto the pipe and straight back. */
+  {
+    const r = M.zRoute(A, { x: 0, y: 6 });
+    ok('Two points on one vertical route with a VERTICAL middle segment',
+       r.axis === 'h', r.axis);
+    near('...stepped 1 m off the run', r.mid, 1, 1e-9);
+    ok('...which is a C: out, along, back',
+       r.points.length === 4 &&
+       Math.abs(r.points[1].x - 1) < 1e-9 && Math.abs(r.points[2].x - 1) < 1e-9,
+       JSON.stringify(r.points));
+    ok('...all orthogonal', segsOrtho(r.points));
+    /* The middle segment spans the full separation, so by hand its centre is
+     * 1 m off the run and half the separation along: (1, 3). */
+    const c = midOf(r.midSeg);
+    near('...and the symbol sits 1 m off', c.x, 1, 1e-9);
+    near('...halfway between the ends', c.y, 3, 1e-9);
+  }
+
+  /* ---- AND THE DEGENERATE AXIS IS REFUSED even when it is asked for. */
+  {
+    const r = M.zRoute(A, { x: 0, y: 6 }, 'v', 2.5);
+    ok('A stored axis that would collapse is overridden', r.axis === 'h', r.axis);
+    near('...and the stored mid goes with it, being on the other axis',
+         r.mid, 1, 1e-9);
+    ok('...so the route never doubles back on itself',
+       r.points.length === 4 && segsOrtho(r.points) &&
+       Math.hypot(r.midSeg[1].x - r.midSeg[0].x,
+                  r.midSeg[1].y - r.midSeg[0].y) > 1e-6);
+  }
+
+  /* ---- ENDS LEVEL is the mirror image, and is the control link's case. */
+  {
+    const r = M.zRoute(A, { x: 8, y: 0 }, 'h');
+    ok('A level pair is overridden to a HORIZONTAL middle segment',
+       r.axis === 'v', r.axis);
+    near('...1 m off the run', r.mid, 1, 1e-9);
+  }
+
+  /* ---- A C IS THE SAME ROUTE with mid outside the span. No special case. */
+  {
+    const r = M.zRoute(A, { x: 10, y: 4 }, 'h', -3);
+    ok('mid outside the span gives a C', r.points.length === 4);
+    ok('...with both end segments leaving the same way',
+       (r.points[1].x - r.points[0].x) < 0 && (r.points[3].x - r.points[2].x) > 0,
+       JSON.stringify(r.points));
+    ok('...still orthogonal', segsOrtho(r.points));
+  }
+
+  /* ---- A COLLAPSED BEND is dropped, so an L is three points and not four. */
+  {
+    const r = M.zRoute(A, { x: 10, y: 4 }, 'h', 10);
+    ok('A bend on top of its neighbour is dropped', r.points.length === 3,
+       String(r.points.length));
+    ok('...and midSeg survives it, so the bubble still has a place to sit',
+       !!r.midSeg && r.midSeg.length === 2);
+  }
+}
+
+section('The differential sensor rides the same route');
+{
+  const m = M.create();
+  const lv = m.levels[0].id;
+  /* One vertical riser with two tappings on it — the commonest ΔP there is. */
+  const n = [];
+  for (let i = 0; i < 5; i++) n.push(M.addNode(m, lv, 20, i * 3));
+  M.addPipe(m, n[0].id, n[1].id, { size: 'DN50', schedule: 'sch40' });
+  const sens = M.addPipe(m, n[1].id, n[2].id, { kind: 'sensor' });
+  const refp = M.addPipe(m, n[3].id, n[4].id, { size: 'DN50', schedule: 'sch40' });
+
+  sens.sensor = { mode: 'temperature', tSet: 12 };
+  ok('A plain sensor has no route', M.sensorRoute(m, sens) === null);
+
+  sens.sensor = { mode: 'dP', dpSet: 150e3 };
+  ok('...nor a differential without a reference yet', M.sensorRoute(m, sens) === null);
+
+  sens.sensor.ref = refp.id;
+  const r = M.sensorRoute(m, sens);
+  const a = M.deviceMid(m, sens), b = M.deviceMid(m, refp);
+  ok('With a reference it routes between the two TAPPINGS',
+     Math.hypot(r.points[0].x - a.x, r.points[0].y - a.y) < 1e-9 &&
+     Math.hypot(r.points[3].x - b.x, r.points[3].y - b.y) < 1e-9,
+     JSON.stringify([a, b]));
+  ok('...orthogonally', segsOrtho(r.points));
+  /* Both tappings are at x = 20, so this is the C. The sensor spans y 3→6
+   * (midpoint 4.5) and the reference y 9→12 (midpoint 10.5), so the middle
+   * segment runs 4.5→10.5 and its centre is (21, 7.5) by hand. */
+  const c = midOf(r.midSeg);
+  near('...with the symbol 1 m off the riser', c.x, 21, 1e-9);
+  near('...halfway between the two tappings', c.y, 7.5, 1e-9);
+
+  /* A stored route is honoured — that is what a drag writes. */
+  sens.sensor.route = { axis: 'h', mid: 26 };
+  const r2 = M.sensorRoute(m, sens);
+  near('A dragged route is kept', midOf(r2.midSeg).x, 26, 1e-9);
+  ok('...and stays orthogonal', segsOrtho(r2.points));
+
+  /* Clearing it is what the Reset route button does. */
+  delete sens.sensor.route.axis; delete sens.sensor.route.mid;
+  near('Reset route restores the default',
+       midOf(M.sensorRoute(m, sens).midSeg).x, 21, 1e-9);
 }
 
 report();

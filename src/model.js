@@ -1481,38 +1481,65 @@
    * one code path and `mid` alone decides which you get. */
   var CTRL_OFFSET = 1;                  // metres, the default step off the pipe
 
-  function controlRoute(m, p) {
-    var c = controlOf(p);
-    if (!c) return null;
-    var a = deviceMid(m, p), b = deviceMid(m, pipe(m, c.equip));
-    if (!a || !b) return null;
-    /* `axis` names WHICH COORDINATE `mid` is, and therefore which way the
-     * middle segment runs:
+  /* THE Z (OR C) BETWEEN TWO FIXED POINTS. Three orthogonal segments, and
+   * exactly ONE degree of freedom — which is geometry, not a limitation: with
+   * both ends pinned, where the middle segment sits determines both bends. Move
+   * either one and the other must follow.
+   *
+   * `axis` names WHICH COORDINATE `mid` is, and therefore which way the middle
+   * segment runs:
+   *
+   *     'h'  mid is an X — the middle segment is VERTICAL
+   *     'v'  mid is a  Y — the middle segment is HORIZONTAL
+   *
+   * One meaning throughout, so the renderer, the drag handler and the stored
+   * value cannot disagree. They did until 2026-08-05: the level-ends case below
+   * built its route from the OTHER coordinate while the drag handler still
+   * wrote this one, so the first drag made the route jump. Michael reported it
+   * as "hits some limits or snaps oddly".
+   *
+   * A C is the same route with `mid` outside the span of the two ends, so both
+   * end segments leave the same way. No special case.
+   *
+   * `midSeg` is the middle segment BEFORE collapsed bends are dropped, so
+   * anything that wants to sit on it — the ΔP bubble does — has a well-defined
+   * place to sit even when the route has degenerated to an L. */
+  function zRoute(a, b, axis, mid) {
+    var horiz = axis === 'h' ? true
+              : axis === 'v' ? false
+              /* No stored axis: run the middle segment across the LONGER
+               * delta, which is the Z that reads as one gesture rather than as
+               * a detour. */
+              : Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
+
+    /* AN AXIS WHOSE MIDDLE SEGMENT WOULD HAVE ZERO LENGTH IS NOT A ROUTE.
      *
-     *     'h'  mid is an X — the middle segment is VERTICAL
-     *     'v'  mid is a  Y — the middle segment is HORIZONTAL
+     * With `axis` 'h' the middle segment spans a.y→b.y, so it vanishes when the
+     * ends are level; with 'v' it spans a.x→b.x and vanishes when they share a
+     * vertical. Either way the three segments collapse into a line that runs
+     * out and straight back along itself — which is what two tappings on the
+     * same riser produced when the axis was flipped onto them.
      *
-     * One meaning throughout, so the renderer, the drag handler and the stored
-     * value cannot disagree. They did until 2026-08-05: the level-ends case
-     * below built its route from the OTHER coordinate while the drag handler
-     * still wrote this one, so the first drag made the route jump. Michael
-     * reported it as "hits some limits or snaps oddly". */
-    var horiz = (c.axis !== 'v');
-    var mid = c.mid;
+     * The stored `mid` goes with it: it is a coordinate on the OTHER axis and
+     * would place the route somewhere unrelated. */
+    var levelY = Math.abs(a.y - b.y) < 1e-6;
+    var levelX = Math.abs(a.x - b.x) < 1e-6;
+    if (horiz && levelY && !levelX) { horiz = false; mid = null; }
+    else if (!horiz && levelX && !levelY) { horiz = true; mid = null; }
 
     if (mid === null || mid === undefined) {
       /* THE DEFAULT STEPS 1 m OFF THE PIPE when the two ends are level with
        * each other. Halfway between two devices on the same run puts the middle
-       * segment straight down the pipe, where a dashed green line is
-       * unreadable against the pipework it is meant to be distinguished from.
+       * segment straight down the pipe, where a dashed line is unreadable
+       * against the pipework it is meant to be distinguished from.
        *
-       * Expressed by choosing the OTHER axis rather than by a special case in
-       * the route: a horizontal middle segment 1 m above a horizontal run is
-       * exactly "step off, along, and back", and it needs no second code path. */
-      var levelY = Math.abs(a.y - b.y) < 1e-6;
-      var levelX = Math.abs(a.x - b.x) < 1e-6;
-      if (levelY && horiz) { horiz = false; mid = a.y + CTRL_OFFSET; }
-      else if (levelX && !horiz) { horiz = true; mid = a.x + CTRL_OFFSET; }
+       * The AXIS for that case was decided above — it is the same condition, so
+       * deciding it twice is how the two came to disagree. What is left here is
+       * only how far off: 1 m, giving "step off, along, and back". Two tappings
+       * on the same vertical riser — the commonest ΔP there is — come out as
+       * exactly the C Michael asked for. */
+      if (levelY && !horiz) mid = a.y + CTRL_OFFSET;
+      else if (levelX && horiz) mid = a.x + CTRL_OFFSET;
       else mid = horiz ? (a.x + b.x) / 2 : (a.y + b.y) / 2;
     }
 
@@ -1526,7 +1553,39 @@
       var q = pts[i], last = out[out.length - 1];
       if (Math.abs(q.x - last.x) > 1e-9 || Math.abs(q.y - last.y) > 1e-9) out.push(q);
     }
-    return { points: out, axis: horiz ? 'h' : 'v', mid: mid, from: a, to: b };
+    return { points: out, axis: horiz ? 'h' : 'v', mid: mid,
+             midSeg: [pts[1], pts[2]], from: a, to: b };
+  }
+
+  function controlRoute(m, p) {
+    var c = controlOf(p);
+    if (!c) return null;
+    var a = deviceMid(m, p), b = deviceMid(m, pipe(m, c.equip));
+    if (!a || !b) return null;
+    return zRoute(a, b, c.axis, c.mid);
+  }
+
+  /* THE DIFFERENTIAL SENSOR'S ROUTE — the same Z, between the two tappings.
+   *
+   * Michael, 2026-08-06: "Could we just draw a C/Z between the 2 points and put
+   * the dP symbol at the geometric center of the middle section?" That replaces
+   * a bubble hung off the sensor's own pipe plus a separate reference line —
+   * two leaders that had to be kept from colliding with each other, and did not
+   * manage it. One route between the two things being measured says what a ΔP
+   * is far better, and it is the same object the control link already is.
+   *
+   * Null when the sensor is not differential or has no reference yet. */
+  function sensorRoute(m, p) {
+    if (!p || p.kind !== 'sensor' || !p.sensor) return null;
+    var sm = p.sensor.mode;
+    if (sm !== 'dP' && sm !== 'dT') return null;
+    if (!p.sensor.ref) return null;
+    var ref = pipe(m, p.sensor.ref);
+    if (!ref) return null;
+    var a = deviceMid(m, p), b = deviceMid(m, ref);
+    if (!a || !b) return null;
+    var r = p.sensor.route || {};
+    return zRoute(a, b, r.axis, r.mid);
   }
 
   function clearDevice(m, nodeId) {
@@ -1719,7 +1778,8 @@
     pumpSpeed: pumpSpeed,
     pumpSizing: pumpSizing, pumpRunMode: pumpRunMode, generateCurve: generateCurve, pumpCurve: pumpCurve,
     pumpSpeedIgnored: pumpSpeedIgnored, pumpHead: pumpHead,
-    controlRoute: controlRoute, deviceMid: deviceMid,
+    controlRoute: controlRoute, sensorRoute: sensorRoute, zRoute: zRoute,
+    deviceMid: deviceMid,
     equipRatedC: equipRatedC,
     equipDutyFromDT: equipDutyFromDT,
     equipDTFromDuty: equipDTFromDuty,
