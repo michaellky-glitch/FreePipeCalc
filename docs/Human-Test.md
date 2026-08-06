@@ -203,6 +203,20 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 4X. UI PASS, PANELS AND THE RIBBON (v0.15.1)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| UX.1 | The ribbon is two rows | ✅ | **My bug, and an instructive one:** `display:flex` on `.tool-set` beats the UA's `[hidden] { display:none }`, so all four modes' tools rendered at once — what you photographed. Fixed, and split into chrome-on-top / tools-underneath, since DESIGN's tools alone are 1374 px and one row wrapped anyway. Verified single-line at 1440 and 1920. |
+| UX.2 | `res.actual` gone from DESIGN | ✅ | Your call. It turned out DESIGN was the only place it was ever *read* — SIMULATION always preferred the simulation report — so it is gone entirely rather than moved. The error box now says a negative pressure is the head that is MISSING, and points at SIMULATE for what would really be delivered. |
+| UX.3 | Equipment panel | ⬜ | Details · Design · Actual · Display, your list. Heat source/sink and heat exchanger get their own Design fields; "Other" (adiabatic) drops to Flow / Pressure drop / K factor. |
+| UX.4 | **Heating/Cooling switch** | ✅ | Replaces the typed minus sign. Verified: toggling 50 kW heating gives −50 kW stored and reads "Cooling"; typing `-12` moves the switch by itself. A typed sign always wins. |
+| UX.5 | Cooling loads read positive | ✅ | "Cooling load 50.00 kW" in the panel, "Cool 50.0 kW" on the drawing. Display only — stored, calculated and exported values keep the sign. |
+| UX.6 | Temperature limit Max/Min | ⬜ | Shown beside the value, following the load direction: a heating coil is limited by a maximum, a cooling coil by a minimum. It is an indicator, not a second input — the engine already works out which side binds, and two ways of saying it could disagree. **Tell me if you wanted it settable.** |
+| UX.7 | Control valve vs isolation valve | ⬜ | Two panels now. Isolation gets Open/Closed as its Status and no position slider — a gate valve is not a regulating device. **One judgement call:** an existing gate valve left part-open keeps its slider, so nothing drawn before this loses a setting silently. |
+| UX.8 | Check valve | ⬜ | Third shape: Direction, Kv, no status and no position. |
+| UX.9 | % Load and Position % on the drawing | ⬜ | Both were offered as toggles and neither was drawn. On a balanced circuit the valve positions are the answer, so they are the thing you want on a plot. |
+
 ## 4W. UI PASS, FIRST STAGE (v0.15.0)
 
 | # | What | Status | Notes |

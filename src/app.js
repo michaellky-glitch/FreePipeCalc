@@ -646,14 +646,16 @@
         hbox.appendChild(el('p', '', w.message));
         if (w.detail) hbox.appendChild(el('p', 'hint', w.detail));
       });
-      if (res.actual) {
+      /* No "what would actually be delivered" figure any more — DESIGN answers
+       * DESIGN's question (2026-08-06). What the negative pressures MEAN still
+       * needs saying, because a negative gauge pressure reads as an error
+       * rather than as a measurement. */
+      if (m.settings.calcMode !== 'simulation') {
         hbox.appendChild(el('p', '',
-          'Tabulated pressures below are the demand-driven result — every demand ' +
-          'drawing its full flow — so the negative values show how much head is missing. ' +
-          'The figures in brackets in the Demands table are what the system would ' +
-          'actually deliver: ' +
-          FD.units.fmtFlow(res.actual.totalDelivered, d.flow, true) + ' of ' +
-          FD.units.fmtFlow(res.actual.totalDemanded, d.flow, true) + '.'));
+          'Tabulated pressures are the demand-driven result — every demand drawing ' +
+          'its full flow — so a negative value is how much head is MISSING at that ' +
+          'point, which is what to size against. Switch to SIMULATE to see what the ' +
+          'system would actually deliver.'));
       }
       host.appendChild(hbox);
     }
@@ -797,8 +799,10 @@
         var dev = n.device;
         var simRow = sim && sim.terminals
           ? sim.terminals.filter(function (t) { return t.node === n.id; })[0] : null;
-        var aF = simRow ? simRow.actualFlow
-               : (res && res.actual && res.actual.flow ? res.actual.flow[n.id] : dev.flow);
+        /* In SIMULATION the terminal's own report says what it delivered; in
+         * DESIGN the demand IS the flow, by definition of the mode. The third
+         * case — `res.actual` — is gone with the pressure-driven pass. */
+        var aF = simRow ? simRow.actualFlow : dev.flow;
         var aP = res && res.pressure ? res.pressure[n.id] : null;
         return row(n.tag || n.id, aF, dev.flow, aP, dev.reqPressure || null);
       });
@@ -2664,81 +2668,154 @@
     host.appendChild(del);
   }
 
+  /* ============================================ L1: EQUIPMENT
+   *
+   * Three shapes off one function, because they are three devices (Michael,
+   * 2026-08-06):
+   *
+   *   HEAT SOURCE / SINK  states a LEAVING TEMPERATURE; duty follows
+   *   HEAT EXCHANGER      states a LOAD; temperature follows
+   *   ADIABATIC           states neither — a strainer, a filter, a meter
+   *
+   * They share Details, Design, Actual and Display; what is IN Design is what
+   * differs, which is exactly what the three types mean.
+   */
   function renderEquipProps(host, p) {
     var m = app.model, d = m.settings.display;
-    host.appendChild(el('h3', '', 'Equipment ' + p.id));
-    tagField(host, p);
-    flipField(host, p);
+    var e = p.equip;
+    if (e.equipType !== 'source' && e.equipType !== 'exchanger' &&
+        e.equipType !== 'adiabatic') {
+      e.equipType = 'exchanger';
+    }
+    var isSource = (e.equipType === 'source');
+    var isAdiabatic = (e.equipType === 'adiabatic');
+    var title = isSource ? 'Heat source / sink'
+              : isAdiabatic ? 'Other' : 'Heat exchanger';
+    host.appendChild(el('h3', '', title + ' ' + (p.tag || p.id)));
 
-    /* Isolating equipment is a break in the circuit, not a bypass — same as a
-     * stopped pump. Without this the only way to take a chiller out of a model
-     * was to delete it and redraw it later. */
-    statusToggle(host, !p.equip.off, 'In service', 'Isolated (no flow)',
-      function (on) {
-        pushUndo();
-        if (on) delete p.equip.off; else p.equip.off = true;
-        renderProperties(); changed();
-      });
+    // ---------------------------------------------------------- L2 DETAILS
+    var det = section(host, 'Details');
+    idRow(det, p);
+    tagField(det.box, p);
 
-    host.appendChild(el('h3', 'sub', 'Hydraulics'));
+    var typeSel = el('select');
+    [['source', 'Heat source / sink'], ['exchanger', 'Heat exchanger'],
+     ['adiabatic', 'Other (no thermal behaviour)']].forEach(function (o) {
+      var opt = el('option', '', o[1]); opt.value = o[0];
+      if (o[0] === e.equipType) opt.selected = true;
+      typeSel.appendChild(opt);
+    });
+    field(det.box, 'Equipment type', typeSel).addEventListener('change', function () {
+      pushUndo(); e.equipType = typeSel.value; renderProperties(); changed();
+    });
+
+    flipField(det.box, p);
+    onlineToggle(det.box, !e.off, function (on) {
+      pushUndo();
+      if (on) delete e.off; else e.off = true;
+      renderProperties(); changed();
+    }, 'Offline is a BREAK in the circuit, not a bypass — the same as a stopped ' +
+       'pump. Without it the only way to take a chiller out of a model was to ' +
+       'delete it and redraw it later.');
+
+    // ----------------------------------------------------------- L2 DESIGN
+    var des = section(host, 'Design');
 
     /* Design flow is one of the THREE locked by Q = ṁ·Cp·ΔT, so it goes through
-     * the same helper as the load and ΔT even though it lives under Hydraulics.
-     * A re-render follows because the edit may have moved one of the other two,
-     * and a stale figure sitting in the Thermal box is exactly how a 0.8 L/s
-     * coil ends up carrying 20 L/s. */
+     * the same helper as the load and ΔT. A re-render follows because the edit
+     * may have moved one of the other two, and a stale figure left sitting in
+     * the panel is exactly how a 0.8 L/s coil ends up carrying 20 L/s. */
     var qIn = el('input'); qIn.type = 'text';
-    qIn.value = FD.units.fmtFlow(p.equip.qRated || 0, d.flow);
-    field(host, 'Design flow (' + d.flow + ')', qIn);
-    infoMark(qIn.parentNode.querySelector('label'),
-             'Design flow, load and ΔT are one equation. Changing this moves ' +
-             'whichever of the other two you set least recently.');
+    qIn.value = FD.units.fmtFlow(e.qRated || 0, d.flow);
+    field(des.box, 'Flow (' + d.flow + ')', qIn);
+    if (!isAdiabatic) {
+      infoMark(fieldLabel(qIn),
+               'Flow, load and ΔT are one equation. Changing this moves ' +
+               'whichever of the other two you set least recently.');
+    }
     qIn.addEventListener('change', function () {
       var v = FD.units.parse(qIn.value);
       if (isFinite(v) && v > 0) {
         pushUndo();
         M.setEquipTrio(m, p, 'qRated', FD.units.toSIFlow(v, d.flow));
         renderProperties(); changed();
-      } else { qIn.value = FD.units.fmtFlow(p.equip.qRated || 0, d.flow); }
+      } else { qIn.value = FD.units.fmtFlow(e.qRated || 0, d.flow); }
     });
 
     var pdIn = el('input'); pdIn.type = 'text';
-    pdIn.value = FD.units.fmtPressure(p.equip.pdRated || 0, d.pressure);
-    field(host, 'Design pressure drop (' + d.pressure + ')', pdIn)
+    pdIn.value = FD.units.fmtPressure(e.pdRated || 0, d.pressure);
+    field(des.box, 'Pressure drop (' + d.pressure + ')', pdIn)
       .addEventListener('change', function () {
         var v = FD.units.parse(pdIn.value);
         if (isFinite(v) && v >= 0) {
-          pushUndo(); p.equip.pdRated = FD.units.toSIPressure(v, d.pressure); changed();
-        } else { pdIn.value = FD.units.fmtPressure(p.equip.pdRated || 0, d.pressure); }
+          pushUndo(); e.pdRated = FD.units.toSIPressure(v, d.pressure); changed();
+        } else { pdIn.value = FD.units.fmtPressure(e.pdRated || 0, d.pressure); }
       });
+    /* K FACTOR, which on an adiabatic item is the whole of what it is: a
+     * strainer is a resistance and nothing else. Stated for the others too,
+     * because it is the one basis on which a coil and a terminal compare. */
+    designKRow(des, e.qRated, e.pdRated);
 
-    designKRow(readoutBox(host, null), p.equip.qRated, p.equip.pdRated);
+    renderEquipThermal(des, p);
 
-    renderEquipThermal(host, p);
-
+    // ----------------------------------------------------------- L2 ACTUAL
     var res = app.results;
-    if (res && res.flow[p.id] !== undefined) {
-      var link = res.network.links.find(function (l) { return l.id === p.id; });
-      var q = res.flow[p.id];
-      var info = el('div', 'readout');
-      function ro(k, v) {
-        var r = el('div', 'kv'); r.appendChild(el('span', 'k', k));
-        r.appendChild(el('span', 'v', v)); info.appendChild(r);
+    var thL = res && res.thermal && res.thermal.links[p.id];
+    if ((res && res.flow[p.id] !== undefined) || thL) {
+      var act = section(host, 'Actual');
+      if (res && res.flow[p.id] !== undefined) {
+        var link = res.network.links.find(function (l) { return l.id === p.id; });
+        act.ro('Flow', FD.units.fmtFlow(Math.abs(res.flow[p.id]), d.flow, true));
+        if (link) {
+          act.ro('Pressure drop', FD.units.fmtPressure(
+            headToPa(Math.abs(FD.hydraulics.linkLoss(link, res.flow[p.id]))),
+            d.pressure, true));
+        }
       }
-      ro('Actual flow', FD.units.fmtFlow(Math.abs(q), d.flow, true));
-      if (link) {
-        ro('Actual PD', FD.units.fmtPressure(
-          headToPa(Math.abs(FD.hydraulics.linkLoss(link, q))), d.pressure, true));
+      if (thL && !isAdiabatic) {
+        act.ro('EWT', thL.tIn.toFixed(2) + ' °C');
+        act.ro('LWT', thL.tOut.toFixed(2) + ' °C');
+        act.ro('ΔT', (thL.dT >= 0 ? '+' : '') + thL.dT.toFixed(2) + ' K');
+        act.ro(loadLabel(thL.qW), fmtLoad(thL.qW));
+        /* % LOAD against the nameplate. Signed capacity makes this positive
+         * whenever the machine is working in its own direction, which is the
+         * only time the ratio means anything. */
+        var cap = isSource ? Number(e.qMax) : Number(e.duty);
+        act.ro('% Load',
+               (isFinite(cap) && cap !== 0)
+                 ? (thL.qW / cap * 100).toFixed(1) + '%' : '—');
+        if (thL.limit) act.ro('Limited by', thL.limit);
+
+        /* THE DEFICIT, in red (Michael, 2026-08-05). A source/sink that misses
+         * its setpoint still REPORTS a leaving temperature, and read on its own
+         * that number looks like an achieved result. The gap between what it
+         * was asked for and what it managed is what an engineer needs to see. */
+        if (isSource && isFinite(Number(e.tSet))) {
+          var miss = thL.tOut - Number(e.tSet);
+          if (Math.abs(miss) > 0.05) {
+            var mr = act.ro('Setpoint deficit',
+              (miss > 0 ? '+' : '') + miss.toFixed(2) + ' K ' +
+              (miss > 0 ? 'above' : 'below') + ' ' + Number(e.tSet).toFixed(1) + ' °C');
+            mr.classList.add('deficit');
+            act.box.appendChild(el('p', 'hint warn', 'Not reaching setpoint' +
+              (thL.limit ? ' — limited by ' + thL.limit : '') + '.'));
+          }
+        }
       }
-      host.appendChild(info);
     }
-    displayChecks(host, p, [
+
+    // ---------------------------------------------------------- L2 DISPLAY
+    displayChecks(host, p, isAdiabatic ? [
       { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
-      { key: 'pd', label: 'Pressure drop' },
-      { key: 'temp', label: 'Temperatures' },
+      { key: 'pd', label: 'ΔP' }
+    ] : [
+      { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
+      { key: 'temp', label: 'EWT / LWT' },
       { key: 'dT', label: 'ΔT' },
-      { key: 'duty', label: 'Duty' },
-      { key: 'load', label: 'Heating/Cooling Load' },
+      { key: 'pd', label: 'ΔP' },
+      { key: 'duty', label: 'Heating/Cooling load' },
+      { key: 'load', label: 'Design load' },
+      { key: 'pctload', label: '% Load' },
       { key: 'setpoint', label: 'Setpoint' }
     ]);
 
@@ -2749,6 +2826,17 @@
     });
     host.appendChild(del);
   }
+
+  /* A COOLING LOAD READS POSITIVE (Michael, 2026-08-06): "Cooling Load : xxx
+   * kW", not "−xxx kW". The sign convention is about the FLUID and it is right
+   * — negative means heat removed — but nobody writes a chiller's duty with a
+   * minus sign on a schedule, and a panel that does looks like an error.
+   *
+   * DISPLAY ONLY. The stored value keeps its sign, and every calculation,
+   * message and export still sees it, because the convention is what makes the
+   * heat balance add up (ARCHITECTURE §18). */
+  function loadLabel(w) { return (w < 0 ? 'Cooling' : 'Heating') + ' load'; }
+  function fmtLoad(w) { return (Math.abs(w) / 1000).toFixed(2) + ' kW'; }
 
   /* Equipment's thermal side.
    *
@@ -2763,31 +2851,11 @@
    * On an exchanger Q, ΔT and ṁ are locked by Q = ṁ·Cp·ΔT, so both are offered
    * and each rewrites the other — the model stores the duty, so the engine
    * only ever sees one quantity. */
-  function renderEquipThermal(host, p) {
+  function renderEquipThermal(sec, p) {
     var m = app.model;
+    var host = sec.box;
     var e = p.equip;
-    if (e.equipType !== 'source' && e.equipType !== 'exchanger' &&
-        e.equipType !== 'adiabatic') {
-      e.equipType = 'exchanger';
-    }
     var isSource = (e.equipType === 'source');
-
-    /* No explanation on the heading. The sign convention now lives on the two
-     * fields it actually governs — Heating/Cooling Load and Heating/Cooling
-     * Capacity — where it is read at the point of use rather than as a preamble
-     * to the whole section (Michael, 2026-08-03). */
-    host.appendChild(el('h3', 'sub', 'Thermal'));
-
-    var typeSel = el('select');
-    [['source', 'Source / Sink'], ['exchanger', 'Heat Exchanger'],
-     ['adiabatic', 'Adiabatic']].forEach(function (o) {
-      var opt = el('option', '', o[1]); opt.value = o[0];
-      if (o[0] === e.equipType) opt.selected = true;
-      typeSel.appendChild(opt);
-    });
-    field(host, 'Type', typeSel).addEventListener('change', function () {
-      pushUndo(); e.equipType = typeSel.value; renderProperties(); changed();
-    });
 
     function num(label, get, set, hoverText) {
       var i = el('input'); i.type = 'text';
@@ -2830,6 +2898,59 @@
       return;
     }
 
+    /* HEATING / COOLING AS A TOGGLE, with the magnitude typed beside it
+     * (Michael, 2026-08-06). The stored value is signed and stays signed —
+     * that convention is what makes the heat balance add up — but typing a
+     * minus sign to mean "chiller" is a convention you have to be told,
+     * whereas a switch that says Cooling is one you can read.
+     *
+     * Typing a signed number still works and MOVES THE TOGGLE, because someone
+     * who knows the convention should not be fought. */
+    function signedField(label, getW, setW, hoverText) {
+      var w = getW();
+      var cooling = isFinite(Number(w)) && Number(w) < 0;
+      var wrap = el('div', 'field');
+      var lab = el('label', '', label);
+      infoMark(lab, hoverText);
+      wrap.appendChild(lab);
+
+      var row = el('div', 'btn-row');
+      var sw = el('button', 'switch plain ' + (cooling ? 'off' : 'on'));
+      sw.type = 'button';
+      sw.appendChild(el('span', 'switch-track', ''));
+      sw.appendChild(el('span', 'switch-label', cooling ? 'Cooling' : 'Heating'));
+      var box = el('input', 'cell-input');
+      box.type = 'text';
+      box.value = (w === undefined || w === null || w === '')
+        ? '' : String(Math.abs(Number(w)) / 1000);
+
+      function commit(kW, isCooling) {
+        pushUndo();
+        setW(kW === undefined ? undefined
+                              : (isCooling ? -Math.abs(kW) : Math.abs(kW)) * 1000);
+        renderProperties(); changed();
+      }
+      sw.addEventListener('click', function () {
+        var n = FD.units.parse(box.value);
+        commit(isFinite(n) ? n : undefined, !cooling);
+      });
+      box.addEventListener('change', function () {
+        var raw = box.value.trim();
+        if (raw === '') { commit(undefined, cooling); return; }
+        var n = FD.units.parse(raw);
+        if (!isFinite(n)) { renderProperties(); return; }
+        /* A typed sign WINS — it is a more specific statement than the switch
+         * position, and silently discarding it is how you teach someone the
+         * app does not listen. */
+        commit(Math.abs(n), /^\s*-/.test(raw) ? true : (n < 0 ? true : cooling));
+      });
+      row.appendChild(sw);
+      row.appendChild(box);
+      wrap.appendChild(row);
+      wrap.appendChild(el('span', 'hint', 'kW'));
+      host.appendChild(wrap);
+    }
+
     if (isSource) {
       /* ORDER: Type, Capacity, % Load, LWT Setpoint, Design ΔT (Michael,
        * 2026-08-03 and 2026-08-04). Capacity first because it is the machine's
@@ -2842,106 +2963,134 @@
        *
        * Capacity, design flow and ΔT are ONE equation here exactly as they are
        * on an exchanger, so they go through the same helper. */
-      num('Heating/Cooling Capacity (kW)',
-          function () { return e.qMax === undefined ? '' : e.qMax / 1000; },
-          function (v) {
-            M.setEquipTrio(m, p, 'duty', v === undefined ? undefined : v * 1000);
-          },
+      signedField('Capacity',
+          function () { return e.qMax; },
+          function (w) { M.setEquipTrio(m, p, 'duty', w); },
           SIGN + ' Blank = Unlimited.');
 
-      /* % LOAD — what it is actually doing against its nameplate. Signed
-       * capacity makes this come out positive whenever the machine is working
-       * in its own direction, which is the only time the ratio means anything. */
-      var thL = app.results && app.results.thermal && app.results.thermal.links[p.id];
-      var pct = '—';
-      if (thL && isFinite(thL.qW) && isFinite(Number(e.qMax)) && Number(e.qMax) !== 0) {
-        pct = (thL.qW / Number(e.qMax) * 100).toFixed(1) + '%';
-      }
-      readoutBox(host, null).ro('% Load', pct);
-
-      num('LWT Setpoint (°C)', function () { return e.tSet; },
+      num('LWT setpoint (°C)', function () { return e.tSet; },
           function (v) { e.tSet = v; },
           'Leaving water temperature the machine modulates to hold.');
-      num('Design ΔT (K)',
+      num('ΔT (K)',
           function () {
             return e.dTMax === undefined || e.dTMax === null || e.dTMax === ''
               ? '' : e.dTMax;
           },
           function (v) { M.setEquipTrio(m, p, 'dT', v); },
-          'Design flow, capacity and ΔT are one equation. Changing this moves ' +
+          'Flow, capacity and ΔT are one equation. Changing this moves ' +
           'whichever of the other two you set least recently. ' + OPTIONAL);
     } else {
       /* Load, design flow and ΔT are ONE equation. Editing any of the three
        * moves whichever was touched least recently — M.setEquipTrio, and the
        * reason it is not simply "ΔT rewrites the load" is `debug/20260803-1`. */
-      num('Heating/Cooling Load (kW)',
-          function () { return e.duty === undefined ? '' : e.duty / 1000; },
-          function (v) {
-            M.setEquipTrio(m, p, 'duty', v === undefined ? undefined : v * 1000);
-          },
+      signedField('Capacity',
+          function () { return e.duty; },
+          function (w) { M.setEquipTrio(m, p, 'duty', w); },
           SIGN);
       var C = M.equipRatedC(m, p);
-      num('ΔT at design (K)',
+      num('ΔT (K)',
           function () {
             return C > 0 ? Math.round(M.equipDTFromDuty(m, p, e.duty || 0) * 1000) / 1000 : '';
           },
           function (v) { if (v !== undefined) M.setEquipTrio(m, p, 'dT', v); },
-          'Design flow, load and ΔT are one equation. Changing this moves ' +
+          'Flow, load and ΔT are one equation. Changing this moves ' +
           'whichever of the other two you set least recently.');
       num('ΔT max (K)', function () { return e.dTMax; },
           function (v) { e.dTMax = v; }, OPTIONAL);
-      num('T limit (°C)', function () { return e.tLimit; },
-          function (v) { e.tLimit = v; }, OPTIONAL);
-    }
 
-    var res = app.results;
-    var link = res && res.thermal && res.thermal.links[p.id];
-    if (link) {
-      var tb = readoutBox(host, 'Actual');
-      tb.ro('Inlet', link.tIn.toFixed(2) + ' °C');
-      tb.ro('Outlet', link.tOut.toFixed(2) + ' °C');
-      tb.ro('ΔT', (link.dT >= 0 ? '+' : '') + link.dT.toFixed(2) + ' K');
-      tb.ro('Duty', (link.qW >= 0 ? '+' : '') + (link.qW / 1000).toFixed(2) + ' kW');
-      if (link.limit) tb.ro('Limited by', link.limit);
-
-      /* THE DEFICIT, in red (Michael, 2026-08-05). A source/sink that misses
-       * its setpoint still REPORTS a leaving temperature, and read on its own
-       * that number looks like an achieved result. The gap between what it was
-       * asked for and what it managed is the thing an engineer needs to see, so
-       * it is stated rather than left to be worked out from two other rows. */
-      if (isSource && isFinite(Number(e.tSet))) {
-        var miss = link.tOut - Number(e.tSet);
-        if (Math.abs(miss) > 0.05) {
-          var mr = tb.ro('Setpoint deficit',
-            (miss > 0 ? '+' : '') + miss.toFixed(2) + ' K ' +
-            (miss > 0 ? 'above' : 'below') + ' ' + Number(e.tSet).toFixed(1) + ' °C');
-          mr.classList.add('deficit');
-          var dh = el('p', 'hint warn', 'Not reaching setpoint' +
-                      (link.limit ? ' — limited by ' + link.limit : '') + '.');
-          tb.box.appendChild(dh);
+      /* TEMPERATURE LIMIT, with a MAX/MIN switch (Michael, 2026-08-06). One
+       * number cannot say which side it binds on: 12 °C is a floor on a chilled
+       * coil and a ceiling on a heating one, and the engine works it out from
+       * which side the machine is approaching from. Saying it explicitly is
+       * both clearer to read and the thing you check when a limit binds
+       * unexpectedly. Stored as the same single `tLimit`; the switch is a
+       * statement of intent shown beside it. */
+      var tlWrap = el('div', 'field');
+      var tlLab = el('label', '', 'Temperature limit (°C)');
+      infoMark(tlLab, 'The temperature the machine cannot take the water past — ' +
+                      'a tower cannot cool below wet bulb. Whether it is a ' +
+                      'maximum or a minimum follows from which side the water ' +
+                      'is approaching from; the switch says which you meant. ' +
+                      OPTIONAL);
+      tlWrap.appendChild(tlLab);
+      var tlRow = el('div', 'btn-row');
+      var isMax = (Number(e.duty) || 0) >= 0;
+      var tlSw = el('button', 'switch plain ' + (isMax ? 'on' : 'off'));
+      tlSw.type = 'button';
+      tlSw.disabled = true;
+      tlSw.title = 'Follows the load direction: a heating coil is limited by a ' +
+                   'MAXIMUM, a cooling coil by a MINIMUM.';
+      tlSw.appendChild(el('span', 'switch-track', ''));
+      tlSw.appendChild(el('span', 'switch-label', isMax ? 'Max' : 'Min'));
+      var tlIn = el('input', 'cell-input');
+      tlIn.type = 'text';
+      tlIn.value = (e.tLimit === undefined || e.tLimit === null) ? '' : e.tLimit;
+      tlIn.addEventListener('change', function () {
+        var raw = tlIn.value.trim();
+        pushUndo();
+        if (raw === '') e.tLimit = undefined;
+        else {
+          var n = FD.units.parse(raw);
+          if (!isFinite(n)) { renderProperties(); return; }
+          e.tLimit = n;
         }
-      }
+        renderProperties(); changed();
+      });
+      tlRow.appendChild(tlSw); tlRow.appendChild(tlIn);
+      tlWrap.appendChild(tlRow);
+      host.appendChild(tlWrap);
     }
+
   }
 
   /* Valves are sized by flow coefficient. Kv and Cv are the same number in
    * different units, so editing either updates the other — the model always
    * stores Kv. */
+  /* ============================================ L1: VALVE
+   *
+   * TWO PANELS, because they are two different devices (Michael, 2026-08-06):
+   *
+   *   CONTROL VALVE    a globe valve. Has a POSITION, and may be linked to a
+   *                    setpoint. No status toggle — its state is its position.
+   *   ISOLATION VALVE  a gate valve. Open or shut, and that IS its status.
+   *
+   * A check valve is neither: it has no position anyone sets and no status
+   * anyone chooses, so it gets the isolation shape without the switch.
+   */
   function renderValveProps(host, p) {
-    var m = app.model;
+    var m = app.model, d = m.settings.display;
     var v = p.valve;
     var t = FD.valves.type(v.type);
-    host.appendChild(el('h3', '', 'Valve ' + p.id));
-    tagField(host, p);
-    if (t && t.checkValve) flipField(host, p);
+    /* GLOBE = control valve, matching `M.canControl` — the same test the engine
+     * uses to decide what a controller may drive. NOT `t.adjustable`, which a
+     * gate valve also has: a gate valve CAN sit part-open (the solver
+     * interpolates its Kv) but it is not a regulating device, and offering it a
+     * 1% slider invites modelling something nobody installs. */
+    var isControl = (v.type === 'globe');
+    var isCheck = !!(t && t.checkValve);
+    /* An existing gate valve left part-open keeps its slider, so nothing is
+     * silently lost from a model drawn before this. New ones are open or shut. */
+    var partOpen = !isControl && !isCheck &&
+                   v.opening !== undefined && v.opening > 0 && v.opening < 100;
+    var title = isControl ? 'Control valve' : isCheck ? 'Check valve' : 'Isolation valve';
+    host.appendChild(el('h3', '', title + ' ' + (p.tag || p.id)));
 
+    // ---------------------------------------------------------- L2 DETAILS
+    var det = section(host, 'Details');
+    idRow(det, p);
+    tagField(det.box, p);
+    if (isCheck) flipField(det.box, p);
+
+    /* The TYPE selector stays, because a valve drawn as the wrong kind should
+     * be correctable without deleting it — but it is a Details field now
+     * rather than the second thing on the panel. */
     var typeSel = el('select');
-    Object.keys(FD.valves.types).forEach(function (k) {
-      var o = el('option', '', FD.valves.types[k].name); o.value = k;
-      if (k === v.type) o.selected = true;
+    Object.keys(FD.valves.types).forEach(function (k2) {
+      var o = el('option', '', FD.valves.types[k2].name); o.value = k2;
+      if (k2 === v.type) o.selected = true;
       typeSel.appendChild(o);
     });
-    field(host, 'Type', typeSel).addEventListener('change', function () {
+    field(det.box, 'Type', typeSel).addEventListener('change', function () {
       pushUndo();
       v.type = typeSel.value;
       // Re-default Kv for the new type unless the user has clearly set it.
@@ -2949,16 +3098,60 @@
       renderProperties(); changed();
     });
 
-    /* Opening is the full range in 1% steps (Michael, 2026-08-03). It snapped
-     * to five positions, which is not how a regulating valve is set — a
-     * balancing valve lands wherever it lands. The Kv curve is still tabulated
-     * at the quarter points and interpolated between them.
-     *
-     * A slider with a typed box beside it: the slider shows travel at a
-     * glance, the box sets an exact figure without hunting for it. */
-    if (t.adjustable) {
+    /* AN ISOLATION VALVE'S STATUS IS OPEN OR SHUT, and it is the same control
+     * every other device gets — not a slider that happens to have two useful
+     * ends. A gate valve is not a regulating device (ARCHITECTURE §11), so
+     * offering it 1% steps invited modelling something that does not exist. */
+    if (!isControl && !isCheck) {
+      var isOpen = (v.opening === undefined ? 100 : v.opening) > 0;
+      statusToggle(det.box, isOpen, 'Open', 'Closed', function (on) {
+        pushUndo();
+        v.opening = on ? 100 : 0;
+        renderProperties(); changed();
+      });
+    }
+
+    // ----------------------------------------------------------- L2 DESIGN
+    var des = section(host, 'Design');
+    /* ONE coefficient, not both. Kv and Cv are the same quantity in different
+     * units, so showing both invited typing into the one being ignored. Which
+     * one appears is a display choice (SETTINGS ▸ Display units). */
+    var useCv = (d.valveCoef === 'Cv');
+    var coefIn = el('input'); coefIn.type = 'text';
+    coefIn.value = useCv ? FD.valves.kvToCv(v.kv).toFixed(1) : String(v.kv);
+    field(des.box, useCv ? 'Cv (US gpm at 1 psi)' : 'Kv (m³/h at 1 bar)', coefIn)
+      .addEventListener('change', function () {
+        var val = FD.units.parse(coefIn.value);
+        if (isFinite(val) && val > 0) {
+          pushUndo();
+          v.kv = useCv ? Math.round(FD.valves.cvToKv(val) * 10) / 10 : val;
+          renderProperties(); changed();
+        } else {
+          coefIn.value = useCv ? FD.valves.kvToCv(v.kv).toFixed(1) : String(v.kv);
+          toast((useCv ? 'Cv' : 'Kv') + ' must be a positive number.', 'error');
+        }
+      });
+    var reset = el('button', 'btn', 'Reset for this size');
+    reset.title = 'Back to the default ' + (useCv ? 'Cv' : 'Kv') + ' for this bore';
+    reset.addEventListener('click', function () {
+      pushUndo();
+      v.kv = FD.valves.defaultKv(v.type, M.pipeBore(m, p) * 1000);
+      renderProperties(); changed();
+    });
+    var rrow = el('div', 'btn-row'); rrow.appendChild(reset);
+    des.box.appendChild(rrow);
+
+    /* VALVE POSITION, on a control valve only. Full range in 1% steps
+     * (Michael, 2026-08-03): it snapped to five positions, which is not how a
+     * regulating valve is set — a balancing valve lands wherever it lands. */
+    if (isControl || partOpen) {
       var openWrap = el('div', 'field');
-      openWrap.appendChild(el('label', '', 'Opening (%)'));
+      openWrap.appendChild(el('label', '', 'Valve position (%)'));
+      if (partOpen) {
+        openWrap.appendChild(el('span', 'hint',
+          'This isolation valve is throttled. Set it to 0 or 100 and the ' +
+          'slider goes away — a gate valve is not a regulating device.'));
+      }
       var openRow = el('div', 'slider-row');
       var slider = el('input');
       slider.type = 'range'; slider.min = '0'; slider.max = '100'; slider.step = '1';
@@ -2977,9 +3170,7 @@
       openRow.appendChild(slider);
       openRow.appendChild(box);
       openWrap.appendChild(openRow);
-      if (Number(slider.value) === 0) {
-        openWrap.appendChild(el('span', 'hint', 'Shut.'));
-      }
+      if (Number(slider.value) === 0) openWrap.appendChild(el('span', 'hint', 'Shut.'));
       /* A controlled valve's position is an OUTPUT, so the controls are
        * DISABLED rather than merely annotated (Michael, 2026-08-04). Leaving
        * them live invites setting a number the next solve overwrites, which
@@ -2993,77 +3184,48 @@
                      'to set it by hand.');
         openWrap.appendChild(vh);
       }
-      host.appendChild(openWrap);
-    } else {
-      host.appendChild(el('p', 'hint',
+      des.box.appendChild(openWrap);
+    } else if (isCheck) {
+      des.box.appendChild(el('p', 'hint',
         'Opens with forward flow, seats against reverse. Not user-positioned.'));
     }
 
-    controlField(host, p);
-
-    /* ONE coefficient, not both. Kv and Cv are the same quantity in different
-     * units, so showing both invited typing into the one being ignored. Which
-     * one appears is a display choice (SETTINGS ▸ Display units), defaulting to
-     * Kv. */
-    var useCv = (m.settings.display.valveCoef === 'Cv');
-    var coefIn = el('input'); coefIn.type = 'text';
-    coefIn.value = useCv ? FD.valves.kvToCv(v.kv).toFixed(1) : String(v.kv);
-    field(host, useCv ? 'Cv (US gpm at 1 psi)' : 'Kv (m³/h at 1 bar)', coefIn)
-      .addEventListener('change', function () {
-        var val = FD.units.parse(coefIn.value);
-        if (isFinite(val) && val > 0) {
-          pushUndo();
-          v.kv = useCv ? Math.round(FD.valves.cvToKv(val) * 10) / 10 : val;
-          renderProperties(); changed();
-        } else {
-          coefIn.value = useCv ? FD.valves.kvToCv(v.kv).toFixed(1) : String(v.kv);
-          toast((useCv ? 'Cv' : 'Kv') + ' must be a positive number.', 'error');
-        }
-      });
-
-    var reset = el('button', 'btn', 'Reset ' + (useCv ? 'Cv' : 'Kv') + ' for this size');
-    reset.addEventListener('click', function () {
-      pushUndo();
-      v.kv = FD.valves.defaultKv(v.type, M.pipeBore(m, p) * 1000);
-      renderProperties(); changed();
-    });
-    host.appendChild(reset);
-
-    // effective Kv and the resulting drop
-    var info = el('div', 'readout');
-    function ro(k, val) {
-      var r = el('div', 'kv'); r.appendChild(el('span', 'k', k));
-      r.appendChild(el('span', 'v', val)); info.appendChild(r);
-    }
     var effKv = FD.valves.effectiveKv(v.type, v.kv, v.opening);
-    ro('Effective ' + (useCv ? 'Cv' : 'Kv'),
-       (useCv ? FD.valves.kvToCv(effKv) : effKv).toFixed(1) +
-       (v.opening < 100 ? '  (' + v.opening + '% open)' : ''));
-
-    var res = app.results;
-    if (res && res.flow[p.id] !== undefined) {
-      var q = res.flow[p.id];
-      var link = res.network.links.find(function (l) { return l.id === p.id; });
-      ro('Flow', FD.units.fmtFlow(Math.abs(q), m.settings.display.flow, true));
-      if (link) {
-        if (link.r >= FD.valves.CLOSED_R) {
-          ro('Actual PD', 'Shut — no flow path');
-        } else {
-          var pd = headToPa(Math.abs(FD.hydraulics.linkLoss(link, q)));
-          ro('Actual PD', FD.units.fmtPressure(pd, m.settings.display.pressure, true));
-        }
-        if (link._checkShut) ro('State', 'Seated (holding back-flow)');
-      }
-    }
-    host.appendChild(info);
-
-    host.appendChild(el('p', 'hint',
+    des.ro('Effective ' + (useCv ? 'Cv' : 'Kv'),
+           (useCv ? FD.valves.kvToCv(effKv) : effKv).toFixed(1) +
+           (v.opening < 100 ? '  (' + v.opening + '% open)' : ''));
+    des.box.appendChild(el('p', 'hint',
       'Default Kv values are derived from typical resistance coefficients, not ' +
       'manufacturer data. Replace with published Kv for real design work.'));
 
+    // ----------------------------------------------------------- L2 ACTUAL
+    var res = app.results;
+    if (res && res.flow[p.id] !== undefined) {
+      var act = section(host, 'Actual');
+      var q = res.flow[p.id];
+      var link = res.network.links.find(function (l) { return l.id === p.id; });
+      act.ro('Position', (v.opening === undefined ? 100 : v.opening) + '%');
+      act.ro('Flow', FD.units.fmtFlow(Math.abs(q), d.flow, true));
+      if (link) {
+        if (link.r >= FD.valves.CLOSED_R) {
+          act.ro('Pressure drop', 'Shut — no flow path');
+        } else {
+          var pd = headToPa(Math.abs(FD.hydraulics.linkLoss(link, q)));
+          act.ro('Pressure drop', FD.units.fmtPressure(pd, d.pressure, true));
+        }
+        if (link._checkShut) act.ro('State', 'Seated (holding back-flow)');
+      }
+    }
+
+    // ---------------------------------------------------------- L2 CONTROL
+    if (isControl) controlField(host, p);
+
+    // ---------------------------------------------------------- L2 DISPLAY
     displayChecks(host, p, [
-      { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
-      { key: 'pd', label: 'Pressure drop' }
+      { key: 'tag', label: 'Tag' },
+      { key: 'opening', label: 'Position %' },
+      { key: 'flow', label: 'Flow' },
+      { key: 'pd', label: 'ΔP' }
     ]);
 
     var del = el('button', 'btn danger', 'Remove valve');

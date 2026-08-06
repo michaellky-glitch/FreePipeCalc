@@ -843,12 +843,30 @@
     res.pumpSizing = sizing;
     recordDesignPoint(m, res);
 
-    /* When the network cannot meet its demands, the demand-driven answer above
-     * is still the right one to REPORT — the negative pressures are the size
-     * of the shortfall. But it is not what would physically happen, so a
-     * second pressure-driven pass works out what the system would actually
-     * deliver, for display in brackets. */
-    res.actual = actualDelivery(m, net, res);
+    /* WHAT THE SYSTEM WOULD ACTUALLY DELIVER — a second, pressure-driven pass,
+     * reported in brackets beside the demanded flows.
+     *
+     * SIMULATION ONLY, from 2026-08-06. It is a simulation-shaped number and it
+     * was the ONE thing making DESIGN a hybrid: Michael's original intent was
+     * that DESIGN shows naive design values, and this quietly answered "but
+     * what would really happen?" in the middle of them. He asked for it out.
+     *
+     * And it turns out DESIGN was the only place it was ever READ: in
+     * SIMULATION `simulationReport` supplies every terminal's actual flow and
+     * always won the ternary that chose between them. So this is not moved to
+     * SIMULATION, it is gone — running it there would be the same pass twice,
+     * once properly (every outflow a resistance) and once as an approximation,
+     * with two answers to one question.
+     *
+     * Nothing is lost. In DESIGN the demands IMPOSE the flow, so the honest
+     * report of a system that cannot meet them is the negative pressures
+     * already in the table: they are the shortfall in head, which is what you
+     * size the pump against.
+     *
+     * `actualDelivery` itself stays and stays tested — it is a sound
+     * pressure-driven pass and the gravity case in supply.test.js is worth
+     * keeping — it is simply not wired into the solve. */
+    res.actual = null;
     res.critical = criticalPath(m, net, res);
     res.simulation = simulationReport(m, net, res);
     /* Temperature is transported by the water, so it can only be worked out

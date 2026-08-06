@@ -33,6 +33,12 @@
 <!-- ==================================================== PIPING NETWORK -->
 <section class="pane pane-flush" id="pane-network" data-active="true" role="tabpanel">
   <div class="toolbar">
+    <!-- TWO ROWS, and the split is the point (Michael, 2026-08-06). The chrome
+         — file, mode, overlays — stays put on the top row; the bottom row is
+         the mode's tools and is the only thing that changes. One row wrapped
+         onto three at any real screen width, which read as the ribbon
+         rearranging itself every time you switched mode. -->
+    <div class="ribbon-row">
     <!-- Grouped by what the button DOES, not by when it was added:
          file actions, then the mode you are in, then the thing you draw. -->
     <div class="tool-group" data-group="FILE">
@@ -58,6 +64,24 @@
       <button class="btn" data-uimode="annotate" title="Arrange the drawing for print">ANNOTATION</button>
     </div>
     <div class="sep"></div>
+    <!-- SHOWN IN EVERY MODE: what is drawn on top of the model, rather than
+         what is being placed into it. -->
+    <div class="tool-group" data-group="SHOW">
+      <button class="btn" id="btn-control-links" title="Show control links">LINKS</button>
+      <button class="btn" data-viz="flow" title="Colour pipes by flow rate">FLOW</button>
+      <button class="btn" data-viz="velocity" title="Colour pipes by velocity, against the warning limit">VELOCITY</button>
+      <button class="btn" data-viz="pressure" title="Colour nodes by gauge pressure">PRESSURE</button>
+      <button class="btn" data-viz="temperature" title="Colour nodes by temperature">TEMPERATURE</button>
+    </div>
+    <div class="sep"></div>
+    <div class="tool-group" data-group="MISC">
+      <button class="btn" id="btn-renumber" title="Renumber nodes in flow order">RENUMBER</button>
+      <button class="btn icon" id="btn-fit" title="Zoom to fit">⤢</button>
+    </div>
+    <div class="spacer"></div>
+    </div><!-- /ribbon-row -->
+
+    <div class="ribbon-row ribbon-row-tools">
     <!-- ONE section that swaps contents with the mode. Grouped by what the
          thing IS, with the group named on the ribbon, so a tool is found by
          asking "what am I placing?" rather than by remembering where it sits. -->
@@ -119,23 +143,9 @@
         </span>
       </span>
     </div>
-    <div class="sep"></div>
-    <!-- SHOWN IN EVERY MODE: what is drawn on top of the model, rather than
-         what is being placed into it. -->
-    <div class="tool-group" data-group="SHOW">
-      <button class="btn" id="btn-control-links" title="Show control links">LINKS</button>
-      <button class="btn" data-viz="flow" title="Colour pipes by flow rate">FLOW</button>
-      <button class="btn" data-viz="velocity" title="Colour pipes by velocity, against the warning limit">VELOCITY</button>
-      <button class="btn" data-viz="pressure" title="Colour nodes by gauge pressure">PRESSURE</button>
-      <button class="btn" data-viz="temperature" title="Colour nodes by temperature">TEMPERATURE</button>
-    </div>
-    <div class="sep"></div>
-    <div class="tool-group" data-group="MISC">
-      <button class="btn" id="btn-renumber" title="Renumber nodes in flow order">RENUMBER</button>
-      <button class="btn icon" id="btn-fit" title="Zoom to fit">⤢</button>
-    </div>
     <div class="spacer"></div>
     <span class="hint-inline" id="mode-hint"></span>
+    </div><!-- /ribbon-row-tools -->
   </div>
 
   <div class="netlayout">
@@ -239,31 +249,31 @@
      the query when resolving a file:// path, so double-clicking still works;
      over HTTP, changing the token forces a reload instead of a stale copy.
      Bump the token on release, or during development after editing a module. -->
-<script src="data/schedules.js?v=0.15.0.7"></script>
-<script src="data/fittings.js?v=0.15.0.7"></script>
-<script src="data/valves.js?v=0.15.0.7"></script>
-<script src="data/ktable.js?v=0.15.0.7"></script>
-<script src="data/pumps.js?v=0.15.0.7"></script>
-<script src="data/fluids.js?v=0.15.0.7"></script>
-<script src="src/units.js?v=0.15.0.7"></script>
-<script src="src/hydraulics.js?v=0.15.0.7"></script>
-<script src="src/solver.js?v=0.15.0.7"></script>
-<script src="src/model.js?v=0.15.0.7"></script>
-<script src="src/geometry.js?v=0.15.0.7"></script>
-<script src="src/network.js?v=0.15.0.7"></script>
-<script src="src/thermal.js?v=0.15.0.7"></script>
-<script src="src/dialog.js?v=0.15.0.7"></script>
-<script src="src/trace.js?v=0.15.0.7"></script>
-<script src="src/canvas.js?v=0.15.0.7"></script>
-<script src="src/printer.js?v=0.15.0.7"></script>
-<script src="src/dxf.js?v=0.15.0.7"></script>
-<script src="src/tools.js?v=0.15.0.7"></script>
-<script src="src/docs.js?v=0.15.0.7"></script>
-<script src="src/app.js?v=0.15.0.7"></script>
+<script src="data/schedules.js?v=0.15.1.5"></script>
+<script src="data/fittings.js?v=0.15.1.5"></script>
+<script src="data/valves.js?v=0.15.1.5"></script>
+<script src="data/ktable.js?v=0.15.1.5"></script>
+<script src="data/pumps.js?v=0.15.1.5"></script>
+<script src="data/fluids.js?v=0.15.1.5"></script>
+<script src="src/units.js?v=0.15.1.5"></script>
+<script src="src/hydraulics.js?v=0.15.1.5"></script>
+<script src="src/solver.js?v=0.15.1.5"></script>
+<script src="src/model.js?v=0.15.1.5"></script>
+<script src="src/geometry.js?v=0.15.1.5"></script>
+<script src="src/network.js?v=0.15.1.5"></script>
+<script src="src/thermal.js?v=0.15.1.5"></script>
+<script src="src/dialog.js?v=0.15.1.5"></script>
+<script src="src/trace.js?v=0.15.1.5"></script>
+<script src="src/canvas.js?v=0.15.1.5"></script>
+<script src="src/printer.js?v=0.15.1.5"></script>
+<script src="src/dxf.js?v=0.15.1.5"></script>
+<script src="src/tools.js?v=0.15.1.5"></script>
+<script src="src/docs.js?v=0.15.1.5"></script>
+<script src="src/app.js?v=0.15.1.5"></script>
 <script>
   window.FD.APP_NAME = 'FreePipeCalc';
   window.FD.APP_SHORT = 'FPC';
-  window.FD.VERSION = '0.15.0';
+  window.FD.VERSION = '0.15.1';
   window.FD.FORMAT_VERSION = 1;
   try {
     window.FD.initApp();

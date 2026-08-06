@@ -3113,6 +3113,13 @@
         if (flags.vfd && obj.pump && obj.pump.mode !== 'off') {
           lines.push('VFD ' + Math.round(M.pumpSpeed(m, obj) * 100) + '%');
         }
+        /* VALVE POSITION — the toggle existed in the panel from 2026-08-06 and
+         * nothing drew it. On a balanced circuit the positions ARE the answer,
+         * so they are the one thing you want on the drawing. */
+        if (flags.opening && obj.valve &&
+            obj.valve.opening !== undefined && obj.valve.opening !== null) {
+          lines.push(Math.round(obj.valve.opening) + '% open');
+        }
         if (flags.pd) {
           var link = res.network && res.network.links.find(function (l) { return l.id === obj.id; });
           if (link && link.r !== undefined) {
@@ -3132,8 +3139,21 @@
         }
         if (flags.dT) lines.push('ΔT ' + (tl.dT >= 0 ? '+' : '') + tl.dT.toFixed(1) + ' K');
         if (flags.duty) {
-          lines.push('Q ' + (tl.qW >= 0 ? '+' : '') + (tl.qW / 1000).toFixed(1) + ' kW');
+          /* A COOLING LOAD READS POSITIVE, with the word doing the work the
+           * minus sign used to (Michael, 2026-08-06). The stored value keeps
+           * its sign — the convention is what makes the heat balance add up. */
+          lines.push((tl.qW < 0 ? 'Cool ' : 'Heat ') +
+                     (Math.abs(tl.qW) / 1000).toFixed(1) + ' kW');
           if (tl.limit) lines.push('(' + tl.limit + ')');
+        }
+        /* % LOAD against the nameplate — offered as a toggle from 2026-08-06
+         * and drawn here, or the switch would do nothing. */
+        if (flags.pctload && obj.equip) {
+          var capW = obj.equip.equipType === 'source'
+            ? Number(obj.equip.qMax) : Number(obj.equip.duty);
+          if (isFinite(capW) && capW !== 0) {
+            lines.push((tl.qW / capW * 100).toFixed(0) + '% load');
+          }
         }
       }
       /* SETPOINT, for anything that states one — it used to be source/sink

@@ -2162,11 +2162,22 @@ answer. SIMULATION asks *"given these sizes, what happens?"* — sizes given, fl
 the answer. **Merging them would remove the ability to size anything**, and
 SIMULATION cannot even start without a curve, which is something DESIGN produces.
 
-**What is actually hybrid is one thing, and it is worth naming.** `res.actual`
-— the pressure-driven second pass reported in brackets — is computed in DESIGN
-too, and it is a simulation-shaped number appearing in a design answer. That is
-the leak Michael can feel. It is deliberate (a design that cannot deliver should
-say so on the spot) but it is the only one.
+**One thing WAS hybrid, and it is gone (2026-08-06).** `res.actual` — a
+pressure-driven second pass reported in brackets — was computed in DESIGN, and
+it was a simulation-shaped number in a design answer. Michael asked for it out.
+
+It turned out DESIGN was the only place it was ever READ: in SIMULATION
+`simulationReport` supplies every terminal's actual flow and always won the
+ternary choosing between them. So it is not moved to SIMULATION, it is **gone** —
+running it there would be the same question answered twice, once properly (every
+outflow a resistance) and once as an approximation.
+
+Nothing is lost. In DESIGN the demands IMPOSE the flow, so the honest report of a
+system that cannot meet them is the **negative pressures already in the table**:
+they are the shortfall in head, which is what you size the pump against.
+`actualDelivery` itself stays, and stays tested — it is a sound pass and the
+gravity case in `supply.test.js` is the best test of it there is — it is simply
+not wired into the solve.
 
 ### A mode is a tool palette; two of them also set the calculation
 
@@ -2218,6 +2229,46 @@ Two rules that fall out of it:
 `field()` returns the CONTROL, not the wrapper, because that is what callers
 wire their change handler to. `fieldLabel(control)` goes back up for the
 `<label>`; doing it inline reads as though `field` returned the wrapper.
+
+### One panel per DEVICE, not per model class
+
+`renderValveProps` renders three panels and `renderEquipProps` renders three,
+because that is how many devices those two model classes actually cover. A
+control valve has a position and may follow a setpoint; an isolation valve is
+open or shut and that IS its status; a check valve has neither. Giving all three
+the same fields meant two of them showed controls that did nothing.
+
+**Globe is the control valve**, matching `M.canControl` — *not* `type.adjustable`,
+which a gate valve also has. A gate valve can sit part-open and the solver
+interpolates its Kv, but it is not a regulating device, so offering it a 1%
+slider invites modelling something nobody installs. An existing gate valve left
+part-open keeps its slider, so no drawn model loses a setting silently.
+
+### A cooling load reads positive
+
+*"Cooling Load : xxx kW"*, not *"−xxx kW"*. The sign convention is about the
+FLUID and it is right — negative means heat removed — but nobody writes a
+chiller's duty with a minus sign on a schedule, and a panel that does looks like
+an error. **Display only**: the stored value keeps its sign, and every
+calculation, message and export still sees it, because the convention is what
+makes the heat balance add up (§18).
+
+The same reasoning gives the load a **Heating/Cooling switch** instead of a typed
+minus sign. Typing a signed number still works and MOVES THE SWITCH — someone who
+knows the convention should not be fought, and silently discarding their sign is
+how you teach them the app does not listen.
+
+### The ribbon is two rows
+
+Chrome on top — file, mode, overlays — and the mode's tools underneath, which is
+the only part that changes. One row wrapped onto three at any real screen width,
+and wrapping put the group labels somewhere strange: they are absolutely
+positioned over their cluster, so a wrapped cluster leaves its label floating
+over whatever landed there instead.
+
+A trap worth remembering: **`display: flex` beats the user agent's
+`[hidden] { display: none }`** — same origin, higher specificity — so every
+mode's tools rendered at once until `.tool-set[hidden]` was added explicitly.
 
 ## 17A. UI text is terse
 

@@ -142,9 +142,16 @@ section('Pressure-driven delivery — what the system actually supplies');
 {
   const m = base();
   irrational(m);
-  const res = NET.solveModel(m);
+  const solved = NET.solveModel(m);
+  /* CALLED DIRECTLY from 2026-08-06. `res.actual` is no longer wired into the
+   * solve: it was a DESIGN-only number and Michael asked for DESIGN to stop
+   * answering SIMULATION's question. The pass itself is sound and this gravity
+   * case is the best test of it there is, so it keeps its coverage. */
+  const res = { actual: NET.actualDelivery(m, solved.network, solved) };
 
   ok('An actual-delivery result is produced', !!res.actual);
+  ok('...but the solve no longer reports one', solved.actual === null,
+     JSON.stringify(solved.actual));
   const L3 = m.levels.find(l => l.name === 'Level 3');
   const L1 = m.levels.find(l => l.name === 'Level 1');
   const l3d = m.nodes.filter(n => n.level === L3.id && n.device && n.device.kind === 'demand');
@@ -187,7 +194,7 @@ section('Pressure-driven delivery — what the system actually supplies');
   // The demand-driven pressures are untouched by the extra pass
   ok('Demand-driven pressures still show the shortfall',
      m.nodes.filter(n => n.device && n.device.kind === 'demand')
-            .every(n => res.pressure[n.id] < 0));
+            .every(n => solved.pressure[n.id] < 0));
 }
 
 section('Restoring the source to L1 fixes everything');
@@ -201,7 +208,12 @@ section('Restoring the source to L1 fixes everything');
   ok('Solves cleanly', res.ok, JSON.stringify(res.errors));
   ok('No supply-insufficient warning', code(res, 'SUPPLY_INSUFFICIENT').length === 0);
   ok('No dead-end pump warning', code(res, 'PUMP_DEAD_END').length === 0);
-  ok('No pressure-driven fallback needed (everything is met)', !res.actual);
+  /* The solve reports no `actual` at all now — see the note above. What matters
+   * here is that nothing is short in the first place. */
+  ok('The solve reports no pressure-driven fallback', !res.actual);
+  ok('...and nothing is short anyway',
+     m.nodes.filter(n => n.device && n.device.kind === 'demand')
+            .every(n => res.pressure[n.id] >= -1));
 
   near('Pump carries the whole demand', Math.abs(res.flow[pump.id]), 0.1, 1e-9);
   near('Pump sized to the index duty at design flow', pump.pump.head, 41.99, 0.05);

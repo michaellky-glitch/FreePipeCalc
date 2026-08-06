@@ -214,15 +214,32 @@ table.sheet td.dim  { color: var(--text-mute); }
 .pane-flush { padding: 0; display: none; flex-direction: column; overflow: hidden; }
 .pane-flush[data-active="true"] { display: flex; }
 
+/* TWO ROWS: chrome on top, the mode's tools underneath. One row wrapped onto
+ * three at any real screen width, and wrapping put the group labels — which are
+ * absolutely positioned over their cluster — in places that belonged to nothing.
+ * Michael, 2026-08-06. */
 .toolbar {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
   padding: 7px 12px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--line);
   flex: none;
+}
+.ribbon-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
+  row-gap: 12px;
+}
+/* The tool row sits slightly apart, so "what I can place" reads as a different
+ * kind of thing from "what file am I in". */
+.ribbon-row-tools {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 11px;
 }
 .tool-group { display: flex; gap: 4px; }
 .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
@@ -1006,6 +1023,10 @@ a.brand:hover { color: var(--accent); }
  * twenty buttons in one row is a list to be memorised; five named clusters is
  * something you can answer "what am I placing?" against. */
 .tool-set { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+/* `display:flex` BEATS the user agent's `[hidden] { display: none }` — same
+ * origin, higher specificity — so every mode's tools rendered at once and the
+ * ribbon wrapped onto three rows. Michael caught it on sight, 2026-08-06. */
+.tool-set[hidden] { display: none; }
 .tool-sub {
   display: flex; gap: 3px; align-items: center;
   padding-left: 9px;
