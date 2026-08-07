@@ -59,6 +59,40 @@
     };
   }
 
+  var IN_LINE_KIND = { pump: true, valve: true, equip: true, sensor: true };
+
+  /* The value box an in-line device shows on screen, rebuilt for the page.
+   * Kept deliberately short — the plan is a drawing, and the numbers behind it
+   * are in the calculation sheet. */
+  function deviceLines(m, p, flags, results) {
+    var d = m.settings.display, out = [];
+    var q = results && results.flow ? results.flow[p.id] : undefined;
+    if (flags.tag && p.tag) out.push(p.tag);
+    if (flags.flow && q !== undefined) {
+      out.push('Q ' + FD.units.fmtFlow(Math.abs(q), d.flow, true));
+    }
+    if (flags.head && p.pump) {
+      var h = M.pumpHead(m, p, Math.abs(q || 0));
+      out.push('H ' + FD.units.fmtPressure(
+        FD.units.headToPaWith(h, m.settings.fluid.density), d.pressure, true));
+    }
+    if (flags.vfd && p.pump && p.pump.mode !== 'off') {
+      out.push('VFD ' + Math.round(M.pumpSpeed(m, p) * 100) + '%');
+    }
+    if (flags.opening && p.valve && p.valve.opening !== undefined) {
+      out.push(Math.round(p.valve.opening) + '% open');
+    }
+    var tl = results && results.thermal && results.thermal.links[p.id];
+    if (tl) {
+      if (flags.temp) out.push(tl.tIn.toFixed(1) + ' \u2192 ' + tl.tOut.toFixed(1) + '\u00b0C');
+      if (flags.dT) out.push('\u0394T ' + (tl.dT >= 0 ? '+' : '') + tl.dT.toFixed(1) + ' K');
+      if (flags.duty) {
+        out.push((tl.qW < 0 ? 'Cool ' : 'Heat ') + (Math.abs(tl.qW) / 1000).toFixed(1) + ' kW');
+      }
+    }
+    return out;
+  }
+
   function pipeLabel(m, p, results) {
     var a = m.settings.annotate, d = m.settings.display;
     var link = (results && results.network)
@@ -88,7 +122,16 @@
   }
 
   /* Render one level as an <svg> element. */
-  function levelPlan(m, level, tf, results) {
+  /* THE PALETTE, for print. Detail lines carry a palette NAME, and the plan is
+   * black on white — so the screen theme's colours would be unreadable. Mapped
+   * to print-safe equivalents instead of dropped, because the colour is usually
+   * carrying a distinction (a room outline against a plant box). */
+  var PRINT_COLOUR = {
+    line: '#444', ok: '#0a7a3d', warn: '#a06000',
+    error: '#b21f2d', accent: '#12509e', select: '#12509e'
+  };
+
+  function levelPlan(m, level, tf, results, view) {
     var svg = svgEl('svg', {
       viewBox: '0 0 ' + PAGE_W + ' ' + PAGE_H,
       class: 'plan',
@@ -197,6 +240,126 @@
       }
     });
 
+    /* ================================================ AS SHOWN ON SCREEN
+     *
+     * Michael, 2026-08-07: "Printing should print the system as-shown (Whatever
+     * tags, control links) which are visible at the time of printing."
+     *
+     * The plan used to draw pipework, nodes and pipe labels and nothing else,
+     * so every device tag, every value box and every control link — the things
+     * that make a drawing say what it is FOR — were on screen and absent from
+     * the paper. `view` carries the switches the ribbon holds; without one, the
+     * model's own settings still decide the rest. */
+    var showControl = !view || view.showControl !== false;
+
+    // ---- detail lines: drawn UNDER everything, as on screen ----
+    (m.details || []).forEach(function (d) {
+      if (d.level !== level.id || !d.pts || d.pts.length < 2) return;
+      svg.insertBefore(svgEl('polyline', {
+        points: d.pts.map(function (q) {
+          return tf.x(q.x).toFixed(2) + ',' + tf.y(q.y).toFixed(2);
+        }).join(' '),
+        fill: 'none',
+        stroke: PRINT_COLOUR[d.colour] || PRINT_COLOUR.line,
+        'stroke-width': d.width || 1.5,
+        'stroke-linejoin': 'round', 'stroke-linecap': 'round'
+      }), svg.firstChild.nextSibling);
+    });
+
+    // ---- in-line device tags and their value boxes ----
+    m.pipes.forEach(function (p) {
+      if (!IN_LINE_KIND[p.kind]) return;
+      var na = M.node(m, p.a), nb = M.node(m, p.b);
+      if (!na || !nb || na.level !== level.id || nb.level !== level.id) return;
+      var mid = M.deviceMid(m, p);
+      if (!mid) return;
+      var x = tf.x(mid.x), y = tf.y(mid.y);
+
+      var flags = M.displayFlags(p);
+      var lines = deviceLines(m, p, flags, results);
+      if (p.tag && !flags.tag) lines.unshift(p.tag);
+      if (!lines.length) return;
+      var off = M.labelOffset(p, 'box');
+      lines.forEach(function (t, i) {
+        var tx = svgEl('text', {
+          x: x + 10 + (off.dx || 0), y: y - 6 + (off.dy || 0) + i * 11,
+          'font-size': 9.5, fill: '#000'
+        });
+        tx.textContent = t;
+        svg.appendChild(tx);
+      });
+    });
+
+    // ---- control links and differential routes ----
+    if (showControl) {
+      m.pipes.forEach(function (p) {
+        var r = M.controlRoute(m, p);
+        if (r) {
+          var tgt = M.pipe(m, M.controlOf(p).equip);
+          var na2 = M.node(m, p.a), nb2 = tgt && M.node(m, tgt.a);
+          if (na2 && nb2 && na2.level === level.id && nb2.level === level.id) {
+            svg.appendChild(svgEl('polyline', {
+              points: r.points.map(function (q) {
+                return tf.x(q.x).toFixed(2) + ',' + tf.y(q.y).toFixed(2);
+              }).join(' '),
+              fill: 'none', stroke: '#0a7a3d', 'stroke-width': 1,
+              'stroke-dasharray': '6,4'
+            }));
+            var e = r.points[r.points.length - 1];
+            svg.appendChild(svgEl('circle', {
+              cx: tf.x(e.x), cy: tf.y(e.y), r: 3,
+              fill: 'none', stroke: '#0a7a3d', 'stroke-width': 1
+            }));
+          }
+        }
+        var sr = M.sensorRoute(m, p);
+        if (sr) {
+          var rp = M.pipe(m, p.sensor.ref);
+          var nr = rp && M.node(m, rp.a), ns = M.node(m, p.a);
+          if (nr && ns && nr.level === level.id && ns.level === level.id) {
+            svg.appendChild(svgEl('polyline', {
+              points: sr.points.map(function (q) {
+                return tf.x(q.x).toFixed(2) + ',' + tf.y(q.y).toFixed(2);
+              }).join(' '),
+              fill: 'none', stroke: '#a06000', 'stroke-width': 1,
+              'stroke-dasharray': '2,3'
+            }));
+            [sr.points[0], sr.points[sr.points.length - 1]].forEach(function (q) {
+              svg.appendChild(svgEl('rect', {
+                x: tf.x(q.x) - 3.5, y: tf.y(q.y) - 3.5, width: 7, height: 7,
+                fill: 'none', stroke: '#a06000', 'stroke-width': 1
+              }));
+            });
+            var c2 = { x: (sr.midSeg[0].x + sr.midSeg[1].x) / 2,
+                       y: (sr.midSeg[0].y + sr.midSeg[1].y) / 2 };
+            svg.appendChild(svgEl('circle', {
+              cx: tf.x(c2.x), cy: tf.y(c2.y), r: 8,
+              fill: '#fff', stroke: '#a06000', 'stroke-width': 1.2
+            }));
+            var lt = svgEl('text', { x: tf.x(c2.x), y: tf.y(c2.y) + 3,
+                                     'font-size': 8, fill: '#a06000',
+                                     'text-anchor': 'middle' });
+            lt.textContent = p.sensor.mode === 'dT' ? '\u0394T' : '\u0394P';
+            svg.appendChild(lt);
+          }
+        }
+      });
+    }
+
+    // ---- text notes, on top of everything ----
+    (m.notes || []).forEach(function (n) {
+      if (n.level !== level.id) return;
+      String(n.text || '').split('\n').forEach(function (t, i) {
+        var tx = svgEl('text', {
+          x: tf.x(n.x), y: tf.y(n.y) + i * ((n.size || 13) * 1.05),
+          'font-size': (n.size || 13) * 0.8,
+          fill: PRINT_COLOUR[n.colour] || '#000'
+        });
+        tx.textContent = t;
+        svg.appendChild(tx);
+      });
+    });
+
     // ---- scale bar ----
     var barTarget = 120 / tf.scale;
     var pow = Math.pow(10, Math.floor(Math.log10(barTarget)));
@@ -227,7 +390,7 @@
   }
 
   /* Build all level plans into the hidden print container. */
-  function renderPlans(m, results) {
+  function renderPlans(m, results, view) {
     var host = document.getElementById('print-plans');
     host.innerHTML = '';
     var tf = fitTransform(m);
@@ -235,7 +398,7 @@
     m.levels.forEach(function (lv) {
       var page = document.createElement('div');
       page.className = 'plan-page';
-      page.appendChild(levelPlan(m, lv, tf, results));
+      page.appendChild(levelPlan(m, lv, tf, results, view));
       host.appendChild(page);
     });
     return m.levels.length;

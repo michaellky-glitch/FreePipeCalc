@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1613
+This is deliberately separate from the automated suites. Those cover 1635
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -202,6 +202,19 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 4Z. ANNOTATION, ROUTES AND PRINTING (v0.15.3)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| AN.1 | Globe valves read CV | ✅ | The FITTINGS table keeps `GLV` — there it really is "globe valve, open" as a K factor, which is a different statement. |
+| AN.2 | **Temperature discontinuities** | ✅ | Your fix, implemented as described. On `20260807-1` the bypass is now a uniform 30 °C, the chiller leg a uniform 15 °C and the run below the mix a uniform 20.08 °C — three flat colours meeting at the tee instead of three ramps into it. |
+| AN.3 | Control link nodes drag freely | ⬜ | Grab any bend. The first drag converts the Z into waypoints, starting from exactly what is on screen so it does not jump. Grid-snapped; Shift for free placement. |
+| AN.4 | LINK NODE adds a bend | ⬜ | Select the pump, valve or sensor first, then press it. It goes in the middle of the longest segment — the one with room. |
+| AN.5 | **DETAIL** | ⬜ | Click to place vertices, Esc finishes, click an existing line to erase it. Colour and width in Properties. Nothing in the calculation ever reads them — pinned by a test that solves before and after adding a 100 m line across the model. |
+| AN.6 | **TEXT BOX** | ⬜ | Click to place, click again to edit, drag to move. Multi-line. |
+| AN.7 | Printing as-shown | ✅ | Device tags, value boxes, control links, ΔP routes, detail lines and notes all reach the page now. Verified: 6 dashed links + 1 ΔP route + the note + PMP-01's tag and flow; turn LINKS off on the ribbon and both link kinds leave the page while the annotation stays. |
+| AN.8 | Old files still take annotations | ✅ | A file written before details existed had no id counter for them, so every one came out `DNaN` — same id, undeletable. Worth a spot-check on one of your older saves. |
 
 ## 4Y. THE ECONOMIZER MODEL, AND FIVE UI ITEMS (v0.15.2)
 

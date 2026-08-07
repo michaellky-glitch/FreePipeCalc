@@ -1105,3 +1105,16 @@ a.brand:hover { color: var(--accent); }
    wants its decimal points lined up; on its own in a field it just pushed the
    number away from the caret. */
 .cell-input.num-left { text-align: left; }
+
+/* Detail / note colour palette. Named swatches rather than a colour picker:
+   six choices that both themes can render, so a drawing made in dark mode is
+   still legible in light and still prints. */
+.swatch { width: 22px; height: 22px; border-radius: 4px; border: 2px solid transparent;
+          cursor: pointer; padding: 0; }
+.swatch.on { border-color: var(--text); }
+.sw-line { background: var(--line); }
+.sw-ok { background: var(--ok); }
+.sw-warn { background: var(--warn); }
+.sw-error { background: var(--error); }
+.sw-accent { background: var(--accent); }
+.sw-select { background: var(--select); }

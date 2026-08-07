@@ -1254,6 +1254,74 @@ on `debug/20260805-5.json` sat wide open with their branches 0.1–0.6% over, al
 inside that floor, while a fourth throttled to 59%. Michael expected them in
 between, and was right.
 
+### Drawing annotation: lines and notes the model never sees
+
+`m.details` and `m.notes` are their own collections, not a kind of pipe, and
+that is the entire design. Nothing in `network.js`, `thermal.js` or any warning
+reads them, so there is no path by which a room outline becomes fifteen metres
+of pipework. Michael, 2026-08-07: *"These lines do not interact with the model
+at all, to allow user to draw boxes to represent equipment or rooms."* A piece
+of equipment is 0.5 m on the drawing and a plant room is fifteen; the drawing
+needs a way to say the second without the calculation hearing it.
+
+**Colours are palette NAMES, not hex.** Six of them, resolved against the theme
+at draw time, so a drawing made in dark mode is legible in light and maps to a
+print-safe equivalent on paper rather than vanishing.
+
+The one trap: a file written before these existed has a `_seq` with no counter
+for them, and `undefined++` is `NaN` — every annotation added to such a model
+came out as `DNaN`, all sharing one id and therefore undeletable. The counters
+are filled in **after** `_seq` is restored, because restoring it replaces the
+object wholesale.
+
+### The temperature gradient is sampled INSIDE the pipe
+
+A node temperature at a tee is the **mixture** of everything arriving. A pipe
+arriving there never contains that mixture — it delivers its own outlet
+temperature into it — so colouring the run up to the node value smears a real
+discontinuity back down the pipe.
+
+Michael's fix, 2026-08-07, and it is the right one: read **half a metre in from
+each end** and paint that gradient across the whole run. Half a metre is inside
+the pipe by any reckoning, so it is that pipe's own water; the colour still
+reaches the node, so the jump appears exactly where it happens — at the tee, as
+a step between two pipes rather than a ramp along one. On the economizer model
+the bypass reads a uniform 30 °C, the chiller leg a uniform 15 °C, and the run
+below the mixing point a uniform 20.08 °C: three flat colours meeting at a
+point, which is what the plant does.
+
+`tIn`/`tOut` are oriented by FLOW, not by a→b, so the direction has to be
+resolved before they are used.
+
+### A route may be taken over by hand
+
+`zRoute` gives one degree of freedom, which is all a Z between two fixed points
+HAS. A route may instead carry `pts` — a list of world points — and is then
+drawn exactly as given, with any number of bends anywhere.
+
+The two live side by side deliberately. Every link starts as a Z, because that
+needs no decisions and is right most of the time; the first drag of a bend, or
+the first LINK NODE, converts it. **Taking over starts from what is on screen** —
+the Z's own bends become the first waypoints — so the link cannot jump on the
+first grab, and nothing has to be migrated on load.
+
+**Orthogonality is not enforced between waypoints.** It cannot be: with three or
+more free bends there is no unique orthogonal path through them, and snapping
+each drag to an axis fights the hand placing it. The default route is orthogonal
+and stays so until someone deliberately moves a point off it.
+
+The two ends are never waypoints — they belong to the two devices and stay
+pinned however the middle is dragged.
+
+### The plan prints what the screen shows
+
+The printed plan drew pipework, nodes and pipe labels and nothing else, so every
+device tag, every value box and every control link — the things that make a
+drawing say what it is FOR — were on screen and absent from the paper.
+`renderPlans` now takes the **view**, so the ribbon's own switches decide: turn
+LINKS off and they leave the page too. Detail lines and notes are not view
+state, so they always print.
+
 ### The Z route: one shape, one degree of freedom
 
 `M.zRoute(a, b, axis, mid)` is three orthogonal segments between two **fixed**
@@ -2005,7 +2073,7 @@ is the strongest claim available.
 
 ## 15. Testing
 
-Seven suites, 1613 assertions, no dependencies:
+Seven suites, 1635 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

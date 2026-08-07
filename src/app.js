@@ -1501,7 +1501,80 @@
     var s = sel[0];
     if (s.kind === 'pipe') renderPipeProps(host, M.pipe(m, s.id));
     else if (s.kind === 'riser') renderRiserProps(host, m.risers.find(function (r) { return r.id === s.id; }));
+    else if (s.kind === 'detail') renderDetailProps(host, (m.details || []).find(function (d) { return d.id === s.id; }));
+    else if (s.kind === 'note') renderNoteProps(host, (m.notes || []).find(function (n) { return n.id === s.id; }));
     else renderNodeProps(host, M.node(m, s.id));
+  }
+
+  /* ============================================ L1: DRAWING ANNOTATION
+   *
+   * A detail line and a text note are the same panel with a different middle:
+   * both are Details (what it is) and a colour, and neither has a Design, an
+   * Actual or a Control — they are not part of the model and never will be.
+   * That absence is the point, so the panel says it. */
+  function annotationColourRow(sec, obj) {
+    var wrap = el('div', 'field');
+    wrap.appendChild(el('label', '', 'Colour'));
+    var row = el('div', 'btn-row');
+    M.DETAIL_COLOURS.forEach(function (name) {
+      var sw = el('button', 'swatch sw-' + name + (obj.colour === name ? ' on' : ''));
+      sw.type = 'button';
+      sw.title = name;
+      sw.addEventListener('click', function () {
+        pushUndo(); obj.colour = name; changed(); renderProperties();
+      });
+      row.appendChild(sw);
+    });
+    wrap.appendChild(row);
+    sec.box.appendChild(wrap);
+  }
+
+  function renderDetailProps(host, d) {
+    if (!d) return;
+    host.appendChild(el('h3', '', 'Detail line'));
+    var sec = section(host, 'Details');
+    sec.ro('Internal tag', d.id);
+    sec.ro('Vertices', String((d.pts || []).length));
+    annotationColourRow(sec, d);
+    var wIn = el('input'); wIn.type = 'text'; wIn.value = String(d.width || 1.5);
+    field(sec.box, 'Line width (px)', wIn).addEventListener('change', function () {
+      var v = FD.units.parse(wIn.value);
+      if (isFinite(v) && v > 0) { pushUndo(); d.width = Math.min(8, v); changed(); }
+      renderProperties();
+    });
+    sec.box.appendChild(el('p', 'hint',
+      'Drawing only. Detail lines are not part of the model — nothing in the ' +
+      'calculation, and no warning, ever looks at them.'));
+    var del = el('button', 'btn danger', 'Remove line');
+    del.addEventListener('click', function () {
+      pushUndo(); M.removeDetail(app.model, d.id);
+      app.view.selection = []; changed(); renderProperties();
+    });
+    host.appendChild(del);
+  }
+
+  function renderNoteProps(host, n) {
+    if (!n) return;
+    host.appendChild(el('h3', '', 'Text note'));
+    var sec = section(host, 'Details');
+    sec.ro('Internal tag', n.id);
+    var ta = el('textarea'); ta.rows = 4; ta.value = n.text || '';
+    field(sec.box, 'Text', ta).addEventListener('change', function () {
+      pushUndo(); n.text = ta.value.replace(/\r/g, ''); changed();
+    });
+    annotationColourRow(sec, n);
+    var sIn = el('input'); sIn.type = 'text'; sIn.value = String(n.size || 13);
+    field(sec.box, 'Text size (px)', sIn).addEventListener('change', function () {
+      var v = FD.units.parse(sIn.value);
+      if (isFinite(v) && v >= 6) { pushUndo(); n.size = Math.min(48, v); changed(); }
+      renderProperties();
+    });
+    var del = el('button', 'btn danger', 'Remove note');
+    del.addEventListener('click', function () {
+      pushUndo(); M.removeNote(app.model, n.id);
+      app.view.selection = []; changed(); renderProperties();
+    });
+    host.appendChild(del);
   }
 
   /* Drawing annotations, offered from the VIEW ribbon.
@@ -5666,7 +5739,9 @@
       equip:  'Click a pipe to insert equipment into it',
       valve:  'Click a pipe to insert a valve into it',
       sensor: 'Click a pipe to place a sensor \u00b7 a differential then needs a second pipe picking',
-      link:   'Click a pump or control valve, then the sensor or equipment it should follow'
+      link:   'Click a pump or control valve, then the sensor or equipment it should follow',
+      detail: 'Click to place vertices \u00b7 Esc finishes \u00b7 click an existing line to erase it \u00b7 these lines are not part of the model',
+      text:   'Click to place a note \u00b7 click an existing one to edit it'
     };
     /* A variant makes the hint say WHICH, since the ribbon button is no longer
      * on screen once you have moved the mouse to the drawing. */
@@ -5711,7 +5786,8 @@
       demand: 'design', pump: 'design', equip: 'design', valve: 'design',
       sensor: 'control', link: 'control',
       probe: 'simulate',
-      view: 'annotate', trace: 'annotate', align: 'annotate'
+      view: 'annotate', trace: 'annotate', align: 'annotate',
+      detail: 'annotate', text: 'annotate'
     };
 
     function setUIMode(name, opts) {
@@ -5889,6 +5965,32 @@
       });
     })();
 
+    /* ADD A BEND to whatever route the selection carries — a pump or valve's
+     * control link, or a differential sensor's. Michael, 2026-08-07: "add a
+     * button under annotate to add another node to the lines so the user can
+     * arrange as they see fit." A button rather than a double-click on the
+     * line, because the line is already covered in drag handles and one more
+     * gesture on it would be a guess. */
+    var linkNodeBtn = $('btn-link-node');
+    if (linkNodeBtn) linkNodeBtn.addEventListener('click', function () {
+      var sel = (app.view.selection || []).filter(function (x) { return x.kind === 'pipe'; });
+      if (sel.length !== 1) { toast('Select the pump, valve or sensor whose link you want to bend.', 'error'); return; }
+      var p = M.pipe(app.model, sel[0].id);
+      var host = p && (p.kind === 'sensor' ? p.sensor
+                     : p.kind === 'pump' ? p.pump
+                     : p.kind === 'valve' ? p.valve : null);
+      var key = (p && p.kind === 'sensor') ? 'route' : 'control';
+      var route = (p && p.kind === 'sensor') ? M.sensorRoute(app.model, p)
+                                             : M.controlRoute(app.model, p);
+      if (!host || !route) { toast('That item has no link to bend.', 'error'); return; }
+      pushUndo();
+      var holder = host[key] || (host[key] = {});
+      holder.pts = M.insertWaypoint(route);
+      delete holder.axis; delete holder.mid;
+      changed(); app.view.render();
+      toast('Bend added — drag it where you want it.');
+    });
+
     $('btn-renumber').addEventListener('click', renumberNodes);
 
     /* The valve type used to be a dropdown beside one VALVE button, and the
@@ -5908,7 +6010,9 @@
     function printAs(mode) {
       if (mode === 'plans') {
         if (!app.model.pipes.length) { toast('Nothing to print — the model is empty.', 'error'); return; }
-        FD.printer.renderPlans(app.model, app.results || solveNow());
+        /* The VIEW goes with it, so the page shows what the screen shows —
+         * control links included, or not, exactly as they are on the ribbon. */
+        FD.printer.renderPlans(app.model, app.results || solveNow(), app.view);
       } else {
         renderCalculation();
       }

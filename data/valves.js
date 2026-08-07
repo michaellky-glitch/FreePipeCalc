@@ -52,7 +52,12 @@
     globe: {
       key: 'globe',
       name: 'Control valve',
-      code: 'GLV',
+      /* CV on the drawing, not GLV (Michael, 2026-08-07). The panel has called
+       * it a control valve since the UI pass; the drawing was still using the
+       * body style, which is the one thing about it nobody reads it for. The
+       * FITTINGS table keeps GLV — there it really is "globe valve, open" as a
+       * K factor, and that is a different statement. */
+      code: 'CV',
       K: 6.0,
       adjustable: true,
       /* EQUAL PERCENTAGE, supplied by Michael 2026-08-05 as the characteristic

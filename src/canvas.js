@@ -50,6 +50,7 @@
 
     this.tool = 'edit';              // edit | pipe | riser | source | demand | equip | pump
     this.draft = null;               // in-progress run: {points:[{x,y}], fromNode}
+    this.detailDraft = null;         // in-progress DETAIL line: {pts:[{x,y}]}
     this.cursor = null;              // world position of the pointer
     this.hover = null;               // {kind:'node'|'pipe', id}
     /* PROBE: `probeHover` follows the pointer, `probe` is pinned by a click so
@@ -578,15 +579,30 @@
         return;
       }
 
+      /* A DETAIL LINE or a NOTE is selectable in either arranging tool, so its
+       * colour can be changed and it can be deleted. Tried BEFORE the model's
+       * own hit tests in VIEW, and after them in EDIT: while arranging you are
+       * reaching for the annotation, while editing you are reaching for the
+       * pipework underneath it. */
+      function pickAnnotation() {
+        var n2 = self.noteAt(sx, sy);
+        if (n2) { self.selection = [{ kind: 'note', id: n2.id }]; self.changed(); return true; }
+        var d2 = self.detailAt(w.x, w.y, 8);
+        if (d2) { self.selection = [{ kind: 'detail', id: d2.id }]; self.changed(); return true; }
+        return false;
+      }
+
       if (self.tool === 'view') {
         var ch = self.controlHandleAt(sx, sy);
         if (ch) {
           self.dragControl = { pipe: ch.pipe, host: ch.host, key: ch.key,
                                axis: ch.axis, from: ch.from, to: ch.to,
-                               tap: ch.tap, startW: w };
+                               tap: ch.tap, vertex: ch.vertex, route: ch.route,
+                               startW: w };
           c.setPointerCapture(e.pointerId);
           return;
         }
+        if (pickAnnotation()) return;
         var lab = self.labelAt(sx, sy);
         if (lab) {
           /* Anchor = where the label would sit with zero offset. Kept in SCREEN
@@ -660,6 +676,43 @@
         } else {
           self.onMessage('Click a pump or a control valve first.', 'error');
         }
+        return;
+      }
+      /* DETAIL: a free line that the model never sees. Click to place vertices,
+       * Esc or a click on the last point to finish. Clicking an EXISTING detail
+       * line erases it — Michael asked for "draw & erase" as one tool, and a
+       * separate eraser would be a second mode to be in. */
+      if (self.tool === 'detail') {
+        var hitD = self.detailAt(w.x, w.y, 8);
+        if (hitD && !self.detailDraft) {
+          self.onBeforeEdit();
+          M.removeDetail(m0, hitD.id);
+          self.onMessage('Detail line erased.');
+          self.changed();
+          return;
+        }
+        var dp = self.snapWorld(w);
+        if (!self.detailDraft) self.detailDraft = { pts: [dp] };
+        else {
+          var lastP = self.detailDraft.pts[self.detailDraft.pts.length - 1];
+          if (Math.hypot(dp.x - lastP.x, dp.y - lastP.y) < 1e-9) {
+            self.endDetail();
+            return;
+          }
+          self.detailDraft.pts.push(dp);
+        }
+        self.render();
+        return;
+      }
+      /* TEXT BOX: click to place, click an existing one to re-edit it. */
+      if (self.tool === 'text') {
+        var hitN = self.noteAt(sx, sy);
+        if (hitN) { self.editNote(hitN); return; }
+        var np = self.snapWorld(w);
+        self.onBeforeEdit();
+        var note = M.addNote(m0, m0.activeLevel, np.x, np.y, 'Note');
+        self.changed();
+        self.editNote(note, true);
         return;
       }
       if (self.tool === 'pipe') { self.drawClick(w); return; }
@@ -864,6 +917,24 @@
           }
           return;
         }
+        /* A BEND DRAGGED FREELY (Michael, 2026-08-07: "Allow the user to drag
+         * Control Link nodes around"). The first such drag TAKES OVER the
+         * route: whatever the Z was drawing becomes the waypoint list, and from
+         * then on the points are simply where they were put. Starting from what
+         * is on screen means the link does not jump on the first grab. */
+        if (dc.host && dc.vertex !== null && dc.vertex !== undefined) {
+          var rt2 = dc.host[dc.key] || (dc.host[dc.key] = {});
+          if (!rt2.pts || !rt2.pts.length) {
+            rt2.pts = M.routeWaypoints(dc.route);
+            delete rt2.axis; delete rt2.mid;
+          }
+          if (rt2.pts[dc.vertex]) {
+            var gp = self.snapWorld(w);
+            rt2.pts[dc.vertex] = { x: gp.x, y: gp.y };
+            self.render();
+          }
+          return;
+        }
         if (dc.host) {
           var route = dc.host[dc.key] || (dc.host[dc.key] = {});
           var dx = Math.abs(w.x - dc.startW.x), dy = Math.abs(w.y - dc.startW.y);
@@ -1005,6 +1076,7 @@
       if (self.panning) { self.panning = null; return; }
       if (self.dragTrace) { self.dragTrace = null; self.changed(); return; }
       if (self.dragControl) { self.dragControl = null; self.changed(); return; }
+      if (self.dragNote) { self.dragNote = null; self.changed(); return; }
       if (self.dragLabel) { self.dragLabel = null; self.changed(); return; }
       if (self.dragAlign) { self.dragAlign = null; self.changed(); return; }
       if (self.dragDevice) { self.dragDevice = null; self.changed(); return; }
@@ -1055,6 +1127,7 @@
         }
         else if (self.calibrating) self.cancelCalibration();
         else if (self.lengthEntry) { self.lengthEntry = null; self.render(); }
+        else if (self.detailDraft) self.endDetail();
         else if (self.draft) self.endDraft();
         /* A pinned probe is dropped before the tool is, so Escape clears the
          * reading you are finished with rather than the whole mode. */
@@ -1154,6 +1227,7 @@
      * you had stopped trying to link. */
     this.controlPick = null;
     this.refPick = null;
+    if (this.detailDraft && tool !== 'detail') this.endDetail();
     this.canvas.style.cursor = (tool === 'edit') ? 'default'
                             : (tool === 'view' || tool === 'trace' || tool === 'align') ? 'move'
                             : 'crosshair';
@@ -1182,6 +1256,41 @@
       }
     }
     this.changed();
+  };
+
+  /* Commit the detail line being drawn. Two points is the minimum that means
+   * anything; a single click is a mis-click and is discarded silently. */
+  View.prototype.endDetail = function () {
+    var d = this.detailDraft;
+    this.detailDraft = null;
+    if (d && d.pts.length >= 2) {
+      var m = this.getModel();
+      this.onBeforeEdit();
+      M.addDetail(m, m.activeLevel, d.pts, { colour: this.detailColourName || 'line' });
+      this.changed();
+    } else {
+      this.render();
+    }
+  };
+
+  /* The note's text, asked for in a dialog. `isNew` so cancelling a
+   * just-placed note removes it rather than leaving an empty box behind. */
+  View.prototype.editNote = function (note, isNew) {
+    var self = this, m = this.getModel();
+    if (!FD.dialog || !FD.dialog.form) return;
+    FD.dialog.form({
+      title: isNew ? 'Add a note' : 'Edit note',
+      fields: [{ key: 'text', label: 'Text', type: 'textarea', rows: 4,
+                 value: isNew ? '' : (note.text || '') }]
+    }).then(function (v) {
+      if (!v || !String(v.text || '').trim()) {
+        if (isNew) { M.removeNote(m, note.id); self.changed(); }
+        return;
+      }
+      self.onBeforeEdit();
+      note.text = String(v.text).replace(/\r/g, '');
+      self.changed();
+    });
   };
 
   View.prototype.endDraft = function () {
@@ -1654,6 +1763,9 @@
      * route registers handles too and the sensors are drawn first — resetting
      * the list later threw them away. */
     this._controlHandles = [];
+    /* UNDER the model. Detail lines are a backdrop — a room outline, a plant
+     * box — and pipework must never be hidden behind one. */
+    this.drawDetails();
     this.drawRisers();
     this.drawPipes();
     this.drawNodes();
@@ -1666,6 +1778,7 @@
     this.drawVizLegend(vs);
     this.drawWarnHighlight();
     this.drawControlLinks();
+    this.drawNotes();
     this.drawDisconnects();
     this.drawFlipButton();
     this.drawScaleBar();
@@ -1913,6 +2026,45 @@
     var pa = field[p.a], pb = field[p.b];
     if (pa === undefined || pb === undefined) return null;
     if (!isFinite(pa) || !isFinite(pb)) return null;
+
+    /* TEMPERATURE IS SAMPLED INSIDE THE PIPE, NOT AT THE NODES.
+     *
+     * A node temperature at a tee is the MIXTURE of everything arriving. A pipe
+     * arriving there never contains that mixture — it delivers its own outlet
+     * temperature INTO it — so colouring the run up to the node value smears a
+     * discontinuity that is real and interesting back down the pipe. Michael,
+     * 2026-08-07: "Temperature gradients down pipes are not capturing
+     * discontinuities (e.g. mixing points where the temperature suddenly
+     * jumps)."
+     *
+     * His fix, and it is the right one: read half a metre in from each end and
+     * paint that gradient across the whole run. Half a metre is inside the pipe
+     * by any reckoning, so it is that pipe's own water; the colour still
+     * reaches the node, so the jump appears exactly where it happens — AT the
+     * tee, as a step between two pipes rather than a ramp along one.
+     *
+     * The link's `tIn`/`tOut` are oriented by FLOW, not by a→b, so the
+     * direction has to be resolved before they are used. */
+    if (this.viz === 'temperature' && res.thermal && res.thermal.links) {
+      var tl = res.thermal.links[p.id];
+      var q = res.flow ? res.flow[p.id] : undefined;
+      if (tl && isFinite(tl.tIn) && isFinite(tl.tOut) && q !== undefined) {
+        var fwd = q >= 0;                       // a→b
+        var tAtA = fwd ? tl.tIn : tl.tOut;
+        var tAtB = fwd ? tl.tOut : tl.tIn;
+        /* Half a metre in, as a fraction of the run. On a pipe shorter than a
+         * metre the two samples would cross, so the ends are used as they are —
+         * there is no room for a gradient to say anything anyway. */
+        var L = M.pipeLength(this.getModel(), p);
+        if (L > 1) {
+          var f = 0.5 / L;
+          pa = tAtA + (tAtB - tAtA) * f;
+          pb = tAtA + (tAtB - tAtA) * (1 - f);
+        } else {
+          pa = tAtA; pb = tAtB;
+        }
+      }
+    }
 
     var span = scale.max - scale.min;
     var at = function (v) { return span > 1e-12 ? (v - scale.min) / span : 0; };
@@ -2664,12 +2816,16 @@
        * path between two fixed points is determined by its middle segment. */
       if (this.tool === 'view') {
         var grabs = [{ x: cx, y: cy }];
-        for (var gi = 1; gi < rp.length - 1; gi++) grabs.push(rp[gi]);
-        grabs.forEach(function (g) {
+        for (var gj = 1; gj < rp.length - 1; gj++) grabs.push(rp[gj]);
+        grabs.forEach(function (g, gi) {
           self.labelHandle(g.x - 5, g.y - 5, 10, 10);
           self._controlHandles.push({
             pipe: p, host: p.sensor, key: 'route', axis: route.axis,
-            from: route.from, to: route.to,
+            from: route.from, to: route.to, route: route,
+            /* Which BEND this is, so a free drag knows what it is moving. The
+             * bubble (index 0 in `grabs`) is not a bend — it rides the middle
+             * segment — so it keeps the old whole-route behaviour. */
+            vertex: gi === 0 ? null : gi - 1,
             x: g.x - 7, y: g.y - 7, w: 14, h: 14
           });
         });
@@ -3715,6 +3871,115 @@
    *
    * Orthogonal, L or Z, because a diagonal across a floor plan reads as a pipe
    * run. The bend is draggable in VIEW and is presentation only. */
+  /* A palette name resolved against the CURRENT theme, so a drawing made in
+   * dark mode stays legible in light. */
+  View.prototype.detailColour = function (name) {
+    var t = this.theme;
+    return (name === 'ok') ? t.ok : (name === 'warn') ? t.warn
+         : (name === 'error') ? t.error : (name === 'accent') ? t.accent
+         : (name === 'select') ? t.select : t.line;
+  };
+
+  View.prototype.drawDetails = function () {
+    var m = this.getModel(), ctx = this.ctx, self = this;
+    (m.details || []).forEach(function (d) {
+      if (d.level !== m.activeLevel || !d.pts || d.pts.length < 2) return;
+      var sel = self.selection.some(function (x) {
+        return x.kind === 'detail' && x.id === d.id;
+      });
+      ctx.save();
+      ctx.strokeStyle = sel ? self.theme.select : self.detailColour(d.colour);
+      ctx.lineWidth = (d.width || 1.5) * (sel ? 2 : 1);
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.beginPath();
+      var p0 = self.toScreen(d.pts[0].x, d.pts[0].y);
+      ctx.moveTo(p0.x, p0.y);
+      for (var i = 1; i < d.pts.length; i++) {
+        var q = self.toScreen(d.pts[i].x, d.pts[i].y);
+        ctx.lineTo(q.x, q.y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    });
+    /* The run being drawn right now, dashed so it reads as provisional. */
+    if (this.detailDraft && this.detailDraft.pts.length) {
+      ctx.save();
+      ctx.strokeStyle = this.theme.select;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      var d0 = this.toScreen(this.detailDraft.pts[0].x, this.detailDraft.pts[0].y);
+      ctx.moveTo(d0.x, d0.y);
+      for (var j = 1; j < this.detailDraft.pts.length; j++) {
+        var dq = this.toScreen(this.detailDraft.pts[j].x, this.detailDraft.pts[j].y);
+        ctx.lineTo(dq.x, dq.y);
+      }
+      if (this.cursor) {
+        var cq = this.toScreen(this.cursor.x, this.cursor.y);
+        ctx.lineTo(cq.x, cq.y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  View.prototype.drawNotes = function () {
+    var m = this.getModel(), ctx = this.ctx, self = this;
+    this._noteBoxes = [];
+    (m.notes || []).forEach(function (n) {
+      if (n.level !== m.activeLevel) return;
+      var s = self.toScreen(n.x, n.y);
+      var sel = self.selection.some(function (x) {
+        return x.kind === 'note' && x.id === n.id;
+      });
+      ctx.save();
+      ctx.font = '500 ' + (n.size || 13) + 'px system-ui, sans-serif';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      var lines = String(n.text || '').split('\n');
+      var wMax = 0;
+      lines.forEach(function (t) { wMax = Math.max(wMax, ctx.measureText(t).width); });
+      var lh = (n.size || 13) * 1.25;
+      var h = lh * lines.length;
+      /* A backing panel, so a note over pipework stays readable. */
+      ctx.fillStyle = self.theme.bg;
+      ctx.globalAlpha = 0.82;
+      ctx.fillRect(s.x - 3, s.y - 3, wMax + 6, h + 6);
+      ctx.globalAlpha = 1;
+      if (sel) {
+        ctx.strokeStyle = self.theme.select; ctx.lineWidth = 1.5;
+        ctx.strokeRect(s.x - 3, s.y - 3, wMax + 6, h + 6);
+      }
+      ctx.fillStyle = sel ? self.theme.select : self.detailColour(n.colour);
+      lines.forEach(function (t, i) { ctx.fillText(t, s.x, s.y + i * lh); });
+      ctx.restore();
+      self._noteBoxes.push({ note: n, x: s.x - 3, y: s.y - 3, w: wMax + 6, h: h + 6 });
+    });
+  };
+
+  View.prototype.noteAt = function (sx, sy) {
+    var bs = this._noteBoxes || [];
+    for (var i = bs.length - 1; i >= 0; i--) {
+      var b = bs[i];
+      if (sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h) return b.note;
+    }
+    return null;
+  };
+
+  /* The detail line nearest a click, within a screen tolerance. Used both to
+   * select one and to erase it. */
+  View.prototype.detailAt = function (wx, wy, tolPx) {
+    var m = this.getModel(), best = null, bestD = Infinity, self = this;
+    var tol = (tolPx || 8) / this.scale;
+    (m.details || []).forEach(function (d) {
+      if (d.level !== m.activeLevel || !d.pts || d.pts.length < 2) return;
+      for (var i = 1; i < d.pts.length; i++) {
+        var r = self._distToSeg(wx, wy, d.pts[i - 1], d.pts[i]);
+        if (r.dist < tol && r.dist < bestD) { bestD = r.dist; best = d; }
+      }
+    });
+    return best;
+  };
+
   View.prototype.drawControlLinks = function () {
     if (!this.showControl) return;
     var m = this.getModel(), ctx = this.ctx, self = this;
@@ -3752,7 +4017,8 @@
           self.labelHandle(pts[j].x - 5, pts[j].y - 5, 10, 10);
           self._controlHandles.push({
             pipe: p, host: (p.kind === 'pump') ? p.pump : p.valve, key: 'control',
-            axis: r.axis, from: r.from, to: r.to,
+            axis: r.axis, from: r.from, to: r.to, route: r,
+            vertex: j - 1,
             x: pts[j].x - 6, y: pts[j].y - 6, w: 12, h: 12
           });
         }
@@ -3766,6 +4032,17 @@
    * and "whichever was pushed last" made which one you got depend on draw
    * order, which is not something the user can see. Nearest centre is the
    * answer they would predict from where they clicked. */
+  /* A world point snapped to the grid, unless Shift says otherwise. Used where
+   * something is being POSITIONED by hand rather than derived — a control link
+   * waypoint — so it lines up with the drawing it sits on. */
+  View.prototype.snapWorld = function (w) {
+    var m = this.getModel();
+    var g = m.settings.grid;
+    if (this.shiftDown || !g || !g.snap || !(g.minor > 0)) return { x: w.x, y: w.y };
+    return { x: Math.round(w.x / g.minor) * g.minor,
+             y: Math.round(w.y / g.minor) * g.minor };
+  };
+
   View.prototype.controlHandleAt = function (sx, sy) {
     var hs = this._controlHandles || [], best = null, bestD = Infinity;
     for (var i = 0; i < hs.length; i++) {

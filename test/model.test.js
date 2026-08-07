@@ -2507,4 +2507,112 @@ section('The differential sensor rides the same route');
        midOf(M.sensorRoute(m, sens).midSeg).x, 21, 1e-9);
 }
 
+/* =====================================================================
+ * DRAWING ANNOTATION: lines and notes that the model never sees.
+ * ===================================================================== */
+section('Detail lines and text notes');
+{
+  const m = M.create();
+  const lv = m.levels[0].id;
+  const d = M.addDetail(m, lv, [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 6 }],
+                        { colour: 'accent' });
+  const n = M.addNote(m, lv, 2, 8, 'PLANT ROOM', { colour: 'ok', size: 16 });
+
+  ok('A detail line gets a usable id', /^D\d+$/.test(d.id), d.id);
+  ok('...and a note too', /^X\d+$/.test(n.id), n.id);
+  ok('The palette is names, not colours',
+     M.DETAIL_COLOURS.every(c => typeof c === 'string' && !/^#/.test(c)),
+     M.DETAIL_COLOURS.join(','));
+
+  /* THE WHOLE POINT: nothing in the calculation may see them. A room outline is
+   * fifteen metres of line on the drawing and must not become fifteen metres of
+   * pipe. */
+  const before = NET.solveModel(m);
+  M.addDetail(m, lv, [{ x: -50, y: -50 }, { x: 50, y: 50 }], {});
+  M.addNote(m, lv, -20, -20, 'not a pipe', {});
+  const after = NET.solveModel(m);
+  ok('Annotation does not reach the network',
+     JSON.stringify(after.flow) === JSON.stringify(before.flow) &&
+     (after.warnings || []).length === (before.warnings || []).length);
+
+  /* SAVE AND LOAD, including the id counters — a file written before these
+   * existed has no counter for them, and `undefined++` is NaN, which gave every
+   * annotation the same id and made them undeletable. */
+  const rt = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(m))));
+  ok('Details survive a round trip', rt.details.length === m.details.length);
+  ok('...keeping their colour', rt.details[0].colour === 'accent');
+  ok('Notes survive it too', rt.notes.length === m.notes.length);
+  ok('...keeping their text', rt.notes[0].text === 'PLANT ROOM');
+  const d2 = M.addDetail(rt, rt.activeLevel, [{ x: 1, y: 1 }, { x: 2, y: 2 }], {});
+  ok('...and the next id does not collide', d2.id !== d.id && /^D\d+$/.test(d2.id), d2.id);
+
+  /* A file that predates them at all. */
+  const old = JSON.parse(JSON.stringify(M.toJSON(M.create())));
+  delete old.details; delete old.notes; delete old._seq.detail; delete old._seq.note;
+  const legacy = M.fromJSON(old);
+  const dl = M.addDetail(legacy, legacy.activeLevel, [{ x: 0, y: 0 }, { x: 1, y: 0 }], {});
+  ok('An older file can still take an annotation', /^D0$/.test(dl.id), dl.id);
+
+  M.removeDetail(m, d.id);
+  M.removeNote(m, n.id);
+  ok('Both can be removed',
+     !m.details.some(x => x.id === d.id) && !m.notes.some(x => x.id === n.id));
+}
+
+section('Routes can be taken over by hand');
+{
+  const m = M.create();
+  const lv = m.levels[0].id;
+  const a1 = M.addNode(m, lv, 0, 0), a2 = M.addNode(m, lv, 1, 0);
+  const pump = M.addPipe(m, a1.id, a2.id, { kind: 'pump' });
+  pump.pump = { mode: 'auto', head: 10 };
+  const b1 = M.addNode(m, lv, 19.5, 8), b2 = M.addNode(m, lv, 20.5, 8);
+  const eq = M.addPipe(m, b1.id, b2.id, { kind: 'equip' });
+  eq.equip = { qRated: 0.002, pdRated: 100e3, equipType: 'source', tSet: 6 };
+  M.setControl(m, pump, eq.id);
+
+  const z = M.controlRoute(m, pump);
+  ok('It starts as a Z', z.points.length === 4 && z.axis, z.axis);
+  ok('...with no waypoints yet', !z.waypoints);
+
+  /* TAKING IT OVER starts from what is on screen, so the link cannot jump on
+   * the first grab. */
+  const w = M.routeWaypoints(z);
+  ok('Its own bends become the first waypoints', w.length === 2);
+  ok('...at exactly where they were',
+     Math.abs(w[0].x - z.points[1].x) < 1e-9 && Math.abs(w[0].y - z.points[1].y) < 1e-9);
+
+  pump.pump.control.pts = M.insertWaypoint(z);
+  delete pump.pump.control.axis; delete pump.pump.control.mid;
+  const r2 = M.controlRoute(m, pump);
+  ok('A bend can be added', r2.points.length === 5, String(r2.points.length));
+
+  /* AND A WAYPOINT MAY GO ANYWHERE. A Z has one degree of freedom; this does
+   * not, which is the whole reason for it. */
+  pump.pump.control.pts[1] = { x: 7.3, y: -4.1 };
+  const r3 = M.controlRoute(m, pump);
+  const bend = r3.points[2];
+  near('A waypoint sits exactly where it was put (x)', bend.x, 7.3, 1e-9);
+  near('...and y', bend.y, -4.1, 1e-9);
+
+  /* THE ENDS ARE NOT WAYPOINTS. They belong to the two devices and must stay
+   * pinned however the middle is dragged. */
+  const aMid = M.deviceMid(m, pump), bMid = M.deviceMid(m, eq);
+  near('The route still starts at the controller', r3.points[0].x, aMid.x, 1e-9);
+  near('...and ends at its target', r3.points[r3.points.length - 1].x, bMid.x, 1e-9);
+
+  /* A waypoint dragged onto its neighbour is dropped rather than left as a
+   * zero-length segment. */
+  pump.pump.control.pts = [{ x: 5, y: 5 }, { x: 5, y: 5 }, { x: 9, y: 2 }];
+  const r4 = M.controlRoute(m, pump);
+  const dup = r4.points.filter((p, i) =>
+    i > 0 && Math.abs(p.x - r4.points[i - 1].x) < 1e-9 &&
+             Math.abs(p.y - r4.points[i - 1].y) < 1e-9);
+  ok('Coincident waypoints collapse', dup.length === 0, JSON.stringify(r4.points));
+
+  /* And the ΔP bubble still has somewhere to sit on a polyline. */
+  ok('midSeg survives a waypoint route',
+     !!r4.midSeg && r4.midSeg.length === 2);
+}
+
 report();

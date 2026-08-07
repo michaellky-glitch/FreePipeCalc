@@ -258,7 +258,19 @@
       nodes: [],
       pipes: [],
       risers: [],
-      _seq: { level: 0, node: 0, pipe: 0, riser: 0 }
+      /* ANNOTATION THAT IS NOT PART OF THE MODEL — free lines and text notes.
+       *
+       * Michael, 2026-08-07: "These lines do not interact with the model at
+       * all, to allow user to draw boxes to represent equipment or rooms."
+       * That is the whole specification and it is why they live in their own
+       * collections rather than as a kind of pipe: nothing in `network.js`,
+       * `thermal.js` or any warning ever looks at them, so there is no path by
+       * which a room outline can change an answer. A piece of equipment is
+       * 0.5 m on the drawing and a plant room is fifteen; the drawing needs a
+       * way to say the second without the calculation hearing it. */
+      details: [],
+      notes: [],
+      _seq: { level: 0, node: 0, pipe: 0, riser: 0, detail: 0, note: 0 }
     };
     addLevel(m, { name: 'Level 0', altitude: 0 });
     m.activeLevel = m.levels[0].id;
@@ -1504,7 +1516,65 @@
    * `midSeg` is the middle segment BEFORE collapsed bends are dropped, so
    * anything that wants to sit on it — the ΔP bubble does — has a well-defined
    * place to sit even when the route has degenerated to an L. */
-  function zRoute(a, b, axis, mid) {
+  /* WAYPOINTS: a route the user has taken over.
+   *
+   * `zRoute` gives one degree of freedom, which is all a Z between two fixed
+   * points HAS. Michael, 2026-08-07, wants more: drag the bends where he likes,
+   * and add more of them. So a route may instead carry `pts` — a list of world
+   * points between the two ends — and then it is drawn exactly as given.
+   *
+   * The two live side by side on purpose. Every link starts as a Z, because
+   * that needs no decisions and is right most of the time; the first drag of a
+   * waypoint, or the first insertion, converts it. Nothing is lost by the
+   * conversion (the Z's own bends become the first waypoints) and nothing has
+   * to be migrated on load.
+   *
+   * ORTHOGONALITY IS NOT ENFORCED between waypoints. It cannot be: with three
+   * or more free bends there is no unique orthogonal path through them, and
+   * snapping each drag to an axis fights the hand that is placing it. The
+   * default route is orthogonal and stays so until someone deliberately moves a
+   * point off it. */
+  function waypointRoute(a, b, pts) {
+    var mids = [];
+    (pts || []).forEach(function (q) {
+      if (q && isFinite(q.x) && isFinite(q.y)) mids.push({ x: q.x, y: q.y });
+    });
+    var all = [a].concat(mids, [b]);
+    /* Drop a point that has landed on its neighbour, so a dragged-together pair
+     * does not leave a zero-length segment behind. */
+    var out = [all[0]];
+    for (var i = 1; i < all.length; i++) {
+      var last = out[out.length - 1];
+      if (Math.abs(all[i].x - last.x) > 1e-9 || Math.abs(all[i].y - last.y) > 1e-9) {
+        out.push(all[i]);
+      }
+    }
+    /* `midSeg` is what carries the ΔP bubble. With waypoints there is no single
+     * "middle segment", so it is the middle of the whole run by length — the
+     * place a label sits most naturally on any polyline. */
+    var mid = midSegmentOf(out);
+    return { points: out, waypoints: mids, axis: null, mid: null,
+             midSeg: mid, from: a, to: b };
+  }
+
+  /* The segment containing the halfway point BY LENGTH along a polyline. */
+  function midSegmentOf(pts) {
+    if (pts.length < 2) return [pts[0], pts[0]];
+    var total = 0, i;
+    for (i = 1; i < pts.length; i++) {
+      total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    }
+    var want = total / 2, run = 0;
+    for (i = 1; i < pts.length; i++) {
+      var d = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      if (run + d >= want || i === pts.length - 1) return [pts[i - 1], pts[i]];
+      run += d;
+    }
+    return [pts[0], pts[1]];
+  }
+
+  function zRoute(a, b, axis, mid, pts) {
+    if (pts && pts.length) return waypointRoute(a, b, pts);
     var horiz = axis === 'h' ? true
               : axis === 'v' ? false
               /* No stored axis: run the middle segment across the LONGER
@@ -1557,12 +1627,39 @@
              midSeg: [pts[1], pts[2]], from: a, to: b };
   }
 
+  /* TAKE OVER A ROUTE: freeze whatever it currently draws as waypoints, so the
+   * first drag or insertion starts from exactly what is on screen rather than
+   * from a default the user has never seen. */
+  function routeWaypoints(route) {
+    if (!route || !route.points || route.points.length < 3) return [];
+    return route.points.slice(1, -1).map(function (q) { return { x: q.x, y: q.y }; });
+  }
+
+  /* Add a bend at the midpoint of the LONGEST segment — the one with room for
+   * it, and the one a user reaching for "give me another point" is looking at.
+   * Returns the new waypoint list. */
+  function insertWaypoint(route) {
+    var pts = (route && route.points) || [];
+    if (pts.length < 2) return routeWaypoints(route);
+    var best = 1, bestD = -1;
+    for (var i = 1; i < pts.length; i++) {
+      var d = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      if (d > bestD) { bestD = d; best = i; }
+    }
+    var mid = { x: (pts[best].x + pts[best - 1].x) / 2,
+                y: (pts[best].y + pts[best - 1].y) / 2 };
+    var w = routeWaypoints(route);
+    /* `best` indexes into `points`, whose interior is `w` offset by one. */
+    w.splice(best - 1, 0, mid);
+    return w;
+  }
+
   function controlRoute(m, p) {
     var c = controlOf(p);
     if (!c) return null;
     var a = deviceMid(m, p), b = deviceMid(m, pipe(m, c.equip));
     if (!a || !b) return null;
-    return zRoute(a, b, c.axis, c.mid);
+    return zRoute(a, b, c.axis, c.mid, c.pts);
   }
 
   /* THE DIFFERENTIAL SENSOR'S ROUTE — the same Z, between the two tappings.
@@ -1605,8 +1702,50 @@
     var a = deviceMid(m, p), b = sensorRefPoint(m, p);
     if (!a || !b) return null;
     var r = p.sensor.route || {};
-    return zRoute(a, { x: b.x, y: b.y }, r.axis, r.mid);
+    return zRoute(a, { x: b.x, y: b.y }, r.axis, r.mid, r.pts);
   }
+
+  // ------------------------------------------------- drawing annotation
+  /* A FREE LINE. `pts` are world points on ONE level; `colour` is an index into
+   * the palette the panel offers, not a CSS string, so a theme change cannot
+   * leave a drawing full of colours that vanish against the new background. */
+  function addDetail(m, levelId, pts, opts) {
+    opts = opts || {};
+    var d = {
+      id: uid('D', m._seq.detail++),
+      level: levelId,
+      pts: (pts || []).map(function (q) { return { x: q.x, y: q.y }; }),
+      colour: opts.colour || 'line',
+      width: opts.width || 1.5
+    };
+    m.details.push(d);
+    return d;
+  }
+
+  function addNote(m, levelId, x, y, text, opts) {
+    opts = opts || {};
+    var n = {
+      id: uid('X', m._seq.note++),
+      level: levelId,
+      x: x, y: y,
+      text: text || 'Note',
+      colour: opts.colour || 'line',
+      size: opts.size || 13
+    };
+    m.notes.push(n);
+    return n;
+  }
+
+  function removeDetail(m, id) {
+    m.details = m.details.filter(function (d) { return d.id !== id; });
+  }
+  function removeNote(m, id) {
+    m.notes = m.notes.filter(function (n) { return n.id !== id; });
+  }
+
+  /* THE PALETTE. Named rather than hex so both themes can answer for
+   * themselves, and so a file written in dark mode is legible in light. */
+  var DETAIL_COLOURS = ['line', 'ok', 'warn', 'error', 'accent', 'select'];
 
   function clearDevice(m, nodeId) {
     var n = node(m, nodeId);
@@ -1680,8 +1819,17 @@
     m.nodes = obj.nodes || [];
     m.pipes = obj.pipes || [];
     m.risers = obj.risers || [];
+    m.details = obj.details || [];
+    m.notes = obj.notes || [];
     m.activeLevel = obj.activeLevel || (m.levels[0] && m.levels[0].id);
     m._seq = obj._seq || rebuildSeq(m);
+    /* A FILE WRITTEN BEFORE DETAILS AND NOTES EXISTED has a `_seq` without
+     * counters for them, and `undefined++` is NaN — every annotation added to
+     * such a model came out as `DNaN`, all sharing one id and therefore
+     * undeletable. Filled in AFTER `_seq` is restored, because restoring it
+     * replaces the object wholesale. */
+    if (!isFinite(m._seq.detail)) m._seq.detail = m.details.length;
+    if (!isFinite(m._seq.note)) m._seq.note = m.notes.length;
     /* 'ASHRAE' was Hazen-Williams with K fittings; the two Hazen-Williams
      * entries were collapsed into one in v0.8.5 and it charges equivalent
      * length. Rewritten rather than left to fall through `method()`, so the
@@ -1754,7 +1902,9 @@
       level: maxId(m.levels, 'L'),
       node:  maxId(m.nodes, 'N'),
       pipe:  maxId(m.pipes, 'P'),
-      riser: maxId(m.risers, 'R')
+      riser: maxId(m.risers, 'R'),
+      detail: maxId(m.details || [], 'D'),
+      note:  maxId(m.notes || [], 'X')
     };
   }
 
@@ -1798,7 +1948,11 @@
     pumpSpeed: pumpSpeed,
     pumpSizing: pumpSizing, pumpRunMode: pumpRunMode, generateCurve: generateCurve, pumpCurve: pumpCurve,
     pumpSpeedIgnored: pumpSpeedIgnored, pumpHead: pumpHead,
+    addDetail: addDetail, addNote: addNote,
+    removeDetail: removeDetail, removeNote: removeNote,
+    DETAIL_COLOURS: DETAIL_COLOURS,
     controlRoute: controlRoute, sensorRoute: sensorRoute, zRoute: zRoute,
+    routeWaypoints: routeWaypoints, insertWaypoint: insertWaypoint,
     sensorRefPoint: sensorRefPoint,
     deviceMid: deviceMid,
     equipRatedC: equipRatedC,
