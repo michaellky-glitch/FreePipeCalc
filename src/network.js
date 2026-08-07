@@ -1648,6 +1648,41 @@
         /* No better and no crossing. Put it back — and note that `cur` is still
          * the answer at x0, so restoring the model costs nothing to re-solve. */
         act.set(x0);
+
+        /* --- IT MAY NEED TO GO UP, AND THE SEARCH ONLY GOES DOWN.
+         *
+         * This is a DESCENT from full travel. That is fine on the first pass,
+         * where `runControls` has just put every device at full — but a later
+         * sweep starts wherever the previous one finished, and a device that
+         * now needs to OPEN has nowhere to look from here. It reported
+         * `at-max` at 35% open, which then counted as a lost setpoint and
+         * parked it at 100%.
+         *
+         * `debug/20260807-1.json`, Michael, 2026-08-07. Sweep 1 settled every
+         * device beautifully — four valves at 32-35%, PMP-01 at 34.7% holding
+         * its dP to within 44 Pa. But the valves settled while the pump was
+         * still at full, and the pump then dropped to 34.7% and starved them by
+         * 25%. Sweep 2 found four valves needing to open, could not open any of
+         * them, called all four lost, and threw the whole answer away: pump and
+         * valves all back to 100%. He reported it as "PMP-01 ramping up to full
+         * speed" and "the CVs also stopped working" — one cause, both symptoms.
+         *
+         * So restart the descent from FULL, which is the only direction this
+         * search can travel from. Guarded against recursing twice: from full
+         * travel there is genuinely nowhere further up, and `at-max` then means
+         * what its name says. */
+        if (x0 < 1 - 1e-9 && !pair.reseeking) {
+          pair.reseeking = true;
+          act.set(1);
+          cur = evaluate();
+          var again = seek(pair);
+          pair.reseeking = false;
+          /* It MOVED — from x0 to wherever this landed — even if the search
+           * itself reports otherwise, or the sweep would stop while devices
+           * were still being repositioned. */
+          if (Math.abs(again.x - x0) > 1e-9) again.moved = true;
+          return again;
+        }
         return { state: 'at-max', x: x0, error: e0, moved: false };
       }
 

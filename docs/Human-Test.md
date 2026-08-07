@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1590
+This is deliberately separate from the automated suites. Those cover 1613
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -202,6 +202,19 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 4Y. THE ECONOMIZER MODEL, AND FIVE UI ITEMS (v0.15.2)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| EC.1 | **`20260807-1` converges** | ✅ | One cause behind all three symptoms. The control search is a DESCENT from full travel; a later sweep starts where the last finished, so a device that needs to OPEN had nowhere to look, reported `at-max` mid-travel, and got parked at 100%. Sweep 1 had already found a good answer and sweep 2 threw it away. |
+| EC.2 | The plant now does what you described | ✅ | CT-01 35.04 → 30.00 · ACCH-1 30.00 → 15.00 (ΔT-limited) · TS-2 20.08 · PMP-01 91.9% holding 200.8 kPa against 200 · PMP-02 48.8% · all four coils within 0.6% of rated flow · a third of the flow bypassing, which is exactly what 30/15 → 20 mixing requires. Frozen as `test/fixtures/economizer-trim.pnet.json`. |
+| EC.3 | The one remaining warning | ⬜ | `EQUIP_LIMITED` on ACCH-1: it is on its 15 K design ΔT, so from 30 °C it can only reach 15 °C. That is your design, not a fault — but check the ΔT is what you meant. |
+| UI.11 | Heating/Cooling toggles on an empty box | ✅ | Your bug. A signed number cannot express "cooling, magnitude not yet decided", so the switch had nothing to write. The direction is now held as a UI intent until a number exists, then the stored sign takes over. |
+| UI.12 | Red heating, blue cooling | ✅ | The one place in this app where red is not a fault. |
+| UI.13 | Units in the label, box left-aligned | ✅ | "Capacity (kW)", and the entry reads from the left like every other field. |
+| UI.14 | Clicking the status chip highlights | ✅ | It set `chip.onclick` to open CALCULATION in the DEFECTS branch and never cleared it, so once a model had raised a defect ONCE the chip jumped to the sheet for the rest of the session. Removed — it highlights at every severity now. |
+| UI.15 | **Blank capacity = unlimited, not "auto"** | ⬜ | **Your question.** There is no auto-balance mode. For a SOURCE/SINK, blank capacity already gives you most of what you asked for: it modulates freely to hold its leaving temperature, so it absorbs whatever the loop throws at it. What blank does NOT do is size itself against the load and report a duty you could put on a schedule. Say if you want that. |
 
 ## 4X. UI PASS, PANELS AND THE RIBBON (v0.15.1)
 

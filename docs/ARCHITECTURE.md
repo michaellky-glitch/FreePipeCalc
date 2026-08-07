@@ -1310,6 +1310,42 @@ hitting a limit. Pull far enough across (1.6× the along-axis movement, as
 hysteresis) and the route switches: a Z that bends the other way is the same
 route seen from ninety degrees.
 
+### The search descends, so a device that must OPEN restarts from full
+
+`seek` is a **descent from full travel**. It probes at the actuator's minimum,
+and if that helps it walks down. That is complete on the first pass, because
+`runControls` puts every device at full before it starts — but a later sweep
+begins wherever the previous one finished, and a device that now needs to go UP
+has nowhere to look. It reported `at-max` at mid-travel, which counts as a lost
+setpoint, which **parks it at 100%**.
+
+`debug/20260807-1.json` (Michael, 2026-08-07) is the case, and it is worth
+keeping because six controllers interact in it: four coil valves on flow, a
+primary pump on a differential, and a secondary pump on a mixed temperature.
+
+    sweep 1   every device settles. Valves 32–35%, PMP-01 holding its dP to
+              within 44 Pa. A good answer.
+    sweep 2   but the valves settled while the pump was still at full; the pump
+              then dropped to 34.7% and starved them by 25%. Four valves now
+              need to OPEN, none can, all four report at-max, all four are
+              parked at 100% — and PMP-01 with them.
+
+He reported it as *"PMP-01 is ramping up to full speed and exceeding"* and *"the
+CVs also stopped working"*. One cause, both symptoms, plus a third: with the
+valves wide open the branch flows were wrong, the mix temperature was wrong, and
+CT-01 fell to `Capacity (wrong direction)` because its inlet had dropped below
+its own setpoint.
+
+**So a device that cannot improve by closing, and is not already at full,
+restarts its search from full.** That is the only direction this search can
+travel from. Guarded against recursing twice: from full travel there really is
+nowhere further up, and `at-max` then means what its name says.
+
+With it, the same model converges in five sweeps — valve at 59% and three
+correctly wide open, PMP-01 at 91.9% holding 200.8 kPa against a 200 kPa
+setpoint, PMP-02 at 48.8% holding the mix at 20.08 °C, and a third of the flow
+bypassing the chiller exactly as the mixing arithmetic requires.
+
 ### Losing the setpoint: park at FULL, do not throttle
 
 `debug/20260804-3.json` — a 110 kW coil against a 100 kW chiller. The loop
@@ -1969,7 +2005,7 @@ is the strongest claim available.
 
 ## 15. Testing
 
-Seven suites, 1590 assertions, no dependencies:
+Seven suites, 1613 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

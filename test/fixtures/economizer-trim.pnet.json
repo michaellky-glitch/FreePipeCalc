@@ -1,0 +1,1303 @@
+{
+ "formatVersion": 1,
+ "appVersion": "0.15.1",
+ "settings": {
+  "units": "metric",
+  "display": {
+   "flow": "L/s",
+   "pressure": "kPa",
+   "pdm": "Pa/m",
+   "length": "m",
+   "size": "DN",
+   "valveCoef": "Kv"
+  },
+  "calcMode": "design",
+  "frictionMethod": "HW",
+  "systemType": "closed",
+  "hw": {
+   "A": 10.67,
+   "a": 1.852,
+   "b": 1.852,
+   "e": 4.8704
+  },
+  "ashrae": {
+   "K": 6.819,
+   "a": 1.852,
+   "e": 1.167
+  },
+  "dw": {
+   "frictionFactor": "swameejain",
+   "roughness_mm": 0.045,
+   "kSet": "threaded"
+  },
+  "fluid": {
+   "preset": "water",
+   "name": "Water",
+   "density": 998,
+   "kinematicViscosity": 1.004e-06,
+   "temperature": 20,
+   "specificHeat": 4187
+  },
+  "insulation": {},
+  "thermal": {
+   "ambient": 20,
+   "supplyTemp": 6,
+   "insulationK": 0.02,
+   "surfaceCoeff": 8,
+   "tempMin": -50,
+   "tempMax": 50
+  },
+  "control": {
+   "minSpeed": 0.25,
+   "minOpening": 10,
+   "tol": 0.05,
+   "maxSolves": 0
+  },
+  "elSet": "carrier",
+  "fittingEL": {},
+  "fittingLD": {
+   "E90": 30,
+   "E45": 16,
+   "TRUN": 20,
+   "TBRANCH": 60,
+   "TRUN_DIV": 20,
+   "TBRANCH_DIV": 60,
+   "TRUN_CONV": 20,
+   "TBRANCH_CONV": 60,
+   "GATE": 8,
+   "GLOBE": 340,
+   "CHECK": 100
+  },
+  "fittingK": {},
+  "schedule": "sch40",
+  "lastSize": "DN100",
+  "C": 120,
+  "defaultC": {},
+  "pumpSafetyPct": 0,
+  "pumpCurve": {
+   "shutoffPct": 140,
+   "runoutFlowPct": 150,
+   "runoutHeadPct": 65
+  },
+  "theme": "dark",
+  "warn": {
+   "velocity": 2.4,
+   "pdm": 400,
+   "laminar": true,
+   "pumpRunout": 120,
+   "equipFlowRatio": 2,
+   "maxComponentPD": 2000000,
+   "valveOversized": 10,
+   "heatBalance": 2,
+   "valveAuthority": 10
+  },
+  "floorToFloor": 3.5,
+  "grid": {
+   "minor": 0.5,
+   "major": 5,
+   "snap": true
+  },
+  "annotate": {
+   "pipeDiameter": true,
+   "pipeLength": false,
+   "pipeFlow": true,
+   "pipeVelocity": false,
+   "pipePD": false,
+   "pipePDM": false,
+   "fitType": true,
+   "fitPD": false,
+   "nodePressure": false,
+   "nodeTemperature": true,
+   "nodeNumbers": true
+  },
+  "presentation": {
+   "arrowSize": 1,
+   "labelSize": 18,
+   "uiFontSize": 18
+  },
+  "csv": {
+   "delimiter": ",",
+   "decimal": "."
+  },
+  "exportImage": "svg",
+  "meta": {
+   "project": "",
+   "system": "",
+   "engineer": "",
+   "company": "",
+   "date": "",
+   "revision": ""
+  }
+ },
+ "customSchedules": {},
+ "levels": [
+  {
+   "id": "L0",
+   "name": "Level 0",
+   "altitude": 0,
+   "dx": 0,
+   "dy": 0,
+   "lookDir": "down",
+   "trace": null
+  }
+ ],
+ "nodes": [
+  {
+   "id": "N0",
+   "level": "L0",
+   "x": 10,
+   "y": 15,
+   "dz": 0,
+   "device": {
+    "kind": "source",
+    "pressure": 0
+   },
+   "tag": "SRC-1"
+  },
+  {
+   "id": "N1",
+   "level": "L0",
+   "x": 60,
+   "y": 15,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N2",
+   "level": "L0",
+   "x": 60,
+   "y": 25,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N3",
+   "level": "L0",
+   "x": 15,
+   "y": 24.999999999999993,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N4",
+   "level": "L0",
+   "x": 15,
+   "y": 15,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N7",
+   "level": "L0",
+   "x": 60,
+   "y": 19.666666666666668,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N8",
+   "level": "L0",
+   "x": 60,
+   "y": 20.166666666666668,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N9",
+   "level": "L0",
+   "x": 15,
+   "y": 20.375,
+   "dz": 0,
+   "device": null,
+   "labelOffset": {
+    "dx": 225,
+    "dy": -156
+   }
+  },
+  {
+   "id": "N10",
+   "level": "L0",
+   "x": 15,
+   "y": 19.875,
+   "dz": 0,
+   "device": null,
+   "labelOffset": {
+    "dx": 227.7,
+    "dy": 44
+   }
+  },
+  {
+   "id": "N12",
+   "level": "L0",
+   "x": 55,
+   "y": 25,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N13",
+   "level": "L0",
+   "x": 55,
+   "y": 15,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N15",
+   "level": "L0",
+   "x": 50,
+   "y": 25,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N16",
+   "level": "L0",
+   "x": 50,
+   "y": 15,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N18",
+   "level": "L0",
+   "x": 45,
+   "y": 25,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N19",
+   "level": "L0",
+   "x": 45,
+   "y": 15,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N20",
+   "level": "L0",
+   "x": 45,
+   "y": 20.00208048014906,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N21",
+   "level": "L0",
+   "x": 45,
+   "y": 20.50208048014906,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N22",
+   "level": "L0",
+   "x": 50,
+   "y": 19.922080480149063,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N23",
+   "level": "L0",
+   "x": 50,
+   "y": 20.422080480149063,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N24",
+   "level": "L0",
+   "x": 55,
+   "y": 19.892860660204956,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N25",
+   "level": "L0",
+   "x": 55,
+   "y": 20.392860660204956,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N26",
+   "level": "L0",
+   "x": 45,
+   "y": 17.74302727438306,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N27",
+   "level": "L0",
+   "x": 45,
+   "y": 18.24302727438306,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N28",
+   "level": "L0",
+   "x": 50,
+   "y": 17.729343359984917,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N29",
+   "level": "L0",
+   "x": 50,
+   "y": 18.229343359984917,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N30",
+   "level": "L0",
+   "x": 55,
+   "y": 17.688291616790487,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N31",
+   "level": "L0",
+   "x": 55,
+   "y": 18.188291616790487,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N32",
+   "level": "L0",
+   "x": 60,
+   "y": 17.715659445586773,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N33",
+   "level": "L0",
+   "x": 60,
+   "y": 18.215659445586773,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N34",
+   "level": "L0",
+   "x": 33.77816473701351,
+   "y": 24.999999999999996,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N35",
+   "level": "L0",
+   "x": 33.27816473701351,
+   "y": 24.999999999999996,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N36",
+   "level": "L0",
+   "x": 60,
+   "y": 20.548241514441933,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N37",
+   "level": "L0",
+   "x": 60,
+   "y": 21.048241514441933,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N39",
+   "level": "L0",
+   "x": 20,
+   "y": 24.999999999999993,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N40",
+   "level": "L0",
+   "x": 20,
+   "y": 15,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N43",
+   "level": "L0",
+   "x": 21.514149750755152,
+   "y": 15,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N44",
+   "level": "L0",
+   "x": 22.014149750755152,
+   "y": 15,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N47",
+   "level": "L0",
+   "x": 23.849186803960173,
+   "y": 24.999999999999993,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N48",
+   "level": "L0",
+   "x": 23.349186803960173,
+   "y": 24.999999999999993,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N49",
+   "level": "L0",
+   "x": 15,
+   "y": 22.86754014290495,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N50",
+   "level": "L0",
+   "x": 15,
+   "y": 22.36754014290495,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N53",
+   "level": "L0",
+   "x": 21.91995073682524,
+   "y": 24.999999999999993,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N54",
+   "level": "L0",
+   "x": 21.41995073682524,
+   "y": 24.999999999999993,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N55",
+   "level": "L0",
+   "x": 20,
+   "y": 22.06691345726816,
+   "dz": 0,
+   "device": null
+  },
+  {
+   "id": "N56",
+   "level": "L0",
+   "x": 20,
+   "y": 21.56691345726816,
+   "dz": 0,
+   "device": null
+  }
+ ],
+ "pipes": [
+  {
+   "id": "P3",
+   "a": "N0",
+   "b": "N4",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P10",
+   "a": "N7",
+   "b": "N8",
+   "kind": "equip",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null,
+   "equip": {
+    "qRated": 0.0007977103797595989,
+    "pdRated": 200000,
+    "qOut": 0.02,
+    "equipType": "exchanger",
+    "duty": 50000,
+    "lastEdited": [
+     "duty",
+     "dT"
+    ]
+   },
+   "tag": "AHU-1"
+  },
+  {
+   "id": "P13",
+   "a": "N9",
+   "b": "N10",
+   "kind": "equip",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null,
+   "equip": {
+    "qRated": 0.003988551898797994,
+    "pdRated": 200000,
+    "qOut": 0.02,
+    "equipType": "source",
+    "tSet": 7.5,
+    "dTMax": 15,
+    "lastEdited": [
+     "duty",
+     "dT"
+    ]
+   },
+   "tag": "ACCH-1",
+   "show": {
+    "tag": true,
+    "dT": true,
+    "temp": true
+   }
+  },
+  {
+   "id": "P14",
+   "a": "N10",
+   "b": "N4",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P15",
+   "a": "N2",
+   "b": "N12",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P19",
+   "a": "N13",
+   "b": "N1",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P21",
+   "a": "N12",
+   "b": "N15",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P25",
+   "a": "N16",
+   "b": "N13",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P27",
+   "a": "N15",
+   "b": "N18",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P30",
+   "a": "N44",
+   "b": "N19",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P31",
+   "a": "N19",
+   "b": "N16",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P34",
+   "a": "N20",
+   "b": "N21",
+   "kind": "equip",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null,
+   "equip": {
+    "qRated": 0.0007977103797595989,
+    "pdRated": 200000,
+    "qOut": 0.02,
+    "equipType": "exchanger",
+    "lastEdited": [
+     "dT",
+     "duty"
+    ],
+    "duty": 50000
+   },
+   "tag": "AHU-3",
+   "show": {
+    "tag": true,
+    "flow": true,
+    "pd": true,
+    "dT": true
+   }
+  },
+  {
+   "id": "P35",
+   "a": "N21",
+   "b": "N18",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P37",
+   "a": "N22",
+   "b": "N23",
+   "kind": "equip",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null,
+   "equip": {
+    "qRated": 0.0007977103797595989,
+    "pdRated": 200000,
+    "qOut": 0.02,
+    "equipType": "exchanger",
+    "lastEdited": [
+     "dT",
+     "duty"
+    ],
+    "duty": 50000
+   },
+   "tag": "AHU-4"
+  },
+  {
+   "id": "P38",
+   "a": "N23",
+   "b": "N15",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P40",
+   "a": "N24",
+   "b": "N25",
+   "kind": "equip",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null,
+   "equip": {
+    "qRated": 0.0007977103797595989,
+    "pdRated": 200000,
+    "qOut": 0.02,
+    "equipType": "exchanger",
+    "lastEdited": [
+     "dT",
+     "duty"
+    ],
+    "duty": 50000
+   },
+   "tag": "AHU-5"
+  },
+  {
+   "id": "P41",
+   "a": "N25",
+   "b": "N12",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P42",
+   "a": "N19",
+   "b": "N26",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P43",
+   "a": "N26",
+   "b": "N27",
+   "kind": "valve",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null,
+   "valve": {
+    "type": "globe",
+    "kv": 45,
+    "opening": 100,
+    "control": {
+     "equip": "P34",
+     "axis": "v",
+     "mid": null,
+     "use": {
+      "flow": true,
+      "dt": false
+     }
+    }
+   }
+  },
+  {
+   "id": "P44",
+   "a": "N27",
+   "b": "N20",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P45",
+   "a": "N16",
+   "b": "N28",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P46",
+   "a": "N28",
+   "b": "N29",
+   "kind": "valve",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null,
+   "valve": {
+    "type": "globe",
+    "kv": 45,
+    "opening": 100,
+    "control": {
+     "equip": "P37",
+     "axis": "v",
+     "mid": null,
+     "use": {
+      "flow": true
+     }
+    }
+   }
+  },
+  {
+   "id": "P47",
+   "a": "N29",
+   "b": "N22",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P48",
+   "a": "N13",
+   "b": "N30",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P49",
+   "a": "N30",
+   "b": "N31",
+   "kind": "valve",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null,
+   "valve": {
+    "type": "globe",
+    "kv": 45,
+    "opening": 100,
+    "control": {
+     "equip": "P40",
+     "axis": "v",
+     "mid": null,
+     "use": {
+      "flow": true
+     }
+    }
+   }
+  },
+  {
+   "id": "P50",
+   "a": "N31",
+   "b": "N24",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P51",
+   "a": "N1",
+   "b": "N32",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P52",
+   "a": "N32",
+   "b": "N33",
+   "kind": "valve",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null,
+   "valve": {
+    "type": "globe",
+    "kv": 45,
+    "opening": 100,
+    "control": {
+     "equip": "P10",
+     "axis": "v",
+     "mid": null,
+     "use": {
+      "flow": true
+     }
+    }
+   }
+  },
+  {
+   "id": "P53",
+   "a": "N33",
+   "b": "N7",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P54",
+   "a": "N18",
+   "b": "N34",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P55",
+   "a": "N34",
+   "b": "N35",
+   "kind": "sensor",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null,
+   "sensor": {
+    "mode": "flow",
+    "tSet": 45,
+    "qSet": 0.0032
+   },
+   "tag": "TS-1",
+   "show": {
+    "tag": true,
+    "flow": true,
+    "temp": true
+   }
+  },
+  {
+   "id": "P57",
+   "a": "N8",
+   "b": "N36",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P58",
+   "a": "N36",
+   "b": "N37",
+   "kind": "sensor",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null,
+   "sensor": {
+    "mode": "dP",
+    "tSet": 45,
+    "ref": "P51",
+    "dpSet": 200000,
+    "route": {
+     "axis": "h",
+     "mid": 61.29425643920759
+    }
+   },
+   "tag": "DP-2"
+  },
+  {
+   "id": "P59",
+   "a": "N37",
+   "b": "N2",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P61",
+   "a": "N39",
+   "b": "N3",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P63",
+   "a": "N4",
+   "b": "N40",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P69",
+   "a": "N40",
+   "b": "N43",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P70",
+   "a": "N43",
+   "b": "N44",
+   "kind": "sensor",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null,
+   "sensor": {
+    "mode": "temperature",
+    "tSet": 20
+   },
+   "tag": "TS-2",
+   "show": {
+    "tag": true,
+    "flow": true,
+    "temp": true,
+    "setpoint": true
+   }
+  },
+  {
+   "id": "P75",
+   "a": "N35",
+   "b": "N47",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P76",
+   "a": "N47",
+   "b": "N48",
+   "kind": "pump",
+   "schedule": "sch40",
+   "size": "DN50",
+   "C": 120,
+   "riser": null,
+   "pump": {
+    "mode": "auto",
+    "head": 14.386759700072862,
+    "flow": 0,
+    "qDesign": 0.0031577010127463723,
+    "hDesign": 33.538770756191134,
+    "speed": 0.785,
+    "curve": {
+     "H0": 42.89925372306544,
+     "a": 63974.06704122203,
+     "b": 1.55034,
+     "source": "fitted",
+     "points": [
+      {
+       "q": 0,
+       "h": 42.899254165824
+      },
+      {
+       "q": 0.004,
+       "h": 30.64232440416
+      },
+      {
+       "q": 0.006,
+       "h": 19.917510862704
+      }
+     ],
+     "fit": {
+      "r2": 0.9999999999999949,
+      "maxDev": 9.487682035569378e-07,
+      "rms": 6.713771958459747e-07,
+      "n": 3
+     },
+     "Qd": 0.0031574984450344346,
+     "Hd": 34.404796902056304
+    },
+    "sizing": "curve",
+    "control": {
+     "equip": "P58",
+     "axis": "h",
+     "mid": null,
+     "use": {
+      "set": true
+     }
+    }
+   },
+   "tag": "PMP-01",
+   "show": {
+    "tag": true,
+    "flow": true,
+    "vfd": true
+   }
+  },
+  {
+   "id": "P78",
+   "a": "N3",
+   "b": "N49",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P79",
+   "a": "N49",
+   "b": "N50",
+   "kind": "pump",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null,
+   "pump": {
+    "mode": "fixed",
+    "head": 25.5352703368,
+    "flow": 0,
+    "sizing": "manual",
+    "qDesign": 0.004,
+    "hDesign": 25.5352703368,
+    "curve": {
+     "H0": 35.74937810255454,
+     "a": 53311.722534351684,
+     "b": 1.55034,
+     "source": "generated",
+     "points": [
+      {
+       "q": 0,
+       "h": 35.74937847152
+      },
+      {
+       "q": 0.004,
+       "h": 25.5352703368
+      },
+      {
+       "q": 0.006,
+       "h": 16.59792571892
+      }
+     ],
+     "fit": {
+      "r2": 0.9999999999999949,
+      "maxDev": 7.90640175551971e-07,
+      "rms": 5.594809978027542e-07,
+      "n": 3
+     },
+     "Qd": 0.004,
+     "Hd": 25.5352703368
+    },
+    "control": {
+     "equip": "P70",
+     "axis": "v",
+     "mid": null,
+     "use": {
+      "set": true
+     }
+    },
+    "speed": 0.736
+   },
+   "tag": "PMP-02",
+   "show": {
+    "tag": true,
+    "flow": true,
+    "vfd": true
+   },
+   "boxOffset": {
+    "dx": -170,
+    "dy": -41.9
+   }
+  },
+  {
+   "id": "P80",
+   "a": "N50",
+   "b": "N9",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P84",
+   "a": "N48",
+   "b": "N53",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P85",
+   "a": "N53",
+   "b": "N54",
+   "kind": "equip",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null,
+   "equip": {
+    "qRated": 0.004,
+    "pdRated": 100000,
+    "qOut": 0.02,
+    "equipType": "source",
+    "tSet": 30,
+    "dTMax": 5.982827848196991,
+    "lastEdited": [
+     "duty",
+     "qRated"
+    ],
+    "qMax": -100000
+   },
+   "tag": "CT-01"
+  },
+  {
+   "id": "P86",
+   "a": "N54",
+   "b": "N39",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P87",
+   "a": "N39",
+   "b": "N55",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null
+  },
+  {
+   "id": "P88",
+   "a": "N55",
+   "b": "N56",
+   "kind": "valve",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null,
+   "valve": {
+    "type": "check",
+    "kv": 296,
+    "opening": 100
+   }
+  },
+  {
+   "id": "P89",
+   "a": "N56",
+   "b": "N40",
+   "kind": "pipe",
+   "schedule": "sch40",
+   "size": "DN100",
+   "C": 120,
+   "riser": null
+  }
+ ],
+ "risers": [],
+ "_seq": {
+  "level": 1,
+  "node": 57,
+  "pipe": 90,
+  "riser": 0
+ },
+ "activeLevel": "L0",
+ "migrations": [],
+ "savedAt": "2026-08-07T04:00:11.622Z"
+}

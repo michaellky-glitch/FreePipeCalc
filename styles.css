@@ -1090,3 +1090,18 @@ a.brand:hover { color: var(--accent); }
 
 /* Sub-heading inside an L3 group — "Holding" over the setpoint list. */
 .kv-head { font-size: 11px; color: var(--text-mute); margin: 8px 0 4px; }
+
+/* HEATING IS RED, COOLING IS BLUE (Michael, 2026-08-07). The switch carries the
+ * one thing the number cannot: which way the heat is going. Red/blue is the
+ * convention every schematic in the trade already uses, so it reads before the
+ * word does — and it is the one place in this app where red is not a fault. */
+.switch.sign.heating .switch-track { background: var(--error); }
+.switch.sign.cooling .switch-track { background: var(--accent); }
+.switch.sign.cooling .switch-track::after { transform: translateX(16px); }
+.switch.sign { width: auto; margin: 0; }
+
+/* A typed magnitude reads LEFT, like every other input on the panel. The
+   right-aligned `.cell-input` is for table cells, where a column of figures
+   wants its decimal points lined up; on its own in a field it just pushed the
+   number away from the caret. */
+.cell-input.num-left { text-align: left; }

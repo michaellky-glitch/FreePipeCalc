@@ -317,8 +317,18 @@
                            ? ', ' + (warn - defects.length) + ' warning' +
                              (warn - defects.length > 1 ? 's' : '') : '');
       chip.className = 'chip defect';
-      chip.title = defects.map(function (w) { return w.message; }).join('\n\n');
-      chip.onclick = function () { app.showTab('pane-calculation'); };
+      chip.title = defects.map(function (w) { return w.message; }).join('\n\n') +
+                   '\n\nClick to highlight the affected pipes on the drawing.';
+      chip.style.cursor = 'pointer';
+      /* NO TAB JUMP. This used to set `chip.onclick` to open CALCULATION — and
+       * never cleared it, so once a model had raised a defect ONCE the chip
+       * jumped to the sheet for the rest of the session instead of highlighting
+       * anything. Michael, 2026-08-07: "Clicking warnings sends you to
+       * CALCULATION tab instead of highlighting problems."
+       *
+       * Highlighting is the right answer from the drawing anyway: you are
+       * looking at the model, and the useful thing is WHERE. The listener in
+       * `initStatusChip` does it for every severity. */
       return;
     }
     if (warn) {
@@ -2906,26 +2916,39 @@
      *
      * Typing a signed number still works and MOVES THE TOGGLE, because someone
      * who knows the convention should not be fought. */
-    function signedField(label, getW, setW, hoverText) {
+    function signedField(key, label, getW, setW, hoverText) {
       var w = getW();
-      var cooling = isFinite(Number(w)) && Number(w) < 0;
+      var has = (w !== undefined && w !== null && w !== '' && isFinite(Number(w)));
+      /* THE DIRECTION IS A UI INTENT UNTIL THERE IS A NUMBER.
+       *
+       * A signed number cannot say "cooling, magnitude not yet decided" — zero
+       * has no sign — so with the box empty the switch had nothing to write and
+       * toggling it did nothing at all. Michael, 2026-08-07: "Unable to change
+       * heating/cooling mode without entering load."
+       *
+       * Kept OUT of the model deliberately: the stored value is the single
+       * source of truth whenever it exists, and this only fills the gap before
+       * it does. Keyed by device and field, so two machines do not share one. */
+      var intentKey = p.id + ':' + key;
+      var cooling = has ? Number(w) < 0 : !!signIntent[intentKey];
+
       var wrap = el('div', 'field');
       var lab = el('label', '', label);
       infoMark(lab, hoverText);
       wrap.appendChild(lab);
 
       var row = el('div', 'btn-row');
-      var sw = el('button', 'switch plain ' + (cooling ? 'off' : 'on'));
+      var sw = el('button', 'switch plain sign ' + (cooling ? 'cooling' : 'heating'));
       sw.type = 'button';
       sw.appendChild(el('span', 'switch-track', ''));
       sw.appendChild(el('span', 'switch-label', cooling ? 'Cooling' : 'Heating'));
-      var box = el('input', 'cell-input');
+      var box = el('input', 'cell-input num-left');
       box.type = 'text';
-      box.value = (w === undefined || w === null || w === '')
-        ? '' : String(Math.abs(Number(w)) / 1000);
+      box.value = has ? String(Math.abs(Number(w)) / 1000) : '';
 
       function commit(kW, isCooling) {
         pushUndo();
+        signIntent[intentKey] = isCooling;
         setW(kW === undefined ? undefined
                               : (isCooling ? -Math.abs(kW) : Math.abs(kW)) * 1000);
         renderProperties(); changed();
@@ -2947,7 +2970,6 @@
       row.appendChild(sw);
       row.appendChild(box);
       wrap.appendChild(row);
-      wrap.appendChild(el('span', 'hint', 'kW'));
       host.appendChild(wrap);
     }
 
@@ -2963,7 +2985,7 @@
        *
        * Capacity, design flow and ΔT are ONE equation here exactly as they are
        * on an exchanger, so they go through the same helper. */
-      signedField('Capacity',
+      signedField('qMax', 'Capacity (kW)',
           function () { return e.qMax; },
           function (w) { M.setEquipTrio(m, p, 'duty', w); },
           SIGN + ' Blank = Unlimited.');
@@ -2983,7 +3005,7 @@
       /* Load, design flow and ΔT are ONE equation. Editing any of the three
        * moves whichever was touched least recently — M.setEquipTrio, and the
        * reason it is not simply "ΔT rewrites the load" is `debug/20260803-1`. */
-      signedField('Capacity',
+      signedField('duty', 'Capacity (kW)',
           function () { return e.duty; },
           function (w) { M.setEquipTrio(m, p, 'duty', w); },
           SIGN);
@@ -3258,6 +3280,11 @@
    * rebuilds this DOM from scratch on every solve, so the state cannot live in
    * the elements; and keyed by name it means collapsing "Display" collapses it
    * for everything, which is what someone who does not use it wants. */
+  /* Which way a Heating/Cooling switch is pointing while its box is empty. See
+   * `signedField` — it is a UI intent, not model state, and it is discarded the
+   * moment a real signed number exists. */
+  var signIntent = {};
+
   var sectionOpen = {};
   try {
     var storedSections = window.localStorage.getItem('fpc.sections');

@@ -13,6 +13,8 @@ const { load, ok, near, section, report } = require('./harness');
 const FD = load(['src/model.js', 'src/geometry.js', 'data/pumps.js', 'data/valves.js',
                  'src/hydraulics.js', 'src/solver.js', 'src/network.js', 'src/thermal.js']);
 const M = FD.model, NET = FD.network, TH = FD.thermal;
+const fs = require('fs');
+const path = require('path');
 
 const RHO = 998, CP = 4187;
 
@@ -2484,6 +2486,104 @@ section('A source at the end of a branch is unchanged');
   near('The source node is at its stated temperature', th.temperature[s.id], 12, 1e-9);
   near('...and so is everything it feeds', th.temperature[out.id], 12, 1e-9);
   near('...absorbing nothing', th.sourceDuty, 0, 1e-9);
+}
+
+/* =====================================================================
+ * A DEVICE MAY NEED TO OPEN, AND THE SEARCH ONLY CLOSES.
+ *
+ * `runControls` settles one device at a time and sweeps. The search is a
+ * DESCENT from full travel, which is fine on the first pass — everything
+ * starts at full — but a later sweep begins wherever the last one finished. A
+ * device that now needs to go UP has nowhere to look, reports `at-max` at
+ * mid-travel, is counted as a lost setpoint, and gets parked at 100%.
+ *
+ * MICHAEL'S ECONOMIZER + TRIM SYSTEM, 2026-08-07 (`debug/20260807-1`, frozen
+ * here). A water-side economizer with air-cooled trim, as used in data centres:
+ *
+ *   CT-01     cools the return from 35 °C to 30 °C          (free cooling)
+ *   ACCH-1    takes PART of that flow down to 15 °C         (mechanical trim)
+ *   a bypass  carries the rest at 30 °C
+ *   TS-2      reads the mix, and PMP-02 modulates to hold it at 20 °C
+ *   PMP-01    holds a minimum differential at the index AHU
+ *   4 valves  hold their own coil's design flow
+ *
+ * Six interacting controllers. Sweep 1 settled every one of them — valves at
+ * 32–35%, PMP-01 holding its dP to within 44 Pa. But the valves settled while
+ * the pump was still at full, the pump then dropped to 34.7% and starved them
+ * by 25%, and sweep 2 found four valves needing to OPEN, could not open any,
+ * and threw the answer away: everything back to 100%.
+ * ===================================================================== */
+section('Economizer + trim: six controllers that must settle together');
+{
+  const raw = fs.readFileSync(
+    path.join(__dirname, 'fixtures', 'economizer-trim.pnet.json'), 'utf8');
+  const m = M.fromJSON(JSON.parse(raw));
+  m.settings.calcMode = 'simulation';
+  const res = NET.solveModel(m);
+
+  ok('It converges', res.converged === true,
+     JSON.stringify((res.errors || []).map(e => e.code)));
+  ok('...with no lost setpoint',
+     !(res.errors || []).some(e => e.code === 'SETPOINT_LOST'),
+     JSON.stringify((res.errors || []).map(e => e.code)));
+
+  const dev = id => res.controls.devices.filter(x => x.pipe === id)[0];
+  const byTag = t => m.pipes.filter(p => p.tag === t)[0];
+
+  /* NOTHING PARKED AT FULL AND STILL SHORT. That is the failure itself: the
+   * answer discarded and every actuator slammed open. */
+  res.controls.devices.forEach(d => {
+    ok(`${d.equipTag || d.pipe} is not parked at full while off setpoint`,
+       !(d.value >= 0.999 && d.state === 'at-max'),
+       `${(d.value * 100).toFixed(1)}% ${d.state}`);
+  });
+
+  /* THE FOUR COILS CARRY THEIR RATED FLOW. Each is rated 0.7977 L/s; a 2% band
+   * is well inside what one percent of valve travel resolves. */
+  ['AHU-1', 'AHU-3', 'AHU-4', 'AHU-5'].forEach(tag => {
+    const p = byTag(tag);
+    near(`${tag} carries its rated flow`,
+         Math.abs(res.flow[p.id]), p.equip.qRated, p.equip.qRated * 0.02);
+  });
+
+  /* THE PLANT, by hand from Michael's own description of the system.
+   *
+   * CT-01 holds 30 °C leaving. ACCH-1 is capped by its 15 K design ΔT, so from
+   * 30 °C it can only reach 15 °C. The mix at TS-2 must then be 20 °C, which
+   * fixes the split: with x the fraction bypassed at 30 °C,
+   *
+   *     30x + 15(1 − x) = 20   →   x = 1/3
+   *
+   * so a third of the flow bypasses and two thirds goes through the chiller —
+   * which is what PMP-02 is modulating to achieve. */
+  const th = res.thermal;
+  near('CT-01 holds its 30 °C leaving temperature',
+       th.links[byTag('CT-01').id].tOut, 30, 0.1);
+  near('ACCH-1 is ΔT-limited to 15 °C from 30',
+       th.links[byTag('ACCH-1').id].tOut, 15, 0.1);
+  near('TS-2 reads the 20 °C supply setpoint',
+       th.temperature[byTag('TS-2').a], 20, 0.3);
+
+  const q1 = Math.abs(res.flow[byTag('PMP-01').id]);
+  const q2 = Math.abs(res.flow[byTag('PMP-02').id]);
+  near('...because two thirds of the flow goes through the chiller',
+       q2 / q1, 2 / 3, 0.03);
+  ok('...and the rest bypasses it, forwards through the check valve',
+     q1 - q2 > 0, ((q1 - q2) * 1000).toFixed(3) + ' L/s');
+
+  /* PMP-01 HOLDS THE DIFFERENTIAL rather than running away to full speed. The
+   * setpoint is 200 kPa and the band is 0.5% of it. */
+  const dp = dev(byTag('PMP-01').id);
+  ok('PMP-01 is modulating, not flat out', dp.value < 0.99,
+     (dp.value * 100).toFixed(1) + '%');
+  ok('...and holding its differential', Math.abs(dp.error) <= 1000,
+     dp.error.toPrecision(4) + ' Pa');
+
+  const p2 = dev(byTag('PMP-02').id);
+  ok('PMP-02 is modulating, not flat out', p2.value < 0.99,
+     (p2.value * 100).toFixed(1) + '%');
+  ok('...and holding the supply temperature', Math.abs(p2.error) <= 0.5,
+     p2.error.toPrecision(4) + ' K');
 }
 
 report();
