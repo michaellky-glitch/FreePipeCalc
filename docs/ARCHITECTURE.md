@@ -1378,6 +1378,47 @@ hitting a limit. Pull far enough across (1.6× the along-axis movement, as
 hysteresis) and the route switches: a Z that bends the other way is the same
 route seen from ninety degrees.
 
+### Devices that share a setpoint are GANGED
+
+N controllers chasing ONE measured quantity is **degenerate**: any split that
+produces the right reading satisfies all of them, so settling them one at a time
+picks whichever split the sweep order happens to reach first.
+
+`debug/20260807-DC-broken.json` (Michael, 2026-08-08) is four primary pumps on
+one differential. Settled individually they landed at **100%, 85.8%, 25%, 25%** —
+the last two on their floor carrying **no flow at all**, held shut by the first
+two. Stable, arbitrary, and nothing like the plant.
+
+**This is also what real plant does.** Parallel pumps on a common header share
+ONE speed command from the BMS; they do not each run a private loop against the
+same sensor. Michael's own account of the real system — *"it would fluctuate
+over a few hours, then stabilize with roughly equal running %"* — is a
+description of independent loops fighting each other, and then of the equal
+split they are eventually commanded to. Ganging goes straight to the answer:
+all four settle at **67.5%**, each carrying 8.9 L/s, holding the 250 kPa
+setpoint to within 225 Pa.
+
+It is also the cheap option, which matters on a model this size: one search for
+the group rather than N interacting ones.
+
+**Grouped on**: same actuator quantity, same target, same setpoint. Different
+setpoints, or a pump and a valve, are not a gang — those are genuinely different
+jobs that happen to watch the same instrument, and that is how you stage plant:
+give the lag set a different setpoint.
+
+The gang's floor is the most restrictive in the group and its step the finest,
+so no member is ever asked for a position it cannot hold. Every member still
+reports under its OWN tag with `gangedWith` beside it, so the panel and the
+drawing name the machine in front of you, and `CONTROL_GANGED` says it out loud —
+a behaviour this consequential must never be inferred.
+
+### A control link to a deleted target is not silent
+
+`if (!tgtPipe) return;` — the link stays on the device, points at nothing, and
+the device is simply never controlled. That is why the four primary pumps on
+`20260807-DC.json` sat at 100% with nothing to explain it: their sensor had been
+deleted and the links stayed behind. `CONTROL_TARGET_GONE` now says so.
+
 ### The search descends, so a device that must OPEN restarts from full
 
 `seek` is a **descent from full travel**. It probes at the actuator's minimum,
@@ -2073,7 +2114,7 @@ is the strongest claim available.
 
 ## 15. Testing
 
-Seven suites, 1635 assertions, no dependencies:
+Seven suites, 1649 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

@@ -2586,4 +2586,112 @@ section('Economizer + trim: six controllers that must settle together');
      p2.error.toPrecision(4) + ' K');
 }
 
+/* =====================================================================
+ * DEVICES THAT SHARE A SETPOINT MODULATE TOGETHER.
+ *
+ * N controllers chasing ONE measured quantity is degenerate: any split that
+ * gives the right reading satisfies all of them, so settling them one at a time
+ * picks whichever split the sweep order reaches first.
+ *
+ * Michael, 2026-08-08, four primary pumps on one differential: 100%, 85.8%,
+ * 25%, 25% — the last two on their floor carrying NO FLOW, held shut by the
+ * first two. Stable, arbitrary, and nothing like the plant, which runs parallel
+ * pumps on a common header from ONE speed command.
+ * ===================================================================== */
+section('Pumps sharing a setpoint run at a common speed');
+{
+  /* Three identical pumps in parallel between two headers, all following the
+   * same differential sensor. */
+  const m = M.create();
+  m.settings.calcMode = 'simulation';
+  const lv = m.levels[0].id;
+  const inlet = M.addNode(m, lv, 0, 0);
+  const hdr = M.addNode(m, lv, 12, 0);
+  M.setSource(m, inlet.id, 0);
+
+  const pumps = [];
+  for (let i = 0; i < 3; i++) {
+    const a = M.addNode(m, lv, 4, (i - 1) * 4);
+    const b = M.addNode(m, lv, 8, (i - 1) * 4);
+    M.addPipe(m, inlet.id, a.id, { size: 'DN65', schedule: 'sch40' });
+    const p = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+    p.pump = { mode: 'fixed', sizing: 'manual', head: 25, qDesign: 0.004, hDesign: 25 };
+    p.pump.curve = FD.pumps.fit([{ q: 0, h: 35 }, { q: 0.004, h: 25 }, { q: 0.006, h: 16 }]);
+    p.tag = 'P' + (i + 1);
+    M.addPipe(m, b.id, hdr.id, { size: 'DN65', schedule: 'sch40' });
+    pumps.push(p);
+  }
+  /* A load, and a differential across it for them all to hold. */
+  const c1 = M.addNode(m, lv, 20, 0), c2 = M.addNode(m, lv, 26, 0);
+  M.addPipe(m, hdr.id, c1.id, { size: 'DN65', schedule: 'sch40' });
+  const coil = M.addPipe(m, c1.id, c2.id, { kind: 'equip' });
+  coil.equip = { qRated: 0.009, pdRated: 120e3, equipType: 'exchanger', duty: 60000 };
+  M.addPipe(m, c2.id, inlet.id, { size: 'DN65', schedule: 'sch40' });
+
+  const sN = M.addNode(m, lv, 13, 0);
+  const sens = M.addPipe(m, hdr.id, sN.id, { kind: 'sensor' });
+  const refN = M.addNode(m, lv, 27, 0);
+  const ref = M.addPipe(m, c2.id, refN.id, { size: 'DN65', schedule: 'sch40' });
+  sens.sensor = { mode: 'dP', ref: ref.id, dpSet: 100e3 };
+  pumps.forEach(p => M.setControl(m, p, sens.id));
+  m.pipes.forEach(x => { x.insulation_mm = 0; });
+
+  const res = NET.solveModel(m);
+  const dev = id => res.controls.devices.filter(x => x.pipe === id)[0];
+
+  ok('The gang is reported, not silent',
+     (res.warnings || []).some(w => w.code === 'CONTROL_GANGED'),
+     JSON.stringify((res.warnings || []).map(w => w.code)));
+
+  const speeds = pumps.map(p => M.pumpSpeed(m, p));
+  ok('All three run at the same speed',
+     Math.max.apply(null, speeds) - Math.min.apply(null, speeds) < 1e-9,
+     speeds.map(s => (s * 100).toFixed(1) + '%').join(' / '));
+
+  /* AND THEREFORE SHARE THE FLOW. Identical pumps at one speed between the same
+   * two headers must carry the same flow — that is the whole reason a common
+   * speed command is what real plant uses. */
+  const flows = pumps.map(p => Math.abs(res.flow[p.id]));
+  const spread = (Math.max.apply(null, flows) - Math.min.apply(null, flows)) /
+                 Math.max.apply(null, flows);
+  ok('...and split the flow between them', spread < 0.02,
+     flows.map(q => (q * 1000).toFixed(3) + ' L/s').join(' / '));
+
+  /* NONE OF THEM IS PARKED ON ITS FLOOR CARRYING NOTHING, which is the failure
+   * this replaces. */
+  flows.forEach((q, i) => {
+    ok(`P${i + 1} is actually pumping`, q > 1e-5, (q * 1000).toFixed(4) + ' L/s');
+  });
+
+  /* Each still reports under its OWN name, with the group named beside it. */
+  pumps.forEach(p => {
+    const d = dev(p.id);
+    ok(`${p.tag} reports its own row`, !!d && d.tag === p.tag);
+    ok(`...naming the gang`, !!d && d.gangedWith && d.gangedWith.length === 3,
+       d ? JSON.stringify(d.gangedWith) : 'none');
+  });
+}
+
+section('A control link to a deleted target is reported');
+{
+  const m = M.create();
+  m.settings.calcMode = 'simulation';
+  const lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0), c = M.addNode(m, lv, 9, 0);
+  M.setSource(m, a.id, 200e3);
+  c.device = { kind: 'demand', flow: 0.004, reqPressure: 100e3, include: true };
+  const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+  pump.pump = { mode: 'fixed', sizing: 'manual', head: 20, qDesign: 0.004, hDesign: 20 };
+  pump.pump.curve = FD.pumps.fit([{ q: 0, h: 28 }, { q: 0.004, h: 20 }, { q: 0.006, h: 13 }]);
+  M.addPipe(m, b.id, c.id, { size: 'DN50', schedule: 'sch40' });
+  /* A link to something that is not there — what deleting a sensor leaves. */
+  pump.pump.control = { equip: 'P999', axis: 'h', mid: null, use: { set: true } };
+
+  const res = NET.solveModel(m);
+  ok('A dangling control link is called out',
+     (res.warnings || []).some(w => w.code === 'CONTROL_TARGET_GONE'),
+     JSON.stringify((res.warnings || []).map(w => w.code)));
+  ok('...and the solve still completes', res.ok !== false || !!res.flow);
+}
+
 report();

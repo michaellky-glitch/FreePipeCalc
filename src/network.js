@@ -1351,7 +1351,21 @@
       var c = M.controlOf(p);
       if (!c) return;
       var tgtPipe = M.pipe(m, c.equip);
-      if (!tgtPipe) return;
+      if (!tgtPipe) {
+        /* THE TARGET HAS BEEN DELETED. The link is still on the device and
+         * quietly does nothing — `20260807-DC.json` has four primary pumps
+         * pointing at a sensor that no longer exists, which is why they all sat
+         * at 100% with no explanation. Say so; a drawn control link that
+         * silently does nothing is the exact surprise the link was added to
+         * avoid. */
+        warnings.push({
+          code: 'CONTROL_TARGET_GONE', pipe: p.id,
+          message: (p.tag || p.id) + ' is linked to ' + c.equip +
+                   ', which is no longer in the model, so it is not being ' +
+                   'controlled at all. Re-link it or clear the control.'
+        });
+        return;
+      }
       var act = actuatorFor(m, p);
       if (!act) return;
       /* WHICH setpoints this controller is chasing, in priority order —
@@ -1381,6 +1395,70 @@
                     * turns out to be unreachable. */
                    options: opts, optIndex: 0, result: null });
     });
+
+    /* ================================ DEVICES THAT SHARE A SETPOINT ARE GANGED
+     *
+     * N controllers chasing ONE measured quantity is degenerate: any split that
+     * produces the right reading satisfies all of them, and settling them one
+     * at a time picks whichever split the sweep order happens to reach first.
+     *
+     * `debug/20260807-DC-broken.json` (Michael, 2026-08-08) is four primary
+     * pumps on one differential. Settled individually they landed at 100%,
+     * 85.8%, 25% and 25% — the last two on their floor carrying NO FLOW, held
+     * shut by the first two. Stable, arbitrary, and nothing like the plant.
+     *
+     * THIS IS ALSO WHAT REAL PLANT DOES. Parallel pumps on a common header
+     * share ONE speed command from the BMS; they do not each run a private loop
+     * against the same sensor. Michael's own account of the real system — "it
+     * would fluctuate over a few hours, then stabilize with roughly equal
+     * running %" — is a description of independent loops fighting, and then of
+     * the equal split they are eventually commanded to. Ganging goes straight
+     * to the answer.
+     *
+     * It is also the cheap option, which matters on a model this size: one
+     * search for the group instead of N interacting ones.
+     *
+     * GROUPED ON: same actuator quantity, same target, same setpoint. Different
+     * setpoints, or a pump and a valve, are not a gang — they are genuinely
+     * different jobs that happen to watch the same instrument. */
+    var gangs = {};
+    pairs.forEach(function (pr) {
+      var k = pr.act.quantity + '|' + pr.equip.id + '|' + pr.key + '|' + pr.mode;
+      (gangs[k] = gangs[k] || []).push(pr);
+    });
+    Object.keys(gangs).forEach(function (k) {
+      var g = gangs[k];
+      if (g.length < 2) return;
+      var lead = g[0];
+      var members = g.map(function (pr) { return pr.act; });
+      /* ONE ACTUATOR over all of them. The floor is the most restrictive in the
+       * group and the step the finest, so no member is ever asked for a
+       * position it cannot hold. */
+      lead.act = {
+        pipe: lead.act.pipe, kind: lead.act.kind, quantity: lead.act.quantity,
+        min: members.reduce(function (mx, a) { return Math.max(mx, a.min); }, 0),
+        step: members.reduce(function (mn, a) { return Math.min(mn, a.step); }, 1),
+        gang: members,
+        get: function () { return members[0].get(); },
+        set: function (x) { members.forEach(function (a) { a.set(x); }); },
+        label: lead.act.label
+      };
+      lead.gang = g;
+      /* The others are reported, not searched. */
+      g.slice(1).forEach(function (pr) { pr.ganged = lead; });
+      warnings.push({
+        code: 'CONTROL_GANGED', pipe: lead.act.pipe.id, equip: lead.equip.id,
+        message: g.map(function (pr) { return pr.act.pipe.tag || pr.act.pipe.id; })
+                  .join(', ') + ' all hold ' +
+                 (lead.equip.tag || lead.equip.id) + '\u2019s ' +
+                 (lead.label || 'setpoint') + ', so they modulate together at a ' +
+                 'common ' + lead.act.quantity + ' \u2014 which is what a common ' +
+                 'header does. Give them separate setpoints to stage them instead.'
+      });
+    });
+    /* Only the lead of each gang is searched; the rest follow its actuator. */
+    var searchPairs = pairs.filter(function (pr) { return !pr.ganged; });
+
     if (!pairs.length) {
       return { acted: false, core: core, report: null, warnings: warnings,
                errors: errors };
@@ -1775,7 +1853,7 @@
     var acted = false, moving = true, sweep = 0;
     while (moving && sweep < 6 && solves < MAX_SOLVES) {
       moving = false; sweep++;
-      pairs.forEach(function (pair) {
+      searchPairs.forEach(function (pair) {
         var r = seek(pair);
         /* FALL BACK. "LWT first, then ΔT" is a priority, not a blend: if the
          * first setpoint cannot be reached — the actuator on a stop, or backing
@@ -1820,7 +1898,7 @@
      * `debug/20260805-4.json` it left a valve at 100% that had been perfectly
      * capable of holding its branch. Judged once, at the end, on the state the
      * device actually finished in. */
-    pairs.forEach(function (pair) {
+    searchPairs.forEach(function (pair) {
       var r = pair.result;
       if (!r || !lostSetpoint(r.state)) return;
       if (pair.act.get() < 1 - 1e-9) {
@@ -1847,7 +1925,11 @@
     }
 
     var devices = pairs.map(function (pair) {
-      var r = pair.result || {};
+      /* A FOLLOWER REPORTS THE GANG'S RESULT, because it is the gang that was
+       * searched — but under its OWN pipe and tag, so the panel and the drawing
+       * still name the machine in front of you. */
+      var lead = pair.ganged || pair;
+      var r = lead.result || {};
       var measured = measure(cur, pair);
       var d = {
         pipe: pair.act.pipe.id, tag: pair.act.pipe.tag || null,
@@ -1855,7 +1937,11 @@
         equip: pair.equip.id, equipTag: pair.equip.tag || null,
         target: pair.target, setpointOf: pair.mode,
         holding: pair.label || null, holdingKey: pair.key || null,
-        fellBack: !!pair.fellBack, lost: !!r.lost,
+        fellBack: !!lead.fellBack, lost: !!r.lost,
+        /* Who it is modulating with, so the panel can say so. */
+        gangedWith: (lead.gang || []).length > 1
+          ? lead.gang.map(function (pr) { return pr.act.pipe.tag || pr.act.pipe.id; })
+          : null,
         actual: measured,
         error: r.error === undefined ? null : r.error,
         value: pair.act.get(), min: pair.act.min,

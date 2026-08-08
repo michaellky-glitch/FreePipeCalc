@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1635
+This is deliberately separate from the automated suites. Those cover 1649
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -202,6 +202,17 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 5B. PUMPS IN PARALLEL (v0.15.5)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| PP.1 | **Four PWPs settle together** | ✅ | On `-DC-broken` they now all run **67.5%, ~8.9 L/s each**, holding the 250 kPa differential to within 225 Pa. Before: 100 / 85.8 / 25 / 25, with the last two on their floor carrying **no flow** — back-pressured shut by the first two. `SETPOINT_LOST` is gone. |
+| PP.2 | Why grouping, not self-modulation | ⬜ | **Worth your view.** N loops on one sensor is degenerate — any split that gives the right reading satisfies all of them, so "self-modulating" can only ever land somewhere arbitrary. Real plant doesn't do it either: parallel pumps on a common header take ONE speed command. Your own description — fluctuates for hours, then settles at roughly equal % — is independent loops fighting, then being commanded equal. This goes straight to that answer. |
+| PP.3 | Staging | ⬜ | Grouping is on *same target + same setpoint*. To stage a lag set, give it its own setpoint — that is the natural way to say it and it needs no new concept. |
+| PP.4 | It says so | ⬜ | `CONTROL_GANGED` names every member, and the pump panel gains a "Modulating with" row. A behaviour this consequential should never have to be inferred. |
+| PP.5 | **Dangling control links** | ✅ | Found while tracing: in `20260807-DC.json` all four PWPs point at `P455`, which is **not in the model** — the sensor was deleted and the links stayed. They were silently uncontrolled at 100%, with nothing said. `CONTROL_TARGET_GONE` now reports it. Part of your "controls get dropped". |
+| PP.6 | Solve time | ⬜ | ~30 s on the DC model. Ganging cut 4 searches to 1, but this model is 275 pipes with 5 independent loops. The loading bar and Static mode you asked for are the right answers and are still on the list. |
 
 ## 5A. THE TWO CRITICAL BUGS (v0.15.4)
 

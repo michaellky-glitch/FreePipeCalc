@@ -2207,6 +2207,18 @@
        * fallback rule's visible outcome — not a second "Holding" heading. */
       ab.ro('Now holding', (dev.holding || '—') +
             (dev.fellBack ? ' (fallback)' : ''));
+      /* WHO IT IS MODULATING WITH. Devices sharing one setpoint run at a common
+       * position — a common header from one command, as real plant does — and a
+       * panel showing a position nobody on this device chose, without saying
+       * where it came from, would be its own little mystery. */
+      if (dev.gangedWith && dev.gangedWith.length > 1) {
+        var others = dev.gangedWith.filter(function (t) { return t !== (p.tag || p.id); });
+        var gr = ab.ro('Modulating with', others.join(', '));
+        infoMark(gr.querySelector('.k'),
+                 'These all hold the same setpoint, so they move together at ' +
+                 'one ' + dev.quantity + '. Give them separate setpoints if you ' +
+                 'want them staged instead.');
+      }
       ab.ro(dev.quantity === 'speed' ? 'Speed' : 'Opening',
             Math.round(dev.value * 100) + '%' +
             (dev.state === 'at-min' ? ' — at minimum'
