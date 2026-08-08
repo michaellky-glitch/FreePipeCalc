@@ -7,6 +7,25 @@ Updated 2026-08-08, after v0.15.5.
 
 ---
 
+## Now — the next thing to do
+
+**Make the control loop yield.** The only remaining cause of the freeze is that
+`runControls` is one uninterruptible block. The atom that would work is a single
+`evaluate()` (~100 ms); reaching it means turning the loop into a generator so
+`seek` can yield mid-search — every `evaluate()` becoming a `yield*` through
+`seek` and the sweep loop, with two drivers (a synchronous one for
+`solveModel`/tests, an async one for the app).
+
+It is mechanical but it is the most delicate code in the project, and it wants
+Michael present to test. Slicing at the DEVICE boundary was tried in v0.16.0 and
+backed out: one device's search is ~15 solves, so it still blocked for seconds,
+and each resumed slice re-ran all the non-control work.
+
+## Done in v0.16.0
+
+Selection no longer solves · STATIC/DYNAMIC · skyline SPD solve · progress bar
+— see `Human-Test.md` §5G.
+
 ## Done in v0.15.9
 
 CH (chilled-water pumps) · SY (sync drawn) · tag guard + REPAIR — `Human-Test.md` §5F.

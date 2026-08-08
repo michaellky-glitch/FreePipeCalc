@@ -203,6 +203,17 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 5G. PERFORMANCE, AND STATIC SIMULATION (v0.16.0)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| S2a | **Selecting no longer re-solves** | ✅ | This was the big one and it was one line of wiring. *Every* selection went through `changed()`, which schedules a solve AND a save — so clicking a pipe on your DC model queued a forty-second solve for an answer that cannot have changed. Selection now has its own path: panel, levels, redraw, stop. |
+| S4 | **STATIC / DYNAMIC** | ⬜ | In the Simulate ribbon, Static default. Locks anything that would change the answer — drawing, dragging pipes/devices/nodes, isolating, reversing, deleting. Still free: every property readout, selection, control-link routes, DETAIL and TEXT annotation, and moving labels. Refusals say so rather than silently ignoring the gesture. The panel greys its editable fields to match. |
+| S2b | **The hydraulic solve is ~1.5× faster** | ✅ | 57 s → 39 s on the DC model, *identical answers* (all 1681 assertions pass). Every GGA iteration was building a dense 250×250 matrix and running O(n³) Gaussian elimination — but that matrix is a graph Laplacian: symmetric, positive-definite, ~4 non-zeros per row. It now factorises as a skyline LDLᵀ and falls back to the general solve if a pivot says it is not SPD after all. |
+| S3 | Progress bar | ⚠️ | **Partial, and I want to be straight about it.** The bar appears before the solve starts, so a long wait is explained rather than looking like a hung page — but the solve itself is still one uninterruptible block, so the page is still unresponsive while it runs. See below. |
+| S3b | Why not fully non-blocking | ⬜ | A Web Worker is the obvious answer and is unavailable: the app must run from `file://` and Chrome refuses to construct a Worker from a null origin. Slicing at the device boundary was tried and backed out — one device's search is ~15 full solves, so it still blocked for seconds and each slice re-ran the non-control work. The atom that works is one `evaluate()`, which needs the control loop turned into a generator. That is next, and I would rather do it with you able to test. |
+| S3c | A trap worth knowing | ✅ | The first driver gated its slices on `requestAnimationFrame`, which **does not fire in a hidden or backgrounded tab** — a solve started and then never continued. Everything now runs off `setTimeout`. |
+
 ## 5F. THE CHWPs, AND A TAG REPAIR (v0.15.9)
 
 | # | What | Status | Notes |

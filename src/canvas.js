@@ -51,6 +51,10 @@
     this.tool = 'edit';              // edit | pipe | riser | source | demand | equip | pump
     this.draft = null;               // in-progress run: {points:[{x,y}], fromNode}
     this.detailDraft = null;         // in-progress DETAIL line: {pts:[{x,y}]}
+    /* STATIC SIMULATION: the drawing is locked against anything that would
+     * change the answer. Not a permission system — a performance one, and the
+     * default because that is how a finished model is READ. See `locked`. */
+    this.simStatic = true;
     this.cursor = null;              // world position of the pointer
     this.hover = null;               // {kind:'node'|'pipe', id}
     /* PROBE: `probeHover` follows the pointer, `probe` is pinned by a click so
@@ -478,6 +482,11 @@
 
   View.prototype.deleteSelection = function () {
     var m = this.getModel();
+    /* An annotation-only selection is still deletable while locked — it cannot
+     * change the answer. Anything else is refused. */
+    if (this.locked() && this.selection.some(function (s) {
+      return s.kind !== 'detail' && s.kind !== 'note';
+    })) { this.refuseLocked('Deleting'); return; }
     var touched = {};
     this.selection.forEach(function (s) {
       if (s.kind === 'pipe') {
@@ -508,8 +517,48 @@
     this.changed();
   };
 
+  /* IS THIS EDIT LOCKED OUT?
+   *
+   * Michael, 2026-08-08: in STATIC you can view every property and move control
+   * nodes, but you cannot move pipes, equipment or controls — anything that
+   * changes the simulated result. The purpose is performance: on a model with
+   * five control loops every geometry nudge costs a fifty-second re-solve, and
+   * most of the time in SIMULATE you are reading, not drawing.
+   *
+   * So the test is exactly "would this change the answer?" — annotation,
+   * labels, control-link ROUTES and the selection are all free, because none of
+   * them reaches the solver. */
+  View.prototype.locked = function () {
+    var m = this.getModel();
+    return !!(this.simStatic && m && m.settings &&
+              m.settings.calcMode === 'simulation');
+  };
+
+  /* Say so once, rather than silently ignoring the gesture — a drawing that
+   * does not respond and does not explain is indistinguishable from a bug. */
+  View.prototype.refuseLocked = function (what) {
+    this.onMessage && this.onMessage(
+      (what || 'That') + ' is locked in STATIC simulation. Switch to DYNAMIC on ' +
+      'the ribbon to edit while simulating.', 'error');
+    return true;
+  };
+
   View.prototype.changed = function () {
     this.onChange();
+    this.render();
+  };
+
+  /* SELECTING SOMETHING IS NOT AN EDIT.
+   *
+   * Every selection went through `changed()`, which re-renders the panel AND
+   * schedules a solve AND schedules a save. On a 275-pipe model with five
+   * control loops that is a fifty-second solve triggered by clicking a pipe —
+   * Michael, 2026-08-08: "Selecting something also causes a short freeze."
+   *
+   * Nothing about the answer depends on what is selected, so this reports the
+   * panel and redraws and stops there. */
+  View.prototype.selectionChanged = function () {
+    if (this.onSelect) this.onSelect();
     this.render();
   };
 
@@ -622,9 +671,9 @@
        * pipework underneath it. */
       function pickAnnotation() {
         var n2 = self.noteAt(sx, sy);
-        if (n2) { self.selection = [{ kind: 'note', id: n2.id }]; self.changed(); return true; }
+        if (n2) { self.selection = [{ kind: 'note', id: n2.id }]; self.selectionChanged(); return true; }
         var d2 = self.detailAt(w.x, w.y, 8);
-        if (d2) { self.selection = [{ kind: 'detail', id: d2.id }]; self.changed(); return true; }
+        if (d2) { self.selection = [{ kind: 'detail', id: d2.id }]; self.selectionChanged(); return true; }
         return false;
       }
 
@@ -663,7 +712,7 @@
             : lab.kind;
           self.selection = [{ kind: selKind, id: lab.obj.id }];
           c.setPointerCapture(e.pointerId);
-          self.changed();
+          self.selectionChanged();
           return;
         }
         /* No label under the pointer: fall through to ordinary selection rather
@@ -676,14 +725,14 @@
          * not offered here; VIEW arranges the drawing, it does not move
          * geometry. */
         var vd = self.deviceAt(w.x, w.y);
-        if (vd) { self.selection = [{ kind: 'pipe', id: vd.id }]; self.changed(); return; }
+        if (vd) { self.selection = [{ kind: 'pipe', id: vd.id }]; self.selectionChanged(); return; }
         var vn = self.nodeAt(w.x, w.y);
-        if (vn) { self.selection = [{ kind: 'node', id: vn.id }]; self.changed(); return; }
+        if (vn) { self.selection = [{ kind: 'node', id: vn.id }]; self.selectionChanged(); return; }
         var vp = self.pipeAt(w.x, w.y);
-        if (vp) { self.selection = [{ kind: 'pipe', id: vp.pipe.id }]; self.changed(); return; }
+        if (vp) { self.selection = [{ kind: 'pipe', id: vp.pipe.id }]; self.selectionChanged(); return; }
         var vr = self.riserAt(w.x, w.y);
         self.selection = vr ? [{ kind: 'riser', id: vr.id }] : [];
-        self.changed();
+        self.selectionChanged();
         return;
       }
       /* PROBE: a click PINS the reading, so you can take the mouse off the
@@ -751,6 +800,13 @@
         self.editNote(note, true);
         return;
       }
+      /* EVERY PLACEMENT TOOL IS AN EDIT. Annotation is not — DETAIL and TEXT
+       * draw on top of the model and the solver never sees them, so they stay
+       * available while a simulation is locked. */
+      if (self.locked() &&
+          /^(pipe|riser|source|demand|pump|equip|valve|sensor|link|align)$/.test(self.tool)) {
+        return self.refuseLocked('Drawing');
+      }
       if (self.tool === 'pipe') { self.drawClick(w); return; }
       if (self.tool === 'source' || self.tool === 'demand') { self.deviceClick(w); return; }
       if (self.tool === 'pump') { self.pumpClick(w); return; }
@@ -799,6 +855,7 @@
        * test would swallow the click. */
       var pb = self.powerButtonAt(sx, sy);
       if (pb) {
+        if (self.locked()) return self.refuseLocked('Isolating a device');
         if (self.onBeforeEdit) self.onBeforeEdit();
         self.toggleDevice(pb);
         self.onMessage && self.onMessage(
@@ -810,6 +867,7 @@
 
       var fb = self.flipButtonAt(sx, sy);
       if (fb) {
+        if (self.locked()) return self.refuseLocked('Reversing a device');
         if (self.onBeforeEdit) self.onBeforeEdit();
         M.flipPipe(self.getModel(), fb.id);
         self.onMessage && self.onMessage(
@@ -825,7 +883,7 @@
       if (rh) {
         self.selection = [{ kind: 'riser', id: rh.id }];
         c.setPointerCapture(e.pointerId);
-        self.changed();
+        self.selectionChanged();
         return;
       }
 
@@ -892,19 +950,19 @@
         var mSel = self.getModel();
         var da = M.node(mSel, dev.a), db = M.node(mSel, dev.b);
         pick('pipe', dev.id);
-        if (!modifying) {
+        if (!modifying && !self.locked()) {
           self.dragDevice = {
             pipe: dev, startX: w.x, startY: w.y,
             ax: da.x, ay: da.y, bx: db.x, by: db.y
           };
           c.setPointerCapture(e.pointerId);
         }
-        self.changed();
+        self.selectionChanged();
         return;
       }
       if (n) {
         pick('node', n.id);
-        if (!modifying) self.dragNode = { id: n.id, startX: w.x, startY: w.y };
+        if (!modifying && !self.locked()) self.dragNode = { id: n.id, startX: w.x, startY: w.y };
       } else {
         var hit = self.pipeAt(w.x, w.y);
         if (hit) {
@@ -921,7 +979,7 @@
         }
       }
       c.setPointerCapture(e.pointerId);
-      self.changed();
+      self.selectionChanged();
     });
 
     c.addEventListener('pointermove', function (e) {

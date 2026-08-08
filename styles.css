@@ -1118,3 +1118,36 @@ a.brand:hover { color: var(--accent); }
 .sw-error { background: var(--error); }
 .sw-accent { background: var(--accent); }
 .sw-select { background: var(--select); }
+
+/* STATIC SIMULATION: the panel's editable fields read as locked, so the state
+ * is visible where you would try to type rather than only on the ribbon. The
+ * readouts stay full strength — the whole point of Static is that you can still
+ * READ everything. */
+body.sim-static #prop-body .field input:not([readonly]),
+body.sim-static #prop-body .field select,
+body.sim-static #prop-body .field textarea {
+  opacity: .55;
+  pointer-events: none;
+}
+
+/* SOLVE PROGRESS. Over the drawing, not in the ribbon: it is about the answer
+ * being waited for, not about a tool. Non-interactive, so it can never get in
+ * the way of the click you were about to make. */
+.solve-bar {
+  position: absolute; left: 50%; top: 96px; transform: translateX(-50%);
+  z-index: 40; display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; border-radius: 6px;
+  background: var(--bg-panel); border: 1px solid var(--line);
+  box-shadow: 0 4px 18px rgba(0,0,0,.35);
+  font-size: 12.5px; pointer-events: none;
+}
+.solve-bar[hidden] { display: none; }
+.solve-bar-text { color: var(--text-mute); white-space: nowrap; }
+.solve-bar-track {
+  display: block; width: 220px; height: 6px; border-radius: 3px;
+  background: var(--line); overflow: hidden;
+}
+.solve-bar-fill {
+  display: block; height: 100%; width: 0;
+  background: var(--accent); transition: width .12s linear;
+}

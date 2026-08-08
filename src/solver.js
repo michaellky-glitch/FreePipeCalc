@@ -73,6 +73,120 @@
     return x;
   }
 
+  /* ============================================ THE GGA MATRIX IS A LAPLACIAN
+   *
+   * Every hydraulic iteration assembles A·H = F where A is
+   *
+   *     A[i][i] += p        for each link touching node i
+   *     A[i][j] -= p        for the far end of that link
+   *
+   * with p = 1/(dh/dq) > 0. That is a weighted graph LAPLACIAN with a positive
+   * diagonal contribution wherever a link reaches a fixed head — symmetric, and
+   * positive definite as long as every unknown node can reach one. So it needs
+   * no pivoting, and half the arithmetic of a general solve.
+   *
+   * IT IS ALSO VERY SPARSE: a node touches two or three pipes, so a row has
+   * about four non-zeros out of two hundred and fifty. The dense solve was
+   * doing n³/3 ≈ 5.2 million operations to get an answer that needs a few
+   * thousand — 127 ms per hydraulic solve, 422 solves in one control run,
+   * 53 seconds of a 57-second freeze (Michael, 2026-08-08).
+   *
+   * SKYLINE LDLᵀ. For each row, only the span from its first non-zero column to
+   * the diagonal is stored and worked on. Elimination fills in WITHIN that span
+   * and never outside it, so the profile computed from the sparsity pattern is
+   * exact rather than a guess — no dynamic structure, no fill-in surprises.
+   * Nodes numbered along the runs they sit on (which is how they get drawn)
+   * give a narrow profile and the cost collapses.
+   *
+   * EXACT, not approximate: this is the same factorisation, reorganised to skip
+   * arithmetic on entries that are structurally zero. If any pivot comes out
+   * non-positive the matrix was not what we assumed, and it hands back to the
+   * general solve rather than returning a number it cannot stand behind. */
+  /* ORDERING WAS TRIED AND BACKED OUT (2026-08-08).
+   *
+   * The profile depends on the order of the unknowns, and node ids are handed
+   * out in drawing order — so a riser joining node 5 to node 200 makes every
+   * row below 200 start at column 5, and the profile is close to the full dense
+   * triangle. Reverse Cuthill-McKee is the textbook cure and it does narrow it.
+   *
+   * It made this SLOWER: 57 s against 39 s for no reordering at all. The
+   * permutation has to be applied to the matrix, which is n² copies, and the
+   * pattern is rebuilt every GGA iteration. It would pay only if the ordering
+   * were computed ONCE per network and the assembly wrote straight into
+   * permuted slots — a bigger change to `solveCore` than the remaining win
+   * justifies today. Recorded so it is not tried again blind. */
+  function solveSPD(A, b) {
+    var n = b.length, i, j, k;
+    if (!n) return [];
+
+    /* The profile: for each row, the first column that is not structurally
+     * zero. Elimination cannot introduce a non-zero to the left of it. */
+    var first = new Int32Array(n);
+    for (i = 0; i < n; i++) {
+      var f = i, Ai = A[i];
+      for (j = 0; j < i; j++) { if (Ai[j] !== 0) { f = j; break; } }
+      first[i] = f;
+    }
+    /* A row's profile can only start as early as the earliest row it depends
+     * on, so widen upwards until it stops moving — one pass is enough because
+     * dependencies only ever point left. */
+    for (i = 1; i < n; i++) {
+      for (j = first[i]; j < i; j++) {
+        if (first[j] < first[i]) { first[i] = first[j]; j = first[i] - 1; }
+      }
+    }
+
+    /* Copy the profile into a flat store. `rowStart[i]` indexes column
+     * `first[i]`; the diagonal lives at the end of each row's span. */
+    var rowStart = new Int32Array(n + 1);
+    var total = 0;
+    for (i = 0; i < n; i++) { rowStart[i] = total; total += (i - first[i] + 1); }
+    rowStart[n] = total;
+    var L = new Float64Array(total);
+    for (i = 0; i < n; i++) {
+      var base = rowStart[i] - first[i], row = A[i];
+      for (j = first[i]; j <= i; j++) L[base + j] = row[j];
+    }
+
+    var d = new Float64Array(n);
+    for (i = 0; i < n; i++) {
+      var bi = rowStart[i] - first[i];
+      for (j = first[i]; j < i; j++) {
+        var bj = rowStart[j] - first[j];
+        var lo = first[i] > first[j] ? first[i] : first[j];
+        var sum = L[bi + j];
+        for (k = lo; k < j; k++) sum -= L[bi + k] * L[bj + k] * d[k];
+        L[bi + j] = sum / d[j];
+      }
+      var dg = L[bi + i];
+      for (k = first[i]; k < i; k++) dg -= L[bi + k] * L[bi + k] * d[k];
+      if (!(dg > 1e-300) || !isFinite(dg)) return null;   // not SPD after all
+      d[i] = dg;
+      L[bi + i] = 1;
+    }
+
+    /* L·y = b, then D·z = y, then Lᵀ·x = z. */
+    var x = new Float64Array(n);
+    for (i = 0; i < n; i++) {
+      var bi2 = rowStart[i] - first[i], s = b[i];
+      for (j = first[i]; j < i; j++) s -= L[bi2 + j] * x[j];
+      x[i] = s;
+    }
+    for (i = 0; i < n; i++) x[i] /= d[i];
+    for (i = n - 1; i >= 0; i--) {
+      var xi = x[i];
+      if (xi === 0) continue;
+      var bi3 = rowStart[i] - first[i];
+      for (j = first[i]; j < i; j++) x[j] -= L[bi3 + j] * xi;
+    }
+    var out = new Array(n);
+    for (i = 0; i < n; i++) {
+      if (!isFinite(x[i])) return null;
+      out[i] = x[i];
+    }
+    return out;
+  }
+
   // ------------------------------------------------------- link behaviour
   /* Head loss along the link (from → to) and its derivative w.r.t. Q. */
   /* A link may carry TWO loss terms with different exponents.
@@ -228,7 +342,10 @@
         }
       });
 
-      var Hnew = solveLinear(A, F);
+      /* SPD first — the Laplacian above is symmetric positive definite and the
+       * skyline factorisation is the same answer for a fraction of the work.
+       * `solveLinear` is the fallback for anything that turns out not to be. */
+      var Hnew = solveSPD(A, F) || solveLinear(A, F);
       if (!Hnew) {
         errors.push({ code: 'SINGULAR', message: 'Solver matrix is singular — check for isolated or duplicated nodes.' });
         return finish(false, iter, Infinity);
@@ -321,7 +438,7 @@
 
   FD.solver = {
     solve: solve,
-    solveLinear: solveLinear,          // exported for the test harness
+    solveLinear: solveLinear, solveSPD: solveSPD,          // exported for the test harness
     MAX_ITER: MAX_ITER,
     TOL_HEAD: TOL_HEAD,
     TOL_FLOW: TOL_FLOW

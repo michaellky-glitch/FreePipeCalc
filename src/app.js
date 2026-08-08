@@ -242,7 +242,54 @@
   // -------------------------------------------------------------- solve
   function scheduleSolve() {
     clearTimeout(app.solveTimer);
-    app.solveTimer = setTimeout(solveNow, 250);
+    app.solveTimer = setTimeout(solveSliced, 250);
+  }
+
+  /* SHOW THE BAR, YIELD ONCE, THEN SOLVE.
+   *
+   * SLICING WAS TRIED AND BACKED OUT, and the reason is worth keeping.
+   * `runControls` reports progress after each DEVICE it settles, which sounded
+   * like a natural place to hand the browser back — but one device's search is
+   * a probe, a descent and a bisection, fifteen or so full network solves, two
+   * seconds on Michael's data centre. Stopping between devices therefore still
+   * blocks for seconds at a time, and each resumed slice has to re-run all the
+   * non-control work in `solveModel` on top.
+   *
+   * The atom that WOULD work is one `evaluate()`, about 100 ms. Reaching it
+   * means turning the control loop into a generator so `seek` can yield
+   * mid-search — every `evaluate()` becoming a `yield*` through `seek` and the
+   * sweep loop. That is the most delicate code in the project and it is not
+   * something to restructure while Michael is offline and cannot test it. It is
+   * written up in WORKLIST as the next step.
+   *
+   * What IS here: the bar goes up, the browser gets one turn to paint it, and
+   * then the solve runs. The wait is no shorter than the work, but it is
+   * explained rather than looking like a hung page — and the two changes that
+   * actually removed most of the waiting are elsewhere: selection no longer
+   * solves at all, and STATIC mode means edits do not either. */
+  function solveSliced() {
+    if (app.solving) { app.solveAgain = true; return; }
+    var heavy = app.model.settings.calcMode === 'simulation' &&
+                app.model.pipes.length > 60;
+    if (!heavy) { solveNow(); return; }
+
+    app.solving = true;
+    showSolveProgress(0.05, 'Simulating\u2026');
+    /* setTimeout, NOT requestAnimationFrame: rAF does not fire in a hidden or
+     * backgrounded tab, and a solve that only runs when the tab is visible is a
+     * solve that silently never finishes. */
+    setTimeout(function () {
+      var t0 = Date.now();
+      try { solveNow(); }
+      finally {
+        app.solving = false;
+        hideSolveProgress();
+        if (Date.now() - t0 > 1500) {
+          toast('Simulated in ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s.');
+        }
+        if (app.solveAgain) { app.solveAgain = false; scheduleSolve(); }
+      }
+    }, 0);
   }
 
   function solveNow() {
@@ -5838,6 +5885,7 @@
       }
     }
     if (app.syncUIMode) app.syncUIMode();
+    if (app.syncSimMode) app.syncSimMode();
   }
 
   /* Outflows without a required pressure have no characteristic K = Q/sqrt(dP),
@@ -5950,6 +5998,13 @@
       scheduleSolve();
       scheduleSave();
     });
+    /* SELECTION IS NOT AN EDIT — no solve, no save. Clicking a pipe on a model
+     * with five control loops was scheduling a fifty-second solve for an answer
+     * that cannot have changed. */
+    app.view.onSelect = function () {
+      renderProperties();
+      renderLevels();
+    };
     // Canvas tools report back through the app's toast system rather than
     // reaching into the DOM themselves.
     app.view.onMessage = function (msg, kind) { toast(msg, kind); };

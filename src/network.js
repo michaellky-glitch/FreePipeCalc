@@ -771,7 +771,7 @@
     return { res: res, net: net, passes: passes, sizing: sizing, stable: stable };
   }
 
-  function solveModel(m, maxPasses) {
+  function solveModel(m, maxPasses, opts) {
     /* 3 is plenty for tee reassignment alone; check valves can need another
      * round or two to seat, so the ceiling is a little higher. */
     maxPasses = maxPasses || 5;
@@ -783,7 +783,7 @@
      * hydraulics. It re-runs the core several times and leaves the settled
      * modulation on the model, so everything below sees a single consistent
      * answer. §17C. */
-    var controls = runControls(m, core, maxPasses);
+    var controls = runControls(m, core, maxPasses, opts);
     if (controls.acted) core = controls.core;
 
     var net = core.net, res = core.res, passes = core.passes, sizing = core.sizing;
@@ -1403,7 +1403,7 @@
     return null;
   }
 
-  function runControls(m, core, maxPasses) {
+  function runControls(m, core, maxPasses, opts) {
     var warnings = [], errors = [];
     var out = { acted: false, core: core, report: null, warnings: warnings,
                 errors: errors };
@@ -1983,9 +1983,25 @@
     /* Six sweeps rather than four. Parallel branches balancing against each
      * other need a few passes to settle, and the budget now allows them. */
     var acted = false, moving = true, sweep = 0;
+    /* PROGRESS, and a chance to breathe.
+     *
+     * `onProgress` is called after every device is settled. The app uses it to
+     * drive a bar and — because this is single-threaded and the app must run
+     * from file://, where Workers are blocked — to decide when to hand the
+     * browser back. Returning `false` from it ABANDONS the loop and keeps
+     * whatever the last complete sweep produced, which is a valid answer.
+     *
+     * Michael, 2026-08-08: "Users can accept a progress bar, but not a browser
+     * freeze." */
+    var onProgress = (opts && opts.onProgress) || null;
+    var totalUnits = Math.max(1, searchPairs.length * 6);
+    var doneUnits = 0;
+
     while (moving && sweep < 6 && solves < MAX_SOLVES) {
       moving = false; sweep++;
+      var abandoned = false;
       searchPairs.forEach(function (pair) {
+        if (abandoned) return;
         var r = seek(pair);
         /* FALL BACK. "LWT first, then ΔT" is a priority, not a blend: if the
          * first setpoint cannot be reached — the actuator on a stop, or backing
@@ -2008,7 +2024,19 @@
 
         pair.result = r;
         if (r.moved) { moving = true; acted = true; }
+
+        doneUnits++;
+        if (onProgress) {
+          var keepGoing = onProgress({
+            done: doneUnits, total: totalUnits,
+            fraction: Math.min(1, doneUnits / totalUnits),
+            sweep: sweep, solves: solves,
+            device: pair.act.pipe.tag || pair.act.pipe.id
+          });
+          if (keepGoing === false) { abandoned = true; moving = false; }
+        }
       });
+      if (abandoned) break;
     }
 
     /* PARK AT FULL WHEN THE SETPOINT IS LOST — AFTER the sweeps, never during
