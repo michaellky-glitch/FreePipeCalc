@@ -1471,8 +1471,65 @@
   }
 
   // ----------------------------------------------------- property panel
+  /* THE PANEL IS BUILT INSIDE A GUARD.
+   *
+   * It is assembled top to bottom into a host that has just been emptied, so a
+   * throw anywhere in the middle leaves a panel missing everything below the
+   * failure — and looking exactly like the model has lost it. That is what a
+   * missing `return` in one readout helper did to the Control section
+   * (2026-08-08), and the shape of the failure is worse than the failure: it
+   * accuses the model of losing data it still holds.
+   *
+   * It also escaped into `changed()`, so the autosave, the clean-snapshot
+   * bookkeeping and the solve schedule were all skipped whenever it fired.
+   *
+   * Guarded rather than merely fixed, because the next one will be some other
+   * helper: say so on the panel, log it, and let everything else carry on. */
   function renderProperties() {
+    try { renderPropertiesInner(); }
+    catch (err) {
+      var h = $('prop-body');
+      if (h) {
+        h.innerHTML = '';
+        h.appendChild(el('h3', '', 'Panel error'));
+        h.appendChild(el('p', 'hint warn',
+          'This panel could not be drawn. Nothing in the model has changed — ' +
+          'the drawing and the calculation are unaffected. Please report it: ' +
+          String(err && err.message || err)));
+      }
+      if (window.console) window.console.error('renderProperties', err);
+    }
+  }
+
+  /* EVERY PANEL RENDER GETS A TOKEN, and every field handler captures it.
+   *
+   * The panel is rebuilt from scratch whenever the selection changes. An input
+   * that is FOCUSED when that happens is detached while dirty, and the browser
+   * then fires its `change` — after the rebuild, with a closure still pointing
+   * at the device that is no longer selected. So an edit begun on one pump was
+   * committed to it from a box that had already been replaced on screen by
+   * another pump's, with no way for the user to see it happen.
+   *
+   * Michael, 2026-08-08, reported it as silent data corruption, and it is
+   * exactly that: a write to an object nobody is looking at. Naming and tags
+   * showed it worst because they are the fields most often half-typed when
+   * attention moves to the next device.
+   *
+   * `commit()` wraps a handler so it does nothing once its render is stale.
+   * Cheap, and it covers every field rather than the one that was noticed. */
+  var renderToken = 0;
+
+  function commit(fn) {
+    var mine = renderToken;
+    return function () {
+      if (mine !== renderToken) return;      // this panel is gone; not our edit
+      return fn.apply(this, arguments);
+    };
+  }
+
+  function renderPropertiesInner() {
     var host = $('prop-body');
+    renderToken++;
     host.innerHTML = '';
     var m = app.model;
     var sel = app.view.selection;
@@ -1924,6 +1981,11 @@
     f.appendChild(el('label', '', label));
     f.appendChild(control);
     host.appendChild(f);
+    /* Applied HERE so it covers every field on every panel, not just the ones
+     * anybody remembered. See `noAutofill`. */
+    if (control && control.tagName === 'INPUT' && control.type === 'text') {
+      noAutofill(control);
+    }
     return control;
   }
 
@@ -2561,12 +2623,35 @@
   function tagField(host, p) {
     var i = el('input'); i.type = 'text'; i.value = p.tag || '';
     i.placeholder = 'e.g. CHW-P-01';
-    field(host, 'Tag', i).addEventListener('change', function () {
-      pushUndo();
+    noAutofill(i);
+    field(host, 'Tag', i).addEventListener('change', commit(function () {
       var v = i.value.trim();
+      if (v === (p.tag || '')) return;       // nothing typed; do not push undo
+      pushUndo();
       if (v) p.tag = v; else delete p.tag;
       changed();
-    });
+    }));
+  }
+
+  /* KEEP THE BROWSER OUT OF FIELDS THE APP OWNS.
+   *
+   * A nameless `<input type="text">` joins the browser's own autofill pool, and
+   * every tag box in this app looks identical to it — so a pump's Tag field was
+   * being offered, and sometimes given, values typed into an AHU's. That is
+   * where `CHWP-04PMP-1` and `PWP-04MP-4MP-4…` came from: not the app
+   * concatenating anything, the browser filling a box it had no business in.
+   *
+   * `autocomplete="off"` alone is widely ignored by Chrome; a nonsense token it
+   * has no heuristic for is what actually works, and `data-1p-ignore` /
+   * `data-lpignore` ask the two commonest password managers to stay out too. */
+  function noAutofill(i) {
+    i.setAttribute('autocomplete', 'new-password');
+    i.setAttribute('autocorrect', 'off');
+    i.setAttribute('autocapitalize', 'off');
+    i.setAttribute('spellcheck', 'false');
+    i.setAttribute('data-1p-ignore', '');
+    i.setAttribute('data-lpignore', 'true');
+    return i;
   }
 
   /* Spec §8.3 — an in-line device with a rated flow and pressure drop.
@@ -3459,9 +3544,25 @@
     var sec = section(host, 'Actual');
     var d = sec.box;
     {
+      /* RETURNS THE ROW. It did not, and `pumpActualSection` hangs an info
+       * marker off the VFD row — so `infoMark(undefined, …)` threw, from
+       * inside `renderProperties`, HALF WAY THROUGH BUILDING THE PANEL.
+       *
+       * That is Michael's "controls get intermittently dropped or reset
+       * silently (entire section disappears)", 2026-08-08: Details and Design
+       * are appended before the throw and Control and Display never are, so
+       * the section is not dropped from the MODEL — it was never drawn. And
+       * because the exception escapes `changed()`, everything after it in that
+       * call is skipped too: the autosave, the clean-snapshot bookkeeping, the
+       * solve schedule.
+       *
+       * It fires exactly when a pump carries a speed below 1 and the mode is
+       * DESIGN — which is what switching out of SIMULATE produces on every
+       * modulating pump at once. */
       function ro(k, v) {
         var r = el('div', 'kv'); r.appendChild(el('span', 'k', k));
         r.appendChild(el('span', 'v', v)); d.appendChild(r);
+        return r;
       }
       var pres = app.results;
       var pOff = p.pump.mode === 'off';

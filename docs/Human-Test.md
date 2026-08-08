@@ -203,6 +203,16 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 5A. THE TWO CRITICAL BUGS (v0.15.4)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| CR.1 | **Controls section disappearing** | ✅ | A readout helper in the pump's Actual section did not `return` its row, so hanging an info marker off it threw — from inside `renderProperties`, HALF WAY THROUGH. Details and Design were already appended; Control and Display never were. The model never lost anything; the panel stopped drawing. It fires when a pump carries a speed below 1 and the mode is DESIGN — i.e. on every modulating pump the moment you leave SIMULATE, which is exactly when you saw it. |
+| CR.2 | ...and it took the rest of `changed()` with it | ✅ | The exception escaped into `changed()`, so the autosave, the clean-snapshot bookkeeping and the solve schedule were all skipped whenever it fired. That is the other half of "intermittently dropped or reset". |
+| CR.3 | The panel now fails safe | ✅ | Wrapped in a guard: on any future render error it says so and says the model is untouched, instead of silently truncating. The shape of that failure was worse than the failure — it accuses the model of losing data it still holds. |
+| CR.4 | **Silent tag corruption** | ✅ | Two causes, both fixed. (a) A focused input is detached when the panel rebuilds, and the browser fires its `change` afterwards — the closure then wrote to the device that was no longer selected, from a box already replaced on screen. Verified: an edit begun on P350 was landing on P350 *after* the selection had moved to P379. Every field handler is now stamped with its render and no-ops if that render is gone. (b) A nameless text input joins the browser's autofill pool, and every tag box in this app looks identical to it — which is where `CHWP-04PMP-1` and `PWP-04MP-4MP-4…` came from. The app was never concatenating anything; the browser was filling a box it had no business in. |
+| CR.5 | Check your two saved files | ⬜ | `20260807-DC.json` and `-DC-broken.json` BOTH already carry the mangled tags — the corruption predates them, so the fix cannot repair them. Three to correct by hand: `P298` → PWP-04, `P379` → CHWP-02, `P413` → CHWP-04. |
+
 ## 4Z. ANNOTATION, ROUTES AND PRINTING (v0.15.3)
 
 | # | What | Status | Notes |
