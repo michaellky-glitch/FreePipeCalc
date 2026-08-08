@@ -203,6 +203,17 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 5D. SELECTION, PICKING AND TWO SLIDERS (v0.15.7)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| Q5 | **Shift-click to build a selection** | ✅ | Adds, and shift-clicking something already in the set removes it. Verified 1 → 2 → back to 1, with the bulk panel appearing. A shift-click never starts a DRAG — moving geometry during what reads as a selection would be its own bug. |
+| C1 | **CHWP-1 unpickable for a control link** | ✅ | Picking a controller took `deviceAt \|\| pipeAt`, and a pump sits IN a pipe with more pipe running away either side — so a click a few pixels off the symbol found the plain pipe, `canControl` said no, and you were told to "click a pump" while pointing at one. `controllableAt` searches devices first at a generous radius and **can only ever return something linkable** — verified over 45 probes across the model, zero unlinkable results. |
+| C7 | **Manual VFD slider** | ✅ | Appears as its own Speed section only when the pump has no control link — with a link the position is an output and a slider would be a lie. Verified: absent when linked, present the moment the link is cleared. |
+| A1 | No arrow at zero flow | ⬜ | The old threshold was 1e-9 m³/s — a numerical zero, not a hydraulic one, so a shut branch settling at 1e-7 still drew an arrow. Now `Q_MIN`, the same threshold the solver uses to decide a link carries water, so the drawing and the calculation agree about what "no flow" means. |
+| E4 | Grey `Auto` in an unlimited capacity box | ✅ | Your ruling. An empty box read as a field nobody had filled in rather than as a decision. |
+| UI.6 · DB.5 | Closed on your ruling | ✅ | Max/Min indicator as-is; 0.2% deadband confirmed. |
+
 ## 5C. EQUIPMENT CONTROLS, AND FOUR SMALL ONES (v0.15.6)
 
 | # | What | Status | Notes |

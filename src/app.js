@@ -3225,6 +3225,12 @@
       var box = el('input', 'cell-input num-left');
       box.type = 'text';
       box.value = has ? String(Math.abs(Number(w)) / 1000) : '';
+      /* BLANK MEANS UNLIMITED, and the box now says so. Michael, 2026-08-08:
+       * "Unlimited & Auto are equivalent as far as the user's expectations." An
+       * empty box reads as a field nobody has filled in yet rather than as a
+       * decision, and the difference matters on a machine that is deliberately
+       * left to modulate freely. Grey, because it is not a value. */
+      if (!has) box.placeholder = 'Auto';
 
       function commit(kW, isCooling) {
         pushUndo();
@@ -4044,6 +4050,27 @@
 
     // ---------------------------------------------------------- L2 CONTROL
     controlField(host, p);
+
+    /* NO CONTROL LINK? THEN THE SPEED IS YOURS TO SET. Michael, 2026-08-08.
+     * A pump with nothing to follow ran at whatever `speed` happened to hold,
+     * and the only way to change it was to type into the model by hand. With a
+     * link the position is an OUTPUT and the slider would be a lie, so it is
+     * offered only when there is nothing writing it — the same rule the control
+     * valve's position follows. */
+    if (!M.controlOf(p) && p.pump.mode !== 'off') {
+      var spSec = section(host, 'Speed');
+      var sim = m.settings.calcMode === 'simulation';
+      pctSlider(spSec.box, 'VFD speed (%)',
+                Math.round((Number(p.pump.speed) > 0 ? Number(p.pump.speed) : 1) * 100),
+                function (n) {
+                  pushUndo();
+                  p.pump.speed = Math.max(0.01, n / 100);
+                  changed(); renderProperties();
+                },
+                sim ? null
+                    : 'Speed applies in SIMULATION only. In DESIGN the demands ' +
+                      'impose the flow, so slowing the pump cannot reduce it.');
+    }
 
     // ---------------------------------------------------------- L2 DISPLAY
     displayChecks(host, p, [

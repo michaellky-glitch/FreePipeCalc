@@ -7,6 +7,18 @@ Updated 2026-08-08, after v0.15.5.
 
 ---
 
+## Done in v0.15.7
+
+C1 · C7 · A1 · E4 · Q5 — see `Human-Test.md` §5D.
+
+**C1 was not what I said it was.** My reproduction was faulty: the pipe I
+"clicked the middle of" was on a different LEVEL, so ignoring it was correct,
+and the 14 m radius I complained about is 28 screen pixels behaving exactly as
+designed. The real fault was narrower and is fixed: picking a controller took
+`deviceAt || pipeAt` and a pump sits IN a pipe, so a click a few pixels off the
+symbol found the plain pipe, `canControl` said no, and you were told to click a
+pump while pointing at one.
+
 ## Done in v0.15.6
 
 C8 · E1 · E2 · E3 · C5 · C6 · C2 — see `Human-Test.md` §5C.
@@ -21,10 +33,7 @@ it is the same fault as "difficulty selecting CHWP-1". Moved up.
 
 | # | Item | Notes |
 |---|---|---|
-| C1 | **Hit-testing picks the wrong pipe near a node** | Confirmed: clicking the middle of a 25 m pipe returned an adjacent 1 m device pipe at `t = 0`. Explains both the CHWP-1 selection trouble and probably C3. |
-| C4 | **Sync links** — pump↔pump VFD %, CV↔CV opening % | What C8's message tells the user to do, so it has to exist. |
-| C7 | Manual VFD slider when a pump has no control link | |
-| A1 | Zero flow should draw no arrow | |
+| C4 | **Sync links** — pump↔pump VFD %, CV↔CV opening % | What C8's message tells the user to do, so it has to exist. **Next.** |
 | A2 | **Text box does not appear** | Dialog opens, nothing lands on the drawing. |
 | A4 | Details not selectable or editable | |
 | A5 | Detail tool active → palette + thickness in Properties | |
@@ -51,8 +60,11 @@ it is the same fault as "difficulty selecting CHWP-1". Moved up.
 
 ## Open questions for Michael
 
-* **UI.6** — Temperature limit Max/Min is an indicator that follows the load
-  direction, not a second input. Say if you want it settable.
-* **UI.15** — blank capacity means unlimited; there is no auto-balance mode.
-* **DB.5** — is 0.2% the right flow deadband?
-* **DX.1** — does the DXF open in real CAD?
+* **DX.1** — does the DXF open in real CAD? *Untested; left open.*
+
+### Ruled on 2026-08-08
+
+* **UI.6** — Max/Min indicator: current implementation is correct. Closed.
+* **UI.15** — blank = unlimited is correct, but the box shows a grey `Auto`
+  placeholder: unlimited and auto are the same thing to the user. → **E4**.
+* **DB.5** — 0.2% flow deadband confirmed. Closed.

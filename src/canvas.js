@@ -162,6 +162,39 @@
     return best;
   };
 
+  /* THE NEAREST DEVICE A CONTROLLER COULD BE, within a generous radius.
+   *
+   * Picking one used to be `deviceAt(13px) || pipeAt(10px)`, and a pump sits IN
+   * a pipe with more pipe running away from it in both directions — so a click
+   * a few pixels off the symbol found the plain pipe first, `M.canControl` said
+   * no, and the answer was "click a pump or a control valve first" while the
+   * pointer was on the pump. Michael, 2026-08-08: "CHWP-1 was easy to select
+   * for other things like changing properties, but couldn't click it to add a
+   * control link."
+   *
+   * Devices are searched FIRST and at the radius the eye works to, and a pipe
+   * is only considered if it is itself controllable. Nothing that cannot be a
+   * controller can win. */
+  View.prototype.controllableAt = function (wx, wy) {
+    var d = this.deviceAt(wx, wy, 26);
+    if (d && M.canControl(d)) return d;
+    var hit = this.pipeAt(wx, wy);
+    if (hit && M.canControl(hit.pipe)) return hit.pipe;
+    /* One more sweep, wider, because a control valve on a busy header can be
+     * under a label or a route. Still only ever returns something linkable. */
+    var m = this.getModel(), self = this, best = null, bestD = Infinity;
+    var rad = this.pxToM(40);
+    m.pipes.forEach(function (p) {
+      if (!M.canControl(p)) return;
+      var a = M.node(m, p.a), b = M.node(m, p.b);
+      if (!a || !b || a.level !== m.activeLevel || b.level !== m.activeLevel) return;
+      var wa = M.worldXY(m, a), wb = M.worldXY(m, b);
+      var dd = Math.hypot((wa.x + wb.x) / 2 - wx, (wa.y + wb.y) / 2 - wy);
+      if (dd < rad && dd < bestD) { bestD = dd; best = p; }
+    });
+    return best;
+  };
+
   View.prototype.pipeAt = function (wx, wy, radiusPx) {
     var m = this.getModel(), self = this, best = null, bestD = Infinity;
     var rad = this.pxToM(radiusPx === undefined ? SNAP_PX : radiusPx);
@@ -565,7 +598,10 @@
         return;
       }
       if (self.controlPick) {
-        var pickHit = self.deviceAt(w.x, w.y) || (self.pipeAt(w.x, w.y) || {}).pipe;
+        /* THE TARGET, preferring a device over whatever pipe runs past it —
+         * same reasoning as `controllableAt`. */
+        var pickHit = self.deviceAt(w.x, w.y, 26) ||
+                      (self.pipeAt(w.x, w.y) || {}).pipe;
         var src = M.pipe(m0, self.controlPick.pipeId);
         self.controlPick = null;
         if (pickHit && M.canBeControlled(pickHit) && src) {
@@ -667,8 +703,8 @@
        * The second click is handled by the `controlPick` branch above, so there
        * is one implementation of "what may be linked to what". */
       if (self.tool === 'link') {
-        var lp = self.deviceAt(w.x, w.y) || (self.pipeAt(w.x, w.y) || {}).pipe;
-        if (lp && M.canControl(lp)) {
+        var lp = self.controllableAt(w.x, w.y);
+        if (lp) {
           self.controlPick = { pipeId: lp.id };
           self.onMessage('Now click the sensor or equipment ' +
                          (lp.tag || lp.id) + ' should follow.');
@@ -797,33 +833,62 @@
       /* Device before node: its glyph sits between two nodes only a few hundred
        * millimetres apart, so a click in the middle would otherwise always grab
        * an end node and shear the device instead of moving it. */
+      /* SHIFT ADDS TO THE SELECTION (Michael, 2026-08-08), so a handful of
+       * pipes can be given the same size or schedule in one go. The marquee
+       * already multi-selected; the modifier did not, which meant picking four
+       * specific runs out of a busy drawing was impossible without catching
+       * everything between them.
+       *
+       * Shift-clicking something already selected REMOVES it — the other half
+       * of building a set by hand is taking one back out.
+       *
+       * A shift-click never starts a DRAG. Moving a device or a node while
+       * adding to a selection is not a gesture anyone means, and it would
+       * silently move geometry during what reads as a selection. Declared HERE,
+       * above the device branch, because that branch selects too. */
+      var adding = !!e.shiftKey;
+      function pick(kind, id) {
+        if (!adding) { self.selection = [{ kind: kind, id: id }]; return; }
+        var at = -1;
+        self.selection.forEach(function (x, i) {
+          if (x.kind === kind && x.id === id) at = i;
+        });
+        if (at >= 0) self.selection.splice(at, 1);
+        else self.selection = self.selection.concat([{ kind: kind, id: id }]);
+      }
+
       var dev = self.deviceAt(w.x, w.y);
       var n = dev ? null : self.nodeAt(w.x, w.y);
       if (dev) {
         var mSel = self.getModel();
         var da = M.node(mSel, dev.a), db = M.node(mSel, dev.b);
-        self.selection = [{ kind: 'pipe', id: dev.id }];
-        self.dragDevice = {
-          pipe: dev, startX: w.x, startY: w.y,
-          ax: da.x, ay: da.y, bx: db.x, by: db.y
-        };
-        c.setPointerCapture(e.pointerId);
+        pick('pipe', dev.id);
+        if (!adding) {
+          self.dragDevice = {
+            pipe: dev, startX: w.x, startY: w.y,
+            ax: da.x, ay: da.y, bx: db.x, by: db.y
+          };
+          c.setPointerCapture(e.pointerId);
+        }
         self.changed();
         return;
       }
       if (n) {
-        self.selection = [{ kind: 'node', id: n.id }];
-        self.dragNode = { id: n.id, startX: w.x, startY: w.y };
+        pick('node', n.id);
+        if (!adding) self.dragNode = { id: n.id, startX: w.x, startY: w.y };
       } else {
         var hit = self.pipeAt(w.x, w.y);
         if (hit) {
-          self.selection = [{ kind: 'pipe', id: hit.pipe.id }];
+          pick('pipe', hit.pipe.id);
         } else {
           /* Riser last: its marker sits on top of the node it attaches to, so
            * testing it first would make the node underneath unreachable. */
           var rs = self.riserAt(w.x, w.y);
-          if (rs) self.selection = [{ kind: 'riser', id: rs.id }];
-          else { self.selection = []; self.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y }; }
+          if (rs) pick('riser', rs.id);
+          else if (!adding) {
+            self.selection = [];
+            self.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y };
+          }
         }
       }
       c.setPointerCapture(e.pointerId);
@@ -2500,7 +2565,14 @@
       ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
 
       {
-        if (q !== undefined && Math.abs(q) > 1e-9) self.drawArrow(sa, sb, q, colour);
+        /* NO FLOW, NO ARROW. 1e-9 m³/s is a numerical zero, not a hydraulic
+         * one: a shut branch settles at 1e-7 or so and still drew an arrow,
+         * stating a direction the model does not have. Q_MIN is the threshold
+         * the solver itself uses to decide a link carries water at all, so the
+         * drawing and the calculation now agree about what "no flow" means. */
+        if (q !== undefined && Math.abs(q) >= FD.hydraulics.Q_MIN) {
+          self.drawArrow(sa, sb, q, colour);
+        }
         if (self.scale > 12) self.drawPipeLabel(p, sa, sb);
       }
     });
@@ -2986,6 +3058,10 @@
     this.drawTag(p, mx, my);
   };
 
+  /* Below this, a pipe is not carrying anything and gets NO ARROW. An arrow on
+   * a dead leg states a direction the model does not have — Michael,
+   * 2026-08-08 — and on a standby branch it is actively misleading. The same
+   * threshold the solver uses to decide a link carries water at all. */
   View.prototype.drawArrow = function (sa, sb, q, colour) {
     var ctx = this.ctx;
     var k = (this.getModel().settings.presentation || {}).arrowSize || 1;
