@@ -203,6 +203,18 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 5F. THE CHWPs, AND A TAG REPAIR (v0.15.9)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| CH.1 | **CHWP-01..04 now hold 30 °C** | ✅ | You were right that they should not be fighting — they were not. Sweeps 1–5 settled all four to within 0.02 K. **Sweep 6 ran out of the solve budget**, and a truncated search left each one sitting at the probe position, which is the actuator's FLOOR — a chiller at quarter flow does not hold its leaving temperature, so the errors came back as 669, 1317 and 1629 K, all four were judged unsettled, and then parked at 100%. A search that cannot finish is now a **no-op**: the device keeps the position its last complete sweep gave it. |
+| CH.2 | The budget scales with the work | ✅ | Was capped at 400 — chosen when a big model had three controllers. Now 120 per controller. `CONTROL_BUDGET` says so if it still bites. |
+| CH.3 | What is left is real | ⬜ | `SETPOINT_LOST` on all 14 AHUs: their **integrated valves** are at full travel and still off setpoint, with TS-1/2/4 reading ~32.8 °C against 30. That is a heat-balance statement, not a control failure — the lineups cannot deliver what the hall is rejecting at these speeds. Worth checking against your intent. |
+| TG.1 | **Tag corruption — still not reproduced** | ⚠️ | **Read this one.** I have not found the route. The v0.15.8 guards demonstrably work (I drove the detached-input path and the write was refused), yet `20260808-DC-broken` was saved by v0.15.8 with `CHWP-04PMP-1PMP-1PMP-1PMP-1PMP-1`. Every corrupted value is `<a real tag><one or more freshly generated ones>`. |
+| TG.2 | So it is attacked from the other end | ✅ | A tag box now **refuses** to commit a value of that shape; a second lock means it can only write to something still selected; `TAG_MANGLED` reports any it finds on every solve; and **REPAIR** on the FILE group strips the suffix. Verified on your file: `CHWP-04PMP-1PMP-1PMP-1PMP-1PMP-1` → `CHWP-04`. |
+| TG.3 | One it cannot fully repair | ⬜ | `CHWP-0AHU-15AHU-152` → `CHWP-0`. The head really is `CHWP-0` — the repair can only strip what was appended, it cannot know you meant `CHWP-02`. Please rename that one by hand. |
+| SY.1 | **Sync drawn on selection** | ⬜ | Select a master and a dash-dot line goes out to each follower; select a follower and one goes back to the master, with an open arrowhead at the follower so the direction is on the drawing. Straight, and only while selected — a sync is a relationship you check and move on from, and eight pumps' worth of permanent leaders would bury the pipework. |
+
 ## 5E. SYNC, AND SELECTING A RUN (v0.15.8)
 
 | # | What | Status | Notes |

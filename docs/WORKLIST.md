@@ -7,6 +7,13 @@ Updated 2026-08-08, after v0.15.5.
 
 ---
 
+## Done in v0.15.9
+
+CH (chilled-water pumps) · SY (sync drawn) · tag guard + REPAIR — `Human-Test.md` §5F.
+
+**The annotation batch is untouched this turn** — A2, A4, A5, A3, A6, A7, then Q4.
+Next.
+
 ## Done in v0.15.8
 
 C4 · Q5 (reworked to Ctrl) · Q6 (shift = select the run) — see `Human-Test.md` §5E.

@@ -1878,6 +1878,50 @@
     return out;
   }
 
+  /* ============================================ MANGLED TAGS
+   *
+   * A tag with one or more GENERATED tags stuck on the end of it —
+   * `CHWP-04PMP-1PMP-1PMP-1`, `CHWP-0AHU-15AHU-152`. Michael has now hit this
+   * twice (2026-08-07 and again on 2026-08-08 with the first fix in place), and
+   * the route that produces it is still not identified.
+   *
+   * So it is attacked from the other end as well: whatever writes it, the shape
+   * is recognisable and the damage is repairable. `looksMangled` refuses one at
+   * the point of entry; `repairTags` puts existing ones right, and says which
+   * it touched rather than editing a drawing behind the user's back.
+   *
+   * The prefixes are exactly the ones `nextTag` can produce. A tag that is
+   * ITSELF a generated one is left alone — `PMP-1` is a perfectly good tag; it
+   * is `<something>PMP-1` that cannot have been typed. */
+  var GENERATED_TAG = /(?:PMP|AHU|TS|SRC|OF|STR)-\d+/;
+  var TRAILING_GENERATED = /^(.+?)((?:(?:PMP|AHU|TS|SRC|OF|STR)-\d+)+)$/;
+
+  function looksMangled(tag) {
+    if (!tag) return false;
+    var t = String(tag);
+    if (/^(?:PMP|AHU|TS|SRC|OF|STR)-\d+$/.test(t)) return false;   // a plain one
+    var mm = t.match(TRAILING_GENERATED);
+    if (!mm) return false;
+    /* The head must itself look like a real tag, or this is just a tag that
+     * happens to end in something like "AHU-2" on purpose. */
+    return mm[1].length > 0 && !GENERATED_TAG.test(mm[1] + 'x');
+  }
+
+  /* Strip the generated suffixes. Returns a list of what changed. */
+  function repairTags(m) {
+    var fixed = [];
+    function fix(o) {
+      if (!o || !looksMangled(o.tag)) return;
+      var mm = String(o.tag).match(TRAILING_GENERATED);
+      if (!mm) return;
+      fixed.push({ id: o.id, from: o.tag, to: mm[1] });
+      o.tag = mm[1];
+    }
+    m.pipes.forEach(fix);
+    m.nodes.forEach(fix);
+    return fixed;
+  }
+
   function clearDevice(m, nodeId) {
     var n = node(m, nodeId);
     if (n) n.device = null;
@@ -2080,6 +2124,7 @@
     pumpSizing: pumpSizing, pumpRunMode: pumpRunMode, generateCurve: generateCurve, pumpCurve: pumpCurve,
     pumpSpeedIgnored: pumpSpeedIgnored, pumpHead: pumpHead,
     pathBetween: pathBetween,
+    looksMangled: looksMangled, repairTags: repairTags,
     canSync: canSync, setSync: setSync, syncOf: syncOf,
     syncedPosition: syncedPosition,
     addDetail: addDetail, addNote: addNote,

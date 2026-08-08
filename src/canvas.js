@@ -1872,6 +1872,7 @@
     this.drawVizLegend(vs);
     this.drawWarnHighlight();
     this.drawControlLinks();
+    this.drawSyncLinks();
     this.drawNotes();
     this.drawDisconnects();
     this.drawFlipButton();
@@ -4097,6 +4098,67 @@
       }
     });
     return best;
+  };
+
+  /* SYNC, DRAWN ONLY FOR THE SELECTION (Michael, 2026-08-08).
+   *
+   *   select a MASTER  a dotted line out to each device following it
+   *   select a SLAVE   one dotted line back to the master
+   *
+   * Straight, not orthogonal, and only while selected — deliberately. A control
+   * link is a permanent statement about the plant and earns its route on the
+   * drawing; a sync is a relationship you check and move on from, and eight
+   * pumps' worth of permanent leaders would bury the pipework. Straight lines
+   * also read as "these are the same thing" rather than as another signal
+   * being carried somewhere.
+   *
+   * A different mark again from the control link's dash and the ΔP route's
+   * dot: long dash-dot, which is the drawing convention for "same as". */
+  View.prototype.drawSyncLinks = function () {
+    var m = this.getModel(), ctx = this.ctx, self = this;
+    var sel = {};
+    (this.selection || []).forEach(function (x) {
+      if (x.kind === 'pipe') sel[x.id] = true;
+    });
+    if (!Object.keys(sel).length) return;
+
+    var pairs = [];
+    m.pipes.forEach(function (p) {
+      var lead = M.syncOf(p);
+      if (!lead) return;
+      if (sel[p.id]) pairs.push([M.pipe(m, lead), p]);        // slave selected
+      else if (sel[lead]) pairs.push([M.pipe(m, lead), p]);   // master selected
+    });
+    if (!pairs.length) return;
+
+    ctx.save();
+    ctx.strokeStyle = this.theme.select;
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([9, 3, 2, 3]);
+    pairs.forEach(function (pr) {
+      var a = pr[0] && M.deviceMid(m, pr[0]), b = pr[1] && M.deviceMid(m, pr[1]);
+      if (!a || !b) return;
+      /* Both ends must be on the level being drawn, like every other link. */
+      var na = M.node(m, pr[0].a), nb = M.node(m, pr[1].a);
+      if (!na || !nb || na.level !== m.activeLevel || nb.level !== m.activeLevel) return;
+      var sa = self.toScreen(a.x, a.y), sb = self.toScreen(b.x, b.y);
+      ctx.beginPath();
+      ctx.moveTo(sa.x, sa.y);
+      ctx.lineTo(sb.x, sb.y);
+      ctx.stroke();
+      /* An open arrowhead at the FOLLOWER, so which way the position travels is
+       * on the drawing rather than only in the panel. */
+      var ang = Math.atan2(sb.y - sa.y, sb.x - sa.x);
+      var hx = sb.x - Math.cos(ang) * 9, hy = sb.y - Math.sin(ang) * 9;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(hx - Math.cos(ang - 0.5) * 7, hy - Math.sin(ang - 0.5) * 7);
+      ctx.lineTo(hx, hy);
+      ctx.lineTo(hx - Math.cos(ang + 0.5) * 7, hy - Math.sin(ang + 0.5) * 7);
+      ctx.stroke();
+      ctx.setLineDash([9, 3, 2, 3]);
+    });
+    ctx.restore();
   };
 
   View.prototype.drawControlLinks = function () {

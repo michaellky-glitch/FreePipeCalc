@@ -847,6 +847,21 @@
       return d.severity !== 'error';
     }));
 
+    /* A TAG WITH A GENERATED ONE STUCK ON THE END OF IT. Reported every solve,
+     * because the route that produces it is not yet identified and a corrupted
+     * name that nobody is told about is the worst version of this bug — you
+     * find it weeks later on a drawing you have already issued. */
+    m.pipes.concat(m.nodes).forEach(function (o) {
+      if (!M.looksMangled(o.tag)) return;
+      res.warnings.push({
+        code: 'TAG_MANGLED', pipe: o.a !== undefined ? o.id : undefined,
+        node: o.a === undefined ? o.id : undefined,
+        message: o.id + ' is tagged \u201c' + o.tag + '\u201d, which is a tag ' +
+                 'with an automatically generated one appended to it. Use ' +
+                 'Repair tags on the FILE group to put it right.'
+      });
+    });
+
     /* SIMULATION without a curve is not a simulation. A running pump with no
      * curve falls back to a constant head, which answers a different question
      * entirely — the flow stops responding to the system, which is the one
@@ -1592,7 +1607,14 @@
     var cfgSolves = Number((m.settings.control || {}).maxSolves);
     var MAX_SOLVES = (isFinite(cfgSolves) && cfgSolves > 0)
       ? cfgSolves
-      : Math.min(400, 40 + 30 * pairs.length);
+      /* SCALES WITH THE WORK. The old cap of 400 was chosen when a big model
+       * had three controllers; Michael's data centre has five, each needing a
+       * probe, a descent and a bisection every sweep, over six sweeps. It ran
+       * out on the last sweep — and before the fix above, running out left every
+       * device on its floor. 120 per controller is roughly what one full
+       * search costs, so the budget now buys every controller its sweeps
+       * instead of buying the first few all of them. */
+      : Math.max(400, 120 * pairs.length);
     var solves = 0;
 
     function evaluate() {
@@ -1842,6 +1864,30 @@
         return { state: 'at-max', x: x0, error: e0, moved: false };
       }
 
+      /* --- OUT OF BUDGET? PUT IT BACK. -----------------------------------
+       *
+       * The probe has just moved the actuator to its MINIMUM. If the solve
+       * budget is gone, the descent below cannot run, the bisection cannot run,
+       * and the search returns with the device sitting on its floor and the
+       * probe's error — which on a chilled-water loop is a thermal runaway,
+       * because a chiller at quarter flow does not hold its leaving
+       * temperature.
+       *
+       * `debug/20260808-DC-broken.json` (Michael, 2026-08-08): five sweeps
+       * settled all four chilled-water pumps to within 0.02 K, and the sixth
+       * ran out of solves. Every one of them was left at 25% carrying errors of
+       * 669, 1317 and 1629 K, judged `unsettled`, and then parked at 100%. He
+       * asked why they were "not balancing to maintain 30C" and why they seemed
+       * to fight when they are on separate lineups — they were not fighting.
+       * The budget ran out and a truncated search left them wherever the last
+       * probe happened to put them.
+       *
+       * A search that cannot finish must be a NO-OP, not a random position. */
+      if (solves >= MAX_SOLVES) {
+        act.set(x0);
+        return { state: 'budget', x: x0, error: e0, moved: false };
+      }
+
       /* --- descend until something meets the setpoint, or the floor is reached.
        * The probe already sits at the minimum, so if it crossed the setpoint
        * this loop exits immediately and the bisection below does the work. */
@@ -1915,6 +1961,11 @@
              st === 'idle';
     }
 
+    /* Ran out of solves. NOT a failure of the plant and NOT a lost setpoint —
+     * the search simply did not get to run. It keeps whatever position the last
+     * complete sweep gave it, which is the best answer available. */
+    function outOfBudget(st) { return st === 'budget'; }
+
     /* THE SETPOINT IS GENUINELY LOST — a stronger statement than `failed`, and
      * the one that raises an error and parks the actuator at full.
      *
@@ -1925,6 +1976,9 @@
     function lostSetpoint(st) {
       return st === 'at-max' || st === 'at-min' || st === 'unsettled';
     }
+    /* `budget` is deliberately in neither set: it must not fall through to the
+     * next setpoint (nothing was tried) and must not be parked at full (the
+     * position it has came from a search that DID finish). */
 
     /* Six sweeps rather than four. Parallel branches balancing against each
      * other need a few passes to settle, and the budget now allows them. */
@@ -1987,6 +2041,18 @@
       }
       r.lost = true;
     });
+    var ranOut = pairs.some(function (pr) {
+      return pr.result && pr.result.state === 'budget';
+    });
+    if (ranOut) {
+      warnings.push({
+        code: 'CONTROL_BUDGET',
+        message: 'The control loop ran out of solves before every device had ' +
+                 'been settled, so some are holding the position the last ' +
+                 'complete sweep gave them. Raise Max solves in SETTINGS if the ' +
+                 'answer looks unfinished.'
+      });
+    }
     if (moving) {
       /* THE SWEEP never settled — a different condition from a single device
        * coming to rest off setpoint, and the two used to share a code. One is
@@ -2146,7 +2212,7 @@
      * four independent loops are one loop, and Michael wants them redrawn as a
      * lead plus syncs. The answer is still sound (they are ganged), which is
      * why this is a defect and not an error. */
-    CONTROL_GANGED: 1, CONTROL_TARGET_GONE: 1
+    CONTROL_GANGED: 1, CONTROL_TARGET_GONE: 1, TAG_MANGLED: 1
   };
   var NOTICE_CODES = {
     CHECK_CLOSED: 1, VALVE_SHUT: 1, THERMAL_DATUM: 1

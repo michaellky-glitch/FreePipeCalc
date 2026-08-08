@@ -2682,6 +2682,26 @@
     field(host, 'Tag', i).addEventListener('change', commit(function () {
       var v = i.value.trim();
       if (v === (p.tag || '')) return;       // nothing typed; do not push undo
+      /* A SECOND, INDEPENDENT LOCK: the field may only write to something that
+       * is STILL SELECTED. The render token already refuses a commit from a
+       * panel that has been replaced, and the corruption came back anyway
+       * (v0.15.8, `20260808-DC-broken`), so this does not rely on the same
+       * signal. If the device this box belongs to is no longer what the user is
+       * looking at, the edit is not theirs to make. */
+      var owned = (app.view.selection || []).some(function (x) {
+        return x.kind === 'pipe' && x.id === p.id;
+      });
+      if (!owned) return;
+      /* AND IT MAY NEVER APPEND A GENERATED TAG. Every corrupted value seen so
+       * far is `<a real tag><a freshly generated one>` — `CHWP-04PMP-1PMP-1…`,
+       * `CHWP-0AHU-15AHU-152`. Whatever route produces that, a tag box has no
+       * business committing one, so it is refused and reported rather than
+       * written and discovered days later. */
+      if (M.looksMangled(v)) {
+        toast('That tag looks like two tags run together — not saved.', 'error');
+        renderProperties();
+        return;
+      }
       pushUndo();
       if (v) p.tag = v; else delete p.tag;
       changed();
@@ -6282,6 +6302,31 @@
       delete holder.axis; delete holder.mid;
       changed(); app.view.render();
       toast('Bend added — drag it where you want it.');
+    });
+
+    /* REPAIR TAGS. Never silent and never automatic: it edits names on a
+     * drawing, so it says exactly what it changed and does nothing if there is
+     * nothing to change. */
+    var repairBtn = $('btn-repair');
+    if (repairBtn) repairBtn.addEventListener('click', function () {
+      var found = [];
+      app.model.pipes.concat(app.model.nodes).forEach(function (o) {
+        if (M.looksMangled(o.tag)) found.push(o);
+      });
+      if (!found.length) { toast('No mangled tags found.'); return; }
+      FD.dialog.confirm({
+        title: 'Repair ' + found.length + ' tag' + (found.length === 1 ? '' : 's') + '?',
+        message: found.slice(0, 12).map(function (o) {
+          return o.id + ':  ' + o.tag + '   \u2192   ' +
+                 String(o.tag).match(/^(.+?)((?:(?:PMP|AHU|TS|SRC|OF|STR)-\d+)+)$/)[1];
+        }).join('\n') + (found.length > 12 ? '\n\u2026 and ' + (found.length - 12) + ' more' : '')
+      }).then(function (yes) {
+        if (!yes) return;
+        pushUndo();
+        var fixed = M.repairTags(app.model);
+        changed(); renderProperties();
+        toast('Repaired ' + fixed.length + ' tag' + (fixed.length === 1 ? '' : 's') + '.');
+      });
     });
 
     $('btn-renumber').addEventListener('click', renumberNodes);
