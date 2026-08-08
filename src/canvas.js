@@ -833,21 +833,50 @@
       /* Device before node: its glyph sits between two nodes only a few hundred
        * millimetres apart, so a click in the middle would otherwise always grab
        * an end node and shear the device instead of moving it. */
-      /* SHIFT ADDS TO THE SELECTION (Michael, 2026-08-08), so a handful of
-       * pipes can be given the same size or schedule in one go. The marquee
-       * already multi-selected; the modifier did not, which meant picking four
-       * specific runs out of a busy drawing was impossible without catching
-       * everything between them.
+      /* TWO MODIFIERS, TWO JOBS (Michael, 2026-08-08).
        *
-       * Shift-clicking something already selected REMOVES it — the other half
-       * of building a set by hand is taking one back out.
+       *   CTRL   add this one to the selection, or take it back out if it is
+       *          already in — building a set by hand.
+       *   SHIFT  select the whole RUN between what is selected and this, by
+       *          shortest path.
        *
-       * A shift-click never starts a DRAG. Moving a device or a node while
-       * adding to a selection is not a gesture anyone means, and it would
-       * silently move geometry during what reads as a selection. Declared HERE,
-       * above the device branch, because that branch selects too. */
-      var adding = !!e.shiftKey;
+       * The second does two things at once: it is the quick way to give a
+       * whole line one size, and it is a CONNECTIVITY CHECK — if the two ends
+       * are not actually joined, nothing is selected and it says so. On a
+       * drawing where a tee looks made and is not, that is the fastest test
+       * available.
+       *
+       * Cmd counts as Ctrl, because on a Mac it is the same gesture.
+       *
+       * NEITHER STARTS A DRAG. Moving a device or a node while assembling a
+       * selection is not a gesture anyone means, and it would silently move
+       * geometry during what reads as a selection. Declared HERE, above the
+       * device branch, because that branch selects too. */
+      var adding = !!(e.ctrlKey || e.metaKey);
+      var pathing = !!e.shiftKey && !adding;
+      var modifying = adding || pathing;
+
       function pick(kind, id) {
+        if (pathing && kind === 'pipe') {
+          /* From the last PIPE in the selection — the one most recently
+           * clicked, which is the end of the run you are tracing. */
+          var fromId = null;
+          for (var i = self.selection.length - 1; i >= 0; i--) {
+            if (self.selection[i].kind === 'pipe') { fromId = self.selection[i].id; break; }
+          }
+          if (!fromId) { self.selection = [{ kind: 'pipe', id: id }]; return; }
+          var run = M.pathBetween(self.getModel(), fromId, id);
+          if (!run) {
+            self.onMessage && self.onMessage(
+              'No pipework connects those two — they are on separate systems.',
+              'error');
+            return;
+          }
+          self.selection = run.map(function (pid) { return { kind: 'pipe', id: pid }; });
+          self.onMessage && self.onMessage(
+            run.length + ' pipe' + (run.length === 1 ? '' : 's') + ' along that run.');
+          return;
+        }
         if (!adding) { self.selection = [{ kind: kind, id: id }]; return; }
         var at = -1;
         self.selection.forEach(function (x, i) {
@@ -863,7 +892,7 @@
         var mSel = self.getModel();
         var da = M.node(mSel, dev.a), db = M.node(mSel, dev.b);
         pick('pipe', dev.id);
-        if (!adding) {
+        if (!modifying) {
           self.dragDevice = {
             pipe: dev, startX: w.x, startY: w.y,
             ax: da.x, ay: da.y, bx: db.x, by: db.y
@@ -875,7 +904,7 @@
       }
       if (n) {
         pick('node', n.id);
-        if (!adding) self.dragNode = { id: n.id, startX: w.x, startY: w.y };
+        if (!modifying) self.dragNode = { id: n.id, startX: w.x, startY: w.y };
       } else {
         var hit = self.pipeAt(w.x, w.y);
         if (hit) {
@@ -885,7 +914,7 @@
            * testing it first would make the node underneath unreachable. */
           var rs = self.riserAt(w.x, w.y);
           if (rs) pick('riser', rs.id);
-          else if (!adding) {
+          else if (!modifying) {
             self.selection = [];
             self.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y };
           }

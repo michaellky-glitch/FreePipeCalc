@@ -7,6 +7,10 @@ Updated 2026-08-08, after v0.15.5.
 
 ---
 
+## Done in v0.15.8
+
+C4 · Q5 (reworked to Ctrl) · Q6 (shift = select the run) — see `Human-Test.md` §5E.
+
 ## Done in v0.15.7
 
 C1 · C7 · A1 · E4 · Q5 — see `Human-Test.md` §5D.
@@ -33,7 +37,6 @@ it is the same fault as "difficulty selecting CHWP-1". Moved up.
 
 | # | Item | Notes |
 |---|---|---|
-| C4 | **Sync links** — pump↔pump VFD %, CV↔CV opening % | What C8's message tells the user to do, so it has to exist. **Next.** |
 | A2 | **Text box does not appear** | Dialog opens, nothing lands on the drawing. |
 | A4 | Details not selectable or editable | |
 | A5 | Detail tool active → palette + thickness in Properties | |

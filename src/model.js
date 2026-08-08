@@ -1479,6 +1479,77 @@
     return host.control;
   }
 
+  /* ============================================ SYNC: FOLLOW ANOTHER DEVICE
+   *
+   * Michael, 2026-08-08. The answer to CONTROL_GANGED: link ONE pump to the
+   * sensor, and have the rest hold whatever position it lands on.
+   *
+   * It is a different relationship from a control link and deliberately a much
+   * simpler one. A control link says "modulate to hold that setpoint" and needs
+   * a search. A sync says "be whatever that one is" — no search, no setpoint,
+   * no possibility of two loops disagreeing, which is exactly the failure it
+   * exists to avoid.
+   *
+   * ONLY LIKE TO LIKE. A pump can sync a pump's speed and a valve a valve's
+   * opening; a pump cannot sync a valve, because a percentage of travel and a
+   * percentage of speed are not the same quantity and pretending otherwise
+   * would produce a number with no meaning. */
+  function canSync(a, b) {
+    if (!a || !b || a === b) return false;
+    if (a.kind === 'pump' && b.kind === 'pump') return true;
+    if (a.kind === 'valve' && b.kind === 'valve') {
+      return canControl(a) && canControl(b);      // globe to globe
+    }
+    return false;
+  }
+
+  function setSync(m, p, leaderId) {
+    var host = (p.kind === 'pump') ? p.pump : p.valve;
+    if (!host) return null;
+    if (!leaderId) { delete host.sync; return null; }
+    var lead = pipe(m, leaderId);
+    if (!canSync(p, lead)) return null;
+    /* A device cannot sync to something that is itself syncing, or a chain
+     * could close on itself and there would be no position to copy. Follow the
+     * chain to its head and sync THAT — which is what the user means anyway. */
+    var seen = {}, head = lead;
+    while (head) {
+      var hh = (head.kind === 'pump') ? head.pump : head.valve;
+      if (!hh || !hh.sync || seen[head.id]) break;
+      seen[head.id] = true;
+      var nxt = pipe(m, hh.sync);
+      if (!nxt || nxt.id === p.id) break;
+      head = nxt;
+    }
+    if (head.id === p.id) return null;
+    host.sync = head.id;
+    /* A synced device follows a position; it cannot also chase a setpoint. */
+    delete host.control;
+    return host.sync;
+  }
+
+  function syncOf(p) {
+    if (!p) return null;
+    var host = (p.kind === 'pump') ? p.pump : (p.kind === 'valve' ? p.valve : null);
+    return (host && host.sync) || null;
+  }
+
+  /* The position a synced device should be at: its leader's. Returns null when
+   * there is no sync, so callers can leave the device alone. */
+  function syncedPosition(m, p) {
+    var lead = pipe(m, syncOf(p));
+    if (!lead) return null;
+    if (p.kind === 'pump' && lead.kind === 'pump') {
+      var s = Number(lead.pump && lead.pump.speed);
+      return isFinite(s) && s > 0 ? Math.min(1, s) : 1;
+    }
+    if (p.kind === 'valve' && lead.kind === 'valve') {
+      var o = Number(lead.valve && lead.valve.opening);
+      return isFinite(o) ? Math.max(0, Math.min(100, o)) / 100 : 1;
+    }
+    return null;
+  }
+
   /* Where an in-line device sits on the drawing: the midpoint of its link. */
   function deviceMid(m, p) {
     if (!p) return null;
@@ -1747,6 +1818,66 @@
    * themselves, and so a file written in dark mode is legible in light. */
   var DETAIL_COLOURS = ['line', 'ok', 'warn', 'error', 'accent', 'select'];
 
+  /* THE SHORTEST RUN OF PIPEWORK BETWEEN TWO PIPES.
+   *
+   * Michael, 2026-08-08: shift-click the far end of a run and everything
+   * between is selected. Two jobs at once — a quick way to give a whole line
+   * the same size, and a CONNECTIVITY CHECK, because if the two ends are not
+   * actually joined the selection comes back empty and says so. On a drawing
+   * where a tee looks made and is not, that is the fastest test there is.
+   *
+   * Breadth-first over the NODE graph, so "shortest" means fewest pipes rather
+   * than least metres — which is what someone tracing a run is counting. Risers
+   * are included: a column IS a connection, and a path that refused to climb
+   * would report two floors of one system as unconnected.
+   *
+   * Returns the pipe ids along the path INCLUDING both ends, or null when there
+   * is no path at all. */
+  function pathBetween(m, fromId, toId) {
+    var from = pipe(m, fromId), to = pipe(m, toId);
+    if (!from || !to) return null;
+    if (fromId === toId) return [fromId];
+
+    var adj = {};
+    m.pipes.forEach(function (p) {
+      (adj[p.a] = adj[p.a] || []).push({ pipe: p.id, to: p.b });
+      (adj[p.b] = adj[p.b] || []).push({ pipe: p.id, to: p.a });
+    });
+
+    /* Start from BOTH ends of the first pipe — a run can be traced in either
+     * direction and neither end is privileged. */
+    var goal = {}; goal[to.a] = true; goal[to.b] = true;
+    var seen = {}, prev = {}, queue = [];
+    [from.a, from.b].forEach(function (id) {
+      if (seen[id]) return;
+      seen[id] = true; prev[id] = null; queue.push(id);
+    });
+
+    var hit = null;
+    for (var i = 0; i < queue.length && !hit; i++) {
+      var here = queue[i];
+      if (goal[here] && (here !== from.a && here !== from.b)) { hit = here; break; }
+      (adj[here] || []).forEach(function (e) {
+        if (seen[e.to] || e.pipe === fromId) return;
+        seen[e.to] = true;
+        prev[e.to] = { node: here, pipe: e.pipe };
+        queue.push(e.to);
+        if (goal[e.to] && !hit) hit = e.to;
+      });
+    }
+    /* The two pipes may simply share a node. */
+    if (!hit && (goal[from.a] || goal[from.b])) return [fromId, toId];
+    if (!hit) return null;
+
+    var out = [toId], at = hit, guard = 0;
+    while (prev[at] && guard++ < 10000) {
+      if (out.indexOf(prev[at].pipe) < 0) out.push(prev[at].pipe);
+      at = prev[at].node;
+    }
+    if (out.indexOf(fromId) < 0) out.push(fromId);
+    return out;
+  }
+
   function clearDevice(m, nodeId) {
     var n = node(m, nodeId);
     if (n) n.device = null;
@@ -1948,6 +2079,9 @@
     pumpSpeed: pumpSpeed,
     pumpSizing: pumpSizing, pumpRunMode: pumpRunMode, generateCurve: generateCurve, pumpCurve: pumpCurve,
     pumpSpeedIgnored: pumpSpeedIgnored, pumpHead: pumpHead,
+    pathBetween: pathBetween,
+    canSync: canSync, setSync: setSync, syncOf: syncOf,
+    syncedPosition: syncedPosition,
     addDetail: addDetail, addNote: addNote,
     removeDetail: removeDetail, removeNote: removeNote,
     DETAIL_COLOURS: DETAIL_COLOURS,

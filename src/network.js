@@ -305,8 +305,25 @@
    * `prev` is the previous solve result (or null on the first pass). Both the
    * tee run/branch split and check-valve seating depend on the previous
    * answer — flows for the former, heads for the latter. */
+  /* EVERY SYNCED DEVICE TAKES ITS LEADER'S POSITION, before the network is
+   * built from it. Done here rather than in the control loop because a sync is
+   * not a control: there is nothing to search for, and a device that merely
+   * copies a position must be correct in DESIGN too, where the loop never runs.
+   *
+   * One pass is enough because `setSync` collapses chains to their head, so no
+   * follower is ever waiting on another follower. */
+  function applySyncs(m) {
+    m.pipes.forEach(function (p) {
+      var x = M.syncedPosition(m, p);
+      if (x === null) return;
+      if (p.kind === 'pump' && p.pump) p.pump.speed = x;
+      else if (p.kind === 'valve' && p.valve) p.valve.opening = Math.round(x * 100);
+    });
+  }
+
   function build(m, prev, opts) {
     var warnings = [];
+    applySyncs(m);
     var flows = prev && prev.flow ? prev.flow : null;
     var simulating = (m.settings.calcMode === 'simulation');
     M.riserPipes(m);                       // materialise vertical riser links
@@ -1396,6 +1413,10 @@
         }
         return;
       }
+      /* A SYNCED DEVICE IS NOT A CONTROLLER. It copies a position; there is
+       * nothing for the loop to search. `setSync` already clears any control
+       * link, so this only catches a hand-edited file. */
+      if (M.syncOf(p)) return;
       var c = M.controlOf(p);
       if (!c) return;
       var tgtPipe = M.pipe(m, c.equip);

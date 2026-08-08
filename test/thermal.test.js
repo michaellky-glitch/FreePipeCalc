@@ -2788,4 +2788,82 @@ section('Integrated control valve and capacity override');
   }
 }
 
+/* =====================================================================
+ * SYNC — the answer to "multiple equipment on one sensor".
+ * ===================================================================== */
+section('A synced pump holds its leader\u2019s speed');
+{
+  const m = M.create();
+  m.settings.calcMode = 'simulation';
+  const lv = m.levels[0].id;
+  const inlet = M.addNode(m, lv, 0, 0), hdr = M.addNode(m, lv, 12, 0);
+  M.setSource(m, inlet.id, 0);
+  const pumps = [];
+  for (let i = 0; i < 3; i++) {
+    const a = M.addNode(m, lv, 4, (i - 1) * 4), b = M.addNode(m, lv, 8, (i - 1) * 4);
+    M.addPipe(m, inlet.id, a.id, { size: 'DN65', schedule: 'sch40' });
+    const p = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+    p.pump = { mode: 'fixed', sizing: 'manual', head: 25, qDesign: 0.004, hDesign: 25 };
+    p.pump.curve = FD.pumps.fit([{ q: 0, h: 35 }, { q: 0.004, h: 25 }, { q: 0.006, h: 16 }]);
+    p.tag = 'P' + (i + 1);
+    M.addPipe(m, b.id, hdr.id, { size: 'DN65', schedule: 'sch40' });
+    pumps.push(p);
+  }
+  const c1 = M.addNode(m, lv, 20, 0), c2 = M.addNode(m, lv, 26, 0);
+  M.addPipe(m, hdr.id, c1.id, { size: 'DN65', schedule: 'sch40' });
+  const coil = M.addPipe(m, c1.id, c2.id, { kind: 'equip' });
+  coil.equip = { qRated: 0.009, pdRated: 120e3, equipType: 'exchanger', duty: 60000 };
+  M.addPipe(m, c2.id, inlet.id, { size: 'DN65', schedule: 'sch40' });
+  const sN = M.addNode(m, lv, 13, 0);
+  const sens = M.addPipe(m, hdr.id, sN.id, { kind: 'sensor' });
+  const refN = M.addNode(m, lv, 27, 0);
+  const ref = M.addPipe(m, c2.id, refN.id, { size: 'DN65', schedule: 'sch40' });
+  sens.sensor = { mode: 'dP', ref: ref.id, dpSet: 100e3 };
+  m.pipes.forEach(x => { x.insulation_mm = 0; });
+
+  /* MICHAEL'S ARRANGEMENT: one linked, the rest synced to it. */
+  M.setControl(m, pumps[0], sens.id);
+  ok('P2 can sync a pump', !!M.setSync(m, pumps[1], pumps[0].id));
+  ok('P3 too', !!M.setSync(m, pumps[2], pumps[0].id));
+
+  const res = NET.solveModel(m);
+  ok('No gang warning — only one is linked',
+     !(res.warnings || []).some(w => w.code === 'CONTROL_GANGED'),
+     JSON.stringify((res.warnings || []).map(w => w.code)));
+
+  const speeds = pumps.map(p => M.pumpSpeed(m, p));
+  ok('All three end at the same speed',
+     Math.max.apply(null, speeds) - Math.min.apply(null, speeds) < 1e-9,
+     speeds.map(s => (s * 100).toFixed(1) + '%').join(' / '));
+  ok('...and it is the LEADER that was searched',
+     res.controls.devices.length === 1 &&
+     res.controls.devices[0].pipe === pumps[0].id,
+     JSON.stringify(res.controls.devices.map(d => d.tag)));
+
+  const flows = pumps.map(p => Math.abs(res.flow[p.id]));
+  const spread = (Math.max.apply(null, flows) - Math.min.apply(null, flows)) /
+                 Math.max.apply(null, flows);
+  ok('...so they share the flow', spread < 0.02,
+     flows.map(q => (q * 1000).toFixed(3)).join(' / '));
+
+  /* A SYNC IS NOT A CONTROL — setting one clears the link, so the two can never
+   * both be trying to write the same actuator. */
+  M.setControl(m, pumps[1], sens.id);
+  M.setSync(m, pumps[1], pumps[0].id);
+  ok('Syncing clears any control link', !M.controlOf(pumps[1]));
+
+  /* AND ONLY LIKE TO LIKE. A percentage of travel and a percentage of speed are
+   * not the same quantity. */
+  const val = M.addPipe(m, c1.id, c2.id, { kind: 'valve' });
+  val.valve = { type: 'globe', kv: 20, opening: 100 };
+  ok('A pump cannot sync a valve', !M.canSync(pumps[0], val));
+  ok('...nor a valve a pump', !M.canSync(val, pumps[0]));
+
+  /* A CHAIN collapses to its head, so nothing waits on a follower. */
+  M.setSync(m, pumps[2], pumps[1].id);
+  ok('Syncing to a follower syncs to the head instead',
+     M.syncOf(pumps[2]) === pumps[0].id, M.syncOf(pumps[2]));
+  ok('A device cannot sync itself', M.setSync(m, pumps[0], pumps[0].id) === null);
+}
+
 report();

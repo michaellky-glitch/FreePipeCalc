@@ -2615,4 +2615,56 @@ section('Routes can be taken over by hand');
      !!r4.midSeg && r4.midSeg.length === 2);
 }
 
+/* =====================================================================
+ * THE RUN BETWEEN TWO PIPES — shift-click selection, and a connectivity test.
+ * ===================================================================== */
+section('pathBetween: the shortest run of pipework');
+{
+  const m = M.create();
+  const lv = m.levels[0].id;
+  /* A straight run of five, with a spur off the middle and an island. */
+  const n = [];
+  for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 3, 0));
+  const run = [];
+  for (let i = 0; i < 5; i++) {
+    run.push(M.addPipe(m, n[i].id, n[i + 1].id, { size: 'DN50', schedule: 'sch40' }));
+  }
+  const sp = M.addNode(m, lv, 9, 5);
+  const spur = M.addPipe(m, n[3].id, sp.id, { size: 'DN32', schedule: 'sch40' });
+  const i1 = M.addNode(m, lv, 40, 0), i2 = M.addNode(m, lv, 43, 0);
+  const island = M.addPipe(m, i1.id, i2.id, { size: 'DN50', schedule: 'sch40' });
+
+  const whole = M.pathBetween(m, run[0].id, run[4].id);
+  ok('End to end returns the whole run', whole && whole.length === 5,
+     whole ? whole.length + ': ' + whole.join(',') : 'null');
+  ok('...including both ends',
+     whole.indexOf(run[0].id) >= 0 && whole.indexOf(run[4].id) >= 0);
+  ok('...and nothing off it', whole.indexOf(spur.id) < 0);
+
+  const two = M.pathBetween(m, run[1].id, run[2].id);
+  ok('Two adjacent pipes are just the two', two && two.length === 2,
+     two ? two.join(',') : 'null');
+
+  const same = M.pathBetween(m, run[2].id, run[2].id);
+  ok('A pipe to itself is itself', same && same.length === 1 && same[0] === run[2].id);
+
+  /* THE SPUR: the shortest way onto it goes along the run to the tee. */
+  const toSpur = M.pathBetween(m, run[0].id, spur.id);
+  ok('A spur is reached through the tee', toSpur && toSpur.indexOf(spur.id) >= 0);
+  ok('...by the shortest route, not the long way', toSpur.length === 4,
+     toSpur.length + ': ' + toSpur.join(','));
+
+  /* THE CONNECTIVITY TEST, which is half the reason this exists. */
+  ok('Nothing connects an island', M.pathBetween(m, run[0].id, island.id) === null);
+
+  /* Joining it must make the answer change — the check has to be live, not a
+   * property of how the model was drawn. */
+  M.addPipe(m, n[5].id, i1.id, { size: 'DN50', schedule: 'sch40' });
+  const joined = M.pathBetween(m, run[0].id, island.id);
+  ok('...until it is joined', joined && joined.length === 7,
+     joined ? joined.length + '' : 'null');
+
+  ok('A missing pipe is null, not a crash', M.pathBetween(m, run[0].id, 'P999') === null);
+}
+
 report();

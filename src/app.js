@@ -2070,6 +2070,49 @@
     var sec = section(host, 'Control');
     var picking = !!(app.view.controlPick && app.view.controlPick.pipeId === p.id);
 
+    /* ---- SYNC: FOLLOW ANOTHER DEVICE ---------------------------------
+     *
+     * The answer to "multiple equipment connected to a single sensor": link one
+     * to the sensor, and set the rest to follow it. Offered above the control
+     * link because it is the simpler relationship — no setpoint, no search, no
+     * two loops to disagree — and because a device that is syncing has no use
+     * for the rest of this section. */
+    var syncId = M.syncOf(p);
+    var candidates = m.pipes.filter(function (q) { return M.canSync(p, q); });
+    if (candidates.length) {
+      var syncSel = el('select');
+      var none = el('option', '', '\u2014 not synced \u2014'); none.value = '';
+      syncSel.appendChild(none);
+      candidates.forEach(function (q) {
+        var o = el('option', '', q.tag || q.id); o.value = q.id;
+        if (q.id === syncId) o.selected = true;
+        syncSel.appendChild(o);
+      });
+      field(sec.box, 'Sync ' + (p.kind === 'pump' ? 'VFD %' : 'opening %') + ' with',
+            syncSel);
+      infoMark(fieldLabel(syncSel),
+               'Hold whatever position that device lands on. Use it when several ' +
+               'machines share a header: link ONE to the sensor and sync the ' +
+               'rest to it, rather than pointing them all at the same sensor.');
+      syncSel.addEventListener('change', commit(function () {
+        pushUndo();
+        M.setSync(m, p, syncSel.value || null);
+        changed(); renderProperties();
+      }));
+    }
+    if (syncId) {
+      var lead = M.pipe(m, syncId);
+      sec.ro('Monitoring', lead ? (lead.tag || lead.id) : syncId);
+      var pos = M.syncedPosition(m, p);
+      sec.ro('Now holding',
+             (p.kind === 'pump' ? 'VFD ' : 'Opening ') +
+             Math.round((pos === null ? 1 : pos) * 100) + '%');
+      sec.box.appendChild(el('p', 'hint',
+        'Synced devices do not chase a setpoint of their own \u2014 clear the ' +
+        'sync to give this one its own control link.'));
+      return;
+    }
+
     sec.ro('Monitoring', target ? (target.tag || target.id) : '\u2014');
     var row = el('div', 'btn-row');
     if (!c || picking) {
