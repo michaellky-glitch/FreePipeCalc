@@ -203,6 +203,30 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 5H. THE LOST SETPOINTS, AND ANNOTATION (v0.16.1)
+
+### The lost setpoints — you were right, and there were two separate things
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| LS.1 | **The reported error was stale** | ✅ | CHWP-01 reported `err −0.086 K` on a 30 °C setpoint while its sensor read **32.76 °C**. `error` was carried over from the last probe of that device's search; the sweep then settles *other* devices and moves the plant out from under it. It is now re-derived as `measured − target` from the same state the rest of the row is read from, so the three numbers can no longer contradict each other. |
+| LS.2 | ...and so was the state | ✅ | It said `on` — holding — while 2.8 K out. If the final measurement is outside the deadband the device is not holding, whatever the search concluded. Now reported `unsettled`, with `driftedAfterSearch` set so the cause is distinguishable from a device that never settled at all. |
+| LS.3 | **Why the plant will not ramp up — your point, confirmed** | ⬜ | **Every chiller and tower says `limit: Design ΔT`, and none is near its capacity.** CT-01: 421 kW of 836 (50%), inlet 49.2 → outlet 39.2, i.e. exactly its 10 K Design ΔT. ACCH-01: 269 kW of 800 (34%), 39.2 → 24.2, exactly 15 K. The machines are not out of capacity — they are refusing to work harder because ΔT is treated as a hard clamp on the temperature change **at any flow**. |
+| LS.4 | So the AHUs starve | ⬜ | All 14 at 89–91% of rated flow, EWT 31–32.6 °C, ICVs wide open. The loop cannot get cold because the plant will not take more than its design ΔT out of it. |
+| LS.5 | **This is a modelling decision I want your ruling on** | ⚠️ | Design ΔT is the ΔT **at design flow**. At part flow the same machine moving the same duty produces a *larger* ΔT — Q = ṁ·Cp·ΔT. Clamping ΔT at any flow therefore caps the duty at `ṁ·Cp·ΔT_design`, which *falls as flow falls*: the model says reducing flow through a chiller reduces its capacity, which is backwards. **My recommendation:** `qMax` should be the capacity limit, and Design ΔT should be a design-point statement used to derive it — not a runtime clamp. That is a change to the physics of every existing model, so I have not made it. Say the word. |
+
+### Annotation batch
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| A3 | Detail lines snap | ✅ | 15° bearing **and** grid, using the pipe tool's rule: the grid constrains the LENGTH ALONG the bearing, not the position. Snapping position instead pulled a 15° aim to 14.04°, because the nearest grid intersection is almost never on the ray. Verified: four aims at 14.6/46.1/73.1/170.1° land on exactly 15/45/75/165°, each at a 0.5 m multiple of length. Shift frees both. |
+| A5 | DETAIL tool shows its settings | ✅ | Palette and line width for the *next* line, since with the tool active there is nothing selected to describe. Changing the tool's colour pushes no undo — undo should take back the line you drew, not the colour you were about to draw in. |
+| A6 | `ADD LINK NODE`, and click-to-place | ✅ | Renamed. With nothing selected the button now ARMS: the next click on any control link or ΔP route puts a bend exactly where you point, snapped, then disarms. Selecting the device first still adds one at the longest segment's midpoint. Verified: a 4-point route became 5 with the new bend at the clicked position. |
+| A7 | Route handles are easier to grab | ✅ | 14 px → 22 px. They often sit on a pipe that is also asking for the click. |
+| A1 | No arrow at zero flow | ✅ | (v0.15.7) |
+| A2 | Text box | ⬜ | Still open. The note IS created on the active level with the right text — so this is a drawing or hit-test problem, not a model one. Next. |
+| A4 | Details selectable | ⬜ | Wired in the SELECT (arrange) tool; while the DETAIL tool is active a click erases instead, which may be what you hit. Worth retesting now A5 makes the tool's state visible. |
+
 ## 5G. PERFORMANCE, AND STATIC SIMULATION (v0.16.0)
 
 | # | What | Status | Notes |

@@ -1583,6 +1583,11 @@
 
     // TRACE mode shows the background drawing's own controls instead
     if (app.view.tool === 'trace') { renderTraceProps(host); return; }
+    /* THE DETAIL TOOL'S OWN PANEL — what the NEXT line will be, since with the
+     * tool active there is nothing selected to describe. Michael, 2026-08-08.
+     * The same palette the per-line panel offers, so the control does not
+     * change shape depending on how you got to it. */
+    if (app.view.tool === 'detail') { renderDetailToolProps(host); return; }
     if (app.showAnnotations) { renderAnnotationProps(host); return; }
     if (app.view.tool === 'align') {
       host.appendChild(el('h3', '', 'Align model'));
@@ -1616,7 +1621,7 @@
    * both are Details (what it is) and a colour, and neither has a Design, an
    * Actual or a Control — they are not part of the model and never will be.
    * That absence is the point, so the panel says it. */
-  function annotationColourRow(sec, obj) {
+  function annotationColourRow(sec, obj, noUndo) {
     var wrap = el('div', 'field');
     wrap.appendChild(el('label', '', 'Colour'));
     var row = el('div', 'btn-row');
@@ -1625,12 +1630,45 @@
       sw.type = 'button';
       sw.title = name;
       sw.addEventListener('click', function () {
-        pushUndo(); obj.colour = name; changed(); renderProperties();
+        /* Changing the TOOL's colour is not a model edit and must not push an
+         * undo step — undo should take back the line you drew, not the colour
+         * you were about to draw it in. */
+        if (!noUndo) pushUndo();
+        obj.colour = name;
+        if (!noUndo) changed();
+        renderProperties();
       });
       row.appendChild(sw);
     });
     wrap.appendChild(row);
     sec.box.appendChild(wrap);
+  }
+
+  function renderDetailToolProps(host) {
+    var v = app.view;
+    if (!v.detailColour_) v.detailColour_ = 'line';
+    if (!v.detailWidth_) v.detailWidth_ = 1.5;
+    host.appendChild(el('h3', '', 'Detail line'));
+    var sec = section(host, 'Details');
+    /* A plain object rather than a model item — these are the tool's settings,
+     * not a thing on the drawing, and `annotationColourRow` only needs
+     * something with a `colour`. */
+    var proxy = {
+      get colour() { return v.detailColour_; },
+      set colour(c) { v.detailColour_ = c; }
+    };
+    annotationColourRow(sec, proxy, true);
+    var wIn = el('input'); wIn.type = 'text'; wIn.value = String(v.detailWidth_);
+    field(sec.box, 'Line width (px)', wIn).addEventListener('change', commit(function () {
+      var n = FD.units.parse(wIn.value);
+      if (isFinite(n) && n > 0) v.detailWidth_ = Math.min(8, n);
+      renderProperties();
+    }));
+    sec.box.appendChild(el('p', 'hint',
+      'Click to place vertices \u2014 they snap to 15\u00b0 and to the grid, ' +
+      'Shift frees both. Esc finishes. Clicking an existing line erases it.'));
+    sec.box.appendChild(el('p', 'hint',
+      'Drawing only. Nothing in the calculation ever reads these.'));
   }
 
   function renderDetailProps(host, d) {
@@ -6341,8 +6379,18 @@
      * gesture on it would be a guess. */
     var linkNodeBtn = $('btn-link-node');
     if (linkNodeBtn) linkNodeBtn.addEventListener('click', function () {
+      /* ARMED, rather than acting immediately: the next click on any route puts
+       * a bend exactly there. Michael, 2026-08-08 — the button used to add one
+       * at the longest segment's midpoint, which is a fine default and not what
+       * you want when you can see where it should go. Selecting the device
+       * first still works, so nothing that used to be possible has gone. */
       var sel = (app.view.selection || []).filter(function (x) { return x.kind === 'pipe'; });
-      if (sel.length !== 1) { toast('Select the pump, valve or sensor whose link you want to bend.', 'error'); return; }
+      if (sel.length !== 1) {
+        app.view.addLinkNode = true;
+        app.view.setTool('view');
+        toast('Click anywhere on a control link or ΔP route to put a bend there.');
+        return;
+      }
       var p = M.pipe(app.model, sel[0].id);
       var host = p && (p.kind === 'sensor' ? p.sensor
                      : p.kind === 'pump' ? p.pump

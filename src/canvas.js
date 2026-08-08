@@ -678,6 +678,23 @@
       }
 
       if (self.tool === 'view') {
+        /* ARMED BY "ADD LINK NODE": the next click on a route puts a bend where
+         * it landed, then disarms. One click, one bend — arming that stayed on
+         * would scatter them. */
+        if (self.addLinkNode) {
+          var rp = self.routePointAt(w.x, w.y, 12);
+          self.addLinkNode = false;
+          if (rp) {
+            self.onBeforeEdit();
+            self.addRouteNodeAt(rp);
+            self.onMessage('Bend added — drag it where you want it.');
+            self.changed();
+          } else {
+            self.onMessage('No control link or ΔP route there.', 'error');
+            self.render();
+          }
+          return;
+        }
         var ch = self.controlHandleAt(sx, sy);
         if (ch) {
           self.dragControl = { pipe: ch.pipe, host: ch.host, key: ch.key,
@@ -776,7 +793,14 @@
           self.changed();
           return;
         }
-        var dp = self.snapWorld(w);
+        /* SNAPPED, like pipework (Michael, 2026-08-08). A detail line is
+         * drawing a room or a plant box over a drawing that is entirely
+         * orthogonal, so a free-hand vertex is almost never what is wanted.
+         * The first point takes the grid; every one after also takes the 15°
+         * constraint from the point before it, and Shift frees both — the same
+         * two rules the PIPE tool has, so the hand does not have to learn a
+         * second set. */
+        var dp = self.detailTarget(w);
         if (!self.detailDraft) self.detailDraft = { pts: [dp] };
         else {
           var lastP = self.detailDraft.pts[self.detailDraft.pts.length - 1];
@@ -1379,6 +1403,7 @@
      * you had stopped trying to link. */
     this.controlPick = null;
     this.refPick = null;
+    if (tool !== 'view') this.addLinkNode = false;
     if (this.detailDraft && tool !== 'detail') this.endDetail();
     this.canvas.style.cursor = (tool === 'edit') ? 'default'
                             : (tool === 'view' || tool === 'trace' || tool === 'align') ? 'move'
@@ -1412,13 +1437,40 @@
 
   /* Commit the detail line being drawn. Two points is the minimum that means
    * anything; a single click is a mis-click and is discarded silently. */
+  /* WHERE A DETAIL VERTEX LANDS.
+   *
+   * The same two rules the PIPE tool follows, and for the same reason: the
+   * bearing is 15°-constrained, and the GRID then constrains the LENGTH ALONG
+   * THAT BEARING rather than the position. Snapping the position instead pulls
+   * the point off the angle — a 15° aim came out at 14.04° — because the nearest
+   * grid intersection is almost never on the ray. Preserving the bearing and
+   * quantising the distance keeps both promises at once.
+   *
+   * The first vertex has no bearing to keep, so it simply takes the grid.
+   * Shift frees both, as everywhere else. */
+  View.prototype.detailTarget = function (w) {
+    if (!this.detailDraft || !this.detailDraft.pts.length) return this.snapWorld(w);
+    var a = this.detailDraft.pts[this.detailDraft.pts.length - 1];
+    var aim = this.angleSnap(a.x, a.y, w.x, w.y);
+    var m = this.getModel(), g = m.settings.grid;
+    if (this.shiftDown || !g || !g.snap || !(g.minor > 0)) return aim;
+    var dx = aim.x - a.x, dy = aim.y - a.y;
+    var len = Math.hypot(dx, dy);
+    if (!(len > 1e-9)) return aim;
+    var snapped = Math.round(len / g.minor) * g.minor;
+    if (!(snapped > 1e-9)) return aim;
+    return { x: a.x + dx / len * snapped, y: a.y + dy / len * snapped };
+  };
+
   View.prototype.endDetail = function () {
     var d = this.detailDraft;
     this.detailDraft = null;
     if (d && d.pts.length >= 2) {
       var m = this.getModel();
       this.onBeforeEdit();
-      M.addDetail(m, m.activeLevel, d.pts, { colour: this.detailColourName || 'line' });
+      M.addDetail(m, m.activeLevel, d.pts,
+                  { colour: this.detailColour_ || 'line',
+                    width: this.detailWidth_ || 1.5 });
       this.changed();
     } else {
       this.render();
@@ -2986,7 +3038,11 @@
              * bubble (index 0 in `grabs`) is not a bend — it rides the middle
              * segment — so it keeps the old whole-route behaviour. */
             vertex: gi === 0 ? null : gi - 1,
-            x: g.x - 7, y: g.y - 7, w: 14, h: 14
+            /* A ROUTE HANDLE OFTEN SITS ON A PIPE, and a 14 px target under a
+             * pipe that is also asking for the click is hard to hit — Michael,
+             * 2026-08-08. 22 px is a comfortable target and still small enough
+             * that two adjacent bends do not overlap. */
+            x: g.x - 11, y: g.y - 11, w: 22, h: 22
           });
         });
         /* AND THE FAR TAPPING SLIDES ALONG ITS OWN PIPE (Michael, 2026-08-06).
@@ -2997,7 +3053,7 @@
         self.labelHandle(lastP.x - 5, lastP.y - 5, 10, 10);
         self._controlHandles.push({
           pipe: p, host: p.sensor, key: 'refT', tap: true,
-          x: lastP.x - 7, y: lastP.y - 7, w: 14, h: 14
+          x: lastP.x - 11, y: lastP.y - 11, w: 22, h: 22
         });
       }
 
@@ -4093,7 +4149,10 @@
         ctx.lineTo(dq.x, dq.y);
       }
       if (this.cursor) {
-        var cq = this.toScreen(this.cursor.x, this.cursor.y);
+        /* The preview obeys the same rule as the click, or the line jumps when
+         * you commit it. */
+        var aimD = this.detailTarget(this.cursor);
+        var cq = this.toScreen(aimD.x, aimD.y);
         ctx.lineTo(cq.x, cq.y);
       }
       ctx.stroke();
@@ -4258,7 +4317,7 @@
             pipe: p, host: (p.kind === 'pump') ? p.pump : p.valve, key: 'control',
             axis: r.axis, from: r.from, to: r.to, route: r,
             vertex: j - 1,
-            x: pts[j].x - 6, y: pts[j].y - 6, w: 12, h: 12
+            x: pts[j].x - 11, y: pts[j].y - 11, w: 22, h: 22
           });
         }
       }
@@ -4280,6 +4339,56 @@
     if (this.shiftDown || !g || !g.snap || !(g.minor > 0)) return { x: w.x, y: w.y };
     return { x: Math.round(w.x / g.minor) * g.minor,
              y: Math.round(w.y / g.minor) * g.minor };
+  };
+
+  /* THE POINT ON A CONTROL OR ΔP ROUTE NEAREST A CLICK.
+   *
+   * Michael, 2026-08-08: "User should be able to click on any point on any link
+   * (with snap) to add a node there." Adding a bend at the longest segment's
+   * midpoint is a reasonable default, but the useful gesture is putting one
+   * exactly where you are pointing.
+   *
+   * Returns what is needed to insert it: the route's owner, which segment was
+   * hit, and the snapped world point. */
+  View.prototype.routePointAt = function (wx, wy, tolPx) {
+    var m = this.getModel(), self = this, best = null, bestD = Infinity;
+    var tol = this.pxToM(tolPx || 10);
+    function consider(p, host, key, route) {
+      if (!route) return;
+      var na = M.node(m, p.a);
+      if (!na || na.level !== m.activeLevel) return;
+      for (var i = 1; i < route.points.length; i++) {
+        var r = self._distToSeg(wx, wy, route.points[i - 1], route.points[i]);
+        if (r.dist < tol && r.dist < bestD) {
+          bestD = r.dist;
+          best = { pipe: p, host: host, key: key, route: route, seg: i,
+                   point: self.snapWorld(r.point) };
+        }
+      }
+    }
+    m.pipes.forEach(function (p) {
+      if (p.kind === 'sensor' && p.sensor) {
+        consider(p, p.sensor, 'route', M.sensorRoute(m, p));
+      }
+      var c = M.controlOf(p);
+      if (c) {
+        consider(p, p.kind === 'pump' ? p.pump : p.valve, 'control',
+                 M.controlRoute(m, p));
+      }
+    });
+    return best;
+  };
+
+  /* Put a bend exactly where the click landed. */
+  View.prototype.addRouteNodeAt = function (hit) {
+    if (!hit) return false;
+    var holder = hit.host[hit.key] || (hit.host[hit.key] = {});
+    var pts = M.routeWaypoints(hit.route);
+    /* `seg` indexes into `points`, whose interior is `pts` offset by one. */
+    pts.splice(hit.seg - 1, 0, { x: hit.point.x, y: hit.point.y });
+    holder.pts = pts;
+    delete holder.axis; delete holder.mid;
+    return true;
   };
 
   View.prototype.controlHandleAt = function (sx, sy) {

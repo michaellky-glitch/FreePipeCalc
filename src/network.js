@@ -2115,13 +2115,43 @@
           ? lead.gang.map(function (pr) { return pr.act.pipe.tag || pr.act.pipe.id; })
           : null,
         actual: measured,
-        error: r.error === undefined ? null : r.error,
+        /* THE ERROR IS RE-DERIVED FROM WHAT IS ACTUALLY MEASURED, not carried
+         * over from the search result.
+         *
+         * `r.error` is whatever the last probe of that device's search saw. The
+         * sweep then moves on and settles OTHER devices, which changes the
+         * plant underneath it — so by the time the answer is reported the two
+         * can disagree badly. On `20260808-DC-broken` CHWP-01 reported an error
+         * of −0.086 K against a measured 32.76 °C on a 30 °C setpoint: the
+         * panel said "holding" while the sensor was 2.8 K out. Michael asked to
+         * look at the lost setpoints, 2026-08-08, and this is why they did not
+         * add up.
+         *
+         * Measured minus target, from the same `cur` the rest of the row is
+         * read from, so the three numbers on the panel can no longer contradict
+         * each other. */
+        error: (measured === null || measured === undefined)
+          ? null : (measured - pair.target),
         value: pair.act.get(), min: pair.act.min,
         /* `idle` is an internal signal — "at full travel, nothing to do" — and
          * the answer it describes is simply that the setpoint is met. */
         state: (r.state === 'idle') ? 'on' : (r.state || 'on'),
+        /* Kept so the reason a device stopped searching is still readable, now
+         * that `state` is re-judged from the measurement below. */
+        searchState: r.state || null,
         idle: r.state === 'idle'
       };
+      /* AND THE STATE FOLLOWS THE MEASUREMENT. A device reported as `on` while
+       * its sensor is nearly three kelvin out is the same lie the stale error
+       * was — the search finished happily, and then the rest of the sweep moved
+       * the plant out from under it. If the final answer is outside the
+       * deadband it is not holding, whatever the search concluded. */
+      if (d.state === 'on' && d.error !== null &&
+          Math.abs(d.error) > Math.max(tolFor(pair), pair.floorErr || 0)) {
+        d.state = 'unsettled';
+        d.driftedAfterSearch = true;
+      }
+
       var name = d.tag || d.pipe, eqName = d.equipTag || d.equip;
       /* The setpoint may be a temperature or a flow, so the units come from
        * the target rather than being assumed to be kelvin. */

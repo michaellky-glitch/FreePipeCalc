@@ -21,6 +21,17 @@ Michael present to test. Slicing at the DEVICE boundary was tried in v0.16.0 and
 backed out: one device's search is ~15 solves, so it still blocked for seconds,
 and each resumed slice re-ran all the non-control work.
 
+## Done in v0.16.1
+
+LS.1 · LS.2 (stale control error and state) · A3 · A5 · A6 · A7 — `Human-Test.md` §5H.
+
+**Waiting on Michael: LS.5** — whether Design ΔT should stop clamping the duty
+at part flow. It is why the chillers sit at 26–50% of capacity and the AHUs
+starve, and fixing it changes the physics of every existing model.
+
+Still open in the batch: **A2** (text box does not appear) and **A4** (details
+selectable).
+
 ## Done in v0.16.0
 
 Selection no longer solves · STATIC/DYNAMIC · skyline SPD solve · progress bar
