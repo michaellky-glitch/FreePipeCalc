@@ -2984,6 +2984,9 @@
       }
     }
 
+    // ---------------------------------------------------------- L2 CONTROL
+    if (!isAdiabatic) equipControlSection(host, p);
+
     // ---------------------------------------------------------- L2 DISPLAY
     displayChecks(host, p, isAdiabatic ? [
       { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
@@ -3005,6 +3008,113 @@
       changed(); renderProperties();
     });
     host.appendChild(del);
+  }
+
+  /* ============================================ L2 CONTROL, ON EQUIPMENT
+   *
+   * Michael, 2026-08-08. Two controls, and they are different KINDS of thing:
+   *
+   *   INTEGRATED CONTROL VALVE  a valve that is part of the machine rather than
+   *                             drawn beside it, holding that machine's own ΔT.
+   *                             It is what an AHU actually ships with, and
+   *                             drawing the valve, the sensor and the link by
+   *                             hand for every coil on a 60-coil model is three
+   *                             gestures that never say anything different.
+   *
+   *   CAPACITY OVERRIDE         a percentage on the stated duty. Not a control
+   *                             at all in the plant sense — a way of asking
+   *                             "what if this coil were at 40%?" without
+   *                             retyping the load and losing the design figure.
+   */
+  function equipControlSection(host, p) {
+    var m = app.model, e = p.equip;
+    var sec = section(host, 'Control');
+
+    /* ---- INTEGRATED CONTROL VALVE ------------------------------------- */
+    var hasICV = !!e.icv;
+    switchRow(sec.box, 'Integrated control valve', hasICV, function (on) {
+      pushUndo();
+      if (on) {
+        /* Same defaults a drawn control valve gets, so the two behave
+         * identically — this is a placement convenience, not a second kind of
+         * valve with its own rules. */
+        e.icv = { kv: FD.valves.defaultKv('globe', M.pipeBore(m, p) * 1000),
+                  opening: 100 };
+      } else {
+        delete e.icv;
+      }
+      changed(); renderProperties();
+    });
+    if (hasICV) {
+      infoMark(sec.box.lastChild,
+               'A globe valve built into the machine, holding this machine\u2019s ' +
+               'own Design ΔT. Equivalent to drawing a control valve in the ' +
+               'branch and linking it here — it just saves doing that on every ' +
+               'coil.');
+      var useCv = (m.settings.display.valveCoef === 'Cv');
+      var kvIn = el('input'); kvIn.type = 'text';
+      kvIn.value = useCv ? FD.valves.kvToCv(e.icv.kv).toFixed(1) : String(e.icv.kv);
+      field(sec.box, useCv ? 'Valve Cv' : 'Valve Kv', kvIn)
+        .addEventListener('change', commit(function () {
+          var val = FD.units.parse(kvIn.value);
+          if (!(isFinite(val) && val > 0)) { renderProperties(); return; }
+          pushUndo();
+          e.icv.kv = useCv ? Math.round(FD.valves.cvToKv(val) * 10) / 10 : val;
+          changed(); renderProperties();
+        }));
+      pctSlider(sec.box, 'Valve position (%)',
+                e.icv.opening === undefined ? 100 : e.icv.opening,
+                function (n) { pushUndo(); e.icv.opening = n; changed(); renderProperties(); },
+                (m.settings.calcMode === 'simulation')
+                  ? 'Held by the machine\u2019s own \u0394T in SIMULATION — the solve writes it.'
+                  : null);
+      sec.ro('Holding', 'Design \u0394T of ' + (p.tag || p.id));
+    }
+
+    /* ---- CAPACITY OVERRIDE -------------------------------------------- */
+    var ovOn = (e.loadPct !== undefined && e.loadPct !== null);
+    switchRow(sec.box, 'Capacity override', ovOn, function (on) {
+      pushUndo();
+      if (on) e.loadPct = 100; else delete e.loadPct;
+      changed(); renderProperties();
+    });
+    if (ovOn) {
+      pctSlider(sec.box, 'Capacity (%)', e.loadPct, function (n) {
+        pushUndo(); e.loadPct = n; changed(); renderProperties();
+      }, 'Scales the stated load. The DESIGN figure above is untouched, so the ' +
+         'machine is still on the schedule at its full duty — this only asks ' +
+         'what it does at part load.');
+      var full = Number(e.equipType === 'source' ? e.qMax : e.duty) || 0;
+      sec.ro('Effective', ((Math.abs(full) * e.loadPct / 100) / 1000).toFixed(2) +
+             ' kW ' + (full < 0 ? 'cooling' : 'heating'));
+    }
+  }
+
+  /* A 0-100% slider with an exact-entry box beside it. The same control the
+   * valve panel uses; named so the three places that want one agree. */
+  function pctSlider(host, label, value, apply, note) {
+    var wrap = el('div', 'field');
+    wrap.appendChild(el('label', '', label));
+    var row = el('div', 'slider-row');
+    var sl = el('input');
+    sl.type = 'range'; sl.min = '0'; sl.max = '100'; sl.step = '1';
+    sl.value = String(Math.round(value));
+    var box = el('input', 'cell-input tiny-num');
+    box.type = 'text'; box.value = sl.value;
+    function set(v) {
+      var n = Math.max(0, Math.min(100, Math.round(Number(v))));
+      if (!isFinite(n)) return;
+      sl.value = String(n); box.value = String(n);
+      apply(n);
+    }
+    sl.addEventListener('input', function () { box.value = sl.value; });
+    sl.addEventListener('change', commit(function () { set(sl.value); }));
+    box.addEventListener('change', commit(function () { set(box.value); }));
+    row.appendChild(sl); row.appendChild(box);
+    wrap.appendChild(row);
+    if (note) wrap.appendChild(el('span', 'hint', note));
+    host.appendChild(wrap);
+    return { slider: sl, box: box };
   }
 
   /* A COOLING LOAD READS POSITIVE (Michael, 2026-08-06): "Cooling Load : xxx
@@ -3214,7 +3324,7 @@
                    'MAXIMUM, a cooling coil by a MINIMUM.';
       tlSw.appendChild(el('span', 'switch-track', ''));
       tlSw.appendChild(el('span', 'switch-label', isMax ? 'Max' : 'Min'));
-      var tlIn = el('input', 'cell-input');
+      var tlIn = el('input', 'cell-input num-left');
       tlIn.type = 'text';
       tlIn.value = (e.tLimit === undefined || e.tLimit === null) ? '' : e.tLimit;
       tlIn.addEventListener('change', function () {

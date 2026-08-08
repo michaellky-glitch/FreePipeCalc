@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1649
+This is deliberately separate from the automated suites. Those cover 1660
 assertions of engine behaviour (all passing), but they
 cannot tell you whether a button is
 discoverable, whether a drawing prints legibly, or whether a result *looks*
@@ -202,6 +202,19 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
+
+## 5C. EQUIPMENT CONTROLS, AND FOUR SMALL ONES (v0.15.6)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| EQ.1 | **Integrated control valve** | ✅ | A globe valve built into the machine, holding that machine's own Design ΔT — no valve, sensor or link to draw. It is a real resistance in series with the coil (verified: 12 Kv wide open drops the branch flow; at 10% travel its resistance is 9.2e9 against the coil's 5.1e5 and the branch all but closes) and a real actuator (appears in the control report holding its own equipment on a ΔT). |
+| EQ.2 | **Capacity override** | ✅ | 0–100% on the stated duty. Verified: 40% gives 20 kW from a 50 kW coil, 0% gives nothing, and **the design figure is untouched** — the machine is still on the schedule at full duty. Remove the override and it is back to 50 kW. |
+| EQ.3 | Temperature limit reads from the left | ✅ | |
+| C8 | **Multiple devices on one sensor** | ✅ | Your wording, verbatim, as a DEFECT. The gang stays underneath it so the answer is never arbitrary — `detail` says so — but the message tells you to link one and sync the rest. |
+| C5 | dP setpoint tag said Temperature | ✅ | The drawing's `SP` label fell through to °C for both differential modes. Same fall-through that put "200000.0 °C" on a pump switch in v0.15.1; this was the other place it hid. |
+| C6 | Sensor showed its temperature twice | ✅ | "35.4 → 35.4 °C" is one number written twice. An instrument now shows one value; anything that actually does something thermal still shows both, because there they differ. |
+| C2 | `Control Link` → `Add Control` | ✅ | |
+| C3 | dP button places a temperature sensor | ⬜ | **Could not reproduce** — all five buttons place their own kind in this build. But see C1: clicking the middle of a 25 m pipe hit-tested onto an adjacent **1 m device pipe**, which would place a sensor somewhere you did not mean. I think that is what you saw, and it is next. |
 
 ## 5B. PUMPS IN PARALLEL (v0.15.5)
 

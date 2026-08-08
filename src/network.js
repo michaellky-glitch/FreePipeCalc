@@ -527,6 +527,20 @@
         link.kind = 'equip';
         link.n = 2;
         link.r = FD.hydraulics.equipmentR(p.equip.pdRated || 0, p.equip.qRated || 0, rho);
+        /* AN INTEGRATED CONTROL VALVE is a real valve in series with the coil,
+         * so it is a real resistance — the same equal-percentage Kv a drawn
+         * globe valve gets, added to the machine's own. Michael, 2026-08-08:
+         * it is what an AHU ships with, and drawing the valve, the sensor and
+         * the link by hand on every coil of a sixty-coil model is three
+         * gestures that never say anything different.
+         *
+         * Series resistances ADD, which is the whole reason it can live on the
+         * same link rather than needing a link of its own. */
+        var icv = p.equip.icv;
+        if (icv && icv.kv > 0) {
+          link.r += FD.valves.resistance('globe', icv.kv, icv.opening);
+          link.icv = true;
+        }
       } else if (method.fittingMode === 'K') {
         /* ASHRAE and Darcy-Weisbach: the pipe carries its own friction over the
          * DRAWN length only, and the fittings ride alongside as a separate
@@ -1317,6 +1331,24 @@
         label: function (x) { return Math.round(x * 100) + '% speed'; }
       };
     }
+    /* AN INTEGRATED CONTROL VALVE is an actuator on the EQUIPMENT link. Same
+     * resolution and floor as a drawn globe valve, because it is one — the only
+     * difference is that it lives on the machine instead of beside it. */
+    if (p.kind === 'equip' && p.equip && p.equip.icv) {
+      var le = Number(cfg.minOpening);
+      le = (isFinite(le) && le > 0 && le < 100) ? le : CTRL_DEFAULTS.minOpening;
+      return {
+        pipe: p, kind: 'valve', quantity: 'opening',
+        min: le / 100,
+        step: 0.01,
+        get: function () {
+          var o = Number(p.equip.icv.opening);
+          return (isFinite(o) ? Math.min(100, Math.max(0, o)) : 100) / 100;
+        },
+        set: function (x) { p.equip.icv.opening = Math.round(x * 100); },
+        label: function (x) { return Math.round(x * 100) + '% open'; }
+      };
+    }
     if (p.kind === 'valve' && p.valve) {
       /* A globe valve's opening is a whole percentage — that is what the panel
        * offers and what a real valve is set to — so the search resolution is a
@@ -1348,6 +1380,22 @@
 
     var pairs = [];
     m.pipes.forEach(function (p) {
+      /* AN INTEGRATED CONTROL VALVE IS LINKED BY EXISTING, to its own machine's
+       * ΔT. There is nothing for the user to draw or pick: a valve built into a
+       * coil holds that coil's ΔT and could not sensibly hold anything else. */
+      if (p.kind === 'equip' && p.equip && p.equip.icv && !p.equip.off) {
+        var iAct = actuatorFor(m, p);
+        var iOpts = M.controlOptions(m, p.id).filter(function (o) {
+          return o.mode === 'dT';
+        });
+        if (iAct && iOpts.length) {
+          pairs.push({ act: iAct, equip: p, target: iOpts[0].value,
+                       mode: iOpts[0].mode, label: iOpts[0].label,
+                       key: iOpts[0].key, refPipe: null,
+                       options: iOpts, optIndex: 0, result: null, icv: true });
+        }
+        return;
+      }
       var c = M.controlOf(p);
       if (!c) return;
       var tgtPipe = M.pipe(m, c.equip);
@@ -1446,14 +1494,23 @@
       lead.gang = g;
       /* The others are reported, not searched. */
       g.slice(1).forEach(function (pr) { pr.ganged = lead; });
+      /* MICHAEL'S WORDING, 2026-08-08, and it is a DEFECT rather than a notice:
+       * the model still answers — the gang below makes sure of that — but it is
+       * not the arrangement he wants drawn, and the message says what to draw
+       * instead. Ganging stays underneath it as the safety net, because the
+       * alternative to a common command is an arbitrary split (§17C), and a
+       * warning on top of a wrong answer is worse than a warning on top of a
+       * right one. */
       warnings.push({
         code: 'CONTROL_GANGED', pipe: lead.act.pipe.id, equip: lead.equip.id,
-        message: g.map(function (pr) { return pr.act.pipe.tag || pr.act.pipe.id; })
-                  .join(', ') + ' all hold ' +
-                 (lead.equip.tag || lead.equip.id) + '\u2019s ' +
-                 (lead.label || 'setpoint') + ', so they modulate together at a ' +
-                 'common ' + lead.act.quantity + ' \u2014 which is what a common ' +
-                 'header does. Give them separate setpoints to stage them instead.'
+        message: 'Multiple equipment connected to a single sensor is not ' +
+                 'supported & is unstable. Instead connect 1 equipment to the ' +
+                 'sensor & connect the others to sync with it. (' +
+                 g.map(function (pr) { return pr.act.pipe.tag || pr.act.pipe.id; })
+                  .join(', ') + ' \u2192 ' + (lead.equip.tag || lead.equip.id) + ')',
+        detail: 'Until then they are modulated together at one common ' +
+                lead.act.quantity + ', which is what a common header does — ' +
+                'without that they would settle on an arbitrary split.'
       });
     });
     /* Only the lead of each gang is searched; the rest follow its actuator. */
@@ -2063,7 +2120,12 @@
   var DEFECT_CODES = {
     ZERO_LENGTH: 1, ORPHAN_NODE: 1, RISER_OPEN_END: 1,
     EQUIP_OFF_RATING: 1, NO_CHARACTERISTIC: 1,
-    CONTROL_NO_SETPOINT: 1, CONTROL_NO_AUTHORITY: 1, REVERSE_BLOCKED: 1
+    CONTROL_NO_SETPOINT: 1, CONTROL_NO_AUTHORITY: 1, REVERSE_BLOCKED: 1,
+    /* "Your drawing does not mean what it looks like" — four pumps drawn as
+     * four independent loops are one loop, and Michael wants them redrawn as a
+     * lead plus syncs. The answer is still sound (they are ganged), which is
+     * why this is a defect and not an error. */
+    CONTROL_GANGED: 1, CONTROL_TARGET_GONE: 1
   };
   var NOTICE_CODES = {
     CHECK_CLOSED: 1, VALVE_SHUT: 1, THERMAL_DATUM: 1

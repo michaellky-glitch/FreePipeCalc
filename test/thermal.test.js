@@ -2694,4 +2694,98 @@ section('A control link to a deleted target is reported');
   ok('...and the solve still completes', res.ok !== false || !!res.flow);
 }
 
+/* =====================================================================
+ * EQUIPMENT CONTROLS: an integrated valve, and a capacity override.
+ * ===================================================================== */
+section('Integrated control valve and capacity override');
+{
+  function rig() {
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const c1 = M.addNode(m, lv, 9, 0), c2 = M.addNode(m, lv, 12, 0);
+    const d = M.addNode(m, lv, 20, 0);
+    M.setSource(m, a.id, 0);
+    const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+    pump.pump = { mode: 'fixed', sizing: 'manual', head: 25, qDesign: 0.004, hDesign: 25 };
+    pump.pump.curve = FD.pumps.fit([{ q: 0, h: 35 }, { q: 0.004, h: 25 }, { q: 0.006, h: 16 }]);
+    M.addPipe(m, b.id, c1.id, { size: 'DN50', schedule: 'sch40' });
+    const coil = M.addPipe(m, c1.id, c2.id, { kind: 'equip' });
+    coil.equip = { qRated: 0.004, pdRated: 80e3, equipType: 'exchanger', duty: 50000 };
+    coil.tag = 'AHU-1';
+    M.addPipe(m, c2.id, d.id, { size: 'DN50', schedule: 'sch40' });
+    M.addPipe(m, d.id, a.id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(x => { x.insulation_mm = 0; });
+    return { m, coil, pump };
+  }
+
+  /* ---- CAPACITY OVERRIDE scales the stated load and leaves the design alone. */
+  {
+    const t = rig();
+    const base = NET.solveModel(t.m);
+    const q0 = base.thermal.links[t.coil.id].qW;
+    near('Without an override the coil does its stated duty', q0, 50000, 50);
+
+    t.coil.equip.loadPct = 40;
+    const r = NET.solveModel(t.m);
+    near('At 40% it does 40% of it', r.thermal.links[t.coil.id].qW, 20000, 50);
+    near('...and the DESIGN figure is untouched', t.coil.equip.duty, 50000, 1e-9);
+
+    t.coil.equip.loadPct = 0;
+    const z = NET.solveModel(t.m);
+    near('At 0% it does nothing', z.thermal.links[t.coil.id].qW, 0, 1);
+
+    delete t.coil.equip.loadPct;
+    const back = NET.solveModel(t.m);
+    near('Removed, it is back to full duty',
+         back.thermal.links[t.coil.id].qW, 50000, 50);
+  }
+
+  /* ---- AN INTEGRATED VALVE is a real resistance AND a real actuator.
+   *
+   * The resistance is measured in DESIGN, because in SIMULATION the valve is
+   * CONTROLLED — the loop holds the coil's ΔT and writes the position, so a
+   * hand-set opening is an input the solve is entitled to overrule. That is the
+   * same rule a drawn control valve follows. */
+  {
+    const t = rig();
+    t.m.settings.calcMode = 'design';
+    const open = NET.solveModel(t.m);
+    const qOpen = Math.abs(open.flow[t.coil.id]);
+
+    t.coil.equip.icv = { kv: 12, opening: 100 };
+    const withV = NET.solveModel(t.m);
+    ok('An integrated valve is a real resistance',
+       Math.abs(withV.flow[t.coil.id]) < qOpen,
+       (qOpen * 1000).toFixed(3) + ' -> ' + (Math.abs(withV.flow[t.coil.id]) * 1000).toFixed(3) + ' L/s');
+
+    /* Shut, it throttles hard — the same equal-percentage Kv curve a drawn
+     * globe valve uses. At 10% travel its Kv is 0.12 against 12, and its
+     * resistance 9.2e9 against the coil's own 5.1e5, so the branch all but
+     * closes. */
+    t.coil.equip.icv.opening = 10;
+    const shut = NET.solveModel(t.m);
+    ok('...and closing it throttles the branch',
+       Math.abs(shut.flow[t.coil.id]) < Math.abs(withV.flow[t.coil.id]) * 0.1,
+       (Math.abs(shut.flow[t.coil.id]) * 1000).toFixed(4) + ' L/s');
+
+    t.m.settings.calcMode = 'simulation';
+
+    /* And it controls to its OWN machine's ΔT, with nothing drawn or linked. */
+    t.coil.equip.icv.opening = 100;
+    t.coil.equip.dTMax = undefined;
+    const ctl = NET.solveModel(t.m);
+    const dev = ctl.controls && ctl.controls.devices
+      .filter(x => x.pipe === t.coil.id)[0];
+    ok('It appears as a controlled device without being linked', !!dev,
+       JSON.stringify((ctl.controls || {}).devices || []));
+    if (dev) {
+      ok('...holding its own machine', dev.equip === t.coil.id, dev.equip);
+      ok('...on a ΔT', dev.setpointOf === 'dT', dev.setpointOf);
+      ok('...as an opening', dev.quantity === 'opening', dev.quantity);
+    }
+  }
+}
+
 report();

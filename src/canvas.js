@@ -3291,7 +3291,15 @@
       var tl = res && res.thermal && res.thermal.links[obj.id];
       if (tl) {
         if (flags.temp) {
-          lines.push(tl.tIn.toFixed(1) + ' → ' + tl.tOut.toFixed(1) + '\u00b0C');
+          /* AN INSTRUMENT READS ONE TEMPERATURE. A sensor passes water straight
+           * through, so its inlet and outlet are the same number and "35.4 →
+           * 35.4 °C" is that number written twice with an arrow between it —
+           * Michael, 2026-08-08. A device that actually does something thermal
+           * still gets both, because there the two differ and the difference is
+           * the point. */
+          var sameT = Math.abs(tl.tOut - tl.tIn) < 0.05;
+          lines.push(sameT ? tl.tIn.toFixed(1) + '\u00b0C'
+                           : tl.tIn.toFixed(1) + ' → ' + tl.tOut.toFixed(1) + '\u00b0C');
         }
         if (flags.dT) lines.push('ΔT ' + (tl.dT >= 0 ? '+' : '') + tl.dT.toFixed(1) + ' K');
         if (flags.duty) {
@@ -3322,11 +3330,17 @@
         if (obj.sensor) {
           var sp = M.sensorSetpoint(obj);
           if (sp) {
-            lines.push('SP ' + (sp.mode === 'flow'
-              ? FD.units.fmtFlow(sp.value, d.flow, true)
-              : sp.mode === 'pressure'
-                ? FD.units.fmtPressure(sp.value, d.pressure, true)
-                : sp.value.toFixed(1) + '\u00b0C'));
+            /* EVERY MODE ITS OWN UNITS. The two DIFFERENTIAL modes fell through
+             * to °C, so a ΔP sensor's setpoint was labelled as a temperature on
+             * the drawing — Michael, 2026-08-08. Same fall-through that put
+             * "200000.0 °C" on a pump's switch in v0.15.1; this was the other
+             * place it hid. */
+            lines.push('SP ' + (
+                sp.mode === 'flow' ? FD.units.fmtFlow(sp.value, d.flow, true)
+              : (sp.mode === 'pressure' || sp.mode === 'dPdiff')
+                  ? FD.units.fmtPressure(sp.value, d.pressure, true)
+              : sp.mode === 'dTdiff' ? sp.value.toFixed(1) + ' K'
+              : sp.value.toFixed(1) + '\u00b0C'));
           }
         }
       }

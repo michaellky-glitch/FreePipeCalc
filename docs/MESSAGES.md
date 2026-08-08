@@ -128,7 +128,7 @@ the edit; nothing is changed.
 | Code | Raised when |
 |---|---|
 | `CONTROL_TARGET_GONE` | A control link points at a pipe that is no longer in the model — the target was deleted and the link stayed. The device is not being controlled at all. Silent until 2026-08-08, which is why four primary pumps on `20260807-DC.json` sat at 100% with nothing to explain it. | Says to re-link or clear it. |
-| `CONTROL_GANGED` | Two or more devices hold the SAME setpoint on the same target, so they modulate together at a common speed or opening. Not a fault — it is what a common header does, and the alternative is a degenerate problem with an arbitrary answer (see ARCHITECTURE §17C). Raised so the behaviour is never a surprise. | Names every member, and says to give them separate setpoints to stage them instead. |
+| `CONTROL_GANGED` | **DEFECT.** Two or more devices are linked to one sensor. Michael's ruling, 2026-08-08: that is not the arrangement he wants drawn — link one device to the sensor and sync the others to it. The model still answers, because the group is modulated at a common position underneath (§17C); without that they settle on an arbitrary split, and a warning on top of a wrong answer is worse than one on top of a right answer. | Says exactly what to draw instead; `detail` explains what is happening meanwhile. |
 | `CONTROL_NO_SETPOINT` | A control link points at something that states nothing to hold. A drawn link that quietly does nothing is exactly the surprise the link was added to avoid. |
 | `CONTROL_AT_LIMIT` | The device is on a stop (minimum speed, minimum opening, or full travel) and the setpoint is still missed. |
 | `CONTROL_NO_FLOW` | The controlled machine carries no flow, so there is nothing to control to. |

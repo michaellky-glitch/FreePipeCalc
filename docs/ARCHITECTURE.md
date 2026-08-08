@@ -2114,7 +2114,7 @@ is the strongest claim available.
 
 ## 15. Testing
 
-Seven suites, 1649 assertions, no dependencies:
+Seven suites, 1660 assertions, no dependencies:
 
 ```
 node test/engine.test.js     schedules, fittings, units, hydraulics, solver

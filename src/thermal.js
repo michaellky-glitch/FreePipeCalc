@@ -244,9 +244,9 @@
    * out of `equipOutlet` with its limits applied. */
   function statedDuty(m, p, res, C) {
     var e = p.equip || {};
-    if (e.equipType === 'source') return Math.abs(e.qMax || 0);
+    if (e.equipType === 'source') return Math.abs(capacityOf(e) || 0);
     if (e.thermalMode === 'dT') return (e.dT || 0) * C;
-    return e.duty || 0;                  // watts, signed
+    return loadOf(e);                    // watts, signed
   }
 
   /* ===================================================== EQUIPMENT TYPES
@@ -275,6 +275,25 @@
    * Returns { tOut, limit } where `limit` names the binding constraint, or
    * null when the machine is doing what it was asked. That name is the useful
    * output — "CH-01 limited by ΔT_max" is the sentence an engineer wants. */
+  /* THE STATED DUTY, AFTER ANY CAPACITY OVERRIDE.
+   *
+   * `loadPct` scales what the machine is asked to do without touching the
+   * DESIGN figure — Michael, 2026-08-08: a way of asking "what if this coil
+   * were at 40%?" that does not lose the number the machine is scheduled at.
+   * Absent, the design figure is the answer, which is what every model written
+   * before this does. */
+  function loadOf(e) {
+    var q = Number(e.duty) || 0;
+    var pct = Number(e.loadPct);
+    return (isFinite(pct) && pct >= 0) ? q * pct / 100 : q;
+  }
+  function capacityOf(e) {
+    var q = Number(e.qMax);
+    if (!isFinite(q)) return q;
+    var pct = Number(e.loadPct);
+    return (isFinite(pct) && pct >= 0) ? q * pct / 100 : q;
+  }
+
   function equipOutlet(e, tIn, C) {
     var lim = null;
 
@@ -330,7 +349,7 @@
        * Older files that carry a positive capacity on a cooling machine will
        * hit that branch rather than cooling silently at the wrong sign — see
        * KNOWN-ISSUES. */
-      var qCap = Number(e.qMax);
+      var qCap = capacityOf(e);
       if (isFinite(qCap) && qCap !== 0 && C > 0) {
         if (got !== 0 && (got > 0) !== (qCap > 0)) {
           got = 0;
@@ -344,7 +363,7 @@
     }
 
     /* HEAT EXCHANGER — the load is stated, the temperature follows. */
-    var dT = (C > 0) ? (Number(e.duty) || 0) / C : 0;
+    var dT = (C > 0) ? loadOf(e) / C : 0;
     var dTx = Math.abs(Number(e.dTMax));
     if (isFinite(dTx) && dTx > 0 && Math.abs(dT) > dTx) {
       dT = (dT < 0 ? -1 : 1) * dTx;
@@ -496,7 +515,7 @@
         if (act === 'dtmax') return { a: 1, b: c.activeDT };
         if (act === 'capacity') return { a: 1, b: c.activeDT };
         /* Load-led with nothing binding: a constant duty. */
-        return { a: 1, b: (c.C > 0 ? (Number(eq.duty) || 0) / c.C : 0) };
+        return { a: 1, b: (c.C > 0 ? loadOf(eq) / c.C : 0) };
       }
       return { a: 1, b: 0 };                         // pump, valve, sensor
     }
