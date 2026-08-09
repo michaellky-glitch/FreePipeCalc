@@ -512,14 +512,363 @@
       'heat flow at every radius and shifts the turning point not at all.'));
   }
 
+  /* ==================================================== PIPE VELOCITY & FRICTION
+   *
+   * Q3, Michael: "enter any two, get the third."
+   *
+   * The three are FLOW, BORE and VELOCITY, tied by the only relation there is:
+   *
+   *     Q = v · A,   A = π·d²/4
+   *
+   * Whichever two are filled in, the third follows — and the friction gradient
+   * follows from all three, through the same `FD.hydraulics` the model uses, so
+   * the tool and the network can never give different answers for the same
+   * pipe. That is the whole reason it reads the app's friction method and fluid
+   * rather than carrying its own.
+   *
+   * THE THIRD IS COMPUTED, NEVER TYPED. Filling in all three would state a
+   * relation that is over-determined and usually wrong; the box for the derived
+   * one is read-only and says which it is.
+   *
+   * SIZING FALLS OUT OF IT. Give a flow and the velocity you are prepared to
+   * run at, and the bore you get back is the bore you need — so the nearest
+   * schedule size above it is the answer to "what do I pick?", and that is
+   * shown beside it.
+   */
+  var velState = null;
+  function velDefaults() {
+    return { known: 'qv', flow: '4', bore: '', vel: '1.5', result: null };
+  }
+
+  function renderVelocityTool(host, app) {
+    var m = app.model, d = m.settings.display;
+    if (!velState) velState = velDefaults();
+    var st = velState;
+
+    host.appendChild(el('h3', '', 'Pipe velocity & friction'));
+    host.appendChild(el('p', 'hint',
+      'Enter any two of flow, bore and velocity — the third is calculated, and ' +
+      'the friction gradient with it. Uses this model’s friction method and ' +
+      'fluid, so it agrees with the network.'));
+
+    /* WHICH TWO ARE YOURS. A dropdown rather than "whichever you typed last":
+     * guessing from edit order means the box you are about to correct is the
+     * one that gets overwritten as you type into it. */
+    var pick = el('select');
+    [['qv', 'Flow + velocity  →  bore'],
+     ['qd', 'Flow + bore  →  velocity'],
+     ['dv', 'Bore + velocity  →  flow']].forEach(function (o) {
+      var opt = el('option', '', o[1]); opt.value = o[0];
+      if (o[0] === st.known) opt.selected = true;
+      pick.appendChild(opt);
+    });
+    field(host, 'Given', pick);
+    pick.addEventListener('change', function () {
+      st.known = pick.value; st.result = null; render(app);
+    });
+
+    function box(key, label, unit, derived) {
+      var i = num(st[key] === null || st[key] === undefined ? '' : st[key]);
+      if (derived) {
+        i.readOnly = true;
+        i.value = (st.result && st.result[key] !== null && st.result[key] !== undefined)
+          ? fmt(st.result[key]) : '';
+        i.placeholder = 'calculated';
+      }
+      field(host, label + ' (' + unit + ')', i,
+            derived ? 'Calculated from the other two.' : null);
+      if (!derived) {
+        i.addEventListener('input', function () { st[key] = i.value; });
+        i.addEventListener('change', function () { st[key] = i.value; });
+      }
+      return i;
+    }
+
+    box('flow', 'Flow', d.flow, st.known === 'dv');
+    box('bore', 'Bore', 'mm', st.known === 'qv');
+    box('vel', 'Velocity', 'm/s', st.known === 'qd');
+
+    var row = el('div', 'btn-row');
+    var go = el('button', 'btn primary', 'Calculate');
+    go.addEventListener('click', function () {
+      st.result = velocity(st, m);
+      render(app);
+    });
+    var reset = el('button', 'btn', 'Reset');
+    reset.addEventListener('click', function () { velState = velDefaults(); render(app); });
+    row.appendChild(go); row.appendChild(reset);
+    host.appendChild(row);
+
+    if (st.result) renderVelocityResult(host, st.result, m);
+  }
+
+  /* The arithmetic, separated from the form so it can be tested with no DOM.
+   * SI throughout; the display units are converted at the edges only. */
+  function velocity(st, m) {
+    var d = m.settings.display;
+    var out = { flow: null, bore: null, vel: null, errors: [] };
+    var fluid = FD.fluids.resolve(m.settings);
+
+    var qIn = FD.units.parse(st.flow), dIn = FD.units.parse(st.bore),
+        vIn = FD.units.parse(st.vel);
+    var Q = isFinite(qIn) ? FD.units.toSIFlow(qIn, d.flow) : NaN;   // m3/s
+    var D = isFinite(dIn) ? dIn / 1000 : NaN;                        // m
+    var V = isFinite(vIn) ? vIn : NaN;                               // m/s
+
+    if (st.known === 'qv') {
+      if (!(Q > 0) || !(V > 0)) { out.errors.push('Enter a flow and a velocity, both above zero.'); return out; }
+      D = Math.sqrt(4 * Q / (Math.PI * V));
+      out.bore = D * 1000;
+    } else if (st.known === 'qd') {
+      if (!(Q > 0) || !(D > 0)) { out.errors.push('Enter a flow and a bore, both above zero.'); return out; }
+      V = Q / (Math.PI * D * D / 4);
+      out.vel = V;
+    } else {
+      if (!(D > 0) || !(V > 0)) { out.errors.push('Enter a bore and a velocity, both above zero.'); return out; }
+      Q = V * Math.PI * D * D / 4;
+      out.flow = Q;
+    }
+
+    out.Q = Q; out.D = D; out.V = V;
+
+    /* THE GRADIENT COMES OUT OF THE APP'S OWN HYDRAULICS, assembled exactly as
+     * `network.build` assembles it for a pipe: the same method, the same
+     * context, the same C. A tool that re-derives friction is a second
+     * implementation, and the two disagree the day one of them is edited.
+     *
+     * One metre of pipe with no fittings, so `r` IS the resistance per metre
+     * and `pdPerMetre` returns the gradient directly. */
+    var s2 = m.settings;
+    var ctx = {
+      hw: s2.hw, ashrae: s2.ashrae, fluid: s2.fluid,
+      frictionFactor: s2.dw && s2.dw.frictionFactor,
+      roughness_mm: s2.dw && s2.dw.roughness_mm,
+      q: Q
+    };
+    var method = FD.hydraulics.method(s2.frictionMethod);
+    var nExp = FD.hydraulics.exponent(s2.frictionMethod, ctx);
+    var r1 = method.r(1, D, s2.C, ctx);
+    out.pdm = FD.hydraulics.pdPerMetre(r1, Q, nExp, 1, fluid.density);
+    out.method = s2.frictionMethod;
+
+    /* Reynolds takes the FLOW, not the velocity — it derives the velocity from
+     * the bore itself. */
+    out.Re = FD.hydraulics.reynolds(Q, D, fluid.kinematicViscosity);
+    out.regime = FD.hydraulics.isLaminar(out.Re) ? 'laminar'
+               : FD.hydraulics.isTransitional(out.Re) ? 'transitional' : 'turbulent';
+    out.velHead = V * V / (2 * FD.units.G);
+
+    /* THE SIZE YOU WOULD ACTUALLY BUY. A calculated bore is a number; the pipe
+     * on the shelf is the answer. `sizeForFlow` is the schedule's own rule —
+     * the same one the sizer uses — so the tool cannot recommend a size the
+     * model would not have chosen. */
+    if (FD.schedules && FD.schedules.sizeForFlow && Q > 0 && V > 0) {
+      var lbl = FD.schedules.sizeForFlow(s2.schedule, Q, V, m.customSchedules);
+      var sz = lbl && FD.schedules.size(s2.schedule, lbl, m.customSchedules);
+      if (sz) out.pick = { name: lbl, bore: sz.id_mm / 1000 };
+    }
+    return out;
+  }
+
+  function renderVelocityResult(host, r, m) {
+    var d = m.settings.display;
+    if (r.errors.length) {
+      var w = el('div', 'notice warn-notice');
+      r.errors.forEach(function (t) { w.appendChild(el('p', '', t)); });
+      host.appendChild(w);
+      return;
+    }
+    var box = el('div', 'readout');
+    function kv(k, v) {
+      var row = el('div', 'kv');
+      row.appendChild(el('span', 'k', k));
+      row.appendChild(el('span', 'v', v));
+      box.appendChild(row);
+    }
+    kv('Flow', FD.units.fmtFlow(r.Q, d.flow, true));
+    kv('Bore', (r.D * 1000).toFixed(1) + ' mm');
+    kv('Velocity', r.V.toFixed(3) + ' m/s');
+    kv('Velocity head', r.velHead.toFixed(3) + ' m');
+    kv('Reynolds', Math.round(r.Re).toLocaleString() + '  (' + r.regime + ')');
+    kv('Friction gradient', FD.units.fmtPdm(r.pdm, d.pdm, true));
+    kv('Over 100 m', FD.units.fmtPressure(r.pdm * 100, d.pressure, true));
+    if (r.pick) {
+      kv('Nearest size up', r.pick.name + '  (' + (r.pick.bore * 1000).toFixed(1) + ' mm)');
+    }
+    host.appendChild(box);
+    if (r.regime === 'laminar') {
+      host.appendChild(el('p', 'hint',
+        'Laminar. Hazen-Williams is not valid below Re 4000 — the model warns ' +
+        'about this too.'));
+    }
+  }
+
+  /* ============================================================ HEAT TRANSFER
+   *
+   * Q = ṁ·Cp·ΔT, the most-used line in building services, with the same
+   * "any two give the third" shape as the velocity tool — and the same relation
+   * the equipment panel enforces between capacity, design flow and ΔT.
+   */
+  var heatState = null;
+  function heatDefaults() {
+    return { known: 'qdt', duty: '50', flow: '', dT: '5', result: null };
+  }
+
+  function renderHeatTool(host, app) {
+    var m = app.model, d = m.settings.display;
+    if (!heatState) heatState = heatDefaults();
+    var st = heatState;
+    var fluid = FD.fluids.resolve(m.settings);
+
+    host.appendChild(el('h3', '', 'Heat transfer'));
+    host.appendChild(el('p', 'hint',
+      'Q = ṁ·Cp·ΔT. Enter any two of duty, flow and ΔT — the ' +
+      'third follows. ' + fluid.name + ' at ' + fluid.specificHeat.toFixed(0) +
+      ' J/(kg·K), ρ ' + fluid.density.toFixed(0) + ' kg/m³.'));
+    if (!fluid.verified) {
+      var nv = el('div', 'notice warn-notice');
+      nv.appendChild(el('p', '', fluid.name + ': these fluid properties are NOT ' +
+        'verified against a printed table. Specific heat scales every answer ' +
+        'here linearly.'));
+      host.appendChild(nv);
+    }
+
+    var pick = el('select');
+    [['qdt', 'Duty + ΔT  →  flow'],
+     ['qf',  'Duty + flow  →  ΔT'],
+     ['fdt', 'Flow + ΔT  →  duty']].forEach(function (o) {
+      var opt = el('option', '', o[1]); opt.value = o[0];
+      if (o[0] === st.known) opt.selected = true;
+      pick.appendChild(opt);
+    });
+    field(host, 'Given', pick);
+    pick.addEventListener('change', function () {
+      st.known = pick.value; st.result = null; render(app);
+    });
+
+    function box(key, label, unit, derived) {
+      var i = num(st[key] === null || st[key] === undefined ? '' : st[key]);
+      if (derived) {
+        i.readOnly = true;
+        i.value = (st.result && st.result[key] !== null && st.result[key] !== undefined)
+          ? fmt(st.result[key]) : '';
+        i.placeholder = 'calculated';
+      }
+      field(host, label + ' (' + unit + ')', i,
+            derived ? 'Calculated from the other two.' : null);
+      if (!derived) {
+        i.addEventListener('input', function () { st[key] = i.value; });
+        i.addEventListener('change', function () { st[key] = i.value; });
+      }
+    }
+    box('duty', 'Duty', 'kW', st.known === 'fdt');
+    box('flow', 'Flow', d.flow, st.known === 'qdt');
+    box('dT', 'ΔT', 'K', st.known === 'qf');
+
+    var row = el('div', 'btn-row');
+    var go = el('button', 'btn primary', 'Calculate');
+    go.addEventListener('click', function () { st.result = heat(st, m); render(app); });
+    var reset = el('button', 'btn', 'Reset');
+    reset.addEventListener('click', function () { heatState = heatDefaults(); render(app); });
+    row.appendChild(go); row.appendChild(reset);
+    host.appendChild(row);
+
+    if (st.result) {
+      var r = st.result;
+      if (r.errors.length) {
+        var wbox = el('div', 'notice warn-notice');
+        r.errors.forEach(function (t) { wbox.appendChild(el('p', '', t)); });
+        host.appendChild(wbox);
+      } else {
+        var out = el('div', 'readout');
+        function kv(k, v) {
+          var rr = el('div', 'kv');
+          rr.appendChild(el('span', 'k', k));
+          rr.appendChild(el('span', 'v', v));
+          out.appendChild(rr);
+        }
+        kv('Duty', (r.Q / 1000).toFixed(2) + ' kW');
+        kv('Flow', FD.units.fmtFlow(r.q, d.flow, true));
+        kv('Mass flow', r.mdot.toFixed(3) + ' kg/s');
+        kv('ΔT', r.dTv.toFixed(2) + ' K');
+        kv('Capacity rate', (r.C).toFixed(0) + ' W/K');
+        host.appendChild(out);
+      }
+    }
+  }
+
+  function heat(st, m) {
+    var d = m.settings.display;
+    var fluid = FD.fluids.resolve(m.settings);
+    var rho = fluid.density, cp = fluid.specificHeat;
+    var out = { duty: null, flow: null, dT: null, errors: [] };
+
+    var qIn = FD.units.parse(st.duty), fIn = FD.units.parse(st.flow),
+        tIn = FD.units.parse(st.dT);
+    var Q = isFinite(qIn) ? qIn * 1000 : NaN;                        // W
+    var q = isFinite(fIn) ? FD.units.toSIFlow(fIn, d.flow) : NaN;    // m3/s
+    var dT = isFinite(tIn) ? tIn : NaN;                              // K
+
+    if (st.known === 'qdt') {
+      if (!isFinite(Q) || Q === 0 || !(Math.abs(dT) > 0)) {
+        out.errors.push('Enter a duty and a ΔT, neither of them zero.'); return out;
+      }
+      q = Math.abs(Q) / (rho * cp * Math.abs(dT));
+      out.flow = FD.units.flow(q, d.flow);
+    } else if (st.known === 'qf') {
+      if (!isFinite(Q) || Q === 0 || !(q > 0)) {
+        out.errors.push('Enter a duty and a flow, neither of them zero.'); return out;
+      }
+      dT = Math.abs(Q) / (rho * q * cp);
+      out.dT = dT;
+    } else {
+      if (!(q > 0) || !(Math.abs(dT) > 0)) {
+        out.errors.push('Enter a flow and a ΔT, neither of them zero.'); return out;
+      }
+      Q = rho * q * cp * dT;
+      out.duty = Q / 1000;
+    }
+    out.Q = Math.abs(Q); out.q = q; out.dTv = Math.abs(dT);
+    out.mdot = rho * q;
+    out.C = rho * q * cp;
+    return out;
+  }
+
   // ---------------------------------------------------------------- rendering
+  /* Q2, Michael: four tools, one at a time, chosen from a tab strip.
+   *
+   * They used to be stacked down a full-width pane, which worked while there
+   * were two of them and does not with four — and the window they now live in
+   * is 400 px wide, so stacking would put the tool you want three screens down.
+   * One at a time, and the strip says what else is there. */
+  var TABS = [
+    { key: 'pump',  label: 'Pump curve',   render: renderPumpCurveTool },
+    { key: 'crit',  label: 'Critical radius', render: renderCriticalTool },
+    { key: 'vel',   label: 'Velocity & friction', render: renderVelocityTool },
+    { key: 'heat',  label: 'Heat transfer', render: renderHeatTool }
+  ];
+
   function render(app) {
     var host = document.getElementById('tools-body');
+    var strip = document.getElementById('tools-tabs');
     if (!host) return;
-    host.innerHTML = '';
     ensureState();
-    renderPumpCurveTool(host, app);
-    renderCriticalTool(host, app);
+    if (!TABS.some(function (t) { return t.key === state.tab; })) state.tab = 'pump';
+
+    if (strip) {
+      strip.innerHTML = '';
+      TABS.forEach(function (t) {
+        var b = el('button', 'tool-tab' + (t.key === state.tab ? ' active' : ''), t.label);
+        b.type = 'button';
+        b.addEventListener('click', function () {
+          state.tab = t.key;
+          render(app);
+        });
+        strip.appendChild(b);
+      });
+    }
+    host.innerHTML = '';
+    TABS.forEach(function (t) { if (t.key === state.tab) t.render(host, app); });
   }
 
   /* Arrive from a pump with its design duty already in the boxes.
@@ -542,7 +891,8 @@
         qDesign: null, hDesign: null,
         fp1Flow: DEFAULTS.fp1Flow, fp1Press: DEFAULTS.fp1Press,
         fp2Flow: DEFAULTS.fp2Flow, fp2Press: DEFAULTS.fp2Press,
-        result: null
+        result: null,
+        tab: 'pump'
       };
     }
   }
@@ -552,6 +902,8 @@
     generate: generate,
     prefill: prefill,
     critical: critical,
-    _reset: function () { state = null; critState = null; }
+    velocity: velocity,
+    heat: heat,
+    _reset: function () { state = null; critState = null; velState = null; heatState = null; }
   };
 })(window.FD = window.FD || {});

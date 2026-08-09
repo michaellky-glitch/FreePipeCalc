@@ -6363,7 +6363,6 @@
         if (t.dataset.pane === 'pane-settings') renderSettings();
         if (t.dataset.pane === 'pane-hydraulic') renderHydraulic();
         if (t.dataset.pane === 'pane-thermal') renderThermal();
-        if (t.dataset.pane === 'pane-tools' && FD.tools) FD.tools.render(app);
         if (t.dataset.pane === 'pane-docs' && FD.docs && !docsReady) {
           FD.docs.init(); docsReady = true;
         }
@@ -6674,6 +6673,75 @@
       });
     });
     syncVizButtons();
+
+    /* ===================================================== THE TOOLS WINDOW
+     *
+     * Q1, Michael: a moveable window with a button in Design, Control and
+     * Simulate, rather than a whole tab. A tool answers a question you have
+     * WHILE drawing — "what size do I need for 4 L/s?" — and a tab took the
+     * drawing off the screen in order to answer it.
+     *
+     * Position and open state are a UI PREFERENCE, so they live in
+     * localStorage, not in the .pnet.json: a model file should not carry
+     * someone else's window position any more than it carries their panel
+     * width. */
+    (function () {
+      var win = $('tools-window'), bar = $('tools-drag'), closeBtn = $('tools-close');
+      if (!win || !bar) return;
+
+      function place(x, y) {
+        var w = win.offsetWidth || 380, h = win.offsetHeight || 300;
+        /* Kept on screen. A window dragged off the edge and then reopened at
+         * the same place is a window you cannot get back. */
+        x = Math.max(4, Math.min(window.innerWidth - Math.min(w, 200) - 4, x));
+        y = Math.max(4, Math.min(window.innerHeight - 40, y));
+        win.style.left = x + 'px';
+        win.style.top = y + 'px';
+        try { localStorage.setItem('fpc.toolsPos', JSON.stringify({ x: x, y: y })); }
+        catch (e) {}
+      }
+      try {
+        var saved = JSON.parse(localStorage.getItem('fpc.toolsPos') || 'null');
+        if (saved && isFinite(saved.x)) { win.style.left = saved.x + 'px'; win.style.top = saved.y + 'px'; }
+      } catch (e) {}
+
+      function open(on) {
+        win.hidden = !on;
+        if (on && FD.tools) FD.tools.render(app);
+        [].slice.call(document.querySelectorAll('[data-tools-open]')).forEach(function (b) {
+          b.classList.toggle('active', !!on);
+        });
+        try { localStorage.setItem('fpc.toolsOpen', on ? '1' : '0'); } catch (e) {}
+      }
+      app.toolsOpen = open;
+
+      [].slice.call(document.querySelectorAll('[data-tools-open]')).forEach(function (b) {
+        b.addEventListener('click', function () { open(win.hidden); });
+      });
+      if (closeBtn) closeBtn.addEventListener('click', function () { open(false); });
+
+      /* Dragged by its bar only, so a click inside a tool cannot move it. */
+      var drag = null;
+      bar.addEventListener('pointerdown', function (e) {
+        if (e.target === closeBtn) return;
+        var r = win.getBoundingClientRect();
+        drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+        bar.setPointerCapture(e.pointerId);
+        e.preventDefault();
+      });
+      bar.addEventListener('pointermove', function (e) {
+        if (!drag) return;
+        place(e.clientX - drag.dx, e.clientY - drag.dy);
+      });
+      bar.addEventListener('pointerup', function () { drag = null; });
+
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !win.hidden &&
+            !/INPUT|TEXTAREA|SELECT/.test((e.target || {}).tagName || '')) open(false);
+      });
+
+      try { if (localStorage.getItem('fpc.toolsOpen') === '1') open(true); } catch (e) {}
+    })();
 
     /* Resizable side panel. The width is a UI preference, not model data, so it
      * lives in localStorage rather than in the .pnet.json — a model file should

@@ -1163,3 +1163,68 @@ body.sim-static #prop-body .field textarea {
   font-weight: 650;
 }
 #btn-run-sim:disabled { opacity: .4; cursor: default; }
+
+/* ============================================================ TOOLS WINDOW
+ *
+ * Q1: the tools moved out of a tab and into a floating window, so the drawing
+ * stays on screen while a question is answered against it. Fixed rather than
+ * absolute — it belongs to the viewport, not to whichever pane is showing —
+ * and above the solve bar so it is never buried by one. */
+.tool-window {
+  position: fixed; left: 120px; top: 130px; z-index: 60;
+  width: 400px; max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 160px);
+  display: flex; flex-direction: column;
+  background: var(--bg-panel); border: 1px solid var(--line);
+  border-radius: 8px; box-shadow: 0 10px 34px rgba(0,0,0,.45);
+}
+.tool-window[hidden] { display: none; }
+
+.tool-window-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px 7px 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: move; touch-action: none;      /* the drag handle, and only this */
+  border-radius: 8px 8px 0 0;
+  background: var(--bg-raise, var(--bg-panel));
+}
+.tool-window-title {
+  font-size: 11px; letter-spacing: .09em; color: var(--text-mute);
+  flex: 1; user-select: none;
+}
+.tool-window-close {
+  border: 0; background: none; color: var(--text-mute);
+  font-size: 14px; line-height: 1; cursor: pointer; padding: 2px 4px;
+  border-radius: 4px;
+}
+.tool-window-close:hover { color: var(--text); background: var(--line); }
+
+/* The tab strip. Wraps rather than scrolls: four names must all be readable at
+ * once or the window is hiding tools from you, which is what the tab did. */
+.tool-window-tabs {
+  display: flex; flex-wrap: wrap; gap: 2px;
+  padding: 6px 8px 0; border-bottom: 1px solid var(--line);
+}
+.tool-window-tabs .tool-tab {
+  border: 1px solid transparent; border-bottom: 0;
+  background: none; color: var(--text-mute);
+  font-size: 11.5px; padding: 5px 9px; cursor: pointer;
+  border-radius: 5px 5px 0 0;
+}
+.tool-window-tabs .tool-tab:hover { color: var(--text); }
+.tool-window-tabs .tool-tab.active {
+  color: var(--text); border-color: var(--line);
+  background: var(--bg-panel); margin-bottom: -1px;
+}
+
+.tool-window-body {
+  padding: 10px 12px 14px; overflow-y: auto;
+}
+/* The tools were written for a full-width pane; in a 400 px window their
+ * fields need to stack rather than sit side by side. */
+.tool-window-body .field { display: block; margin-bottom: 8px; }
+.tool-window-body .field label { display: block; margin-bottom: 3px; }
+.tool-window-body .field input,
+.tool-window-body .field select { width: 100%; box-sizing: border-box; }
+.tool-window-body h3 { margin-top: 0; }
+.tool-window-body table { width: 100%; }

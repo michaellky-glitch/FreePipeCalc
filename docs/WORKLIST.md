@@ -3,7 +3,7 @@
 Everything Michael has asked for that is not yet done, in the order it will be
 tackled. Closed items move to `Human-Test.md` with a verification note.
 
-Updated 2026-08-09, after v0.16.9.
+Updated 2026-08-09, after v0.16.10.
 
 ---
 
@@ -33,20 +33,16 @@ can check it.
 | S1 | Riser should show pipe properties | |
 | T1 | **Tag repair is both incomplete and lossy** | Measured 2026-08-09, after Michael repaired `20260809-DC` — his file is clean now, so this is latent rather than live. Two separate faults. (a) `looksMangled` only recognises an appended tag matching `(PMP\|AHU\|TS\|SRC\|OF\|STR)-\d+`, so `PWP-04MP-4MP-4…` is neither flagged nor repaired: what got appended is `MP-4`, which is `PMP-4` with its first character absorbed by the character before it. The corruption is not always a clean append. (b) Even when it repairs, it can repair to the wrong thing — `CHWP-0AHU-15AHU-152` comes back as **`CHWP-0`**, not `CHWP-02`, because the real tag's trailing `2` was swallowed into `AHU-152`. Michael's file has `CHWP-02`, so he corrected that one by hand. Worth saying out loud in the message: the mangling is lossy, so REPAIR is a best guess and the result wants checking. |
 
-## Then
-
-| # | Item | Notes |
-|---|---|---|
-| Q1 | TOOLS becomes a moveable in-UI window | Button in Design, Control and Simulate rather than a whole tab. |
-| Q2 | Tools tabs: pump curve · critical radius · pipe velocity & friction · heat transfer | |
-| Q3 | Velocity/friction fields update each other | Enter any two, get the third. |
-
 ---
 
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.10** — Q1-Q3: the tools move out of a tab and into a moveable window
+  with four tabs, opened from Design, Control and Simulate; two new ones —
+  pipe velocity & friction, and heat transfer — both "enter any two, get the
+  third". An eighth test suite with them.
 * **v0.16.9** — Q4: an in-line device slides ALONG its run in 0.1 m steps
   instead of being dragged off it and kinking the pipework (Alt frees it); and
   a control link whose two ends are on different floors is drawn

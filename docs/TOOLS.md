@@ -121,3 +121,60 @@ the solver's curve form predates this tool. Teaching the solver to carry
 `a + b·q + c·q²` directly would remove the loss entirely — the form is no harder
 to differentiate (`dh/dq = b + 2c·q`) than the power law it already handles.
 Not done, because it changes the stored model format.
+
+---
+
+## 3. Pipe velocity & friction
+
+**Enter any two of flow, bore and velocity — the third is calculated.** There is
+only one relation in it:
+
+```
+Q = v · A,   A = π·d²/4
+```
+
+so the tool is hand-checkable in a line. Which two are yours is chosen from a
+dropdown rather than guessed from what you typed last: guessing means the box
+you are about to correct is the one that gets overwritten as you type into it.
+The derived box is read-only and says so.
+
+### What comes out with it
+
+| | |
+|---|---|
+| **Friction gradient** | Through `FD.hydraulics`, assembled exactly as `network.build` assembles a pipe — same method, same context, same C. A tool that re-derives friction is a second implementation, and the two disagree the day one of them is edited. |
+| **Reynolds and regime** | Laminar / transitional / turbulent, from the model's fluid. A laminar answer says so, because Hazen-Williams is not valid there. |
+| **Velocity head** | v²/2g |
+| **Over 100 m** | The gradient in the pressure unit you work in |
+| **Nearest size up** | Through `FD.schedules.sizeForFlow`, the schedule's own rule — so the tool cannot recommend a size the sizer would not have chosen. Always the next size **up**: rounding down puts the velocity above what you asked for. |
+
+**Sizing falls out of it.** Give a flow and the velocity you are prepared to run
+at, and the bore you get back is the bore you need.
+
+---
+
+## 4. Heat transfer
+
+`Q = ṁ·Cp·ΔT` — the most-used line in building services, in the same "any two
+give the third" shape, and the same relation the equipment panel keeps between
+capacity, design flow and design ΔT.
+
+Density and specific heat come from the model's fluid through
+`FD.fluids.resolve`, so glycol gives a glycol answer. If that fluid is one whose
+properties are **not verified against a printed table** — currently propylene
+glycol — the tool says so on screen, because specific heat scales every answer
+here linearly.
+
+Reported: duty, volume flow, **mass flow**, ΔT, and the capacity rate `ρ·q·Cp`
+in W/K, which is the figure the control loop works in.
+
+---
+
+## The window
+
+All four tools live in a **moveable window** (v0.16.10), opened from a TOOLS
+button in Design, Control and Simulate. It used to be a whole tab, and a tab
+takes the drawing off the screen in order to answer a question you are asking
+*about* the drawing. Position and open state are remembered in `localStorage` —
+a UI preference, not model data, so a `.pnet.json` never carries someone else's
+window position.

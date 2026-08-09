@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.9, 2026-08-09.** Seven test suites, **1789 assertions**, all
+State: **v0.16.10, 2026-08-09.** Eight test suites, **1825 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -31,6 +31,7 @@ model is wrong, and that has held up every time it has been tested.
     src/thermal.js one linear system for temperature, solved not iterated
     src/canvas.js  drawing, hit-testing, every gesture
     src/app.js     panels, ribbon, calculation sheet, persistence
+    src/tools.js   the TOOLS window — four standalone calculators
     src/printer.js · src/dxf.js · src/dialog.js
 
 ---
@@ -101,8 +102,14 @@ source in BOTH directions by `engine.test.js`. Add a code, document it.
 
 These are not hypothetical. Each cost a session or a user-visible bug.
 
-**Bump the `?v=` token in `index.html` after editing any module.** The browser
-serves stale code otherwise. It is not a build step.
+**Bump the `?v=` token in `index.html` after editing any module — INCLUDING
+`styles.css`.** The browser serves stale code otherwise. It is not a build step.
+
+The stylesheet had **no token at all** until v0.16.10, so every CSS change since
+the project began has shipped stale to anyone with the page cached. It cost half
+an hour on 2026-08-09: a new tab strip rendered with the wrong `display` and no
+children, which reads as a JavaScript bug and is a cached file. If a change
+"did not take", check the token before you check the code.
 
 **THREE VERBS, NOT TWO: `changed`, `arranged`, `selectionChanged`.** v0.16.0
 split "selecting is not an edit" out of `changed`, and left a third case

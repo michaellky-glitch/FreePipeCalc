@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1789
+This is deliberately separate from the automated suites. Those cover 1825
 assertions of engine behaviour (all passing), but they cannot tell you whether a
 button is discoverable, whether a drawing prints legibly, or whether a result
 *looks* right to someone who sizes pipes for a living. Only Michael can sign
@@ -10,7 +10,7 @@ those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-09 (v0.16.9)
+Last updated: 2026-08-09 (v0.16.10)
 
 **THE CURRENT BATCH IS DIRECTLY BELOW**, before anything historical — Michael
 2026-08-09, having gone looking for it and found it buried under two years of
@@ -20,11 +20,25 @@ first. `WORKLIST.md` says what is waiting on me.
 
 ---
 
-# WAITING ON YOU — v0.16.4 to v0.16.9
+# WAITING ON YOU — v0.16.4 to v0.16.10
 
 Nothing in this block has been looked at by a person. Each row says what was
 driven and how, so you know which part is already pinned and which part is the
 bit only you can judge.
+
+## 5S. Q1–Q3 — THE TOOLS WINDOW (v0.16.10)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| Q1.1 | **A moveable window, not a tab** | ⬜ | Opened from a TOOLS button in Design, Control and Simulate — three buttons, all wired. A tab took the drawing off the screen in order to answer a question you were asking about the drawing. Verified: opens, closes with ✕ or Esc, drags by its title bar (200,150 after a drag), and both position and open state come back after a reload. |
+| Q1.2 | It stays on screen | ⬜ | Dragging clamps to the viewport. A window dropped off the edge and then reopened where it was left is a window you cannot get back. |
+| Q2.1 | **Four tabs** | ⬜ | Pump curve · Critical radius · Velocity & friction · Heat transfer. One at a time — stacked worked with two and would not with four in a 400 px window. All four render. |
+| Q3.1 | **Velocity & friction: any two give the third** | ⬜ | Flow + velocity → bore, flow + bore → velocity, bore + velocity → flow. All three round-trip exactly: 4 L/s at 1.5 m/s gives 58.269 mm, and putting that back gives 1.5 m/s and 4 L/s. Which two are yours is a dropdown, not a guess from what you typed last — guessing overwrites the box you are correcting as you type into it. |
+| Q3.2 | ...and the friction is the MODEL's | ⬜ | Assembled exactly as `network.build` assembles a pipe. 4 L/s in 58.27 mm at C=120 reads **550 Pa/m**, hand-checked against Hazen-Williams to 1e-6. Re 87,056, turbulent, 55.0 kPa per 100 m. A tool with its own friction formula is a second implementation waiting to disagree. |
+| Q3.3 | It answers "what size do I buy?" | ⬜ | 58.27 mm is not a pipe. **DN65 (62.7 mm)**, through the schedule's own `sizeForFlow` — the same rule the sizer uses — so the tool cannot recommend a size the model would not have picked. |
+| Q3.4 | **Heat transfer: any two give the third** | ⬜ | Q = ṁ·Cp·ΔT. 50 kW across 5 K → **2.39 L/s**, 2.388 kg/s, capacity rate 10 000 W/K; putting the flow and ΔT back gives 50.00 kW. Uses the model's fluid, so glycol gives a glycol answer — and says on screen when those properties are the unverified ones. |
+| Q3.5 | The arithmetic is tested without a DOM | ⬜ | New eighth suite, `test/tools.test.js`, 36 assertions — the calculators are separated from their forms precisely so they can be hand-checked with no model open, which is the rule the tools page has always stated. |
+| Q3.6 | **Looks** | ⬜ | Everything above was driven through the DOM. **Nothing about how the window LOOKS has been seen** — not the tab strip, not the drag bar, not how the fields sit at 400 px wide. That is the part only you can judge. |
 
 ## 5R. Q4 — A DEVICE SLIDES ALONG ITS RUN (v0.16.9)
 

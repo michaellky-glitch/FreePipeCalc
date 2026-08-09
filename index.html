@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FreePipeCalc — Piping Friction Loss Calculator</title>
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=0.16.10.2">
 </head>
 <body>
 
@@ -19,7 +19,6 @@
     <button class="tab" role="tab" data-pane="pane-calculation" aria-selected="false">CALCULATION</button>
     <button class="tab" role="tab" data-pane="pane-hydraulic" aria-selected="false">HYDRAULIC</button>
     <button class="tab" role="tab" data-pane="pane-thermal" aria-selected="false">THERMAL</button>
-    <button class="tab" role="tab" data-pane="pane-tools" aria-selected="false">TOOLS</button>
     <button class="tab" role="tab" data-pane="pane-settings" aria-selected="false">SETTINGS</button>
     <button class="tab" role="tab" data-pane="pane-docs" aria-selected="false">DOCUMENTATION</button>
   </nav>
@@ -113,6 +112,9 @@
           <button class="btn" data-tool="valve" data-variant="gate" title="A gate valve: open or shut, not for regulating">ISOLATION</button>
           <button class="btn" data-tool="valve" data-variant="check" title="A non-return valve">CHECK</button>
         </span>
+        <span class="tool-sub"><i>Calculate</i>
+          <button class="btn" data-tools-open title="Standalone calculators: pump curve, critical radius, pipe velocity and friction, heat transfer">TOOLS</button>
+        </span>
       </span>
 
       <span class="tool-set" data-uiset="control" hidden>
@@ -125,6 +127,9 @@
         </span>
         <span class="tool-sub"><i>Controls</i>
           <button class="btn" data-tool="link" title="Click a pump or control valve, then the sensor or equipment it should follow">ADD CONTROL</button>
+        </span>
+        <span class="tool-sub"><i>Calculate</i>
+          <button class="btn" data-tools-open title="Standalone calculators: pump curve, critical radius, pipe velocity and friction, heat transfer">TOOLS</button>
         </span>
       </span>
 
@@ -139,6 +144,9 @@
         <span class="tool-sub"><i>Inspect</i>
           <button class="btn" data-tool="edit" title="Select and inspect">SELECT</button>
           <button class="btn" data-tool="probe" title="Read pressure, flow and velocity at any point along a pipe — click to pin the reading, Esc to clear">PROBE</button>
+        </span>
+        <span class="tool-sub"><i>Calculate</i>
+          <button class="btn" data-tools-open title="Standalone calculators: pump curve, critical radius, pipe velocity and friction, heat transfer">TOOLS</button>
         </span>
       </span>
 
@@ -159,6 +167,21 @@
     <div class="spacer"></div>
     <span class="hint-inline" id="mode-hint"></span>
     </div><!-- /ribbon-row-tools -->
+  </div>
+
+  <!-- ======================================================= TOOLS WINDOW
+       Michael, Q1: a moveable window rather than a whole tab. A tool answers a
+       question you have WHILE drawing — "what size do I need for 4 L/s?" — and
+       a tab took the drawing off the screen to answer it. Floating, so the
+       model stays visible behind it, and draggable so it can be put wherever
+       the drawing is not. -->
+  <div id="tools-window" class="tool-window" hidden>
+    <div class="tool-window-bar" id="tools-drag">
+      <span class="tool-window-title">TOOLS</span>
+      <button class="tool-window-close" id="tools-close" title="Close (Esc)">✕</button>
+    </div>
+    <div class="tool-window-tabs" id="tools-tabs"></div>
+    <div class="tool-window-body" id="tools-body"></div>
   </div>
 
   <!-- Solve progress. Sits over the drawing rather than in the toolbar, because
@@ -223,13 +246,6 @@
   </div>
 </section>
 
-<!-- ============================================================ TOOLS -->
-<section class="pane" id="pane-tools" role="tabpanel">
-  <div class="wrap">
-    <div id="tools-body"></div>
-  </div>
-</section>
-
 <!-- ========================================================= SETTINGS -->
 <section class="pane" id="pane-settings" role="tabpanel">
   <div class="wrap">
@@ -269,31 +285,31 @@
      the query when resolving a file:// path, so double-clicking still works;
      over HTTP, changing the token forces a reload instead of a stale copy.
      Bump the token on release, or during development after editing a module. -->
-<script src="data/schedules.js?v=0.16.9.3"></script>
-<script src="data/fittings.js?v=0.16.9.3"></script>
-<script src="data/valves.js?v=0.16.9.3"></script>
-<script src="data/ktable.js?v=0.16.9.3"></script>
-<script src="data/pumps.js?v=0.16.9.3"></script>
-<script src="data/fluids.js?v=0.16.9.3"></script>
-<script src="src/units.js?v=0.16.9.3"></script>
-<script src="src/hydraulics.js?v=0.16.9.3"></script>
-<script src="src/solver.js?v=0.16.9.3"></script>
-<script src="src/model.js?v=0.16.9.3"></script>
-<script src="src/geometry.js?v=0.16.9.3"></script>
-<script src="src/network.js?v=0.16.9.3"></script>
-<script src="src/thermal.js?v=0.16.9.3"></script>
-<script src="src/dialog.js?v=0.16.9.3"></script>
-<script src="src/trace.js?v=0.16.9.3"></script>
-<script src="src/canvas.js?v=0.16.9.3"></script>
-<script src="src/printer.js?v=0.16.9.3"></script>
-<script src="src/dxf.js?v=0.16.9.3"></script>
-<script src="src/tools.js?v=0.16.9.3"></script>
-<script src="src/docs.js?v=0.16.9.3"></script>
-<script src="src/app.js?v=0.16.9.3"></script>
+<script src="data/schedules.js?v=0.16.10.2"></script>
+<script src="data/fittings.js?v=0.16.10.2"></script>
+<script src="data/valves.js?v=0.16.10.2"></script>
+<script src="data/ktable.js?v=0.16.10.2"></script>
+<script src="data/pumps.js?v=0.16.10.2"></script>
+<script src="data/fluids.js?v=0.16.10.2"></script>
+<script src="src/units.js?v=0.16.10.2"></script>
+<script src="src/hydraulics.js?v=0.16.10.2"></script>
+<script src="src/solver.js?v=0.16.10.2"></script>
+<script src="src/model.js?v=0.16.10.2"></script>
+<script src="src/geometry.js?v=0.16.10.2"></script>
+<script src="src/network.js?v=0.16.10.2"></script>
+<script src="src/thermal.js?v=0.16.10.2"></script>
+<script src="src/dialog.js?v=0.16.10.2"></script>
+<script src="src/trace.js?v=0.16.10.2"></script>
+<script src="src/canvas.js?v=0.16.10.2"></script>
+<script src="src/printer.js?v=0.16.10.2"></script>
+<script src="src/dxf.js?v=0.16.10.2"></script>
+<script src="src/tools.js?v=0.16.10.2"></script>
+<script src="src/docs.js?v=0.16.10.2"></script>
+<script src="src/app.js?v=0.16.10.2"></script>
 <script>
   window.FD.APP_NAME = 'FreePipeCalc';
   window.FD.APP_SHORT = 'FPC';
-  window.FD.VERSION = '0.16.9';
+  window.FD.VERSION = '0.16.10';
   window.FD.FORMAT_VERSION = 1;
   try {
     window.FD.initApp();
