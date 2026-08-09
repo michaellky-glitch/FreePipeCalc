@@ -1151,3 +1151,16 @@ body.sim-static #prop-body .field textarea {
   display: block; height: 100%; width: 0;
   background: var(--accent); transition: width .12s linear;
 }
+
+/* THE ACTIVE SIMULATION MODE, stated loudly. The ordinary `.btn.active` tint is
+ * right for a tool you can see the effect of on the drawing; STATIC and DYNAMIC
+ * change whether the model responds to you at all, so being unsure which one is
+ * on is the difference between "this is locked" and "this is broken". */
+[data-simmode].active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 650;
+}
+[data-simmode].active::after { content: ' \2713'; }
+#btn-run-sim:disabled { opacity: .4; cursor: default; }

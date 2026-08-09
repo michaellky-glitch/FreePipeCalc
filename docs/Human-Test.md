@@ -203,6 +203,17 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 5I. STATIC / DYNAMIC ACTUALLY WIRED UP (v0.16.2)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| SM.1 | **Static/Dynamic now do something** | ✅ | My fault, and a bad one: the wiring was **lost between v0.16.0 and v0.16.1** — one of my edits replaced a region that contained it. The buttons shipped with no JavaScript behind them, so neither lit up and clicking DYNAMIC did nothing at all. Restored and verified switching both ways. |
+| SM.2 | The active mode is obvious | ✅ | Filled accent, white text, and a ✓. The ordinary button tint is fine for a tool whose effect you can see on the drawing; STATIC vs DYNAMIC decides whether the model responds to you at all, and being unsure which is on is the difference between "locked" and "broken". |
+| SM.3 | **RUN SIMULATION** | ✅ | In the Simulate ribbon. Verified end to end: doubled a coil's duty in STATIC, confirmed the answer did **not** move on its own, pressed RUN, and the pump flow moved 3.198 → 3.194 L/s. Goes straight to the solve rather than through the 250 ms debounce — waiting after a deliberate click reads as the button not having worked. |
+| SM.4 | It is disabled where it means nothing | ✅ | Greyed in DYNAMIC (every edit already re-solves) and in DESIGN, with the tooltip saying why. |
+| SM.5 | Leaving STATIC re-solves | ✅ | Whatever you changed while locked has not been solved for, so switching to DYNAMIC takes a fresh answer. |
+| SM.6 | Locked gestures still explain themselves | ✅ | *"Drawing is locked in STATIC simulation. Switch to DYNAMIC on the ribbon to edit while simulating."* |
+
 ## 5H. THE LOST SETPOINTS, AND ANNOTATION (v0.16.1)
 
 ### The lost setpoints — you were right, and there were two separate things

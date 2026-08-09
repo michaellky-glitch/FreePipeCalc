@@ -6240,12 +6240,71 @@
     [].slice.call(document.querySelectorAll('[data-uimode]')).forEach(function (b) {
       b.addEventListener('click', function () { setUIMode(b.dataset.uimode); });
     });
+    /* ============================================ STATIC / DYNAMIC
+     *
+     * Static is the default and the point of it is performance: on a big model
+     * every geometry change costs a full re-solve, and most of the time spent
+     * in SIMULATE is spent reading.
+     *
+     * THIS WIRING WAS LOST between v0.16.0 and v0.16.1 — the buttons shipped
+     * with no JavaScript behind them, so neither lit up and clicking DYNAMIC
+     * did nothing at all. Michael, 2026-08-09. */
+    function syncSimMode() {
+      var inSim = app.model.settings.calcMode === 'simulation';
+      [].slice.call(document.querySelectorAll('[data-simmode]')).forEach(function (b) {
+        b.classList.toggle('active',
+          (b.dataset.simmode === 'static') === !!app.view.simStatic);
+      });
+      /* The panel greys its editable fields to match, so the state is visible
+       * where you would try to type rather than only on the ribbon. */
+      document.body.classList.toggle('sim-static', app.view.locked());
+      var run = $('btn-run-sim');
+      if (run) {
+        /* RUN SIMULATION only means something in STATIC — in DYNAMIC every edit
+         * re-solves already, so a button that re-solves what is already solved
+         * would just be a way to wait. */
+        run.disabled = !inSim || !app.view.simStatic;
+        run.title = run.disabled
+          ? 'Not needed here \u2014 in DYNAMIC every edit re-solves as you make it'
+          : 'Re-solve the model now';
+      }
+    }
+
+    [].slice.call(document.querySelectorAll('[data-simmode]')).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var wasStatic = app.view.simStatic;
+        app.view.simStatic = (b.dataset.simmode === 'static');
+        syncSimMode();
+        renderProperties();
+        app.view.render();
+        if (wasStatic === app.view.simStatic) return;
+        toast(app.view.simStatic
+          ? 'STATIC \u2014 the model is locked; use RUN SIMULATION to re-solve.'
+          : 'DYNAMIC \u2014 edits re-solve as you make them.');
+        /* Leaving STATIC takes a fresh answer, because whatever was changed
+         * while locked has not been solved for. */
+        if (!app.view.simStatic) scheduleSolve();
+      });
+    });
+
+    var runBtn = $('btn-run-sim');
+    if (runBtn) runBtn.addEventListener('click', function () {
+      if (runBtn.disabled) return;
+      /* Straight to the solve rather than through the debounce: this is an
+       * explicit "go", and waiting 250 ms after a deliberate click reads as the
+       * button not having worked. */
+      clearTimeout(app.solveTimer);
+      solveSliced();
+    });
+
     app.setUIMode = setUIMode;
     app.syncUIMode = syncUIMode;
+    app.syncSimMode = syncSimMode;
     if (!app.uiMode) {
       app.uiMode = app.model.settings.calcMode === 'simulation' ? 'simulate' : 'design';
     }
     syncUIMode();
+    syncSimMode();
 
     function refreshToolButtons() {
       syncToolButtons();
