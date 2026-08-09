@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.10, 2026-08-09.** Eight test suites, **1825 assertions**, all
+State: **v0.16.11, 2026-08-09.** Eight test suites, **1854 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -406,6 +406,8 @@ Short index of the least obvious things, all expanded in `ARCHITECTURE.md`:
 | A source MIXES, it does not reset | It states the temperature of the water it brings IN |
 | The datum is pinned only on a SINGULAR solve | Pinning on suspicion overrode machines already holding a setpoint |
 | `pump.head` vs `hDesign` | One is what the solver ran on, the other is a report of it |
+| ANNOTATION selects annotation, never pipework | Everything that mode moves sits ON TOP of the drawing; the pipe underneath was winning the click |
+| Annotation handles are sized in GRID SQUARES | A pixel target shrinks with the zoom while everything you aim at is in metres |
 | A control link across floors rises through a NODE | Half the link on each floor, meeting at one draggable point in plan |
 | Routes are `zRoute`, one degree of freedom | Three orthogonal segments between two fixed points have exactly one |
 | Details and notes are their own collections | Nothing in the engine reads them, so a room outline cannot become pipework |

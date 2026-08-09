@@ -2929,6 +2929,32 @@
   /* Equipment tag. Shared by every in-line device — it is the reference the
    * engineer works from on site, so it belongs on all of them, not just
    * equipment. */
+  /* THE TAG'S OWN VISIBILITY SWITCH (Michael, 2026-08-09).
+   *
+   * Separate from the "Show on drawing" checkboxes, which control the VALUE BOX
+   * beside a device. This is the tag itself — the one label that could not be
+   * turned off per item, and on a dense floor that is a lot of text nobody
+   * asked for.
+   *
+   * OFF hides it in every mode EXCEPT Annotation, where it stays in grey and
+   * stays selectable — otherwise a hidden tag would have no handle left to turn
+   * it back on with. */
+  function tagVisibleRow(host, o) {
+    if (!o || !o.tag) return;
+    var on = M.tagVisible(o);
+    var sw = switchRow(host, 'Tag visible: ' + (on ? 'ON' : 'OFF'), on, function (next) {
+      pushUndo();
+      M.setTagVisible(o, next);
+      renderProperties();
+      /* Presentation, not geometry: redraw and save, never re-solve. */
+      scheduleSave();
+      app.view.render();
+    });
+    infoMark(sw, 'Hides the tag on the drawing and on prints. It stays visible ' +
+                 'in ANNOTATION — greyed, and still selectable — so it can be ' +
+                 'turned back on.');
+  }
+
   function tagField(host, p) {
     var i = el('input'); i.type = 'text'; i.value = p.tag || '';
     i.placeholder = 'e.g. CHW-P-01';
@@ -2998,6 +3024,7 @@
     var sn = p.sensor;
     host.appendChild(el('h3', '', 'Sensor ' + p.id));
     tagField(host, p);
+    tagVisibleRow(host, p);
 
     var modeSel = el('select');
     [['temperature', 'Temperature'], ['flow', 'Flow'],
@@ -3211,6 +3238,7 @@
     var det = section(host, 'Details');
     idRow(det, p);
     tagField(det.box, p);
+    tagVisibleRow(det.box, p);
 
     var typeSel = el('select');
     [['source', 'Heat source / sink'], ['exchanger', 'Heat exchanger'],
@@ -3826,6 +3854,7 @@
     var det = section(host, 'Details');
     idRow(det, p);
     tagField(det.box, p);
+    tagVisibleRow(det.box, p);
     if (isCheck) flipField(det.box, p);
 
     /* The TYPE selector stays, because a valve drawn as the wrong kind should
@@ -4365,6 +4394,7 @@
     var det = section(host, 'Details');
     idRow(det, p);
     tagField(det.box, p);
+    tagVisibleRow(det.box, p);
     flipField(det.box, p);
     onlineToggle(det.box, p.pump.mode !== 'off', function (on) {
       pushUndo();
@@ -4776,6 +4806,7 @@
         if (v) n.tag = v; else delete n.tag;
         changed();
       });
+      tagVisibleRow(host, n);
     }
 
     var dev = n.device;
@@ -5174,6 +5205,15 @@
         function (v) { m.settings.grid.minor = v; redrawAll(); }, '0.1');
     num(g4, 'Grid major (m)', m.settings.grid.major,
         function (v) { m.settings.grid.major = v; redrawAll(); }, '1');
+    /* Michael, 2026-08-09: the control-link nodes and the cross-floor riser
+     * were hard to hit. Measured in GRID SQUARES so the target holds its size
+     * relative to the drawing instead of shrinking with the zoom. */
+    num(g4, 'Annotation handle size (grids)',
+        m.settings.pickGrid === undefined ? 0.5 : m.settings.pickGrid,
+        function (v) {
+          m.settings.pickGrid = Math.max(0.1, Math.min(2, v));
+          redrawAll();
+        }, '0.1');
 
     var g5 = group('Appearance');
     sel(g5, 'Theme', [['dark', 'Dark'], ['light', 'Light']], m.settings.theme,

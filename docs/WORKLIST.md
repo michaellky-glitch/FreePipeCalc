@@ -3,7 +3,7 @@
 Everything Michael has asked for that is not yet done, in the order it will be
 tackled. Closed items move to `Human-Test.md` with a verification note.
 
-Updated 2026-08-09, after v0.16.10.
+Updated 2026-08-09, after v0.16.11.
 
 ---
 
@@ -31,7 +31,6 @@ can check it.
 | # | Item | Notes |
 |---|---|---|
 | S1 | Riser should show pipe properties | |
-| T1 | **Tag repair is both incomplete and lossy** | Measured 2026-08-09, after Michael repaired `20260809-DC` — his file is clean now, so this is latent rather than live. Two separate faults. (a) `looksMangled` only recognises an appended tag matching `(PMP\|AHU\|TS\|SRC\|OF\|STR)-\d+`, so `PWP-04MP-4MP-4…` is neither flagged nor repaired: what got appended is `MP-4`, which is `PMP-4` with its first character absorbed by the character before it. The corruption is not always a clean append. (b) Even when it repairs, it can repair to the wrong thing — `CHWP-0AHU-15AHU-152` comes back as **`CHWP-0`**, not `CHWP-02`, because the real tag's trailing `2` was swallowed into `AHU-152`. Michael's file has `CHWP-02`, so he corrected that one by hand. Worth saying out loud in the message: the mangling is lossy, so REPAIR is a best guess and the result wants checking. |
 
 ---
 
@@ -39,6 +38,11 @@ can check it.
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.11** — Michael's Annotation batch: pipes unselectable in MOVE,
+  grid-sized handles, SELECT renamed MOVE, a per-tag Visible switch, and a
+  control link no longer showing on floors it does not belong to (my regression
+  from v0.16.9). Plus T1, tag repair, which was recovering the wrong tag AND
+  renaming good ones.
 * **v0.16.10** — Q1-Q3: the tools move out of a tab and into a moveable window
   with four tabs, opened from Design, Control and Simulate; two new ones —
   pipe velocity & friction, and heat transfer — both "enter any two, get the

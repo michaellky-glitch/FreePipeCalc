@@ -2508,6 +2508,13 @@ section('A control link that changes floor rises through a node');
        JSON.stringify(r && r.points));
     const nolevel = M.controlRoute(t.m, t.pump);
     ok('...and asking without a floor still answers', !!nolevel);
+
+    /* AND IT IS DRAWN ONLY ON ITS OWN FLOOR. Michael, 2026-08-09: L0 links
+     * were showing up at L2. The level filter used to live at both call sites
+     * and was dropped when it moved in here, because a link that does not span
+     * has no span to check itself against. */
+    ok('A single-floor link does not appear on another floor',
+       M.controlRoute(t.m, t.pump, t.l1) === null);
   }
 
   /* ---- DIFFERENT FLOORS: a riser appears, halfway between the two devices. */
@@ -2591,6 +2598,86 @@ section('A control link that changes floor rises through a node');
     ok('The far leg keeps its own', b.axis === 'v', b.axis);
     near('...and its own mid', b.mid, 17, 1e-12);
   }
+}
+
+/* --------------------------------------------------------------------------
+ * A TAG CAN BE SWITCHED OFF WITHOUT BEING DELETED  (Michael, 2026-08-09)
+ *
+ * The "Show on drawing" checkboxes control the VALUE BOX beside a device. The
+ * tag above it was always drawn, and on a dense floor that is a lot of text
+ * nobody asked for. The answer is not to delete the tag — the schedule needs
+ * it — but to stop drawing it.
+ * ----------------------------------------------------------------------- */
+section('Tag visibility is per item, and defaults to on');
+{
+  const m = M.create();
+  const lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+  const p = M.addPipe(m, a.id, b.id, {});
+  p.tag = 'CHW-P-01';
+
+  ok('A tag is visible by default', M.tagVisible(p));
+  ok('...and so is an entity with no opinion stored', M.tagVisible({}));
+  M.setTagVisible(p, false);
+  ok('Switched off', !M.tagVisible(p));
+  M.setTagVisible(p, true);
+  ok('...and back on', M.tagVisible(p));
+  /* STORED AS `tagOff`, so every model written before this keeps its tags. An
+   * `on` flag would have hidden every tag in every existing file. */
+  ok('...with nothing left behind when it is on', p.tagOff === undefined,
+     JSON.stringify(p.tagOff));
+  M.setTagVisible(p, false);
+  const back = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(m))));
+  ok('It survives a save and reload', !M.tagVisible(M.pipe(back, p.id)));
+}
+
+/* --------------------------------------------------------------------------
+ * TAG REPAIR — the mangling is an INSERTION, not an append  (2026-08-09)
+ *
+ * Measured on Michael's data centre, and it changed the repair. The old rule
+ * stripped a trailing run of generated tags, which is only one of the shapes:
+ *
+ *   CHWP-0AHU-15AHU-152      the real tag is CHWP-02 — the "2" is STRANDED
+ *                            after the inserted text, so stripping the tail
+ *                            gave `CHWP-0`: plausible, wrong, and silent
+ *   PWP-04MP-4MP-4…×7        the inserted text is `MP-4`, which is `PMP-4`
+ *                            with its first character absorbed — so matching
+ *                            whole generated tags missed it entirely
+ *
+ * A false positive renames a tag that was CORRECT, which is worse than missing
+ * one, so both new rules need repetition or a trailing position.
+ * ----------------------------------------------------------------------- */
+section('Tag repair recovers the tag, not just a prefix');
+{
+  /* ---- THE THREE REAL ONES, from `20260808-DC-broken` and `20260807-DC`. */
+  ok('An inserted tag is removed from where it sits',
+     M.repairedTag('CHWP-0AHU-15AHU-152') === 'CHWP-02',
+     M.repairedTag('CHWP-0AHU-15AHU-152'));
+  ok('...recovering the stranded digit, not stopping at CHWP-0',
+     M.repairedTag('CHWP-0AHU-15AHU-152') !== 'CHWP-0');
+  ok('A repeated whole tag is removed',
+     M.repairedTag('CHWP-04PMP-1PMP-1PMP-1PMP-1PMP-1') === 'CHWP-04',
+     M.repairedTag('CHWP-04PMP-1PMP-1PMP-1PMP-1PMP-1'));
+  ok('A repeated TRUNCATED tag is removed too',
+     M.repairedTag('PWP-04MP-4MP-4MP-4MP-4MP-4MP-4MP-4') === 'PWP-04',
+     M.repairedTag('PWP-04MP-4MP-4MP-4MP-4MP-4MP-4MP-4'));
+  ok('A single appended tag still works, as before',
+     M.repairedTag('CHWP-04PMP-1') === 'CHWP-04');
+
+  /* ---- AND EVERYTHING GOOD IS LEFT ALONE. This is the half that matters:
+   * renaming a correct tag is the failure mode to avoid. */
+  ['PMP-1', 'AHU-15', 'TS-1', 'CHWP-04', 'CT-01', 'ACCH-04', 'DP-02',
+   'PWP-01', 'AHU-11', 'P-1', 'CHW-PUMP-3', 'AHU-1212', 'SUB-AHU-12-A',
+   'B2-AHU-7', 'VAV-1-2'].forEach(function (t) {
+    ok('Left alone: ' + t, M.repairedTag(t) === null, String(M.repairedTag(t)));
+  });
+  /* `AHU-1212` is the one that needs the hyphen rule: read as "12" twice it
+   * would be stripped back to `AHU-`, which is a real tag destroyed. */
+  ok('A repeated group must contain a hyphen to count',
+     M.repairedTag('AHU-1212') === null);
+
+  ok('looksMangled agrees with the repair', M.looksMangled('CHWP-04PMP-1') &&
+     !M.looksMangled('CHWP-04'));
 }
 
 section('zRoute: one shape, one degree of freedom');

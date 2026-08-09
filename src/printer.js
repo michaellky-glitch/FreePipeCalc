@@ -67,7 +67,10 @@
   function deviceLines(m, p, flags, results) {
     var d = m.settings.display, out = [];
     var q = results && results.flow ? results.flow[p.id] : undefined;
-    if (flags.tag && p.tag) out.push(p.tag);
+    /* A tag switched off does not print either — that is most of the point of
+     * switching it off. `tagVisible` is the one definition, shared with the
+     * canvas, so the paper and the screen cannot disagree. */
+    if (flags.tag && p.tag && M.tagVisible(p)) out.push(p.tag);
     if (flags.flow && q !== undefined) {
       out.push('Q ' + FD.units.fmtFlow(Math.abs(q), d.flow, true));
     }
@@ -277,7 +280,7 @@
 
       var flags = M.displayFlags(p);
       var lines = deviceLines(m, p, flags, results);
-      if (p.tag && !flags.tag) lines.unshift(p.tag);
+      if (p.tag && !flags.tag && M.tagVisible(p)) lines.unshift(p.tag);
       if (!lines.length) return;
       var off = M.labelOffset(p, 'box');
       lines.forEach(function (t, i) {

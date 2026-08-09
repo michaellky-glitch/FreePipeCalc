@@ -32,6 +32,21 @@
    * run, not laying out pipework, and 0.5 m steps would be unusable on a
    * device 0.5 m long. */
   var DEVICE_SLIDE_STEP = 0.1;
+  /* HOW BIG AN ANNOTATION HANDLE IS TO CLICK ON, in GRID squares.
+   *
+   * Michael, 2026-08-09: control-link nodes and the cross-floor riser were both
+   * "hard to select". They were a flat 22 px box, which is fine at the zoom you
+   * place them at and far too small at the zoom you review a floor at — the
+   * target shrank as the drawing did, because it was measured in pixels while
+   * everything you are aiming at is measured in metres.
+   *
+   * Measured in GRID SQUARES instead, so it holds its size relative to the
+   * drawing, with a pixel FLOOR so it never becomes unclickable when zoomed
+   * right out. Adjustable in SETTINGS; 2 grids is the ceiling, beyond which
+   * handles start swallowing each other. */
+  var PICK_GRID_DEFAULT = 0.5;
+  var PICK_GRID_MAX = 2;
+  var PICK_FLOOR_PX = 18;                 // half-width at the DEFAULT setting
   var ANGLE_SNAP = 15;      // degrees (§5)
 
   /* Risers use much larger radii than drawing does. A riser belongs on existing
@@ -768,23 +783,24 @@
           self.selectionChanged();
           return;
         }
-        /* No label under the pointer: fall through to ordinary selection rather
-         * than clearing it.
+        /* No label under the pointer.
          *
-         * VIEW is where the "Show on drawing" checkboxes live, but a click here
-         * used to deselect — so the only way to reach a pump's display options
-         * was to select it in EDIT and then switch modes. Selecting in the mode
-         * that owns the controls is the whole point. Dragging a NODE is still
-         * not offered here; VIEW arranges the drawing, it does not move
+         * ANNOTATION DOES NOT SELECT PIPEWORK. Michael, 2026-08-09: "in
+         * Annotation mode, make pipes unselectable — prioritise annotation
+         * nodes, tags, etc." Everything this mode can move sits ON TOP of the
+         * drawing, and the pipe underneath was winning clicks aimed at the
+         * thing above it. So plain pipes, nodes and risers are not selectable
+         * here at all, and a click that finds no annotation clears instead.
+         *
+         * A DEVICE STILL IS, because VIEW is where the "Show on drawing"
+         * checkboxes live: without it the only way to reach a pump's display
+         * options is to select it in EDIT and switch modes, which is the
+         * complaint that put selection here in the first place. Dragging a node
+         * is still not offered — VIEW arranges the drawing, it does not move
          * geometry. */
         var vd = self.deviceAt(w.x, w.y);
         if (vd) { self.selection = [{ kind: 'pipe', id: vd.id }]; self.selectionChanged(); return; }
-        var vn = self.nodeAt(w.x, w.y);
-        if (vn) { self.selection = [{ kind: 'node', id: vn.id }]; self.selectionChanged(); return; }
-        var vp = self.pipeAt(w.x, w.y);
-        if (vp) { self.selection = [{ kind: 'pipe', id: vp.pipe.id }]; self.selectionChanged(); return; }
-        var vr = self.riserAt(w.x, w.y);
-        self.selection = vr ? [{ kind: 'riser', id: vr.id }] : [];
+        self.selection = [];
         self.selectionChanged();
         return;
       }
@@ -3151,6 +3167,7 @@
       if (this.tool === 'view') {
         var grabs = [{ x: cx, y: cy }];
         for (var gj = 1; gj < rp.length - 1; gj++) grabs.push(rp[gj]);
+        var sh = self.pickHalf();
         grabs.forEach(function (g, gi) {
           self.labelHandle(g.x - 5, g.y - 5, 10, 10);
           self._controlHandles.push({
@@ -3160,11 +3177,12 @@
              * bubble (index 0 in `grabs`) is not a bend — it rides the middle
              * segment — so it keeps the old whole-route behaviour. */
             vertex: gi === 0 ? null : gi - 1,
-            /* A ROUTE HANDLE OFTEN SITS ON A PIPE, and a 14 px target under a
+            /* A ROUTE HANDLE OFTEN SITS ON A PIPE, and a small target under a
              * pipe that is also asking for the click is hard to hit — Michael,
-             * 2026-08-08. 22 px is a comfortable target and still small enough
-             * that two adjacent bends do not overlap. */
-            x: g.x - 11, y: g.y - 11, w: 22, h: 22
+             * 2026-08-08, and again 2026-08-09. Sized in GRID SQUARES now
+             * (`pickHalf`) so it holds its size relative to the drawing rather
+             * than shrinking with the zoom. */
+            x: g.x - sh, y: g.y - sh, w: sh * 2, h: sh * 2
           });
         });
         /* AND THE FAR TAPPING SLIDES ALONG ITS OWN PIPE (Michael, 2026-08-06).
@@ -3175,7 +3193,7 @@
         self.labelHandle(lastP.x - 5, lastP.y - 5, 10, 10);
         self._controlHandles.push({
           pipe: p, host: p.sensor, key: 'refT', tap: true,
-          x: lastP.x - 11, y: lastP.y - 11, w: 22, h: 22
+          x: lastP.x - sh, y: lastP.y - sh, w: sh * 2, h: sh * 2
         });
       }
 
@@ -3275,16 +3293,22 @@
   View.prototype.drawTag = function (p, x, y) {
     var off = M.labelOffset(p);
     var size = this.labelSize();
-    if (p.tag) {
+    /* HIDDEN TAGS STILL DRAW IN ANNOTATION, greyed, so there is something left
+     * to click on and turn back on. Everywhere else they are simply gone. */
+    var shown = M.tagVisible(p), arranging = (this.tool === 'view');
+    if (p.tag && (shown || arranging)) {
       var ctx = this.ctx;
       ctx.font = '600 ' + size + 'px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillStyle = this.theme.text;
+      ctx.fillStyle = shown ? this.theme.text : this.theme.mute;
       var tx = x + off.dx, ty = y - 16 + off.dy;
+      ctx.save();
+      if (!shown) ctx.globalAlpha = 0.55;
       ctx.fillText(p.tag, tx, ty);
+      ctx.restore();
       var w = ctx.measureText(p.tag).width;
       this.registerLabel('pipe', p, tx - w / 2 - 3, ty - size, w + 6, size + 5);
-      if (this.tool === 'view') this.labelHandle(tx - w / 2 - 3, ty - size, w + 6, size + 5);
+      if (arranging) this.labelHandle(tx - w / 2 - 3, ty - size, w + 6, size + 5);
     }
     this.drawDeviceBox(p, { x: x, y: y });
   };
@@ -3518,14 +3542,20 @@
     var x = s.x + off.dx, y = s.y + 17 + off.dy;
     var text = parts.join(' ');
 
+    var nShown = M.tagVisible(n), nArranging = (this.tool === 'view');
+    if (!nShown && !nArranging) { this.drawDeviceBox(n, s); return; }
+
     ctx.font = (size - 1) + 'px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = this.theme.mute;
+    ctx.save();
+    if (!nShown) ctx.globalAlpha = 0.55;
     ctx.fillText(text, x, y);
+    ctx.restore();
 
     var w = ctx.measureText(text).width;
     this.registerLabel('node', n, x - w / 2 - 3, y - size, w + 6, size + 6);
-    if (this.tool === 'view') this.labelHandle(x - w / 2 - 3, y - size, w + 6, size + 6);
+    if (nArranging) this.labelHandle(x - w / 2 - 3, y - size, w + 6, size + 6);
 
     this.drawDeviceBox(n, s);
   };
@@ -4521,8 +4551,9 @@
          * ANNOTATION ribbon selects. Registered whichever floor you are on, so
          * it can be placed from either end of the link. */
         if (self.tool === 'view') {
+          var hh = self.pickHalf();
           self._riserHandles.push({
-            pipe: p, x: rs.x - 11, y: rs.y - 11, w: 22, h: 22
+            pipe: p, x: rs.x - hh, y: rs.y - hh, w: hh * 2, h: hh * 2
           });
         }
       }
@@ -4530,13 +4561,14 @@
       if (self.tool === 'view' && pts.length > 2) {
         /* One handle per bend; both slide the same mid line, which is what
          * makes the route stay orthogonal however it is dragged. */
+        var bh = self.pickHalf();
         for (var j = 1; j < pts.length - 1; j++) {
           self.labelHandle(pts[j].x - 5, pts[j].y - 5, 10, 10);
           self._controlHandles.push({
             pipe: p, host: (p.kind === 'pump') ? p.pump : p.valve, key: 'control',
             axis: r.axis, from: r.from, to: r.to, route: r,
             vertex: j - 1,
-            x: pts[j].x - 11, y: pts[j].y - 11, w: 22, h: 22
+            x: pts[j].x - bh, y: pts[j].y - bh, w: bh * 2, h: bh * 2
           });
         }
       }
@@ -4659,6 +4691,23 @@
     var min = (back === null) ? -Infinity : Math.min(0, back + margin);
     var max = (fwd === null) ? Infinity : Math.max(0, fwd - L - margin);
     return { ux: ux, uy: uy, min: min, max: max, length: L };
+  };
+
+  /* Half-width of an annotation handle, in SCREEN pixels. */
+  View.prototype.pickHalf = function () {
+    var m = this.getModel();
+    var g = (m.settings.grid && m.settings.grid.minor) || 0.5;
+    var k = Number(m.settings.pickGrid);
+    if (!isFinite(k) || k <= 0) k = PICK_GRID_DEFAULT;
+    k = Math.min(PICK_GRID_MAX, k);
+    /* THE FLOOR SCALES WITH THE SETTING TOO, and it has to.
+     *
+     * On a data centre at 8 px/m, half of 0.5 grid is under two pixels — the
+     * floor governs at every zoom anyone actually works at, so a setting that
+     * only moved the grid term would appear to do nothing. Scaling both means
+     * turning it up is felt immediately, and zooming in still grows the target
+     * on its own. */
+    return Math.max(PICK_FLOOR_PX * (k / PICK_GRID_DEFAULT), k * g * this.scale / 2);
   };
 
   View.prototype.controlRiserAt = function (sx, sy) {

@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1825
+This is deliberately separate from the automated suites. Those cover 1854
 assertions of engine behaviour (all passing), but they cannot tell you whether a
 button is discoverable, whether a drawing prints legibly, or whether a result
 *looks* right to someone who sizes pipes for a living. Only Michael can sign
@@ -10,7 +10,7 @@ those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-09 (v0.16.10)
+Last updated: 2026-08-09 (v0.16.11)
 
 **THE CURRENT BATCH IS DIRECTLY BELOW**, before anything historical — Michael
 2026-08-09, having gone looking for it and found it buried under two years of
@@ -20,11 +20,35 @@ first. `WORKLIST.md` says what is waiting on me.
 
 ---
 
-# WAITING ON YOU — v0.16.4 to v0.16.10
+# WAITING ON YOU — v0.16.4 to v0.16.11
 
 Nothing in this block has been looked at by a person. Each row says what was
 driven and how, so you know which part is already pinned and which part is the
 bit only you can judge.
+
+## 5T. YOUR ANNOTATION BATCH, AND THE TAGS (v0.16.11)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| AN.1 | **Pipes are not selectable in Annotation** | ⬜ | Clicking the pipe LINE or a node in MOVE now selects nothing; in SELECT both still work. What stays selectable there: notes, detail lines, control-link bends, the cross-floor riser, and **labels and tags** — including a pipe's own size annotation, which you need to grab in order to drag it. Devices stay selectable too, because MOVE is where the "Show on drawing" checkboxes live. |
+| AN.2 | **Bigger handles, adjustable** | ⬜ | Measured in GRID SQUARES rather than pixels, so the target holds its size relative to the drawing instead of shrinking with the zoom. SETTINGS → Drawing → **Annotation handle size (grids)**, default 0.5, ceiling 2. At your grid and zoom: **0.5 → 36 px across, 1 → 72, 2 → 144** (it was a flat 22). The floor scales with the setting as well as the grid term — without that, at 8 px/m half of 0.5 grid is under two pixels and the setting would have appeared to do nothing. |
+| AN.3 | **Annotation → SELECT renamed MOVE** | ⬜ | And the tooltip with it: "Move labels, tags, notes, detail lines and control-link nodes into place for printing." |
+| AN.4 | **Tags have their own Visible switch** | ⬜ | On any tagged pipe, device or node: **Tag visible: ON/OFF**, beside the Tag field. Separate from the "Show on drawing" checkboxes, which control the value BOX. Verified: OFF hides it in SELECT and on prints, keeps it in MOVE, and it is still selectable there. Stored as `tagOff`, so every existing model keeps its tags. |
+| AN.5 | ...greyed, not gone, in Annotation | ⬜ | Drawn in the muted colour at 55% opacity. Hiding it there too would leave nothing to click on to turn it back on. |
+| AN.6 | **Control links only appear on their own floor** | ⬜ | **This was my regression, from v0.16.9.** The "both ends on the level being drawn" test used to be written out at both call sites; moving it into `controlRoute` dropped it for the ordinary same-floor case, because a link that does not span has no span to check itself against. An L0 link is now absent on L1 and L2, and there is a test. |
+| AN.7 | The riser is easier to grab | ⬜ | Same handle sizing as AN.2 — 36 px across by default rather than 22. |
+
+## 5U. TAG REPAIR, IN THE BACKEND (v0.16.11)
+
+You left this with me. It turned out to be two faults, and the repair was giving
+a wrong answer as well as missing one.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| T1.1 | **The mangling INSERTS, it does not append** | ⬜ | `CHWP-0AHU-15AHU-152` is `CHWP-02` with `AHU-15` inserted twice at a caret — the real tag's trailing "2" is stranded after it. The old rule stripped the trailing run and gave **`CHWP-0`**: plausible, wrong, and silent. Removing the repeated token from wherever it sits gives **`CHWP-02`**, which is the answer. |
+| T1.2 | ...and the inserted text can be truncated | ⬜ | `PWP-04MP-4MP-4…×7` appends `MP-4`, which is `PMP-4` with its first character absorbed, so matching whole generated tags missed it entirely. A hyphenated group repeated at the end catches it. |
+| T1.3 | **And it no longer renames good tags** | ⬜ | Found by writing the false-positive half of the test: **`B2-AHU-7` was being stripped to `B2-`**, and had been since the rule existed. A real mangling leaves a complete tag behind it (`CHWP-04`); a hierarchical name leaves a dangling separator (`B2-`). The head must now end in a letter or digit. `AHU-1212`, `SUB-AHU-12-A`, `VAV-1-2` are all left alone. |
+| T1.4 | It is still a best guess | ⬜ | The mangling is lossy — `CHWP-02` came back only because the stranded "2" survived, and a mangling that ate it would be unrecoverable. Worth a glance at what REPAIR TAGS reports rather than trusting it. |
 
 ## 5S. Q1–Q3 — THE TOOLS WINDOW (v0.16.10)
 

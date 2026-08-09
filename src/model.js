@@ -1739,6 +1739,27 @@
     return w;
   }
 
+  /* ===================================== IS THIS ENTITY'S TAG DRAWN?
+   *
+   * Michael, 2026-08-09. A tag is the one label you cannot turn off per item:
+   * the "Show on drawing" checkboxes control the VALUE BOX beside a device, and
+   * the tag above it was always there. On a dense floor that is a lot of text
+   * nobody asked for, and the answer is not to delete the tag — the tag is
+   * real, the schedule needs it — but to stop DRAWING it.
+   *
+   * OFF hides it everywhere except ANNOTATION, where it stays visible in grey
+   * and stays selectable. Hiding it there too would leave no way to turn it
+   * back on: the only handle on a hidden thing is the mode whose job is
+   * arranging hidden things.
+   *
+   * Stored as `tagOff` rather than `tagOn`, so every existing model — where the
+   * key is absent — keeps showing its tags. */
+  function tagVisible(o) { return !(o && o.tagOff === true); }
+  function setTagVisible(o, on) {
+    if (!o) return;
+    if (on) delete o.tagOff; else o.tagOff = true;
+  }
+
   /* Which floor a pipe is drawn on. Both ends are always on the same level —
    * a riser is its own kind — so the `a` end answers for it. */
   function pipeLevel(m, p) {
@@ -1819,7 +1840,19 @@
     if (!a || !b) return null;
 
     var span = controlSpan(m, p);
-    if (!span) return zRoute(a, b, c.axis, c.mid, c.pts);
+    if (!span) {
+      /* SAME FLOOR — and it must be THIS floor. Michael, 2026-08-09: "control
+       * links seem to be visible on all levels (e.g. L0 links visible at L2)."
+       *
+       * A regression from v0.16.9, and mine. The filtering used to be written
+       * out at both call sites — "both ends on the level being drawn" — and
+       * moving it in here dropped the level test for the ordinary case, because
+       * a link that does not span has no span to check it against. Asked
+       * without a floor it still answers, which is what the printer and the
+       * bend-adding button need. */
+      if (levelId && pipeLevel(m, p) !== levelId) return null;
+      return zRoute(a, b, c.axis, c.mid, c.pts);
+    }
     if (!levelId) return null;
     if (levelId === span.device) return zRoute(a, span.riser, c.axis, c.mid, c.pts);
     if (levelId === span.target) {
@@ -1993,27 +2026,106 @@
    * is `<something>PMP-1` that cannot have been typed. */
   var GENERATED_TAG = /(?:PMP|AHU|TS|SRC|OF|STR)-\d+/;
   var TRAILING_GENERATED = /^(.+?)((?:(?:PMP|AHU|TS|SRC|OF|STR)-\d+)+)$/;
+  var PLAIN_GENERATED = /^(?:PMP|AHU|TS|SRC|OF|STR)-\d+$/;
+  var GENERATED_G = /(?:PMP|AHU|TS|SRC|OF|STR)-\d+/g;
 
-  function looksMangled(tag) {
-    if (!tag) return false;
+  /* ============================== WHAT THE MANGLING ACTUALLY LOOKS LIKE
+   *
+   * Measured on Michael's data centre, 2026-08-09, and it changed the repair.
+   * The old rule assumed a generated tag was APPENDED, and stripped a trailing
+   * run. Two of his three tags were not that shape:
+   *
+   *   CHWP-0AHU-15AHU-152     the real tag is CHWP-02
+   *   PWP-04MP-4MP-4…×7       the real tag is PWP-04
+   *
+   * The first says the generated tag is INSERTED AT A CARET, not appended: the
+   * tail of the real tag ("2") is stranded after it, and inserting twice buries
+   * it further. Stripping the trailing run gave `CHWP-0` — plausible, wrong,
+   * and silently so. Removing the repeated token from WHEREVER IT SITS gives
+   * `CHWP-02`, which is the answer.
+   *
+   * The second says the inserted text can be a TRUNCATED generated tag —
+   * `MP-4` is `PMP-4` with its first character absorbed — so matching whole
+   * generated tags misses it entirely. A hyphenated group repeated at the end
+   * catches it, and nothing legitimate ends in the same hyphenated group twice.
+   *
+   * TWO RULES, BOTH CONSERVATIVE. A false positive renames a tag that was
+   * correct, which is worse than missing one, so both require REPETITION or a
+   * trailing position — never a single generated tag sitting in the middle of
+   * a name, which is how `SUB-AHU-12-A` stays safe. */
+
+  /* The repaired form of a tag, or null when there is nothing to repair. */
+  function repairedTag(tag) {
+    if (!tag) return null;
     var t = String(tag);
-    if (/^(?:PMP|AHU|TS|SRC|OF|STR)-\d+$/.test(t)) return false;   // a plain one
-    var mm = t.match(TRAILING_GENERATED);
-    if (!mm) return false;
-    /* The head must itself look like a real tag, or this is just a tag that
-     * happens to end in something like "AHU-2" on purpose. */
-    return mm[1].length > 0 && !GENERATED_TAG.test(mm[1] + 'x');
+    if (PLAIN_GENERATED.test(t)) return null;      // a plain generated one
+
+    var out = t;
+
+    /* RULE 1 — a whole generated tag that appears MORE THAN ONCE, removed
+     * wherever it sits. Candidates include the digit-truncations of each match,
+     * because a greedy match on `CHWP-0AHU-15AHU-152` reads `AHU-152` and the
+     * token that actually repeats is `AHU-15`. Longest winning candidate first,
+     * so the most specific repeat is the one removed. */
+    var cands = {};
+    (out.match(GENERATED_G) || []).forEach(function (mt) {
+      for (var k = mt.length; k >= 4; k--) {
+        var c = mt.slice(0, k);
+        if (PLAIN_GENERATED.test(c)) cands[c] = true;
+      }
+    });
+    Object.keys(cands)
+      .sort(function (a, b) { return b.length - a.length; })
+      .forEach(function (c) {
+        var parts = out.split(c);
+        if (parts.length < 3) return;              // fewer than two occurrences
+        var joined = parts.join('');
+        if (joined.length) out = joined;
+      });
+
+    /* RULE 2 — a trailing group repeated, for the truncated case. The unit must
+     * contain a hyphen: without that, `AHU-1212` would be read as `12` twice
+     * and stripped back to `AHU-`, which is a real tag destroyed. */
+    var rep = out.match(/^(.*?)((.*?-\d+)\3+)$/);
+    if (rep && rep[1].length && rep[3].indexOf('-') >= 0) out = rep[1];
+
+    /* RULE 3 — the original rule, for a plain appended run, PLUS a guard the
+     * original did not have.
+     *
+     * `B2-AHU-7` is a perfectly good hierarchical tag — block 2, AHU 7 — and
+     * the original rule stripped it to `B2-`, because by shape alone it is
+     * indistinguishable from `CHWP-04PMP-1`. The discriminator is what the head
+     * looks like: a real mangling leaves a COMPLETE tag behind it (`CHWP-04`),
+     * a hierarchical name leaves a dangling separator (`B2-`). So the head must
+     * end in something that could end a tag.
+     *
+     * Found by writing the false-positive half of the test, 2026-08-09, and it
+     * was there before any of this. */
+    var mm = out.match(TRAILING_GENERATED);
+    if (mm && mm[1].length && !GENERATED_TAG.test(mm[1] + 'x') &&
+        /[A-Za-z0-9]$/.test(mm[1])) out = mm[1];
+
+    return (out !== t && out.length) ? out : null;
   }
 
-  /* Strip the generated suffixes. Returns a list of what changed. */
+  function looksMangled(tag) {
+    return repairedTag(tag) !== null;
+  }
+
+  /* Put existing tags right. Returns a list of what changed — never silent, and
+   * never automatic, because it edits names on a drawing.
+   *
+   * THE MANGLING IS LOSSY, so a repair is a BEST GUESS and the caller says so:
+   * `CHWP-0AHU-15AHU-152` comes back as `CHWP-02` only because the stranded
+   * "2" survived, and a mangling that ate it would be unrecoverable. */
   function repairTags(m) {
     var fixed = [];
     function fix(o) {
-      if (!o || !looksMangled(o.tag)) return;
-      var mm = String(o.tag).match(TRAILING_GENERATED);
-      if (!mm) return;
-      fixed.push({ id: o.id, from: o.tag, to: mm[1] });
-      o.tag = mm[1];
+      if (!o) return;
+      var to = repairedTag(o.tag);
+      if (to === null) return;
+      fixed.push({ id: o.id, from: o.tag, to: to });
+      o.tag = to;
     }
     m.pipes.forEach(fix);
     m.nodes.forEach(fix);
@@ -2222,7 +2334,7 @@
     pumpSizing: pumpSizing, pumpRunMode: pumpRunMode, generateCurve: generateCurve, pumpCurve: pumpCurve,
     pumpSpeedIgnored: pumpSpeedIgnored, pumpHead: pumpHead,
     pathBetween: pathBetween,
-    looksMangled: looksMangled, repairTags: repairTags,
+    looksMangled: looksMangled, repairedTag: repairedTag, repairTags: repairTags,
     canSync: canSync, setSync: setSync, syncOf: syncOf,
     syncedPosition: syncedPosition,
     addDetail: addDetail, addNote: addNote,
@@ -2230,6 +2342,7 @@
     DETAIL_COLOURS: DETAIL_COLOURS,
     controlRoute: controlRoute, sensorRoute: sensorRoute, zRoute: zRoute,
     controlRiser: controlRiser, setControlRiser: setControlRiser,
+    tagVisible: tagVisible, setTagVisible: setTagVisible,
     controlSpan: controlSpan, pipeLevel: pipeLevel,
     routeWaypoints: routeWaypoints, insertWaypoint: insertWaypoint,
     sensorRefPoint: sensorRefPoint,
