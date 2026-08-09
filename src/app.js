@@ -1188,6 +1188,77 @@
         secT.appendChild(t);
       }
 
+      /* -------------------------------------------------- PLANT SCHEDULE
+       *
+       * Michael, 2026-08-09. Not a duplicate of Equipment duty above: that one
+       * reports what every device DID, and this one answers the question asked
+       * at the front end of a job — what do I have to buy?
+       *
+       * SOURCES AND SINKS ONLY, because they are the only machines the question
+       * arises for. An exchanger STATES its load; the load is the answer and
+       * there is nothing to size. Absent entirely when there is no plant in the
+       * model, rather than printing an empty table.
+       *
+       * `Required` is the engine's own `qNeed` — the duty needed to sit on
+       * setpoint at the flow the machine actually has. `Selected` is the
+       * nameplate, blank on Auto. The margin is quoted against the requirement,
+       * which is how a selection is quoted. */
+      var plantRows = m.pipes.filter(function (p) {
+        return p.kind === 'equip' && p.equip &&
+               p.equip.equipType === 'source' && !p.equip.off &&
+               th.links[p.id] && th.links[p.id].qNeed !== null &&
+               th.links[p.id].qNeed !== undefined && isFinite(th.links[p.id].qNeed);
+      });
+      if (plantRows.length) {
+        secT.appendChild(el('h4', 'sheet-sub', 'Plant schedule'));
+        secT.appendChild(el('p', 'legend',
+          'What each machine has to do, against what is selected for it. ' +
+          'REQUIRED is the duty needed to hold its setpoint at the flow it is ' +
+          'actually getting — Q = ṁ·Cp·(setpoint − entering) — so it moves with ' +
+          'the system, not with the schedule. A blank capacity is sized here ' +
+          'rather than limited: the machine holds its setpoint and the duty it ' +
+          'lands on IS the selection. Design ΔT is a design-point figure and ' +
+          'does not limit anything.'));
+        var pt = el('table', 'sheet');
+        pt.innerHTML = '<thead><tr><th class="txt">Tag</th>' +
+                       '<th>Design flow (' + d.flow + ')</th>' +
+                       '<th>Actual flow (' + d.flow + ')</th>' +
+                       '<th>Design ΔT (K)</th><th>Actual ΔT (K)</th>' +
+                       '<th>Required (kW)</th><th>Selected (kW)</th>' +
+                       '<th>Margin</th></tr></thead>';
+        var ptb = el('tbody');
+        plantRows.forEach(function (p) {
+          var l = th.links[p.id], eq = p.equip;
+          var selW = Number(eq.qMax);
+          var hasSel = isFinite(selW) && selW !== 0;
+          var tr = el('tr');
+          tr.className = 'index-row';
+          tr.appendChild(el('td', 'txt', p.tag || p.id));
+          tr.appendChild(el('td', '', isFinite(Number(eq.qRated))
+            ? FD.units.fmtFlow(Number(eq.qRated), d.flow) : '—'));
+          tr.appendChild(el('td', '',
+            FD.units.fmtFlow(l.mdot / (th.fluid.density || 998), d.flow)));
+          tr.appendChild(el('td', '', isFinite(Number(eq.dTMax))
+            ? Math.abs(Number(eq.dTMax)).toFixed(2) : '—'));
+          tr.appendChild(el('td', '', Math.abs(l.dT).toFixed(2)));
+          tr.appendChild(el('td', '', (Math.abs(l.qNeed) / 1000).toFixed(2)));
+          tr.appendChild(el('td', hasSel ? '' : 'txt',
+            hasSel ? (Math.abs(selW) / 1000).toFixed(2) : 'Auto'));
+          var mtd = el('td', '');
+          if (hasSel && Math.abs(l.qNeed) > 1) {
+            var mg = (Math.abs(selW) / Math.abs(l.qNeed) - 1) * 100;
+            mtd.textContent = (mg >= 0 ? '+' : '') + mg.toFixed(1) + '%';
+            if (mg < 0) mtd.className = 'bad';
+          } else {
+            mtd.textContent = '—';
+          }
+          tr.appendChild(mtd);
+          ptb.appendChild(tr);
+        });
+        pt.appendChild(ptb);
+        secT.appendChild(pt);
+      }
+
       /* ------------------------------- PIPEWORK HEAT GAIN / LOSS
        *
        * The one Michael named. On a chilled system this is the gain that has to
@@ -3149,6 +3220,33 @@
                  ? (thL.qW / cap * 100).toFixed(1) + '%' : '—');
         if (thL.limit) act.ro('Limited by', thL.limit);
 
+        /* REQUIRED CAPACITY — the sizing answer (Michael, 2026-08-09).
+         *
+         * On Auto this is the whole point of the machine being unlimited: it
+         * held its setpoint, and this is what that took. On Manual it is worth
+         * as much again, because it is the number to compare the nameplate
+         * with — and when a capacity binds it is the ONLY place the shortfall
+         * is stated, since the reported duty is then the nameplate rather than
+         * the demand. */
+        if (thL.qNeed !== null && thL.qNeed !== undefined && isFinite(thL.qNeed)) {
+          act.ro('Required capacity', fmtLoad(thL.qNeed));
+          if (isFinite(cap) && cap !== 0) {
+            /* MARGIN against what is selected, as a percentage of the
+             * requirement — which is the way a selection is quoted. Negative
+             * means the machine is short, and it is shown in red for the same
+             * reason the setpoint deficit is. */
+            var marg = (Math.abs(cap) / Math.abs(thL.qNeed) - 1) * 100;
+            var mrow = act.ro('Margin on selection',
+              (marg >= 0 ? '+' : '') + marg.toFixed(1) + '%  (' +
+              fmtLoad(cap) + ' selected)');
+            if (marg < 0) mrow.classList.add('deficit');
+          } else {
+            act.box.appendChild(el('p', 'hint',
+              'Sizing is Auto, so this is the capacity to select. Switch ' +
+              'Sizing to Manual to lock it in as the nameplate.'));
+          }
+        }
+
         /* THE DEFICIT, in red (Michael, 2026-08-05). A source/sink that misses
          * its setpoint still REPORTS a leaving temperature, and read on its own
          * that number looks like an achieved result. The gap between what it
@@ -3324,6 +3422,42 @@
    * On an exchanger Q, ΔT and ṁ are locked by Q = ṁ·Cp·ΔT, so both are offered
    * and each rewrites the other — the model stores the duty, so the engine
    * only ever sees one quantity. */
+  /* ================================================= EARLY-DESIGN SIZING
+   *
+   * Michael, 2026-08-09, and it falls straight out of Design ΔT no longer
+   * clamping: a machine with no stated capacity holds its setpoint whatever
+   * that takes, so THE DUTY IT LANDS ON IS THE ANSWER TO WHAT TO BUY. Exactly
+   * the pattern `autoSizePumps` has always used, applied to plant.
+   *
+   * Both of these read the ENGINE's own figure rather than working anything out
+   * here — `thermal.links[].qNeed` is `C·(tSet − tIn)`, the duty needed to sit
+   * on setpoint at the flow the machine actually has. A panel that derives its
+   * own physics is a second answer waiting to disagree with the first. */
+  function requiredCapacityOf(p) {
+    var res = app.results;
+    var l = res && res.thermal && res.thermal.links && res.thermal.links[p.id];
+    return (l && l.qNeed !== null && l.qNeed !== undefined && isFinite(l.qNeed))
+      ? l.qNeed : NaN;
+  }
+
+  /* THE DESIGN POINT, for a model that has not been simulated: ρ·q·cp·ΔT on
+   * the machine's OWN scheduled flow and difference, signed from its setpoint
+   * against the system supply temperature. It is the same relation
+   * `M.setEquipTrio` keeps between the three fields, so it cannot disagree
+   * with what the panel shows. */
+  function designPointDuty(m, p) {
+    var e = p.equip || {};
+    var C = M.equipRatedC(m, p);
+    var dT = Math.abs(Number(e.dTMax));
+    if (!(C > 0) || !isFinite(dT) || dT <= 0) return NaN;
+    /* Which direction it works in — inferred, never selected (§18). A setpoint
+     * below the water it is given is cooling. */
+    var set = Number(e.tSet);
+    var amb = Number((m.settings.thermal || {}).supplyTemp);
+    var cooling = isFinite(set) && isFinite(amb) ? (set < amb) : true;
+    return (cooling ? -1 : 1) * C * dT;
+  }
+
   function renderEquipThermal(sec, p) {
     var m = app.model;
     var host = sec.box;
@@ -3454,10 +3588,52 @@
        *
        * Capacity, design flow and ΔT are ONE equation here exactly as they are
        * on an exchanger, so they go through the same helper. */
+      /* SIZING, and it is the same question the pump panel asks (Michael,
+       * 2026-08-09). Blank capacity means the machine holds its setpoint
+       * whatever that takes — so the duty it lands on IS the answer to what to
+       * buy, and the Actual section reports it as `Required capacity`. Naming
+       * that state AUTO rather than leaving it as an empty box is the whole
+       * feature: an engineer at the front end of a job wants to be asked "shall
+       * I size this for you?", not to discover that an unfilled field happens
+       * to behave that way. */
+      var eAuto = !isFinite(Number(e.qMax)) || Number(e.qMax) === 0;
+      var szSel = el('select');
+      [['auto', 'Auto'], ['manual', 'Manual']].forEach(function (o) {
+        var opt = el('option', '', o[1]); opt.value = o[0];
+        if ((o[0] === 'auto') === eAuto) opt.selected = true;
+        szSel.appendChild(opt);
+      });
+      field(host, 'Sizing', szSel);
+      infoMark(fieldLabel(szSel),
+               'Auto: it holds its setpoint whatever that takes, and the duty ' +
+               'it lands on is the capacity you need — read it off Required ' +
+               'capacity below. Manual: you state the nameplate, and it is held ' +
+               'to it.');
+      szSel.addEventListener('change', function () {
+        pushUndo();
+        if (szSel.value === 'auto') {
+          M.setEquipTrio(m, p, 'duty', undefined);
+        } else {
+          /* SEEDED FROM THE ANSWER THE SOLVE ALREADY HAS, which is the point of
+           * having asked. The design point is the fallback for a model that has
+           * not been simulated, and an empty box the last resort — never a
+           * number nobody derived. Design flow is HELD while the capacity is
+           * written, so it is the ΔT that follows: with a capacity and a flow
+           * stated, the difference is arithmetic. */
+          var seed = requiredCapacityOf(p);
+          if (!(isFinite(seed) && seed !== 0)) seed = designPointDuty(m, p);
+          if (isFinite(seed) && seed !== 0) {
+            e.lastEdited = ['duty', 'qRated'];
+            M.setEquipTrio(m, p, 'duty', seed);
+          }
+        }
+        renderProperties(); changed();
+      });
+
       signedField('qMax', 'Capacity (kW)',
           function () { return e.qMax; },
           function (w) { M.setEquipTrio(m, p, 'duty', w); },
-          SIGN + ' Blank = Unlimited.');
+          SIGN + ' Blank = Auto: unlimited, and sized by the solve.');
 
       num('LWT setpoint (°C)', function () { return e.tSet; },
           function (v) { e.tSet = v; },

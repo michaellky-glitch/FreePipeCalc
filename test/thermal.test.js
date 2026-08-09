@@ -1095,6 +1095,90 @@ section('Design ΔT is a design point, not a limit');
 }
 
 /* --------------------------------------------------------------------------
+ * "SIZE IT FOR ME" — the required duty, reported per machine.
+ *
+ * The other half of the ΔT ruling (Michael, 2026-08-09). A machine with no
+ * stated capacity holds its setpoint whatever that takes, so the duty it lands
+ * on IS the answer to what to buy — the same pattern `autoSizePumps` uses for
+ * pumps. `qNeed` on the thermal link is that answer: `C·(tSet − tIn)`, the duty
+ * needed to sit on setpoint at the flow the machine actually has.
+ *
+ * It is on the ENGINE rather than worked out in the panel, so the property
+ * sheet and the plant schedule cannot produce two different numbers — the same
+ * rule that moved warning detection out of the calculation sheet.
+ * ----------------------------------------------------------------------- */
+section('Required capacity: the duty a machine needs, reported');
+{
+  function plant2(equip, flow, inletT) {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: inletT, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), j = M.addNode(m, lv, 1, 0);
+    const k = M.addNode(m, lv, 2, 0), b = M.addNode(m, lv, 3, 0);
+    M.setSource(m, a.id, 600e3); a.device.temperature = inletT;
+    b.device = { kind: 'demand', flow: flow, reqPressure: 100e3, include: true };
+    M.addPipe(m, a.id, j.id, { size: 'DN50', schedule: 'sch40' });
+    const e = M.addPipe(m, j.id, k.id, { kind: 'equip' });
+    e.equip = Object.assign({ qRated: flow, pdRated: 20e3 }, equip);
+    M.addPipe(m, k.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(p => { p.insulation_mm = 0; });
+    return { m, e, link: () => NET.solveModel(m).thermal.links[e.id] };
+  }
+
+  const flow = 0.005;
+  const C = RHO * flow * CP;                     // 20893.13 W/K
+
+  /* ---- UNLIMITED: the requirement and the duty are the same number, because
+   * the machine did exactly what was asked. 18 → 6 is 12 K, so 250.7 kW. */
+  {
+    const t = plant2({ equipType: 'source', tSet: 6 }, flow, 18);
+    const l = t.link();
+    near('An unlimited machine needs what it did', l.qNeed, l.qW, 1e-9);
+    near('...which is C × (setpoint − entering)', l.qNeed, -12 * C, 1e-6);
+    ok('...and that IS the capacity to select', !l.limit, String(l.limit));
+  }
+
+  /* ---- CAPACITY-LIMITED: the two SEPARATE, and this is the case that makes
+   * `qNeed` worth having. The duty reported is the nameplate — 100 kW — and
+   * without the requirement beside it there is nothing to say how short the
+   * machine is. It needs 250.7 kW, so 100 kW is 60% short. */
+  {
+    const t = plant2({ equipType: 'source', tSet: 6, qMax: -100000 }, flow, 18);
+    const l = t.link();
+    near('A limited machine still reports what it DID', l.qW, -100000, 1e-6);
+    near('...and separately what it NEEDED', l.qNeed, -12 * C, 1e-6);
+    ok('...so the shortfall is readable', Math.abs(l.qNeed) > Math.abs(l.qW),
+       (l.qNeed / 1000).toFixed(1) + ' needed vs ' + (l.qW / 1000).toFixed(1) + ' done');
+    /* The margin the panel and the plant schedule both quote. */
+    near('The margin on a 100 kW selection is −60%',
+         (Math.abs(-100000) / Math.abs(l.qNeed) - 1) * 100, -60.11, 0.05);
+  }
+
+  /* ---- THE REQUIREMENT MOVES WITH THE FLOW, which is the whole reason it
+   * cannot be read off the schedule. Half the flow, half the requirement. */
+  {
+    const t = plant2({ equipType: 'source', tSet: 6 }, flow / 2, 18);
+    near('Half the flow needs half the duty', t.link().qNeed, -12 * C / 2, 1e-6);
+  }
+
+  /* ---- AND IT IS NULL WHERE THE QUESTION DOES NOT ARISE. An exchanger STATES
+   * its duty — the load is the answer and there is nothing to size — and an
+   * adiabatic device has no thermal side at all. */
+  {
+    const t = plant2({ equipType: 'exchanger', duty: 50000 }, flow, 18);
+    const l = t.link();
+    ok('An exchanger states no requirement', l.qNeed === null, String(l.qNeed));
+    near('...because its stated load already is one', l.qW, 50000, 1);
+  }
+  {
+    const t = plant2({ equipType: 'source' }, flow, 18);   // no setpoint
+    ok('A machine with no setpoint is not being asked for anything',
+       t.link().qNeed === null, String(t.link().qNeed));
+  }
+}
+
+/* --------------------------------------------------------------------------
  * VARIABLE-SPEED CONTROL — Michael's waterside economizer, 2026-08-03.
  *
  * Source at 30 C -> pump -> economizer -> pipe -> terminal, in SIMULATION.

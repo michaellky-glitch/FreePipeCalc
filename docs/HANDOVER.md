@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.4, 2026-08-09.** Seven test suites, **1722 assertions**, all
+State: **v0.16.5, 2026-08-09.** Seven test suites, **1741 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -49,10 +49,11 @@ is in `WORKLIST.md`:
 * **A non-blocking solve.** The control loop is one uninterruptible block; the
   DC model takes ~40 s. See §5.
 
-The next feature, and it falls straight out of the ΔT change, is the
-**early-design sizing aid**: blank capacity now means "size it for me", so the
-duty a machine lands on IS the answer to what to buy. `WORKLIST.md` has the
-three pieces.
+The **early-design sizing aid** is in too (v0.16.5), which is what the ΔT change
+was for: blank capacity means "size it for me", and the duty a machine lands on
+IS the answer to what to buy. `ARCHITECTURE.md` §18 has it — `qNeed` on the
+engine, a Required capacity row with its margin, Auto/Manual sizing on
+equipment, and a plant schedule on the CALCULATION sheet.
 
 ---
 
@@ -132,9 +133,24 @@ means the work never happens.
 **`display:flex` beats the UA's `[hidden] { display:none }`.** Every mode's
 tools rendered at once until `.tool-set[hidden]` was added.
 
-**The preview browser renders nothing to pixels** — screenshots time out. Drive
-the DOM and read it back; that verifies logic and wiring, never appearance. No
-visual item can be signed off in-session: log it in `Human-Test.md`.
+**Serve the app on localhost to test it; `file://` in the preview browser is
+dead.** This trap has moved. Opening `index.html` as a `file://` URL now hangs
+the preview outright — `javascript_tool` and `get_page_text` both time out, so
+you cannot even drive the DOM. Served over a **loopback-bound** static server it
+works completely: the app loads, `FD` is there, `view.selectionChanged()`
+re-renders the panel, and the calculation sheet reads back out of the DOM.
+
+    .claude/launch.json → python3 -m http.server 8787 --bind 127.0.0.1
+                                  --directory <repo>
+
+`--bind 127.0.0.1` is not optional — a server on 0.0.0.0 clashes with Michael's
+OpenWebUI. `.claude/` is gitignored, so the file is yours and does not ship.
+Nothing about the app depends on the origin; `file://` remains what it must SHIP
+as, and is what Michael runs.
+
+Screenshots still render nothing to pixels, so this verifies logic, wiring and
+numbers — never appearance. **No visual item can be signed off in-session:** log
+it in `Human-Test.md`, saying what was driven and what was not.
 
 **`test/testrun-*.js` are GENERATORS, not tests.** Running one rewrites
 `examples/`. Tests read frozen copies in `test/fixtures/`; keep it that way.

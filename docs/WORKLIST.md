@@ -3,25 +3,15 @@
 Everything Michael has asked for that is not yet done, in the order it will be
 tackled. Closed items move to `Human-Test.md` with a verification note.
 
-Updated 2026-08-09, after v0.16.4.
+Updated 2026-08-09, after v0.16.5.
 
 ---
 
-## Next — the early-design sizing aid
+## Next
 
-**LS.5 is done** (v0.16.4): Design ΔT no longer clamps, and the two control-loop
-defects that removing it exposed are fixed. `HANDOVER.md` §6 has the whole story.
-
-What falls out of it, and what Michael asked for next: **blank capacity now
-means "size it for me."** The machine holds its setpoint whatever it takes, and
-the duty it lands on IS the answer to what to buy — the same pattern
-`autoSizePumps` already uses. Cheapest first:
-
-| # | Item | Notes |
-|---|---|---|
-| LS.6a | **"Required capacity" row** in the equipment Actual section | The duty the machine settled on, shown as the answer to a question rather than as a reading. |
-| LS.6b | **Auto/Manual sizing on equipment**, mirroring the pump panel | Auto = blank `qMax`; Manual = the stated nameplate. |
-| LS.6c | **A plant schedule on the CALCULATION sheet** | Design flow, design ΔT, required capacity, selected capacity, margin. |
+**LS.5 and the early-design sizing aid are both done** (v0.16.4 / v0.16.5).
+`HANDOVER.md` §6 has the ΔT story and the two search defects; `ARCHITECTURE.md`
+§18 has the sizing aid. What is left below is the list as it stood.
 
 **DX.1 —** does the DXF open in real CAD? Untested; nothing in this environment
 can check it.
@@ -60,6 +50,9 @@ can check it.
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.5** — the early-design sizing aid: `qNeed` on the engine, a Required
+  capacity row and a margin, Auto/Manual sizing on equipment, and a plant
+  schedule on the CALCULATION sheet.
 * **v0.16.4** — Design ΔT stops clamping the duty at part flow (LS.5, Michael's
   manufacturer table); and the two control-search defects that change exposed —
   a device on its floor could not climb back, and a single probe at the stop

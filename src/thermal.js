@@ -294,6 +294,23 @@
     return (isFinite(pct) && pct >= 0) ? q * pct / 100 : q;
   }
 
+  /* THE DUTY A SOURCE/SINK WOULD NEED to sit exactly on its setpoint at this
+   * flow and this inlet — signed, watts, and unconstrained by anything it is
+   * rated at. `Q = C·(tSet − tIn)`, which is the whole of it.
+   *
+   * It exists because "blank capacity means size it for me" is only useful if
+   * the model says what the answer was, and because a machine that IS capacity
+   * limited should be able to say by how much it is short rather than only that
+   * it is. Null where the question does not arise: an exchanger states its
+   * duty, an adiabatic device has none, and a machine with no setpoint is not
+   * being asked for anything. */
+  function requiredDuty(e, tIn, C) {
+    if (!e || e.equipType !== 'source' || e.off) return null;
+    var set = Number(e.tSet);
+    if (!isFinite(set) || !(C > 0) || !isFinite(tIn)) return null;
+    return C * (set - tIn);
+  }
+
   function equipOutlet(e, tIn, C) {
     var lim = null;
 
@@ -785,6 +802,17 @@
       links[c.pipe.id] = {
         kind: c.pipe.kind, tIn: tIn, tOut: tOut, dT: tOut - tIn,
         qW: qW, mdot: c.mdot, C: c.C,
+        /* WHAT THE MACHINE WOULD NEED TO HOLD ITS SETPOINT at the flow and
+         * inlet it actually has — which is the answer to "what do I buy?" and
+         * is NOT the same number as `qW` once a capacity binds.
+         *
+         * Unlimited, the two are equal: the machine held its setpoint, and the
+         * duty that took IS the requirement. Capacity-limited, `qW` is the
+         * nameplate and this is the shortfall on top of it. Michael,
+         * 2026-08-09 — the sizing question a blank capacity now asks. Null on
+         * anything that does not hold a leaving temperature: an exchanger
+         * STATES its duty, so there is nothing to work out. */
+        qNeed: requiredDuty(c.pipe.equip, tIn, c.C),
         UperM: c.UperM, length: c.L,
         /* Which constraint stopped it doing what it was asked, or null. This
          * is the useful output of the whole limit machinery: "CH-01 limited by

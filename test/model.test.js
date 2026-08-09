@@ -1898,6 +1898,42 @@ section('Source/sink: flow, capacity and design ΔT move together');
     ok('...and a boiler stays positive', boiler.e.qMax > 0, String(boiler.e.qMax));
   }
 
+  /* AUTO AND MANUAL SIZING, which is the trio read from the other end
+   * (Michael, 2026-08-09). The panel's Sizing dropdown is exactly these two
+   * calls, so what it does to the other two figures is worth pinning here
+   * rather than only in a browser nobody can drive from a test.
+   *
+   * AUTO clears the capacity — blank means unlimited, and unlimited is what
+   * makes the machine answer the sizing question instead of being held to a
+   * ceiling. It must leave the design flow and ΔT alone: they are what the
+   * engineer scheduled, and clearing a capacity is not a statement about
+   * either. */
+  {
+    const t = plant();
+    M.setEquipTrio(t.m, t.p, 'duty', undefined);
+    ok('Auto clears the capacity', t.e.qMax === undefined, String(t.e.qMax));
+    ok('...leaving the design flow alone', t.e.qRated === 0.0016);
+    near('...and the design ΔT alone', t.e.dTMax, 15, 1e-12);
+  }
+  /* MANUAL writes a capacity back — seeded from the duty the solve found the
+   * machine needed. The DESIGN FLOW is held and the ΔT follows, because with a
+   * capacity and a flow both stated the difference is arithmetic. Forcing
+   * `lastEdited` is how the panel says which of the two to hold; without it the
+   * order is whatever the file was last edited in, and a sizing decision would
+   * silently rewrite the design flow. */
+  {
+    const t = plant();
+    M.setEquipTrio(t.m, t.p, 'duty', undefined);      // Auto
+    t.e.lastEdited = ['duty', 'qRated'];              // hold the flow
+    const moved = M.setEquipTrio(t.m, t.p, 'duty', -83500);
+    ok('Manual writes the capacity', t.e.qMax === -83500, String(t.e.qMax));
+    ok('...holding the design flow', t.e.qRated === 0.0016);
+    ok('...so it is the ΔT that follows', moved === 'dT', String(moved));
+    near('...at 83.5 kW over 1.6 L/s = 12.49 K', t.e.dTMax,
+         83500 / (0.0016 * RHOCP), 1e-9);
+    near('...which is 12.4886 K', t.e.dTMax, 12.4886, 1e-3);
+  }
+
   /* An EXCHANGER stores only two of the three, and must not grow a dTMax. */
   {
     const m = M.create();

@@ -1932,6 +1932,49 @@ unlimited**, where the clamp used to imply one. Michael ruled on that directly
 on meaning unlimited — which is what makes it usable as a sizing question, "hold
 the setpoint whatever it takes and tell me what that took".
 
+### "Size it for me" — the required duty (v0.16.5)
+
+Which turns that cost into the feature. A machine with no stated capacity holds
+its setpoint whatever that takes, so **the duty it lands on IS the answer to
+what to buy** — exactly the pattern `autoSizePumps` has always used for pumps,
+applied to plant.
+
+`thermal.links[].qNeed` is that answer: `C·(tSet − tIn)`, the duty needed to sit
+on setpoint at the flow and inlet the machine **actually has**, unconstrained by
+anything it is rated at. Null wherever the question does not arise — an
+exchanger STATES its duty, so the load already is the answer, and a machine with
+no setpoint is not being asked for anything.
+
+It is on the ENGINE rather than worked out in the panel, for the same reason
+warning detection is (§2): the property sheet and the plant schedule would
+otherwise be two derivations of one number, free to disagree.
+
+**Unlimited, `qNeed` and `qW` are the same figure.** Capacity-limited they part,
+and that is when it earns its place: `qW` is then the *nameplate*, and without
+the requirement beside it nothing on the panel says how short the machine is.
+
+Three things read it:
+
+* **Required capacity**, in the equipment Actual section, with the margin on the
+  selection beside it — `|selected| / |required| − 1`, quoted against the
+  requirement, which is how a selection is quoted. Negative is red.
+* **Sizing: Auto / Manual** in the equipment Design section, mirroring the pump
+  panel. Auto clears `qMax`; Manual writes one back, **seeded from the duty the
+  solve found** and falling back to the design point on a model that has not
+  been simulated. Never a number nobody derived.
+* **The plant schedule** on the CALCULATION sheet — design flow, actual flow,
+  design ΔT, actual ΔT, required, selected, margin, one row per source/sink.
+  Not a duplicate of Equipment duty: that reports what every device *did*, this
+  answers what to buy.
+
+Manual seeding holds the **design flow** and lets the ΔT follow, by forcing
+`lastEdited = ['duty', 'qRated']` before the `setEquipTrio` call. Without that
+the order is whatever the file was last edited in, and a sizing decision would
+silently rewrite the design flow — which is a number the engineer chose. On
+`economizer-trim`: Auto clears ACCH-1's 250 kW, Manual writes back the 134.09 kW
+it actually needs, the 3.9886 L/s design flow is untouched, and the design ΔT
+moves 15 K → 8.05 K, which is `134090.6 / (998 × 0.0039886 × 4187)`.
+
 `dTMax` is now labelled **Design ΔT**, and on a source/sink it is one of three
 stored figures rather than a limit bolted on: design flow, Heating/Cooling
 Capacity and Design ΔT are `Q = ṁ·Cp·ΔT` exactly as on an exchanger, and go

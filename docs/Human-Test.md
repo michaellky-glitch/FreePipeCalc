@@ -206,6 +206,26 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 5L. "SIZE IT FOR ME" — THE EARLY-DESIGN SIZING AID (v0.16.5)
+
+The other half of your ΔT ruling. Blank capacity now means the machine holds
+its setpoint whatever that takes, so the duty it lands on is the answer to what
+to buy.
+
+**These were driven in a real browser** — the app served over `127.0.0.1:8787`,
+the model loaded, the panel and the sheet read back out of the DOM, no console
+errors. That verifies the wiring and the numbers. It does not verify how any of
+it LOOKS, which still needs your eyes.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| SZ.1 | **Required capacity**, in the equipment Actual section | ⬜ | `C·(setpoint − entering)` at the flow the machine actually has. On `economizer-trim`, ACCH-1 reads **134.09 kW** required against 134.09 kW done — unlimited, the two are the same number by definition. |
+| SZ.2 | **Margin on selection** beside it | ⬜ | `+86.4% (250.00 kW selected)` on ACCH-1: 250/134.09 − 1. Red when negative. When a capacity BINDS this is the only place the shortfall is stated, because the reported duty is then the nameplate rather than the demand. |
+| SZ.3 | **Sizing: Auto / Manual** on equipment | ⬜ | Mirrors the pump panel. Verified round trip on ACCH-1: Manual −250 kW / 15 K / 3.9886 L/s → **Auto** clears the capacity and touches neither the flow nor the ΔT → **Manual** writes back the **134.09 kW it actually needs**, holds the 3.9886 L/s design flow, and moves the design ΔT to **8.05 K** = 134090.6/(998 × 0.0039886 × 4187). The design flow is held deliberately: it is a number you chose, and a sizing decision must not quietly rewrite it. |
+| SZ.4 | On Auto, the panel says what to do with the number | ⬜ | "% Load" reads `—` (there is no nameplate to be a percentage of) and a hint says *"Sizing is Auto, so this is the capacity to select. Switch Sizing to Manual to lock it in as the nameplate."* |
+| SZ.5 | **Plant schedule** on the CALCULATION sheet | ⬜ | In the Thermal section, sources and sinks only. On `economizer-trim` with CT-01 left on Auto: <br>`ACCH-1  3.99  1.43  15.00  22.50  134.09  250.00  +86.4%` <br>`CT-01   4.00  3.20   5.98   4.92   65.77  Auto    —` <br>Worth looking at the two ΔT columns together: ACCH-1 is working across **22.50 K against a 15 K design figure**, and CT-01 across **4.92 K against 5.98 K**. That is the whole of the ΔT change in two rows — ΔT is an output of the flow, above or below the schedule as the system dictates. |
+| SZ.6 | It is not a duplicate of Equipment duty | ⬜ | That table reports what every device DID; this one answers what to buy. Both are in the Thermal section; both print when it is open. |
+
 ## 5K. DESIGN ΔT, AND THE SEARCH THAT COULD NOT SEE PAST ITS OWN PROBE (v0.16.4)
 
 Your ruling on LS.5, and the two control-loop defects that removing the clamp
