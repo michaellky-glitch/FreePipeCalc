@@ -26,6 +26,26 @@ Nothing in this block has been looked at by a person. Each row says what was
 driven and how, so you know which part is already pinned and which part is the
 bit only you can judge.
 
+## 5P. YOUR DATA CENTRE, ON THE REPAIRED FILE (`debug/20260809-DC`)
+
+Not a change — a **result**. This is the first run of your data centre on a
+clean file with the v0.16.4 physics, and it is the confirmation the ΔT ruling
+was waiting for. Nothing here was edited by me; it is what your model now does.
+
+**Tags are clean.** `CHWP-0AHU-15AHU-152` → `CHWP-02` and
+`CHWP-04PMP-1PMP-1PMP-1PMP-1PMP-1` → `CHWP-04`. All 36 tags read properly. The
+ΔP sensor was replaced too — `DP-01` on P458 is now `DP-02` on P482, a real
+`mode: 'dP'` sensor holding 250 kPa.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| DC.1 | **It converges, with no errors** | ⬜ | `converged: true`, no `SETPOINT_LOST`. `20260808-DC-broken` did not converge and had 14 devices parked at full. 594 solves over 6 sweeps, 43 s. |
+| DC.2 | **Every machine holds its setpoint, and none is "limited by" anything** | ⬜ | ACCH-01/02/03 hold **20.00 °C**, CT-01/02/03 hold **35.00 °C**, and the `limit` column is empty on all six. This is the sentence that used to read "limited by Design ΔT" on 26–50% of your machines. |
+| DC.3 | ...at genuine part load, which is the point | ⬜ | The chillers do **310 kW of 800 kW (39%)** and the towers **622 kW of 836 kW (74%)**. Same low percentages as before — but now they are what the load actually is, with nothing capping them, rather than a clamp refusing to let them work harder. The difference is DC.2. |
+| DC.4 | The coils are no longer starving | ⬜ | All 14 AHUs hold their Design ΔT with their valves at **69–71%** — real modulating positions with authority in hand — and errors of 0.02 K. PWP-01 holds the differential to **993 Pa of 250 kPa** (0.4%). CHWP-01/02/03 sit at 51% holding 30 °C to within 0.01 K. |
+| DC.5 | **The fourth lineup is carrying nothing — is that deliberate?** | ⬜ | CHWP-04 reports `no-flow`, ACCH-04 does 0.0 kW, and CT-04 has no thermal link at all. `CONTROL_NO_FLOW` is raised. If that set is N+1 standby then this is correct and the warning is just telling you so. If it is meant to be running, something upstream of it is not connected. **Your call — I have not touched it.** |
+| DC.6 | `CONTROL_HUNTING` after six sweeps | ⬜ | The loop was still moving when it ran out of sweeps, so the answer reported is the last one rather than a settled one. The numbers look settled — 0.02 K on the coils, 0.4% on the differential — so this is a "could not prove it had stopped" rather than a "wrong". 19 interacting devices is the most this model has ever had to settle at once. Tell me if you want the sweep ceiling raised. |
+
 ## 5O. THE PAGE NO LONGER FREEZES WHILE IT SOLVES (S3, v0.16.8)
 
 The solve still TAKES 30–40 s on your data centre. What changed is that the

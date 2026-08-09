@@ -363,6 +363,10 @@ the DXF opens in real CAD (`DX.1`).
 
 * **Push as you go**, advancing the patch number. Michael says when to move the
   minor. Git identity is configured; plain `git commit` / `git push` are fine.
+* **`debug/20260809-DC.json` is the current data centre**, and it is the first
+  one that CONVERGES: tags repaired, every machine holding setpoint with nothing
+  limiting it, coils at 69–71% valve. Use it in preference to the `-broken`
+  files, which are kept because they still reproduce their own bugs.
 * **`debug/` holds Michael's problem files** and is gitignored. They are the
   best test material in the project — when one produces a fix, freeze a copy in
   `test/fixtures/` so the case cannot regress.
