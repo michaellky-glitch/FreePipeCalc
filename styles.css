@@ -1162,5 +1162,4 @@ body.sim-static #prop-body .field textarea {
   color: #fff;
   font-weight: 650;
 }
-[data-simmode].active::after { content: ' \2713'; }
 #btn-run-sim:disabled { opacity: .4; cursor: default; }

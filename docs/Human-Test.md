@@ -203,6 +203,15 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 5J. THE SIMULATION ACTUALLY RUNS (v0.16.3)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| RS.1 | **Simulation runs again** | ✅ | `showSolveProgress` had been lost in an edit — and it was called *after* `app.solving = true`. The throw left that latch ON, so every later solve hit `if (app.solving) return;` and did nothing, silently, for the rest of the session. Verified on `20260808-DC-broken`: 19 controlled devices solved, results present, no console errors. |
+| RS.2 | The latch can never strand again | ✅ | It is released on every path now, including a failure inside the progress bar — which falls back to solving without one. **A latch that only clears on the happy path is a bug waiting for its first exception**, and this was its second outing: the same class of region-replacement edit also ate the Static/Dynamic wiring in v0.16.2. |
+| RS.3 | RUN SIMULATION works repeatedly | ✅ | Ran it a second time from a cleared result: latch set, bar shown, 19 devices, latch released, bar hidden. |
+| RS.4 | Tick removed | ✅ | Highlight only, as asked. |
+
 ## 5I. STATIC / DYNAMIC ACTUALLY WIRED UP (v0.16.2)
 
 | # | What | Status | Notes |

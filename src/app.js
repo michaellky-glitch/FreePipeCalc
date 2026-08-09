@@ -245,6 +245,24 @@
     app.solveTimer = setTimeout(solveSliced, 250);
   }
 
+  /* The progress bar. Kept immediately beside the only thing that uses it, so
+   * a future edit that moves `solveSliced` cannot leave these behind — which is
+   * exactly what happened on 2026-08-09 and is why the simulation stopped
+   * running at all. */
+  function showSolveProgress(frac, label) {
+    var bar = $('solve-progress');
+    if (!bar) return;
+    bar.hidden = false;
+    var fill = bar.querySelector('.solve-bar-fill');
+    var text = bar.querySelector('.solve-bar-text');
+    if (fill) fill.style.width = Math.round(Math.max(0, Math.min(1, frac)) * 100) + '%';
+    if (text) text.textContent = label || 'Simulating\u2026';
+  }
+  function hideSolveProgress() {
+    var bar = $('solve-progress');
+    if (bar) bar.hidden = true;
+  }
+
   /* SHOW THE BAR, YIELD ONCE, THEN SOLVE.
    *
    * SLICING WAS TRIED AND BACKED OUT, and the reason is worth keeping.
@@ -273,8 +291,25 @@
                 app.model.pipes.length > 60;
     if (!heavy) { solveNow(); return; }
 
+    /* THE LATCH IS RELEASED WHATEVER HAPPENS.
+     *
+     * `app.solving` guards against two solves at once, and it used to be set
+     * before a call that could throw — so when `showSolveProgress` went missing
+     * in an edit, the throw left the latch ON and every later solve returned
+     * immediately at the line above. The model simply stopped simulating, with
+     * no error on screen, for the rest of the session. Michael, 2026-08-09.
+     *
+     * A latch that only clears on the happy path is a bug waiting for its
+     * first exception. This one now clears on every path. */
     app.solving = true;
-    showSolveProgress(0.05, 'Simulating\u2026');
+    try {
+      showSolveProgress(0.05, 'Simulating\u2026');
+    } catch (e) {
+      app.solving = false;
+      if (window.console) window.console.error('progress bar', e);
+      solveNow();
+      return;
+    }
     /* setTimeout, NOT requestAnimationFrame: rAF does not fire in a hidden or
      * backgrounded tab, and a solve that only runs when the tab is visible is a
      * solve that silently never finishes. */
@@ -283,7 +318,7 @@
       try { solveNow(); }
       finally {
         app.solving = false;
-        hideSolveProgress();
+        try { hideSolveProgress(); } catch (e2) { /* never strand the latch */ }
         if (Date.now() - t0 > 1500) {
           toast('Simulated in ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s.');
         }
