@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1854
+This is deliberately separate from the automated suites. Those cover 1872
 assertions of engine behaviour (all passing), but they cannot tell you whether a
 button is discoverable, whether a drawing prints legibly, or whether a result
 *looks* right to someone who sizes pipes for a living. Only Michael can sign
@@ -10,7 +10,7 @@ those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-09 (v0.16.11)
+Last updated: 2026-08-09 (v0.16.12)
 
 **THE CURRENT BATCH IS DIRECTLY BELOW**, before anything historical — Michael
 2026-08-09, having gone looking for it and found it buried under two years of
@@ -20,11 +20,42 @@ first. `WORKLIST.md` says what is waiting on me.
 
 ---
 
-# WAITING ON YOU — v0.16.4 to v0.16.11
+# WAITING ON YOU — v0.16.4 to v0.16.12
 
 Nothing in this block has been looked at by a person. Each row says what was
 driven and how, so you know which part is already pinned and which part is the
 bit only you can judge.
+
+## 5V. THE SMALL-THINGS ROUND (v0.16.12)
+
+Your list of 2026-08-09, in the order you gave it. Everything was driven through
+the DOM; none of it has been LOOKED at.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| SM.1 | Sync VFD with: "None" | ⬜ | Was "— not synced —". Verified with two pumps: the list reads `None | PMP-02`. |
+| SM.2 | Tag Visible moved to DISPLAY | ⬜ | First in the section, above the value-box switches — it governs them, since with the tag off there is nothing for them to sit under. |
+| SM.3 | Its explanation is gone | ⬜ | |
+| SM.4 | The value-box line is now "Tag (Info Panel)" | ⬜ | The two were both called "Tag" once they shared a section. |
+| SM.5 | **Pipes and fittings have it too** | ⬜ | A plain pipe had no Tag field at all — it has one now, drawn first in the pipe label, and a Display section carrying the switch. A plain node (a fitting) gets the switch as well: its label always exists, whether or not anyone has named it. |
+| SM.6 | A hidden tag's box is GREY, not orange | ⬜ | Grey box + grey text = hidden. Orange box = something on that you can grab. The orange had it reading as "selected". |
+| SM.7 | **The DETAIL tool's first click snaps** | ⬜ | Off-grid (3.17, 2.23) lands on (3.00, 2.00); with Shift it stays put. The cause was `shiftDown` being read only on pointermove — an opening vertex is placed by a pointerdown with no move of its own, so it used whatever the last move had seen. |
+| SM.8 | Delete removes details and text boxes | ⬜ | Both fell through to `removeNode`, which quietly did nothing because no node has their id. |
+| SM.9 | The DETAIL blurb is one line, behind a 🛈 | ⬜ | Your wording: "Draws annotation lines. Holding shift removes grid snaps. Escape to exit." |
+| SM.10 | "Remove line" → "Delete" | ⬜ | |
+| SM.11 | **Link nodes are their own ribbon group** | ⬜ | `Link nodes: ADD | REMOVE`. |
+| SM.12 | REMOVE takes one out | ⬜ | Verified: 3 → 2 → … → and with the last one gone the route falls back to its plain Z. |
+| SM.13 | **They are easier to place** | ⬜ | The target was a flat 12 px; it is the same grid-sized handle as everything else now (36 px by default). And the cause of "especially between PWP-01 and DP-02" was **mine**: `routePointAt` asked for the route without naming a floor, which v0.16.9 made return null for a link that changes floor — so a cross-floor link had nothing to click on at all. |
+| SM.14 | A preview shows where it will land | ⬜ | A green ⊕ at the exact point for ADD, a red ⊗ over the node that would go for REMOVE, following the pointer. |
+| SM.15 | **Neither triggers a simulation** | ⬜ | Measured: 0 solves across an add and four removes. It was calling `changed()`; it calls `arranged()` now — save and redraw, no solve. |
+| SM.16 | Prompts and the progress bar sit top-centre of the WORK area | ⬜ | Both, at the same anchor. The bar was pinned 96 px from the top of the window and the ribbon is taller than that — and it WRAPS, so its height depends on the window width and on which mode is showing. The canvas now publishes its own position as `--work-top`. Toasts moved up from the bottom to join it. |
+| SM.17 | TOOLS moved to MISC | ⬜ | Beside RENUMBER and ⤢, once, instead of three copies in the mode palettes. |
+| SM.18 | Explanations gone from the tools | ⬜ | All of them. |
+| SM.19 | **"Solve for", and the answer at the bottom** | ⬜ | Velocity: `Solve for` names the output, `bore` is `Pipe diameter`, and the solved box is last — flow/velocity/**diameter**, or diameter/velocity/**flow**, and so on. Heat transfer the same. |
+| SM.20 | The pump curve is drawn, above Result | ⬜ | The three stated duties marked on it, so what the interpolation did between them is visible rather than described. |
+| SM.21 | Critical radius marked (BETA) | ⬜ | |
+| SM.22 | **A CONVERT tab** | ⬜ | Two-way and live — type in either box and the other follows, no direction to choose and no button. Verified both directions: 100 °C → 212.0 °F, and 9 °F of ΔT → 5.00 K typed from the right. Rows: **absolute temperature**, **ΔT**, pressure (kPa · bar · psi · m H2O · mm Hg · ft wg), flow (L/s · L/min · m³/h · US gpm), each end picking its own unit. |
+| SM.23 | The two temperature rows are separate on purpose | ⬜ | An absolute temperature carries the 32° offset; a difference does not. One shared row is how a ΔT of 5 K becomes 41 °F on a schedule. There is a test that says so. |
 
 ## 5T. YOUR ANNOTATION BATCH, AND THE TAGS (v0.16.11)
 

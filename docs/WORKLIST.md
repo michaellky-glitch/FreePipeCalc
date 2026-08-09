@@ -3,7 +3,7 @@
 Everything Michael has asked for that is not yet done, in the order it will be
 tackled. Closed items move to `Human-Test.md` with a verification note.
 
-Updated 2026-08-09, after v0.16.11.
+Updated 2026-08-09, after v0.16.12.
 
 ---
 
@@ -38,6 +38,10 @@ can check it.
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.12** — Michael's small-things round: panel wording, Tag Visible into
+  DISPLAY and onto pipes and fittings, the DETAIL tool's snap and Delete, a
+  Link nodes ribbon group with ADD/REMOVE and a preview, prompts moved to the
+  top of the work area, and the TOOLS window gains a two-way CONVERT tab.
 * **v0.16.11** — Michael's Annotation batch: pipes unselectable in MOVE,
   grid-sized handles, SELECT renamed MOVE, a per-tag Visible switch, and a
   control link no longer showing on floors it does not belong to (my regression

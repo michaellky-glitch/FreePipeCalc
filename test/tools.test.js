@@ -203,4 +203,46 @@ section('Heat transfer: any two give the third');
   }
 }
 
+/* --------------------------------------------------------------------------
+ * CONVERT — the factors, checked against printed values.
+ *
+ * The two temperature rows are DIFFERENT conversions and that is the whole
+ * reason they are separate rows: an absolute temperature carries the 32°
+ * offset, a difference does not. 5 K is 9 °F of difference, not 41.
+ * ----------------------------------------------------------------------- */
+section('Convert: the factors are the printed ones');
+{
+  const P = {}; T.convert.pressure.forEach(([n, f]) => { P[n] = f; });
+  const Q = {}; T.convert.flow.forEach(([n, f]) => { Q[n] = f; });
+
+  /* Pressure, all against the pascal. */
+  near('1 kPa is 1000 Pa', P['kPa'], 1000, 0);
+  near('1 bar is 100 kPa', P['bar'] / P['kPa'], 100, 1e-12);
+  near('1 psi is 6.894757 kPa', P['psi'] / P['kPa'], 6.894757, 1e-6);
+  near('1 m H2O is 9.80665 kPa', P['m H2O'] / P['kPa'], 9.80665, 1e-9);
+  near('1 mm Hg is 133.3224 Pa', P['mm Hg'], 133.3224, 1e-4);
+  near('1 ft wg is 2.989067 kPa', P['ft wg'] / P['kPa'], 2.989067, 1e-6);
+  /* And the two round trips an engineer would spot: 1 bar = 14.5038 psi,
+   * 10 m H2O = 98.0665 kPa. */
+  near('1 bar is 14.5038 psi', P['bar'] / P['psi'], 14.50377, 1e-4);
+  near('10 m H2O is 98.0665 kPa', 10 * P['m H2O'] / P['kPa'], 98.0665, 1e-9);
+
+  /* Flow, all against m³/s. */
+  near('1 L/s is 0.001 m³/s', Q['L/s'], 0.001, 0);
+  near('60 L/min is 1 L/s', 60 * Q['L/min'] / Q['L/s'], 1, 1e-12);
+  near('1 L/s is 3.6 m³/h', Q['L/s'] / Q['m³/h'], 3.6, 1e-9);
+  near('1 US gpm is 0.0630902 L/s', Q['gpm (US)'] / Q['L/s'], 0.0630902, 1e-6);
+  near('...so 100 gpm is 6.309 L/s', 100 * Q['gpm (US)'] / Q['L/s'], 6.30902, 1e-4);
+
+  /* THE TEMPERATURE PAIR, which is the one that bites. */
+  const cToF = c => c * 9 / 5 + 32;
+  const dToF = c => c * 9 / 5;
+  near('0 °C is 32 °F', cToF(0), 32, 0);
+  near('100 °C is 212 °F', cToF(100), 212, 0);
+  near('−40 °C is −40 °F', cToF(-40), -40, 1e-12);
+  near('A 5 K difference is 9 °F', dToF(5), 9, 1e-12);
+  ok('...and NOT 41, which is what one shared row would have given',
+     Math.abs(dToF(5) - cToF(5)) > 30);
+}
+
 report();

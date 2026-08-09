@@ -1817,7 +1817,9 @@
     var v = app.view;
     if (!v.detailColour_) v.detailColour_ = 'line';
     if (!v.detailWidth_) v.detailWidth_ = 1.5;
-    host.appendChild(el('h3', '', 'Detail line'));
+    var h = el('h3', '', 'Detail line');
+    infoMark(h, 'Draws annotation lines. Holding shift removes grid snaps. Escape to exit.');
+    host.appendChild(h);
     var sec = section(host, 'Details');
     /* A plain object rather than a model item — these are the tool's settings,
      * not a thing on the drawing, and `annotationColourRow` only needs
@@ -1833,16 +1835,13 @@
       if (isFinite(n) && n > 0) v.detailWidth_ = Math.min(8, n);
       renderProperties();
     }));
-    sec.box.appendChild(el('p', 'hint',
-      'Click to place vertices \u2014 they snap to 15\u00b0 and to the grid, ' +
-      'Shift frees both. Esc finishes. Clicking an existing line erases it.'));
-    sec.box.appendChild(el('p', 'hint',
-      'Drawing only. Nothing in the calculation ever reads these.'));
   }
 
   function renderDetailProps(host, d) {
     if (!d) return;
-    host.appendChild(el('h3', '', 'Detail line'));
+    var dh = el('h3', '', 'Detail line');
+    infoMark(dh, 'Draws annotation lines. Holding shift removes grid snaps. Escape to exit.');
+    host.appendChild(dh);
     var sec = section(host, 'Details');
     sec.ro('Internal tag', d.id);
     sec.ro('Vertices', String((d.pts || []).length));
@@ -1853,10 +1852,7 @@
       if (isFinite(v) && v > 0) { pushUndo(); d.width = Math.min(8, v); changed(); }
       renderProperties();
     });
-    sec.box.appendChild(el('p', 'hint',
-      'Drawing only. Detail lines are not part of the model — nothing in the ' +
-      'calculation, and no warning, ever looks at them.'));
-    var del = el('button', 'btn danger', 'Remove line');
+    var del = el('button', 'btn danger', 'Delete');
     del.addEventListener('click', function () {
       pushUndo(); M.removeDetail(app.model, d.id);
       app.view.selection = []; changed(); renderProperties();
@@ -2335,7 +2331,7 @@
     var candidates = m.pipes.filter(function (q) { return M.canSync(p, q); });
     if (candidates.length) {
       var syncSel = el('select');
-      var none = el('option', '', '\u2014 not synced \u2014'); none.value = '';
+      var none = el('option', '', 'None'); none.value = '';
       syncSel.appendChild(none);
       candidates.forEach(function (q) {
         var o = el('option', '', q.tag || q.id); o.value = q.id;
@@ -2749,6 +2745,9 @@
     if (p.kind === 'equip') { renderEquipProps(host, p); return; }
     if (p.kind === 'sensor') { renderSensorProps(host, p); return; }
     host.appendChild(el('h3', '', 'Pipe ' + p.id));
+    /* A RUN IS A THING YOU NAME, and until now only the plant on it could be.
+     * Michael, 2026-08-09. */
+    tagField(host, p);
 
     // schedule
     var schSel = el('select');
@@ -2881,6 +2880,10 @@
       tb.box.appendChild(el('p', 'hint', '+ gains from the room · − loses to it.'));
     }
 
+    /* Only Tag visible: a plain pipe's other annotations — size, flow, length —
+     * are settings-wide rather than per pipe, and live in ANNOTATIONS. */
+    displayChecks(host, p, []);
+
     var del = el('button', 'btn danger', 'Delete pipe');
     del.addEventListener('click', function () {
       pushUndo(); M.removePipe(app.model, p.id);
@@ -2900,7 +2903,13 @@
    * is always in the same place and costs one line when closed. Michael's UI
    * pass, 2026-08-06. */
   function displayChecks(host, obj, opts) {
+    /* Nothing to show at all — a plain pipe nobody has named — so no empty
+     * section either. */
+    if (!opts.length && !tagVisibleApplies(obj)) return;
     var sec = section(host, 'Display');
+    /* FIRST, because it governs the others: with the tag switched off there is
+     * no tag on the drawing for any of them to sit under. */
+    tagVisibleRow(sec.box, obj);
     opts.forEach(function (o) {
       switchRow(sec.box, o.label, !!M.displayFlags(obj)[o.key], function (on) {
         pushUndo();
@@ -2939,10 +2948,13 @@
    * OFF hides it in every mode EXCEPT Annotation, where it stays in grey and
    * stays selectable — otherwise a hidden tag would have no handle left to turn
    * it back on with. */
+  /* Lives in DISPLAY beside the other "what is drawn" switches — Michael,
+   * 2026-08-09. It was next to the Tag field, which is where you SET the tag,
+   * not where you decide whether it is drawn. */
   function tagVisibleRow(host, o) {
-    if (!o || !o.tag) return;
+    if (!tagVisibleApplies(o)) return false;
     var on = M.tagVisible(o);
-    var sw = switchRow(host, 'Tag visible: ' + (on ? 'ON' : 'OFF'), on, function (next) {
+    switchRow(host, 'Tag visible: ' + (on ? 'ON' : 'OFF'), on, function (next) {
       pushUndo();
       M.setTagVisible(o, next);
       renderProperties();
@@ -2950,9 +2962,15 @@
       scheduleSave();
       app.view.render();
     });
-    infoMark(sw, 'Hides the tag on the drawing and on prints. It stays visible ' +
-                 'in ANNOTATION — greyed, and still selectable — so it can be ' +
-                 'turned back on.');
+    return true;
+  }
+
+  /* A NODE always has a label — its number, its fitting code, its pressure —
+   * so the switch is worth offering whether or not anyone has named it. Only a
+   * NAMED pipe or device has anything to hide. */
+  function tagVisibleApplies(o) {
+    if (!o) return false;
+    return !!o.tag || o.a === undefined;      // only a pipe has an `a` end
   }
 
   function tagField(host, p) {
@@ -3024,7 +3042,6 @@
     var sn = p.sensor;
     host.appendChild(el('h3', '', 'Sensor ' + p.id));
     tagField(host, p);
-    tagVisibleRow(host, p);
 
     var modeSel = el('select');
     [['temperature', 'Temperature'], ['flow', 'Flow'],
@@ -3192,7 +3209,7 @@
     var readLabel = { flow: 'Flow', pressure: 'Pressure',
                       dP: 'Differential pressure',
                       dT: 'Differential temperature' };
-    var checks = [{ key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' }];
+    var checks = [{ key: 'tag', label: 'Tag (Info Panel)' }, { key: 'flow', label: 'Flow' }];
     if (sn.mode === 'temperature') {
       checks.push({ key: 'temp', label: 'Temperature' });
     } else if (readKey[sn.mode] && sn.mode !== 'flow') {
@@ -3238,7 +3255,6 @@
     var det = section(host, 'Details');
     idRow(det, p);
     tagField(det.box, p);
-    tagVisibleRow(det.box, p);
 
     var typeSel = el('select');
     [['source', 'Heat source / sink'], ['exchanger', 'Heat exchanger'],
@@ -3378,10 +3394,10 @@
 
     // ---------------------------------------------------------- L2 DISPLAY
     displayChecks(host, p, isAdiabatic ? [
-      { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
+      { key: 'tag', label: 'Tag (Info Panel)' }, { key: 'flow', label: 'Flow' },
       { key: 'pd', label: 'ΔP' }
     ] : [
-      { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
+      { key: 'tag', label: 'Tag (Info Panel)' }, { key: 'flow', label: 'Flow' },
       { key: 'temp', label: 'EWT / LWT' },
       { key: 'dT', label: 'ΔT' },
       { key: 'pd', label: 'ΔP' },
@@ -3854,7 +3870,6 @@
     var det = section(host, 'Details');
     idRow(det, p);
     tagField(det.box, p);
-    tagVisibleRow(det.box, p);
     if (isCheck) flipField(det.box, p);
 
     /* The TYPE selector stays, because a valve drawn as the wrong kind should
@@ -3998,7 +4013,7 @@
 
     // ---------------------------------------------------------- L2 DISPLAY
     displayChecks(host, p, [
-      { key: 'tag', label: 'Tag' },
+      { key: 'tag', label: 'Tag (Info Panel)' },
       { key: 'opening', label: 'Position %' },
       { key: 'flow', label: 'Flow' },
       { key: 'pd', label: 'ΔP' }
@@ -4394,7 +4409,6 @@
     var det = section(host, 'Details');
     idRow(det, p);
     tagField(det.box, p);
-    tagVisibleRow(det.box, p);
     flipField(det.box, p);
     onlineToggle(det.box, p.pump.mode !== 'off', function (on) {
       pushUndo();
@@ -4543,7 +4557,7 @@
 
     // ---------------------------------------------------------- L2 DISPLAY
     displayChecks(host, p, [
-      { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
+      { key: 'tag', label: 'Tag (Info Panel)' }, { key: 'flow', label: 'Flow' },
       { key: 'head', label: 'Pressure' }, { key: 'vfd', label: 'VFD %' }
     ]);
 
@@ -4806,7 +4820,6 @@
         if (v) n.tag = v; else delete n.tag;
         changed();
       });
-      tagVisibleRow(host, n);
     }
 
     var dev = n.device;
@@ -4980,6 +4993,8 @@
         { key: 'temperature', label: 'Temperature' }
       ]);
     }
+
+    if (!dev) displayChecks(host, n, []);
 
     var del = el('button', 'btn danger', 'Delete node');
     del.addEventListener('click', function () {
@@ -6844,35 +6859,32 @@
      * arrange as they see fit." A button rather than a double-click on the
      * line, because the line is already covered in drag handles and one more
      * gesture on it would be a guess. */
+    /* ADD / REMOVE a bend on whatever route you click. Michael, 2026-08-07
+     * for the button, 2026-08-09 for the pair and the preview: "add does what
+     * 'Add Link Node' does, remove removes."
+     *
+     * ARMED, rather than acting immediately. The button used to add one at the
+     * longest segment's midpoint, which is a fine default and not what you want
+     * when you can see where it should go. While armed the canvas previews the
+     * exact point — a green plus for add, a red cross over the node that would
+     * go — because "click anywhere on the route" is a promise the eye cannot
+     * otherwise check. */
+    function armLinkNode(mode) {
+      app.view.addLinkNode = mode;
+      app.view.linkNodeHover = null;
+      app.view.setTool('view');
+      /* setTool disarms it — it clears a half-finished pick on purpose — so the
+       * arming goes on afterwards. */
+      app.view.addLinkNode = mode;
+      toast(mode === 'remove'
+        ? 'Click a node on a control link or ΔP route to remove it.'
+        : 'Click anywhere on a control link or ΔP route to put a node there.');
+      app.view.render();
+    }
     var linkNodeBtn = $('btn-link-node');
-    if (linkNodeBtn) linkNodeBtn.addEventListener('click', function () {
-      /* ARMED, rather than acting immediately: the next click on any route puts
-       * a bend exactly there. Michael, 2026-08-08 — the button used to add one
-       * at the longest segment's midpoint, which is a fine default and not what
-       * you want when you can see where it should go. Selecting the device
-       * first still works, so nothing that used to be possible has gone. */
-      var sel = (app.view.selection || []).filter(function (x) { return x.kind === 'pipe'; });
-      if (sel.length !== 1) {
-        app.view.addLinkNode = true;
-        app.view.setTool('view');
-        toast('Click anywhere on a control link or ΔP route to put a bend there.');
-        return;
-      }
-      var p = M.pipe(app.model, sel[0].id);
-      var host = p && (p.kind === 'sensor' ? p.sensor
-                     : p.kind === 'pump' ? p.pump
-                     : p.kind === 'valve' ? p.valve : null);
-      var key = (p && p.kind === 'sensor') ? 'route' : 'control';
-      var route = (p && p.kind === 'sensor') ? M.sensorRoute(app.model, p)
-                                             : M.controlRoute(app.model, p);
-      if (!host || !route) { toast('That item has no link to bend.', 'error'); return; }
-      pushUndo();
-      var holder = host[key] || (host[key] = {});
-      holder.pts = M.insertWaypoint(route);
-      delete holder.axis; delete holder.mid;
-      changed(); app.view.render();
-      toast('Bend added — drag it where you want it.');
-    });
+    if (linkNodeBtn) linkNodeBtn.addEventListener('click', function () { armLinkNode('add'); });
+    var linkNodeDel = $('btn-link-node-del');
+    if (linkNodeDel) linkNodeDel.addEventListener('click', function () { armLinkNode('remove'); });
 
     /* REPAIR TAGS. Never silent and never automatic: it edits names on a
      * drawing, so it says exactly what it changed and does nothing if there is

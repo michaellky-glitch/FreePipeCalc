@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FreePipeCalc — Piping Friction Loss Calculator</title>
-<link rel="stylesheet" href="styles.css?v=0.16.11.2">
+<link rel="stylesheet" href="styles.css?v=0.16.12.2">
 </head>
 <body>
 
@@ -75,6 +75,7 @@
     </div>
     <div class="sep"></div>
     <div class="tool-group" data-group="MISC">
+      <button class="btn" data-tools-open title="Standalone calculators: pump curve, critical radius, pipe velocity and friction, heat transfer">TOOLS</button>
       <button class="btn" id="btn-renumber" title="Renumber nodes in flow order">RENUMBER</button>
       <button class="btn icon" id="btn-fit" title="Zoom to fit">⤢</button>
     </div>
@@ -112,9 +113,6 @@
           <button class="btn" data-tool="valve" data-variant="gate" title="A gate valve: open or shut, not for regulating">ISOLATION</button>
           <button class="btn" data-tool="valve" data-variant="check" title="A non-return valve">CHECK</button>
         </span>
-        <span class="tool-sub"><i>Calculate</i>
-          <button class="btn" data-tools-open title="Standalone calculators: pump curve, critical radius, pipe velocity and friction, heat transfer">TOOLS</button>
-        </span>
       </span>
 
       <span class="tool-set" data-uiset="control" hidden>
@@ -127,9 +125,6 @@
         </span>
         <span class="tool-sub"><i>Controls</i>
           <button class="btn" data-tool="link" title="Click a pump or control valve, then the sensor or equipment it should follow">ADD CONTROL</button>
-        </span>
-        <span class="tool-sub"><i>Calculate</i>
-          <button class="btn" data-tools-open title="Standalone calculators: pump curve, critical radius, pipe velocity and friction, heat transfer">TOOLS</button>
         </span>
       </span>
 
@@ -145,9 +140,6 @@
           <button class="btn" data-tool="edit" title="Select and inspect">SELECT</button>
           <button class="btn" data-tool="probe" title="Read pressure, flow and velocity at any point along a pipe — click to pin the reading, Esc to clear">PROBE</button>
         </span>
-        <span class="tool-sub"><i>Calculate</i>
-          <button class="btn" data-tools-open title="Standalone calculators: pump curve, critical radius, pipe velocity and friction, heat transfer">TOOLS</button>
-        </span>
       </span>
 
       <span class="tool-set" data-uiset="annotate" hidden>
@@ -160,7 +152,10 @@
         <span class="tool-sub"><i>Draw</i>
           <button class="btn" data-tool="detail" title="Draw free lines that are not part of the model — room outlines, plant boxes, leaders. Click to place vertices, Esc to finish; click an existing line to erase it">DETAIL</button>
           <button class="btn" data-tool="text" title="Place a text note on the drawing">TEXT BOX</button>
-          <button class="btn" id="btn-link-node" title="Add another bend to the selected control link or ΔP route, so it can be routed by hand">ADD LINK NODE</button>
+        </span>
+        <span class="tool-sub"><i>Link nodes</i>
+          <button class="btn" id="btn-link-node" title="Click a control link or ΔP route to put a bend there">ADD</button>
+          <button class="btn" id="btn-link-node-del" title="Click a bend on a control link or ΔP route to take it out">REMOVE</button>
         </span>
       </span>
     </div>
@@ -285,31 +280,31 @@
      the query when resolving a file:// path, so double-clicking still works;
      over HTTP, changing the token forces a reload instead of a stale copy.
      Bump the token on release, or during development after editing a module. -->
-<script src="data/schedules.js?v=0.16.11.2"></script>
-<script src="data/fittings.js?v=0.16.11.2"></script>
-<script src="data/valves.js?v=0.16.11.2"></script>
-<script src="data/ktable.js?v=0.16.11.2"></script>
-<script src="data/pumps.js?v=0.16.11.2"></script>
-<script src="data/fluids.js?v=0.16.11.2"></script>
-<script src="src/units.js?v=0.16.11.2"></script>
-<script src="src/hydraulics.js?v=0.16.11.2"></script>
-<script src="src/solver.js?v=0.16.11.2"></script>
-<script src="src/model.js?v=0.16.11.2"></script>
-<script src="src/geometry.js?v=0.16.11.2"></script>
-<script src="src/network.js?v=0.16.11.2"></script>
-<script src="src/thermal.js?v=0.16.11.2"></script>
-<script src="src/dialog.js?v=0.16.11.2"></script>
-<script src="src/trace.js?v=0.16.11.2"></script>
-<script src="src/canvas.js?v=0.16.11.2"></script>
-<script src="src/printer.js?v=0.16.11.2"></script>
-<script src="src/dxf.js?v=0.16.11.2"></script>
-<script src="src/tools.js?v=0.16.11.2"></script>
-<script src="src/docs.js?v=0.16.11.2"></script>
-<script src="src/app.js?v=0.16.11.2"></script>
+<script src="data/schedules.js?v=0.16.12.2"></script>
+<script src="data/fittings.js?v=0.16.12.2"></script>
+<script src="data/valves.js?v=0.16.12.2"></script>
+<script src="data/ktable.js?v=0.16.12.2"></script>
+<script src="data/pumps.js?v=0.16.12.2"></script>
+<script src="data/fluids.js?v=0.16.12.2"></script>
+<script src="src/units.js?v=0.16.12.2"></script>
+<script src="src/hydraulics.js?v=0.16.12.2"></script>
+<script src="src/solver.js?v=0.16.12.2"></script>
+<script src="src/model.js?v=0.16.12.2"></script>
+<script src="src/geometry.js?v=0.16.12.2"></script>
+<script src="src/network.js?v=0.16.12.2"></script>
+<script src="src/thermal.js?v=0.16.12.2"></script>
+<script src="src/dialog.js?v=0.16.12.2"></script>
+<script src="src/trace.js?v=0.16.12.2"></script>
+<script src="src/canvas.js?v=0.16.12.2"></script>
+<script src="src/printer.js?v=0.16.12.2"></script>
+<script src="src/dxf.js?v=0.16.12.2"></script>
+<script src="src/tools.js?v=0.16.12.2"></script>
+<script src="src/docs.js?v=0.16.12.2"></script>
+<script src="src/app.js?v=0.16.12.2"></script>
 <script>
   window.FD.APP_NAME = 'FreePipeCalc';
   window.FD.APP_SHORT = 'FPC';
-  window.FD.VERSION = '0.16.11';
+  window.FD.VERSION = '0.16.12';
   window.FD.FORMAT_VERSION = 1;
   try {
     window.FD.initApp();

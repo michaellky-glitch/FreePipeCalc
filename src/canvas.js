@@ -124,6 +124,18 @@
     this.canvas.height = Math.max(1, Math.round(r.height * dpr));
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.cssW = r.width; this.cssH = r.height;
+    /* WHERE THE WORK AREA STARTS, published for anything that floats over it.
+     *
+     * Michael, 2026-08-09: the simulation bar overlapped the ribbon. It was
+     * pinned at a hard-coded 96 px from the top, and the ribbon is not 96 px
+     * tall — it WRAPS, so its height depends on the window width and on which
+     * mode's tools are showing. Measured from the canvas itself, which is the
+     * only thing that knows. */
+    try {
+      document.documentElement.style.setProperty('--work-top', Math.round(r.top) + 'px');
+      document.documentElement.style.setProperty('--work-left', Math.round(r.left) + 'px');
+      document.documentElement.style.setProperty('--work-width', Math.round(r.width) + 'px');
+    } catch (e) { /* no document in a test harness */ }
     this.render();
   };
 
@@ -514,6 +526,12 @@
         if (p) { touched[p.a] = true; touched[p.b] = true; }
         M.removePipe(m, s.id);
       } else if (s.kind === 'riser') M.removeRiser(m, s.id);
+      /* ANNOTATION IS DELETABLE TOO — Michael, 2026-08-09. Both kinds fell
+       * through to `removeNode`, which quietly did nothing because no node has
+       * their id, so Delete appeared to be broken on exactly the two things
+       * ANNOTATION exists to place. */
+      else if (s.kind === 'detail') M.removeDetail(m, s.id);
+      else if (s.kind === 'note') M.removeNote(m, s.id);
       else M.removeNode(m, s.id);
     });
 
@@ -627,6 +645,12 @@
     }, { passive: false });
 
     c.addEventListener('pointerdown', function (e) {
+      /* Shift, from the event that is happening — see the note on pointermove.
+       * Read here too so the FIRST click of a gesture cannot act on a stale
+       * modifier: a detail line's opening vertex is placed by a pointerdown
+       * with no pointermove of its own, and it was snapping or not according to
+       * whatever the last move had seen. Michael, 2026-08-09. */
+      self.shiftDown = e.shiftKey;
       var r = c.getBoundingClientRect();
       var sx = e.clientX - r.left, sy = e.clientY - r.top;
       var w = self.toWorld(sx, sy);
@@ -724,15 +748,23 @@
          * it landed, then disarms. One click, one bend — arming that stayed on
          * would scatter them. */
         if (self.addLinkNode) {
-          var rp = self.routePointAt(w.x, w.y, 12);
+          var adding = (self.addLinkNode !== 'remove');
+          var rp = adding ? self.routePointAt(w.x, w.y)
+                          : self.routeVertexAt(w.x, w.y);
           self.addLinkNode = false;
+          self.linkNodeHover = null;
           if (rp) {
             self.onBeforeEdit();
-            self.addRouteNodeAt(rp);
-            self.onMessage('Bend added — drag it where you want it.');
-            self.changed();
+            if (adding) self.addRouteNodeAt(rp); else self.removeRouteNodeAt(rp);
+            self.onMessage(adding ? 'Node added — drag it where you want it.'
+                                  : 'Node removed.');
+            /* ARRANGING, NOT EDITING. Michael, 2026-08-09: "adding a link node
+             * triggered a simulation, should not." A bend in a dashed leader
+             * cannot move a number. */
+            self.arranged();
           } else {
-            self.onMessage('No control link or ΔP route there.', 'error');
+            self.onMessage(adding ? 'No control link or ΔP route there.'
+                                  : 'No link node there to remove.', 'error');
             self.render();
           }
           return;
@@ -1119,6 +1151,19 @@
           }
         }
         self.render();
+        return;
+      }
+      /* WHERE THE NODE WOULD GO. Michael asked to see it before committing —
+       * with a small handle and a dashed line to aim at, "click anywhere on the
+       * route" is a promise the eye cannot check. */
+      if (self.addLinkNode) {
+        var prevH = self.linkNodeHover;
+        self.linkNodeHover = (self.addLinkNode === 'remove')
+          ? self.routeVertexAt(w.x, w.y)
+          : self.routePointAt(w.x, w.y);
+        var pa = prevH && prevH.point, pb = self.linkNodeHover && self.linkNodeHover.point;
+        if (!pa !== !pb || (pa && pb && (Math.abs(pa.x - pb.x) > 1e-9 ||
+                                         Math.abs(pa.y - pb.y) > 1e-9))) self.render();
         return;
       }
       if (self.dragControlRiser) {
@@ -1529,7 +1574,7 @@
      * you had stopped trying to link. */
     this.controlPick = null;
     this.refPick = null;
-    if (tool !== 'view') this.addLinkNode = false;
+    if (tool !== 'view') { this.addLinkNode = false; this.linkNodeHover = null; }
     if (this.detailDraft && tool !== 'detail') this.endDetail();
     this.canvas.style.cursor = (tool === 'edit') ? 'default'
                             : (tool === 'view' || tool === 'trace' || tool === 'align') ? 'move'
@@ -2122,6 +2167,7 @@
     this.drawControlLinks();
     this.drawSyncLinks();
     this.drawNotes();
+    this.drawLinkNodePreview();
     this.drawDisconnects();
     this.drawFlipButton();
     this.drawScaleBar();
@@ -3308,7 +3354,7 @@
       ctx.restore();
       var w = ctx.measureText(p.tag).width;
       this.registerLabel('pipe', p, tx - w / 2 - 3, ty - size, w + 6, size + 5);
-      if (arranging) this.labelHandle(tx - w / 2 - 3, ty - size, w + 6, size + 5);
+      if (arranging) this.labelHandle(tx - w / 2 - 3, ty - size, w + 6, size + 5, !shown);
     }
     this.drawDeviceBox(p, { x: x, y: y });
   };
@@ -3375,6 +3421,13 @@
     var q = res && res.flow ? res.flow[p.id] : undefined;
 
     var parts = [];
+    /* A PLAIN PIPE CAN CARRY A TAG TOO — Michael, 2026-08-09: "pipes & fittings
+     * should also have Tag Visible options". A run is a thing you name
+     * ("CHW-S-01") just as much as the plant on it, and it had nowhere to put
+     * the name. First in the label, so it reads as the name of the thing rather
+     * than as one more annotation on it, and switched off by the same per-item
+     * rule as every other tag. */
+    if (p.tag && (M.tagVisible(p) || this.tool === 'view')) parts.push(p.tag);
     if (a.pipeDiameter) parts.push(FD.units.sizeLabel(p.size, d.size));
     if (a.pipeLength) parts.push(FD.units.fmtLength(M.pipeLength(m, p), d.length) +
                                  (d.length === 'm' ? 'm' : 'ft'));
@@ -3555,7 +3608,7 @@
 
     var w = ctx.measureText(text).width;
     this.registerLabel('node', n, x - w / 2 - 3, y - size, w + 6, size + 6);
-    if (nArranging) this.labelHandle(x - w / 2 - 3, y - size, w + 6, size + 6);
+    if (nArranging) this.labelHandle(x - w / 2 - 3, y - size, w + 6, size + 6, !nShown);
 
     this.drawDeviceBox(n, s);
   };
@@ -3567,10 +3620,15 @@
 
   /* Faint outline round a draggable label, so VIEW mode shows what can be
    * grabbed without cluttering the drawing in every other mode. */
-  View.prototype.labelHandle = function (x, y, w, h) {
+  /* `muted` draws the dashed box in grey rather than the orange selection
+   * colour. Michael, 2026-08-09: a switched-OFF equipment tag looked almost
+   * identical to a node's own label, because both are grey text — and the
+   * orange handle round it read as "selected" rather than as "hidden". Grey
+   * box, grey text: hidden. Orange box: something you can grab that is on. */
+  View.prototype.labelHandle = function (x, y, w, h, muted) {
     var ctx = this.ctx;
     ctx.save();
-    ctx.strokeStyle = this.theme.select;
+    ctx.strokeStyle = muted ? this.theme.mute : this.theme.select;
     ctx.globalAlpha = 0.5;
     ctx.setLineDash([3, 2]);
     ctx.lineWidth = 1;
@@ -4387,6 +4445,39 @@
     });
   };
 
+  /* WHERE THE LINK NODE WOULD LAND, or which one would go. Michael, 2026-08-09.
+   * Green for add, red for remove — the two colours the rest of the app already
+   * uses for "this will appear" and "this will go". Drawn over everything, so
+   * it is never behind the line it is describing. */
+  View.prototype.drawLinkNodePreview = function () {
+    if (!this.addLinkNode) return;
+    var hit = this.linkNodeHover;
+    var ctx = this.ctx;
+    var removing = (this.addLinkNode === 'remove');
+    if (!hit || !hit.point) return;
+    var s = this.toScreen(hit.point.x, hit.point.y);
+    var r = Math.max(7, this.pickHalf() * 0.45);
+    ctx.save();
+    ctx.strokeStyle = removing ? this.theme.error : this.theme.ok;
+    ctx.fillStyle = this.theme.bg;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    if (removing) {
+      /* A cross: this one goes. */
+      var k = r * 0.5;
+      ctx.moveTo(s.x - k, s.y - k); ctx.lineTo(s.x + k, s.y + k);
+      ctx.moveTo(s.x + k, s.y - k); ctx.lineTo(s.x - k, s.y + k);
+    } else {
+      /* A plus: one appears here. */
+      ctx.moveTo(s.x - r * 0.55, s.y); ctx.lineTo(s.x + r * 0.55, s.y);
+      ctx.moveTo(s.x, s.y - r * 0.55); ctx.lineTo(s.x, s.y + r * 0.55);
+    }
+    ctx.stroke();
+    ctx.restore();
+  };
+
   View.prototype.noteAt = function (sx, sy) {
     var bs = this._noteBoxes || [];
     for (var i = bs.length - 1; i >= 0; i--) {
@@ -4603,11 +4694,12 @@
    * hit, and the snapped world point. */
   View.prototype.routePointAt = function (wx, wy, tolPx) {
     var m = this.getModel(), self = this, best = null, bestD = Infinity;
-    var tol = this.pxToM(tolPx || 10);
+    /* THE SAME TARGET SIZE AS EVERY OTHER ANNOTATION HANDLE. It was a flat
+     * 12 px, which is why placing a link node was "hard, especially between
+     * PWP-01 and DP-02" — Michael, 2026-08-09. */
+    var tol = this.pxToM(tolPx || this.pickHalf());
     function consider(p, host, key, route) {
       if (!route) return;
-      var na = M.node(m, p.a);
-      if (!na || na.level !== m.activeLevel) return;
       for (var i = 1; i < route.points.length; i++) {
         var r = self._distToSeg(wx, wy, route.points[i - 1], route.points[i]);
         if (r.dist < tol && r.dist < bestD) {
@@ -4619,15 +4711,69 @@
     }
     m.pipes.forEach(function (p) {
       if (p.kind === 'sensor' && p.sensor) {
-        consider(p, p.sensor, 'route', M.sensorRoute(m, p));
+        var sn = M.node(m, p.a);
+        if (sn && sn.level === m.activeLevel) {
+          consider(p, p.sensor, 'route', M.sensorRoute(m, p));
+        }
+      }
+      var c = M.controlOf(p);
+      if (c) {
+        /* THROUGH THE LEVEL-AWARE ROUTE. Asking without a floor returns null on
+         * a link that changes floor (v0.16.9), so a cross-floor link had no
+         * route to click on at all — which is exactly the pair Michael could
+         * not place a node between. `controlRoute` does the floor filtering
+         * itself now, so there is none left to do here. */
+        consider(p, p.kind === 'pump' ? p.pump : p.valve, 'control',
+                 M.controlRoute(m, p, m.activeLevel));
+      }
+    });
+    return best;
+  };
+
+  /* An EXISTING bend under the pointer, for removing one. Only the interior
+   * points are candidates: the two ends are the devices themselves. */
+  View.prototype.routeVertexAt = function (wx, wy, tolPx) {
+    var m = this.getModel(), self = this, best = null, bestD = Infinity;
+    var tol = this.pxToM(tolPx || this.pickHalf());
+    function consider(p, host, key, route) {
+      if (!route || !route.points || route.points.length < 3) return;
+      for (var i = 1; i < route.points.length - 1; i++) {
+        var q = route.points[i];
+        var d = Math.hypot(wx - q.x, wy - q.y);
+        if (d < tol && d < bestD) {
+          bestD = d;
+          best = { pipe: p, host: host, key: key, route: route,
+                   vertex: i - 1, point: { x: q.x, y: q.y } };
+        }
+      }
+    }
+    m.pipes.forEach(function (p) {
+      if (p.kind === 'sensor' && p.sensor) {
+        var sn = M.node(m, p.a);
+        if (sn && sn.level === m.activeLevel) {
+          consider(p, p.sensor, 'route', M.sensorRoute(m, p));
+        }
       }
       var c = M.controlOf(p);
       if (c) {
         consider(p, p.kind === 'pump' ? p.pump : p.valve, 'control',
-                 M.controlRoute(m, p));
+                 M.controlRoute(m, p, m.activeLevel));
       }
     });
     return best;
+  };
+
+  /* Take a bend back out. The route falls back to its plain Z when the last
+   * hand-placed point goes, which is where it started. */
+  View.prototype.removeRouteNodeAt = function (hit) {
+    if (!hit) return false;
+    var holder = hit.host[hit.key] || (hit.host[hit.key] = {});
+    var pts = M.routeWaypoints(hit.route);
+    if (hit.vertex < 0 || hit.vertex >= pts.length) return false;
+    pts.splice(hit.vertex, 1);
+    if (pts.length) holder.pts = pts;
+    else { delete holder.pts; delete holder.axis; delete holder.mid; }
+    return true;
   };
 
   /* Put a bend exactly where the click landed. */

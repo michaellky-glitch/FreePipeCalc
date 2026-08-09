@@ -772,13 +772,17 @@ table.doc-table th, table.doc-table td {
 table.doc-table th { background: var(--bg-raised); color: var(--text-dim); font-weight: 600; }
 
 /* toasts */
+/* The same anchor as the solve bar: prompts and progress are the same kind of
+ * thing — the app talking to you about what it is doing — and they were at
+ * opposite ends of the screen. */
 #toasts {
   position: fixed;
-  bottom: 18px;
-  left: 50%;
+  top: calc(var(--work-top, 120px) + 12px);
+  left: calc(var(--work-left, 0px) + var(--work-width, 100vw) / 2);
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
   z-index: 50;
   pointer-events: none;
@@ -795,7 +799,7 @@ table.doc-table th { background: var(--bg-raised); color: var(--text-dim); font-
   transition: opacity .4s, transform .4s;
 }
 .toast.error { border-left-color: var(--error); }
-.toast.out { opacity: 0; transform: translateY(8px); }
+.toast.out { opacity: 0; transform: translateY(-8px); }
 
 /* --------------------------------------------------------------- print */
 @media print {
@@ -1133,8 +1137,15 @@ body.sim-static #prop-body .field textarea {
 /* SOLVE PROGRESS. Over the drawing, not in the ribbon: it is about the answer
  * being waited for, not about a tool. Non-interactive, so it can never get in
  * the way of the click you were about to make. */
+/* TOP CENTRE OF THE WORK AREA, not of the window. `--work-top` is published by
+ * `View.resize` from the canvas's own position, because the ribbon WRAPS: its
+ * height depends on the window width and on which mode's tools are showing, so
+ * any hard-coded offset overlaps it at some width. Michael, 2026-08-09. */
 .solve-bar {
-  position: absolute; left: 50%; top: 96px; transform: translateX(-50%);
+  position: fixed;
+  left: calc(var(--work-left, 0px) + var(--work-width, 100vw) / 2);
+  top: calc(var(--work-top, 120px) + 12px);
+  transform: translateX(-50%);
   z-index: 40; display: flex; align-items: center; gap: 10px;
   padding: 8px 14px; border-radius: 6px;
   background: var(--bg-panel); border: 1px solid var(--line);
@@ -1228,3 +1239,15 @@ body.sim-static #prop-body .field textarea {
 .tool-window-body .field select { width: 100%; box-sizing: border-box; }
 .tool-window-body h3 { margin-top: 0; }
 .tool-window-body table { width: 100%; }
+
+/* The CONVERT tab: two boxes and an equals sign, per row. */
+.conv-row { margin-bottom: 12px; }
+.conv-title {
+  font-size: 11px; letter-spacing: .06em; color: var(--text-mute);
+  margin-bottom: 4px;
+}
+.conv-line { display: flex; align-items: center; gap: 6px; }
+.conv-cell { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.conv-cell select, .conv-cell input { width: 100%; box-sizing: border-box; }
+.conv-unit { font-size: 11px; color: var(--text-mute); padding: 3px 0; }
+.conv-eq { color: var(--text-mute); padding-top: 18px; }
