@@ -1056,6 +1056,94 @@
     host.appendChild(row);
   }
 
+  /* ================================================================ FIND
+   *
+   * Michael, 2026-08-09. On a 278-pipe model spread over five floors, "where is
+   * CHWP-03" is a real question and the only answer was to look.
+   *
+   * Matches on TAG and on INTERNAL ID, because both are things you have in your
+   * hand: the tag is what the schedule calls it, the id is what every warning
+   * and the calculation sheet call it. Case-insensitive substring, so half a
+   * tag is enough.
+   *
+   * IT IS THE ONE TOOL THAT REACHES INTO THE MODEL, and it earns the exception
+   * by only ever READING and by changing nothing but the view — selecting a
+   * result switches to its floor, centres it and selects it. A tool that
+   * navigates is not a tool that can corrupt anything.
+   */
+  var findState = null;
+
+  function findMatches(m, q) {
+    var s = String(q || '').trim().toLowerCase();
+    if (!s) return [];
+    var out = [];
+    function level(id) { var l = FD.model.level(m, id); return l ? l.name : id; }
+    m.pipes.forEach(function (p) {
+      var hay = ((p.tag || '') + ' ' + p.id).toLowerCase();
+      if (hay.indexOf(s) < 0) return;
+      var n = FD.model.node(m, p.a);
+      out.push({ kind: 'pipe', id: p.id, tag: p.tag || null,
+                 what: p.kind === 'pipe' ? 'Pipe' : p.kind.charAt(0).toUpperCase() + p.kind.slice(1),
+                 level: n ? n.level : null, levelName: n ? level(n.level) : '' });
+    });
+    m.nodes.forEach(function (n) {
+      var hay = ((n.tag || '') + ' ' + n.id).toLowerCase();
+      if (hay.indexOf(s) < 0) return;
+      out.push({ kind: 'node', id: n.id, tag: n.tag || null,
+                 what: n.device ? (n.device.kind === 'source' ? 'Source' : 'Outflow') : 'Node',
+                 level: n.level, levelName: level(n.level) });
+    });
+    /* A TAG MATCH BEATS AN ID MATCH: someone typing "CHWP" means the tag, and
+     * an id that happens to contain those letters is noise above it. */
+    out.sort(function (a, b) {
+      var at = a.tag && a.tag.toLowerCase().indexOf(s) >= 0 ? 0 : 1;
+      var bt = b.tag && b.tag.toLowerCase().indexOf(s) >= 0 ? 0 : 1;
+      return at - bt || (a.tag || a.id).localeCompare(b.tag || b.id);
+    });
+    return out;
+  }
+
+  function renderFindTool(host, app) {
+    var m = app.model;
+    if (!findState) findState = { q: '' };
+    var st = findState;
+
+    host.appendChild(el('h3', '', 'Find'));
+    var i = el('input'); i.type = 'text';
+    i.value = st.q;
+    i.placeholder = 'tag or id — CHWP, P42, AHU-3';
+    field(host, 'Search', i);
+    i.addEventListener('input', function () { st.q = i.value; redraw(); });
+
+    var list = el('div', 'find-list');
+    host.appendChild(list);
+
+    function redraw() {
+      list.innerHTML = '';
+      var hits = findMatches(m, st.q);
+      if (!st.q.trim()) return;
+      if (!hits.length) {
+        list.appendChild(el('p', 'hint', 'Nothing matches.'));
+        return;
+      }
+      list.appendChild(el('p', 'hint', hits.length + ' match' +
+                          (hits.length === 1 ? '' : 'es')));
+      hits.slice(0, 60).forEach(function (h) {
+        var b = el('button', 'find-hit');
+        b.type = 'button';
+        b.appendChild(el('span', 'find-tag', h.tag || h.id));
+        b.appendChild(el('span', 'find-meta',
+          h.what + (h.tag ? '  ·  ' + h.id : '') + '  ·  ' + h.levelName));
+        b.addEventListener('click', function () { app.findGoTo(h); });
+        list.appendChild(b);
+      });
+      if (hits.length > 60) {
+        list.appendChild(el('p', 'hint', '…and ' + (hits.length - 60) + ' more.'));
+      }
+    }
+    redraw();
+  }
+
   // ---------------------------------------------------------------- rendering
   /* Q2, Michael: four tools, one at a time, chosen from a tab strip.
    *
@@ -1068,7 +1156,8 @@
     { key: 'crit',  label: 'Critical radius', render: renderCriticalTool },
     { key: 'vel',   label: 'Velocity & friction', render: renderVelocityTool },
     { key: 'heat',  label: 'Heat transfer', render: renderHeatTool },
-    { key: 'conv',  label: 'Convert',       render: renderConvertTool }
+    { key: 'conv',  label: 'Convert',       render: renderConvertTool },
+    { key: 'find',  label: 'Find',          render: renderFindTool }
   ];
 
   function render(app) {
@@ -1128,7 +1217,8 @@
     velocity: velocity,
     heat: heat,
     convert: { pressure: CONV_PRESSURE, flow: CONV_FLOW },
+    findMatches: findMatches,
     _reset: function () { state = null; critState = null; velState = null;
-                          heatState = null; convState = null; }
+                          heatState = null; convState = null; findState = null; }
   };
 })(window.FD = window.FD || {});

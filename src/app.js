@@ -1609,29 +1609,48 @@
   function copyLevelTo(lv) {
     var m = app.model;
     var targets = m.levels.filter(function (o) { return o.id !== lv.id; });
-    if (!targets.length) {
-      FD.dialog.alert({ title: 'Nothing to copy to',
-                        message: 'Add another level first.' });
-      return;
-    }
+    /* A NEW FLOOR ABOVE IS THE FIRST OPTION, and usually the only one wanted —
+     * Michael, 2026-08-09. Copying a floor is nearly always "and again, one up",
+     * and requiring the target to exist first made a two-step job of it. It is
+     * offered even when there is nowhere else to copy to, so the button never
+     * dead-ends. */
+    var NEW = '__new__';
+    var suggested = M.nextLevelName(m, lv.name);
     FD.dialog.form({
       title: 'Copy ' + lv.name + ' layout',
       ok: 'Copy',
       message: 'Everything drawn on ' + lv.name + ' is copied to the target level at the ' +
                'same coordinates. Riser columns touching this floor are extended to the ' +
                'target so the stack stays connected.\n\n' +
-               'A SOURCE is deliberately not copied — a second supply would change the ' +
-               'hydraulics without being asked for.',
+               'Tags come across as they are, so the new floor can be renumbered ' +
+               'deliberately rather than guessed at.',
       fields: [{
         key: 'to', label: 'Copy to', type: 'select',
-        value: targets[0].id,
-        options: targets.map(function (o) {
-          return [o.id, o.name + '  (' + (o.altitude >= 0 ? '+' : '') +
-                  o.altitude.toFixed(2) + ' m)'];
-        })
+        value: NEW,
+        options: [[NEW, 'New floor above  —  ' + suggested]].concat(
+          targets.map(function (o) {
+            return [o.id, o.name + '  (' + (o.altitude >= 0 ? '+' : '') +
+                    o.altitude.toFixed(2) + ' m)'];
+          }))
       }]
     }).then(function (v) {
       if (!v) return;
+      if (v.to === NEW) {
+        pushUndo();
+        var made = M.addLevel(m, {
+          name: suggested,
+          altitude: lv.altitude + (m.settings.floorToFloor || 3.5)
+        });
+        var rn = M.copyLevel(m, lv.id, made.id);
+        m.activeLevel = made.id;
+        renderLevels();
+        changed();
+        toast('Created ' + made.name + ' and copied ' + rn.nodes + ' nodes and ' +
+              rn.pipes + ' pipes to it' +
+              (rn.risers ? ', extending ' + rn.risers + ' riser column' +
+                           (rn.risers > 1 ? 's' : '') : '') + '.');
+        return;
+      }
       var dst = M.level(m, v.to);
       var existing = m.nodes.filter(function (n) { return n.level === v.to; }).length;
       var go = function () {
@@ -6728,6 +6747,29 @@
       });
     });
     syncVizButtons();
+
+    /* GO TO WHAT FIND FOUND. Switches floor if it has to, centres it, selects
+     * it — and changes nothing else, which is what lets a tool touch the model
+     * at all. */
+    app.findGoTo = function (hit) {
+      var m = app.model;
+      if (!hit) return;
+      if (hit.level && hit.level !== m.activeLevel) {
+        m.activeLevel = hit.level;
+        renderLevels();
+      }
+      var at = null;
+      if (hit.kind === 'node') {
+        var n = M.node(m, hit.id);
+        if (n) at = M.worldXY(m, n);
+      } else {
+        var p = M.pipe(m, hit.id);
+        if (p) at = M.deviceMid(m, p);
+      }
+      if (at) app.view.centreOn(at.x, at.y);
+      app.view.selection = [{ kind: hit.kind, id: hit.id }];
+      app.view.selectionChanged();
+    };
 
     /* ===================================================== THE TOOLS WINDOW
      *

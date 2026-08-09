@@ -149,6 +149,15 @@
     this.render();
   };
 
+  /* Put a world point in the middle of the canvas, keeping the zoom. Used by
+   * FIND: changing the magnification as well as the position loses the sense of
+   * where you were. */
+  View.prototype.centreOn = function (wx, wy) {
+    this.originX = this.cssW / 2 - wx * this.scale;
+    this.originY = this.cssH / 2 + wy * this.scale;
+    this.render();
+  };
+
   View.prototype.zoomToFit = function () {
     var m = this.getModel();
     var pts = m.nodes.filter(function (n) { return n.level === m.activeLevel; })
@@ -844,6 +853,39 @@
         self.render();
         return;
       }
+      /* DROP THE PASTE. Before every other tool, because while a placement is in
+       * flight that is the only thing a click can mean. */
+      if (self.pasting) {
+        var ps = self.pasting;
+        if (!ps.at) { ps.at = self.snapWorld(w); }
+        self.onBeforeEdit();
+        var frag = ps.frag, mdl = self.getModel();
+        var anchorNode = null;
+        frag.nodes.forEach(function (n) { if (n.id === frag.anchor) anchorNode = n; });
+        var join = {};
+        if (ps.onto) join[frag.anchor] = ps.onto;
+        var res = M.insertFragment(mdl, frag, {
+          level: mdl.activeLevel,
+          dx: ps.at.x - (anchorNode ? anchorNode.x : 0),
+          dy: ps.at.y - (anchorNode ? anchorNode.y : 0),
+          joinTo: join,
+          retag: true
+        });
+        self.pasting = null;
+        if (!res) { self.onMessage('Nothing pasted.', 'error'); self.render(); return; }
+        /* The copy becomes the selection, so it can be moved or deleted
+         * immediately — a paste you cannot undo by eye is a paste you have to
+         * hunt for. */
+        self.selection = res.pipes.map(function (p) { return { kind: 'pipe', id: p.id }; });
+        var bits = [res.pipes.length + ' pipe' + (res.pipes.length === 1 ? '' : 's') + ' pasted'];
+        if (res.retagged.length) bits.push(res.retagged.length + ' retagged');
+        if (res.dropped.length) bits.push(res.dropped.length + ' link' +
+          (res.dropped.length === 1 ? '' : 's') + ' dropped');
+        self.onMessage(bits.join(' · ') + '.');
+        self.changed();
+        return;
+      }
+
       /* THE CONTROL LINK TOOL. Click the controller, then its target — the
        * same two-click gesture the panel button already started, but reachable
        * without first selecting the pump and finding the button. Michael's UI
@@ -1150,6 +1192,18 @@
               ? anchorY + newW * t0.aspect : anchorY;
           }
         }
+        self.render();
+        return;
+      }
+      /* THE PASTE FOLLOWS THE POINTER, by its anchor. */
+      if (self.pasting) {
+        var pw = self.snapWorld(w);
+        /* SNAP ONTO AN EXISTING NODE if there is one under the anchor. That is
+         * how the copy joins the drawing, and it is the same endpoint radius
+         * every other join uses. */
+        var onto = self.nodeAt(w.x, w.y, ENDPOINT_PX);
+        self.pasting.at = onto ? M.worldXY(self.getModel(), onto) : pw;
+        self.pasting.onto = onto ? onto.id : null;
         self.render();
         return;
       }
@@ -1468,7 +1522,11 @@
       }
 
       if (e.key === 'Escape') {
-        if (self.controlPick || self.refPick) {
+        if (self.pasting) {
+          self.pasting = null;
+          self.onMessage('Paste cancelled.'); self.render();
+        }
+        else if (self.controlPick || self.refPick) {
           self.controlPick = null; self.refPick = null;
           self.onMessage('Cancelled.'); self.render();
         }
@@ -1483,6 +1541,42 @@
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (self.selection.length) { e.preventDefault(); self.deleteSelection(); }
+      }
+
+      /* COPY AND PASTE. Michael, 2026-08-09: one set of PWP, CT, CHWP, ACCH and
+       * the pipes up to where it joins the loop, dropped somewhere else.
+       *
+       * Ctrl+C takes the selection as a FRAGMENT — a closed piece of drawing
+       * that points at nothing outside itself (M.extractFragment). Ctrl+V arms
+       * a placement: the fragment follows the pointer by its ANCHOR, and the
+       * next click drops it. Esc cancels.
+       *
+       * NOT the system clipboard: reading it needs `navigator.clipboard.read`,
+       * which a `file://` page is refused (§3). This is an in-app clipboard,
+       * which is also what makes it able to carry a subgraph rather than text. */
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+        if (!self.selection.length) return;
+        var frag = M.extractFragment(self.getModel(), self.selection);
+        if (!frag) { self.onMessage('Nothing there to copy.', 'error'); return; }
+        e.preventDefault();
+        self.clipboard = frag;
+        var lost = (frag.dropped || []).length;
+        self.onMessage(frag.pipes.length + ' pipe' + (frag.pipes.length === 1 ? '' : 's') +
+          ' and ' + frag.nodes.length + ' node' + (frag.nodes.length === 1 ? '' : 's') +
+          ' copied' + (lost ? ' — ' + lost + ' link' + (lost === 1 ? '' : 's') +
+          ' to items outside the selection will be dropped' : '') + '.');
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+        if (!self.clipboard) { self.onMessage('Nothing copied yet.', 'error'); return; }
+        if (self.locked()) return self.refuseLocked('Pasting');
+        e.preventDefault();
+        self.pasting = { frag: self.clipboard, at: null };
+        self.setTool('edit');
+        self.onMessage('Click to place. The first node snaps onto an existing ' +
+                       'one if there is one under it. Esc cancels.');
+        self.render();
+        return;
       }
     });
     window.addEventListener('keyup', function (e) {
@@ -1574,6 +1668,8 @@
      * you had stopped trying to link. */
     this.controlPick = null;
     this.refPick = null;
+    /* A placement in flight belongs to the gesture that started it. */
+    if (tool !== 'edit') this.pasting = null;
     if (tool !== 'view') { this.addLinkNode = false; this.linkNodeHover = null; }
     if (this.detailDraft && tool !== 'detail') this.endDetail();
     this.canvas.style.cursor = (tool === 'edit') ? 'default'
@@ -2168,6 +2264,7 @@
     this.drawSyncLinks();
     this.drawNotes();
     this.drawLinkNodePreview();
+    this.drawPastePreview();
     this.drawDisconnects();
     this.drawFlipButton();
     this.drawScaleBar();
@@ -4475,6 +4572,53 @@
       ctx.moveTo(s.x, s.y - r * 0.55); ctx.lineTo(s.x, s.y + r * 0.55);
     }
     ctx.stroke();
+    ctx.restore();
+  };
+
+  /* THE FRAGMENT IN FLIGHT, drawn as an outline that follows the pointer.
+   *
+   * Ghosted rather than solid: it is not on the drawing yet, and something that
+   * looks placed but is not is the worst kind of preview. The ANCHOR gets a
+   * ring — filled when it is over an existing node, so "this will join here" is
+   * visible before the click rather than discovered after it. */
+  View.prototype.drawPastePreview = function () {
+    var ps = this.pasting;
+    if (!ps || !ps.at) return;
+    var frag = ps.frag, ctx = this.ctx, self = this;
+    var anchor = null;
+    frag.nodes.forEach(function (n) { if (n.id === frag.anchor) anchor = n; });
+    if (!anchor) return;
+    var dx = ps.at.x - anchor.x, dy = ps.at.y - anchor.y;
+    var at = {};
+    frag.nodes.forEach(function (n) { at[n.id] = self.toScreen(n.x + dx, n.y + dy); });
+
+    ctx.save();
+    ctx.globalAlpha = 0.62;
+    ctx.strokeStyle = this.theme.accent;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 4]);
+    frag.pipes.forEach(function (p) {
+      var a = at[p.a], b = at[p.b];
+      if (!a || !b) return;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    ctx.fillStyle = this.theme.accent;
+    frag.nodes.forEach(function (n) {
+      var s = at[n.id];
+      ctx.beginPath(); ctx.arc(s.x, s.y, 2.5, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.restore();
+
+    /* The anchor: hollow while it is loose, filled once it is over a node it
+     * would join. */
+    var s0 = at[frag.anchor];
+    ctx.save();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = ps.onto ? this.theme.ok : this.theme.accent;
+    ctx.fillStyle = ps.onto ? this.theme.ok : this.theme.bg;
+    ctx.beginPath(); ctx.arc(s0.x, s0.y, 7, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
     ctx.restore();
   };
 

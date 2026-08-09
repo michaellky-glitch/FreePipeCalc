@@ -823,68 +823,356 @@
    * well, so a stack of identical floors stays connected instead of arriving
    * as an island.
    */
+  /* ======================================================= COPY AND PASTE
+   *
+   * A FRAGMENT is a closed piece of drawing: some pipes, every node they touch,
+   * and nothing that points outside itself. Michael, 2026-08-09 — "copy one set
+   * of PWP, CT, CHWP, ACCH and the pipes up to where it joins the loop."
+   *
+   * IT IS TWO PURE FUNCTIONS AND A GESTURE, in that order of importance.
+   * `extract` and `insert` are model-only and hand-checkable with no browser;
+   * the canvas work on top is the easy half. Everything that has ever gone
+   * wrong in this project went wrong in the part that could not be tested
+   * headlessly, so that is the part this keeps small.
+   *
+   * THE FOUR KINDS OF REFERENCE, and they are the whole problem:
+   *
+   *     pipe.a / pipe.b                     the nodes it runs between
+   *     pump.control.equip / valve.…        the sensor or machine it follows
+   *     sensor.ref                          a differential's second tapping
+   *     pump.sync / valve.sync              the device whose position it copies
+   *
+   * A reference INSIDE the fragment is remapped. A reference OUTSIDE it is
+   * DROPPED and reported. Keeping it is worse: the new pump would follow the
+   * ORIGINAL's sensor, and two pumps on one sensor is the degenerate case
+   * `CONTROL_GANGED` exists to complain about. Dropping it silently is worse
+   * again — `CONTROL_TARGET_GONE` is the precedent for saying so.
+   *
+   * AND EVERYTHING IS DEEP-CLONED WHOLESALE, never field by field. `addPipe`
+   * enumerated what to carry and silently dropped `sensor` for as long as
+   * differential sensors have existed (fixed v0.16.11); `copyLevel` had the
+   * same bug and lost every sensor and every control link on a copied floor.
+   * Listing the fields is how that happens, so this lists the fields NOT to
+   * copy instead — a much shorter and much more stable list. */
+
+  /* Keys that must never travel with a copy: identity, and solved state. */
+  var FRAG_PIPE_SKIP = { id: 1, a: 1, b: 1 };
+  var FRAG_NODE_SKIP = { id: 1, level: 1 };
+
+  function cloneBut(o, skip) {
+    var out = {};
+    Object.keys(o || {}).forEach(function (k) {
+      if (skip[k]) return;
+      out[k] = (o[k] && typeof o[k] === 'object')
+        ? JSON.parse(JSON.stringify(o[k])) : o[k];
+    });
+    return out;
+  }
+
+  /* Every id this pipe points at, and where it lives, so one loop can both
+   * report and rewrite them. */
+  function pipeRefs(p) {
+    var refs = [];
+    var host = (p.kind === 'pump') ? p.pump : (p.kind === 'valve') ? p.valve : null;
+    if (host && host.control && host.control.equip) {
+      refs.push({ kind: 'control', get: function () { return host.control.equip; },
+                  set: function (v) { host.control.equip = v; },
+                  clear: function () { delete host.control; } });
+    }
+    if (host && host.sync) {
+      refs.push({ kind: 'sync', get: function () { return host.sync; },
+                  set: function (v) { host.sync = v; },
+                  clear: function () { delete host.sync; } });
+    }
+    if (p.kind === 'sensor' && p.sensor && p.sensor.ref) {
+      refs.push({ kind: 'sensorRef', get: function () { return p.sensor.ref; },
+                  set: function (v) { p.sensor.ref = v; },
+                  clear: function () { delete p.sensor.ref; } });
+    }
+    return refs;
+  }
+
+  /* ---- EXTRACT. Selection in, closed fragment out.
+   *
+   * The selection is normalised to PIPES PLUS THE NODES THEY TOUCH, because a
+   * pipe without its ends is not a thing that can be drawn. A node selected on
+   * its own comes too, so a lone source can be copied.
+   *
+   * `anchor` is the node the paste will be placed BY. A boundary node — one
+   * that a copied pipe and an uncopied pipe both touch — is the natural choice:
+   * it is where the fragment met the rest of the drawing, so it is where the
+   * copy will want to meet it again. Failing that, the lowest-then-leftmost
+   * node, so the answer is stable rather than dependent on selection order. */
+  function extractFragment(m, selection) {
+    var pickPipe = {}, pickNode = {};
+    (selection || []).forEach(function (s) {
+      if (s.kind === 'pipe') pickPipe[s.id] = true;
+      else if (s.kind === 'node') pickNode[s.id] = true;
+    });
+
+    var pipes = m.pipes.filter(function (p) {
+      /* A RISER LINK IS NOT COPYABLE ON ITS OWN — it is generated from the
+       * column, not drawn, and half a column is not a thing. */
+      return pickPipe[p.id] && p.kind !== 'riser';
+    });
+    pipes.forEach(function (p) { pickNode[p.a] = true; pickNode[p.b] = true; });
+
+    var nodes = m.nodes.filter(function (n) { return pickNode[n.id]; });
+    if (!nodes.length) return null;
+
+    var inSet = {};
+    pipes.forEach(function (p) { inSet[p.id] = true; });
+
+    /* What points outside, so the caller can say so rather than discover it. */
+    var dropped = [];
+    pipes.forEach(function (p) {
+      pipeRefs(p).forEach(function (r) {
+        var t = r.get();
+        if (!inSet[t]) {
+          dropped.push({ pipe: p.id, tag: p.tag || null, kind: r.kind, target: t });
+        }
+      });
+    });
+
+    /* BOUNDARY: a copied node that an UNCOPIED pipe also touches. */
+    var degreeOut = {};
+    m.pipes.forEach(function (p) {
+      if (inSet[p.id]) return;
+      if (pickNode[p.a]) degreeOut[p.a] = (degreeOut[p.a] || 0) + 1;
+      if (pickNode[p.b]) degreeOut[p.b] = (degreeOut[p.b] || 0) + 1;
+    });
+    var boundary = nodes.filter(function (n) { return degreeOut[n.id]; });
+    var anchorFrom = boundary.length ? boundary : nodes.slice();
+    anchorFrom.sort(function (a, b) {
+      return (a.y - b.y) || (a.x - b.x) || (a.id < b.id ? -1 : 1);
+    });
+
+    return {
+      formatVersion: FORMAT_VERSION,
+      level: nodes[0].level,
+      anchor: anchorFrom[0].id,
+      boundary: boundary.map(function (n) { return n.id; }),
+      nodes: nodes.map(function (n) {
+        var c = cloneBut(n, FRAG_NODE_SKIP);
+        c.id = n.id;                       // kept only as the fragment's own key
+        return c;
+      }),
+      pipes: pipes.map(function (p) {
+        var c = cloneBut(p, FRAG_PIPE_SKIP);
+        c.id = p.id; c.a = p.a; c.b = p.b;
+        return c;
+      }),
+      dropped: dropped
+    };
+  }
+
+  /* ---- INSERT. A fragment, a place to put it, and new ids throughout.
+   *
+   *   level    which floor it lands on (defaults to the fragment's own)
+   *   dx, dy   how far to move it
+   *   joinTo   { fragmentNodeId: existingNodeId } — nodes NOT created, reused
+   *
+   * `joinTo` is how a paste attaches: the anchor is not duplicated, it becomes
+   * the existing node, and every pipe that touched it now touches that. Which
+   * is exactly what dragging a node onto another already does (§ mergeDropped),
+   * done up front instead of afterwards. */
+  function insertFragment(m, frag, opts) {
+    if (!frag || !frag.nodes || !frag.nodes.length) return null;
+    opts = opts || {};
+    var lvl = opts.level || frag.level || m.activeLevel;
+    var dx = opts.dx || 0, dy = opts.dy || 0;
+    var joinTo = opts.joinTo || {};
+
+    var map = {}, newNodes = [], newPipes = [], retagged = [];
+
+    frag.nodes.forEach(function (n) {
+      if (joinTo[n.id]) { map[n.id] = joinTo[n.id]; return; }   // reuse, do not copy
+      var c = addNode(m, lvl, n.x + dx, n.y + dy, { dz: n.dz || 0 });
+      Object.keys(n).forEach(function (k) {
+        if (k === 'id' || k === 'x' || k === 'y' || k === 'level' || k === 'dz') return;
+        c[k] = (n[k] && typeof n[k] === 'object')
+          ? JSON.parse(JSON.stringify(n[k])) : n[k];
+      });
+      map[n.id] = c.id;
+      newNodes.push(c);
+    });
+
+    frag.pipes.forEach(function (p) {
+      if (map[p.a] === undefined || map[p.b] === undefined) return;
+      var np = addPipe(m, map[p.a], map[p.b], { kind: p.kind, schedule: p.schedule,
+                                                size: p.size, C: p.C });
+      Object.keys(p).forEach(function (k) {
+        if (k === 'id' || k === 'a' || k === 'b' || k === 'riser') return;
+        np[k] = (p[k] && typeof p[k] === 'object')
+          ? JSON.parse(JSON.stringify(p[k])) : p[k];
+      });
+      np.riser = null;                    // a copy is never part of a column
+      newPipes.push(np);
+    });
+
+    /* REFERENCES, once every new id exists. Inside the fragment they are
+     * remapped; outside it they go, because a copy that follows the original's
+     * sensor is two devices on one measurement. */
+    var idMap = {};
+    frag.pipes.forEach(function (p, i) { if (newPipes[i]) idMap[p.id] = newPipes[i].id; });
+    newPipes.forEach(function (np) {
+      pipeRefs(np).forEach(function (r) {
+        var t = r.get();
+        if (idMap[t]) r.set(idMap[t]); else r.clear();
+      });
+      /* A SETTLED VFD POSITION IS NOT A DESIGN INPUT. It came out of a solve of
+       * a different piece of plant; the control loop resets to full travel
+       * anyway, and carrying it makes the copy look like it has already run. */
+      if (np.pump && np.pump.speed !== undefined) np.pump.speed = 1;
+      /* AND THE TAG MUST BE UNIQUE — on a PASTE.
+       *
+       * Not on a floor copy, and the difference is the point. A paste drops a
+       * second lineup beside the first, where two CHWP-01 is unambiguous
+       * nonsense and CHWP-02 is what you would have typed. A floor copy carries
+       * a whole storey, where the tags usually encode the floor — AHU-10-01
+       * wants to become AHU-11-01, which is a pattern rename this cannot guess,
+       * and +1 on the trailing number would give AHU-10-02: worse than leaving
+       * it alone and letting the engineer renumber deliberately. */
+      if (opts.retag && np.tag) {
+        var t2 = uniqueTag(m, np.tag, np.id);
+        if (t2 !== np.tag) { retagged.push({ from: np.tag, to: t2, pipe: np.id }); np.tag = t2; }
+      }
+    });
+    newNodes.forEach(function (n) {
+      if (!opts.retag || !n.tag) return;
+      var t3 = uniqueTag(m, n.tag, n.id);
+      if (t3 !== n.tag) { retagged.push({ from: n.tag, to: t3, node: n.id }); n.tag = t3; }
+    });
+
+    return { nodes: newNodes, pipes: newPipes, map: map, retagged: retagged,
+             dropped: (frag.dropped || []).slice() };
+  }
+
+  /* The next free variant of a tag: CHWP-01 -> CHWP-02 -> CHWP-03.
+   *
+   * Only the TRAILING NUMBER moves, and its width is kept, so CHWP-01 does not
+   * become CHWP-2. A tag with no trailing number gets one appended. Anything
+   * generated is checked against `looksMangled` before it is returned — the one
+   * thing this must never do is manufacture the very shape the repair exists to
+   * undo. */
+  function uniqueTag(m, tag, selfId) {
+    if (!tagTaken(m, tag, selfId)) return tag;
+    var mm = String(tag).match(/^(.*?)(\d+)$/);
+    var stem = mm ? mm[1] : String(tag) + '-';
+    var width = mm ? mm[2].length : 1;
+    var n = mm ? parseInt(mm[2], 10) : 1;
+    for (var i = 0; i < 999; i++) {
+      n++;
+      var num = String(n);
+      while (num.length < width) num = '0' + num;
+      var cand = stem + num;
+      if (!tagTaken(m, cand, selfId) && !looksMangled(cand)) return cand;
+    }
+    return tag;
+  }
+
+  function tagTaken(m, tag, selfId) {
+    var hit = false;
+    m.pipes.forEach(function (p) { if (p.id !== selfId && p.tag === tag) hit = true; });
+    m.nodes.forEach(function (n) { if (n.id !== selfId && n.tag === tag) hit = true; });
+    return hit;
+  }
+
+  /* Every tag used more than once, for the warning in `network.js`. */
+  function duplicateTags(m) {
+    var seen = {}, dup = {};
+    function note(o) {
+      if (!o.tag) return;
+      if (seen[o.tag]) dup[o.tag] = (dup[o.tag] || [seen[o.tag]]).concat([o.id]);
+      else seen[o.tag] = o.id;
+    }
+    m.pipes.forEach(note);
+    m.nodes.forEach(note);
+    return Object.keys(dup).map(function (t) { return { tag: t, ids: dup[t] }; });
+  }
+
+  /* A WHOLE FLOOR, through the same two functions as a copy-paste.
+   *
+   * It used to enumerate the fields to carry — kind, schedule, size, C, tag,
+   * equip, pump, valve — and therefore dropped every SENSOR and every CONTROL
+   * LINK on a copied floor, silently, for as long as sensors have existed.
+   * That is the same bug `addPipe` had (v0.16.11), from the same cause, and it
+   * is why `extractFragment` clones wholesale instead.
+   *
+   * The trace is deliberately NOT copied: it is a picture of the floor it came
+   * from, and duplicating it onto another level would be actively misleading.
+   * A SOURCE is not copied either — a second supply would change the hydraulics
+   * without being asked for. */
+  /* THE NAME THE NEXT FLOOR UP WANTS. Michael, 2026-08-09: "copying level 10
+   * should suggest Level 11."
+   *
+   * The trailing number is stepped and its printed WIDTH kept, so `Level 09`
+   * gives `Level 10` rather than `Level 9`, and `L2` gives `L3`. A name with no
+   * number in it gets " 2" appended and then steps normally — `Roof`, `Roof 2`,
+   * `Roof 3` — which is ugly and unambiguous, and better than two floors called
+   * Roof. Anything already taken steps again. */
+  function nextLevelName(m, fromName) {
+    var base = String(fromName || 'Level');
+    var mm = base.match(/^(.*?)(\d+)(\D*)$/);
+    var taken = {};
+    m.levels.forEach(function (l) { taken[l.name] = true; });
+    if (!mm) {
+      var n0 = 2;
+      while (taken[base + ' ' + n0] && n0 < 999) n0++;
+      return base + ' ' + n0;
+    }
+    var width = mm[2].length, n = parseInt(mm[2], 10);
+    for (var i = 0; i < 999; i++) {
+      n++;
+      var num = String(n);
+      while (num.length < width) num = '0' + num;
+      var cand = mm[1] + num + mm[3];
+      if (!taken[cand]) return cand;
+    }
+    return base + ' copy';
+  }
+
   function copyLevel(m, fromLevelId, toLevelId) {
     var src = level(m, fromLevelId), dst = level(m, toLevelId);
     if (!src || !dst || src.id === dst.id) return null;
 
-    /* The trace is deliberately NOT copied: it is a picture of the floor it
-     * came from, and duplicating it onto another level would be actively
-     * misleading. */
-    var map = {}, copiedNodes = [], copiedPipes = [];
+    var here = m.nodes.filter(function (n) { return n.level === fromLevelId; });
+    var sel = m.pipes.filter(function (p) {
+      if (p.kind === 'riser') return false;
+      var a = node(m, p.a), b = node(m, p.b);
+      return a && b && a.level === fromLevelId && b.level === fromLevelId;
+    }).map(function (p) { return { kind: 'pipe', id: p.id }; })
+      .concat(here.map(function (n) { return { kind: 'node', id: n.id }; }));
 
-    m.nodes.filter(function (n) { return n.level === fromLevelId; }).forEach(function (n) {
-      var copy = addNode(m, toLevelId, n.x, n.y, { dz: n.dz || 0 });
-      if (n.device) copy.device = JSON.parse(JSON.stringify(n.device));
-      if (n.labelOffset) copy.labelOffset = { dx: n.labelOffset.dx, dy: n.labelOffset.dy };
-      if (n.show) copy.show = JSON.parse(JSON.stringify(n.show));
-      map[n.id] = copy.id;
-      copiedNodes.push(copy);
-    });
+    var frag = extractFragment(m, sel);
+    if (!frag) return { nodes: 0, pipes: 0, risers: 0 };
 
-    m.pipes.slice().forEach(function (p) {
-      if (p.kind === 'riser') return;                 // risers are rebuilt, not copied
-      if (map[p.a] === undefined || map[p.b] === undefined) return;
-      var opts = { kind: p.kind, schedule: p.schedule, size: p.size, C: p.C };
-      if (p.tag) opts.tag = p.tag;
-      if (p.temperature !== undefined) opts.temperature = p.temperature;
-      if (p.equip) opts.equip = JSON.parse(JSON.stringify(p.equip));
-      if (p.pump) opts.pump = JSON.parse(JSON.stringify(p.pump));
-      if (p.valve) opts.valve = JSON.parse(JSON.stringify(p.valve));
-      var np = addPipe(m, map[p.a], map[p.b], opts);
-      if (p.labelOffset) np.labelOffset = { dx: p.labelOffset.dx, dy: p.labelOffset.dy };
-      if (p.show) np.show = JSON.parse(JSON.stringify(p.show));
-      copiedPipes.push(np);
-    });
+    /* A SOURCE TRAVELS WITH THE REST. Suppressing it was tried and rejected —
+     * forgetting to delete a duplicated source is ordinary user error with an
+     * easy way out, whereas silently dropping part of the layout is the worse
+     * surprise. (The copy DIALOG claimed the opposite for a long time and the
+     * code never did it; the dialog was wrong and is fixed.) */
+    var res = insertFragment(m, frag, { level: toLevelId });
+    if (!res) return { nodes: 0, pipes: 0, risers: 0 };
 
-    // extend any riser column that touches the source floor
+    /* Extend any riser column that touches the source floor, so the stack stays
+     * connected. Risers are rebuilt from the column, never copied as links. */
     var extended = 0;
     m.risers.forEach(function (r) {
       if (r.attachments.some(function (a) { return a.level === toLevelId; })) return;
-      var here = r.attachments.filter(function (a) { return a.level === fromLevelId; })[0];
-      if (!here) return;
-      var target = map[here.node];
+      var at = r.attachments.filter(function (a) { return a.level === fromLevelId; })[0];
+      if (!at) return;
+      var target = res.map[at.node];
       if (target === undefined) return;
       attachRiser(m, r.id, toLevelId, target);
       extended++;
     });
     riserPipes(m);
 
-    return { nodes: copiedNodes.length, pipes: copiedPipes.length, risers: extended };
+    return { nodes: res.nodes.length, pipes: res.pipes.length, risers: extended,
+             retagged: res.retagged, dropped: res.dropped };
   }
 
-  // ----------------------------------------------------------- devices
-  /* A source's static pressure is a property of the DEVICE, in pascals — not
-   * an elevation.
-   *
-   * It was stored as the node's `dz` until v0.7.7-dev, on the reasoning that a
-   * tank raised 20 m provides 200 kPa. Hydraulically that is true, and
-   * downstream every number came out right. Geometrically it is a disaster:
-   * `dz` is a real elevation offset, `pipeLength` is a 3D distance, so setting
-   * 200 kPa on a source silently stretched a 50 m run to 54.01 m — and the
-   * length could not be typed back, because `changeLength` was comparing the
-   * requested 3D length against a PLAN length and concluded there was nothing
-   * to do (debug/20260802-1.json). Pressure and elevation are now independent,
-   * which is what they always were. */
   function setSource(m, nodeId, pressure) {
     var n = node(m, nodeId);
     if (n) n.device = { kind: 'source', pressure: pressure || 0 };
@@ -2341,6 +2629,9 @@
     removeDetail: removeDetail, removeNote: removeNote,
     DETAIL_COLOURS: DETAIL_COLOURS,
     controlRoute: controlRoute, sensorRoute: sensorRoute, zRoute: zRoute,
+    extractFragment: extractFragment, insertFragment: insertFragment,
+    nextLevelName: nextLevelName,
+    uniqueTag: uniqueTag, duplicateTags: duplicateTags,
     controlRiser: controlRiser, setControlRiser: setControlRiser,
     tagVisible: tagVisible, setTagVisible: setTagVisible,
     controlSpan: controlSpan, pipeLevel: pipeLevel,

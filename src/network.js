@@ -900,6 +900,25 @@
       });
     });
 
+    /* TWO THINGS WITH THE SAME TAG. Michael, 2026-08-09, while designing
+     * copy-paste: nothing detected this, so a pasted lineup would have given
+     * two CHWP-01 and the schedule would have listed both without a word.
+     *
+     * A warning rather than a defect: duplicate tags are a REAL arrangement
+     * mid-edit — you copy a floor, then renumber it — and the drawing is not
+     * wrong, it is unfinished. What it cannot be is silent, because every table
+     * in the calculation sheet is keyed on the tag and two rows called CHWP-01
+     * cannot be told apart afterwards. */
+    M.duplicateTags(m).forEach(function (d) {
+      res.warnings.push({
+        code: 'TAG_DUPLICATE',
+        message: d.ids.length + ' items share the tag \u201c' + d.tag + '\u201d (' +
+                 d.ids.join(', ') + '). Every table on the CALCULATION sheet is ' +
+                 'keyed on the tag, so two rows with this name cannot be told ' +
+                 'apart. Rename all but one.'
+      });
+    });
+
     /* SIMULATION without a curve is not a simulation. A running pump with no
      * curve falls back to a constant head, which answers a different question
      * entirely — the flow stops responding to the system, which is the one
@@ -2520,7 +2539,8 @@
      * four independent loops are one loop, and Michael wants them redrawn as a
      * lead plus syncs. The answer is still sound (they are ganged), which is
      * why this is a defect and not an error. */
-    CONTROL_GANGED: 1, CONTROL_TARGET_GONE: 1, TAG_MANGLED: 1
+    CONTROL_GANGED: 1, CONTROL_TARGET_GONE: 1, TAG_MANGLED: 1,
+    TAG_DUPLICATE: 1
   };
   var NOTICE_CODES = {
     CHECK_CLOSED: 1, VALVE_SHUT: 1, THERMAL_DATUM: 1

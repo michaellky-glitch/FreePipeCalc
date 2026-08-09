@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.12, 2026-08-09.** Eight test suites, **1872 assertions**, all
+State: **v0.16.13, 2026-08-09.** Eight test suites, **1915 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -154,7 +154,13 @@ exception.** `app.solving` was set, then a call threw before the work was
 scheduled — so the latch stayed on and the model stopped simulating, silently,
 for the rest of the session (v0.16.3). Release state on every path.
 
-**Region-replacement edits swallow definitions.** Twice now a scripted edit that
+**Region-replacement edits swallow definitions.** It happened AGAIN on
+2026-08-09 — replacing the span from `copyLevel` to `clearDevice` in `model.js`
+deleted **fifty-three functions**, because `clearDevice` is nowhere near
+`copyLevel`. The tests caught it instantly (`outflowResistance is not defined`),
+and it was repaired by splicing the span back from `git show HEAD:src/model.js`.
+Match on the exact text you are replacing, never on a span between two anchors
+you have not checked are adjacent. Twice now a scripted edit that
 replaced a span of `app.js` has quietly deleted functions inside it — the
 Static/Dynamic wiring (v0.16.2) and the progress-bar helpers (v0.16.3). Both
 shipped looking plausible and doing nothing. After any such edit, `grep` for
@@ -408,6 +414,7 @@ Short index of the least obvious things, all expanded in `ARCHITECTURE.md`:
 | `pump.head` vs `hDesign` | One is what the solver ran on, the other is a report of it |
 | ANNOTATION selects annotation, never pipework | Everything that mode moves sits ON TOP of the drawing; the pipe underneath was winning the click |
 | Annotation handles are sized in GRID SQUARES | A pixel target shrinks with the zoom while everything you aim at is in metres |
+| Copy is a closed FRAGMENT: extract, then insert | Every id it points at is remapped or dropped; a copy following the original's sensor is two devices on one measurement |
 | A control link across floors rises through a NODE | Half the link on each floor, meeting at one draggable point in plan |
 | Routes are `zRoute`, one degree of freedom | Three orthogonal segments between two fixed points have exactly one |
 | Details and notes are their own collections | Nothing in the engine reads them, so a room outline cannot become pipework |

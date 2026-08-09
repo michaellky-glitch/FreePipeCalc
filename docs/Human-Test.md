@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1872
+This is deliberately separate from the automated suites. Those cover 1915
 assertions of engine behaviour (all passing), but they cannot tell you whether a
 button is discoverable, whether a drawing prints legibly, or whether a result
 *looks* right to someone who sizes pipes for a living. Only Michael can sign
@@ -10,7 +10,7 @@ those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-09 (v0.16.12)
+Last updated: 2026-08-09 (v0.16.13)
 
 **THE CURRENT BATCH IS DIRECTLY BELOW**, before anything historical — Michael
 2026-08-09, having gone looking for it and found it buried under two years of
@@ -20,11 +20,46 @@ first. `WORKLIST.md` says what is waiting on me.
 
 ---
 
-# WAITING ON YOU — v0.16.4 to v0.16.12
+# WAITING ON YOU — v0.16.4 to v0.16.13
 
 Nothing in this block has been looked at by a person. Each row says what was
 driven and how, so you know which part is already pinned and which part is the
 bit only you can judge.
+
+## 5W. COPY AND PASTE, FIND, AND THE FLOOR ABOVE (v0.16.13)
+
+**A backup of v0.16.12 is in `Previous Version/v0.16.12`,** taken before any of
+this and diffed against the working tree to confirm it is identical.
+
+### Copy and paste
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| CP.1 | **Ctrl+C takes the selection, Ctrl+V places it** | ⬜ | Shift-click still selects the run, exactly as you expected. On `economizer-trim`: PMP-02 → ACCH-1 gives 3 pipes; Ctrl+C reports "3 pipes and 4 nodes copied — 1 link to items outside the selection will be dropped". The fragment follows the pointer and the next click drops it; Esc cancels. |
+| CP.2 | The anchor is where it met the loop | ⬜ | A boundary node — one that a copied pipe and an uncopied pipe both touch. That is where the copy will want to join, which is what you predicted. If there is no boundary it falls back to the lowest-then-leftmost node, so the answer is stable rather than dependent on selection order. |
+| CP.3 | **Dropping onto a node JOINS it** | ⬜ | The anchor ring fills green when it is over an existing node. Verified: dropping onto one creates 3 nodes instead of 4 — the anchor is reused rather than duplicated — and a copied pipe lands on it. Dropping in free space is allowed too, and `disconnections()` flags the loose end, which is the existing safety net. |
+| CP.4 | **A copied pump follows the COPIED sensor** | ⬜ | Not the original's. Pointing at the original is two pumps on one measurement, which is the degenerate case `CONTROL_GANGED` exists to complain about. |
+| CP.5 | ...and a link out of the selection is DROPPED and said so | ⬜ | On `economizer-trim` the copied PMP-02 came out with no control link, because TS-2 was not in the selection — and the toast said so at copy time, not after. |
+| CP.6 | **Tags are made unique** | ⬜ | ACCH-1 → ACCH-2, PMP-02 → PMP-03, keeping the printed width (CHWP-01 → CHWP-02, not CHWP-2). Zero duplicate tags in the model afterwards. |
+| CP.7 | A settled VFD position does not travel | ⬜ | The copy starts at full travel; it came out of a solve of different plant, and the control loop resets to full anyway. |
+| CP.8 | The copy is left selected | ⬜ | So it can be moved or deleted straight away. |
+| CP.9 | **Duplicate tags are now reported** | ⬜ | `TAG_DUPLICATE`. Nothing detected this before — every table on the CALCULATION sheet is keyed on the tag, so two rows called CHWP-01 could not be told apart. A warning, not a defect: it is a real state mid-edit. |
+
+### What this fixed on the way
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| CP.10 | **Copying a FLOOR was losing every sensor and every control link** | ⬜ | `copyLevel` enumerated the fields to carry — kind, schedule, size, C, tag, equip, pump, valve — and silently dropped `sensor`, `control` and `sync`. The same bug `addPipe` had, from the same cause. It goes through the same two functions as copy-paste now, which clone wholesale. Verified: a dP sensor and its control link both survive a floor copy and the link points at the copy. |
+| CP.11 | The copy dialog was lying about sources | ⬜ | It said "A SOURCE is deliberately not copied"; the code has always copied them, and your own test records that suppressing them was tried and rejected. The sentence is gone. |
+
+### Find, and the floor above
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| F.1 | **A Find tab in TOOLS** | ⬜ | Matches tag *and* internal id, case-insensitive substring — both are things you have in your hand. "ACCH" finds all three; "P70" finds TS-2. Tag matches sort above id matches. |
+| F.2 | Clicking a result goes to it | ⬜ | Switches floor if it has to, centres it **without changing the zoom**, and selects it. It is the one tool that reads the model, and it only ever reads. |
+| F.3 | **Copy level offers a new floor first** | ⬜ | "New floor above — Level 11", selected by default, and offered even when there is nowhere else to copy to so the button never dead-ends. |
+| F.4 | ...following the old floor's numbering | ⬜ | Level 10 → Level 11. Width kept, so Level 09 → Level 10, not Level 9. `L2` → `L3`, `B1` → `B2`, `Level 3 (Plant)` → `Level 4 (Plant)`. A name with no number gets " 2" — Roof, Roof 2. Anything already taken steps again. |
 
 ## 5V. THE SMALL-THINGS ROUND (v0.16.12)
 

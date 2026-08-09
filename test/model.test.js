@@ -2680,6 +2680,206 @@ section('Tag repair recovers the tag, not just a prefix');
      !M.looksMangled('CHWP-04'));
 }
 
+/* --------------------------------------------------------------------------
+ * COPY AND PASTE — a fragment is a CLOSED piece of drawing  (2026-08-09)
+ *
+ * Michael: "copy one set of PWP, CT, CHWP, ACCH and the pipes up to where it
+ * joins the loop." The gesture is the easy half; these two functions are the
+ * whole of the difficulty, and they are model-only so they can be checked here
+ * rather than by clicking.
+ *
+ * THE FOUR KINDS OF REFERENCE are what make it hard: pipe ends, control links,
+ * a differential sensor's second tapping, and a sync. Inside the fragment they
+ * are remapped; outside it they are dropped AND REPORTED.
+ * ----------------------------------------------------------------------- */
+section('Copy: a fragment carries everything, and points at nothing outside');
+{
+  /* A lineup like Michael's: pump → equipment → sensor, with the pump
+   * following the sensor, plus an unrelated pipe the copy must not touch. */
+  function rig() {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const n = [];
+    for (let i = 0; i < 7; i++) n.push(M.addNode(m, lv, i * 2, 0));
+    const pump = M.addPipe(m, n[0].id, n[1].id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 12, speed: 0.43 };
+    pump.tag = 'CHWP-01';
+    const eq = M.addPipe(m, n[1].id, n[2].id, { kind: 'equip' });
+    eq.equip = { qRated: 0.004, pdRated: 100e3, equipType: 'source', tSet: 6 };
+    eq.tag = 'ACCH-01';
+    const sens = M.addPipe(m, n[2].id, n[3].id, { kind: 'sensor' });
+    sens.sensor = { mode: 'temperature', tSet: 30 };
+    sens.tag = 'TS-1';
+    const spur = M.addPipe(m, n[3].id, n[4].id, { size: 'DN50' });   // to the loop
+    spur.tag = 'CHW-S-01';
+    /* THE LOOP the spur joins. n[4] is therefore a boundary node: a copied pipe
+     * and an uncopied one both touch it, which is what makes it the anchor. */
+    const outside = M.addPipe(m, n[4].id, n[5].id, { size: 'DN50' });
+    outside.tag = 'ELSEWHERE';
+    M.setControl(m, pump, sens.id);
+    return { m, lv, n, pump, eq, sens, spur, outside };
+  }
+  const sel = arr => arr.map(p => ({ kind: 'pipe', id: p.id }));
+
+  /* ---- WHAT COMES ALONG. */
+  {
+    const t = rig();
+    const f = M.extractFragment(t.m, sel([t.pump, t.eq, t.sens, t.spur]));
+    ok('It extracts', !!f);
+    ok('...the pipes asked for', f.pipes.length === 4, String(f.pipes.length));
+    ok('...and every node they touch', f.nodes.length === 5, String(f.nodes.length));
+    ok('...and nothing else', !f.pipes.some(p => p.tag === 'ELSEWHERE'));
+
+    /* THE DEVICE OBJECTS COME WHOLE. `addPipe` enumerated its fields and
+     * silently dropped `sensor` for as long as sensors existed; `copyLevel`
+     * had the same bug. This is the assertion that stops it coming back. */
+    const s = f.pipes.filter(p => p.kind === 'sensor')[0];
+    ok('A sensor survives the copy', !!s.sensor && s.sensor.mode === 'temperature',
+       JSON.stringify(s.sensor));
+    const e = f.pipes.filter(p => p.kind === 'equip')[0];
+    ok('...and so does equipment', !!e.equip && e.equip.tSet === 6);
+    const p = f.pipes.filter(p => p.kind === 'pump')[0];
+    ok('...and a pump', !!p.pump && p.pump.head === 12);
+
+    /* AND IT IS A DEEP COPY: editing the fragment must not reach the model. */
+    e.equip.tSet = 99;
+    near('The original is untouched', t.eq.equip.tSet, 6, 1e-12);
+  }
+
+  /* ---- REFERENCES INSIDE THE SET ARE KEPT; OUTSIDE, REPORTED. */
+  {
+    const t = rig();
+    const whole = M.extractFragment(t.m, sel([t.pump, t.eq, t.sens, t.spur]));
+    ok('A link inside the set is not reported as dropped',
+       whole.dropped.length === 0, JSON.stringify(whole.dropped));
+
+    const partial = M.extractFragment(t.m, sel([t.pump, t.eq]));   // sensor left out
+    ok('A link OUT of the set is reported', partial.dropped.length === 1,
+       JSON.stringify(partial.dropped));
+    ok('...naming the pipe and what it pointed at',
+       partial.dropped[0].kind === 'control' &&
+       partial.dropped[0].target === t.sens.id, JSON.stringify(partial.dropped[0]));
+  }
+
+  /* ---- THE ANCHOR is where the fragment met the rest of the drawing. */
+  {
+    const t = rig();
+    const f = M.extractFragment(t.m, sel([t.pump, t.eq, t.sens, t.spur]));
+    ok('The boundary is the node the spur hands over at',
+       f.boundary.length === 1 && f.boundary[0] === t.n[4].id,
+       JSON.stringify(f.boundary));
+    ok('...and that is the anchor', f.anchor === t.n[4].id, f.anchor);
+  }
+
+  /* ================================================================ PASTE */
+  {
+    const t = rig();
+    const f = M.extractFragment(t.m, sel([t.pump, t.eq, t.sens, t.spur]));
+    const before = { nodes: t.m.nodes.length, pipes: t.m.pipes.length };
+    const r = M.insertFragment(t.m, f, { dx: 0, dy: 10, retag: true });
+
+    ok('It inserts', !!r);
+    ok('...every node', t.m.nodes.length === before.nodes + 5);
+    ok('...every pipe', t.m.pipes.length === before.pipes + 4);
+    ok('...moved by the offset',
+       r.nodes.every(n => n.y >= 10 - 1e-9), JSON.stringify(r.nodes.map(n => n.y)));
+    ok('...with new ids throughout',
+       r.pipes.every(p => ![t.pump.id, t.eq.id, t.sens.id, t.spur.id].includes(p.id)));
+
+    /* THE CONTROL LINK NOW POINTS AT THE COPY'S OWN SENSOR. Pointing at the
+     * ORIGINAL's would be two pumps on one measurement — the degenerate case
+     * CONTROL_GANGED exists to complain about. */
+    const newPump = r.pipes.filter(p => p.kind === 'pump')[0];
+    const newSens = r.pipes.filter(p => p.kind === 'sensor')[0];
+    ok('The copied link points at the COPIED sensor',
+       M.controlOf(newPump).equip === newSens.id,
+       M.controlOf(newPump).equip + ' vs ' + newSens.id);
+    ok('...not at the original', M.controlOf(newPump).equip !== t.sens.id);
+    ok('The original is still pointed at its own', M.controlOf(t.pump).equip === t.sens.id);
+
+    /* A SETTLED VFD POSITION IS NOT A DESIGN INPUT. */
+    near('The copy starts at full travel', newPump.pump.speed, 1, 1e-12);
+    near('...and the original keeps what it had', t.pump.pump.speed, 0.43, 1e-12);
+
+    /* TAGS ARE MADE UNIQUE, keeping the printed width. */
+    ok('CHWP-01 became CHWP-02', newPump.tag === 'CHWP-02', newPump.tag);
+    ok('...keeping the leading zero', /^CHWP-0\d$/.test(newPump.tag));
+    ok('...and it is recorded', r.retagged.some(x => x.from === 'CHWP-01'),
+       JSON.stringify(r.retagged));
+    ok('No tag is used twice anywhere', M.duplicateTags(t.m).length === 0,
+       JSON.stringify(M.duplicateTags(t.m)));
+  }
+
+  /* ---- A REFERENCE OUT OF THE SET IS DROPPED, not left pointing at the
+   * original. */
+  {
+    const t = rig();
+    const f = M.extractFragment(t.m, sel([t.pump, t.eq]));
+    const r = M.insertFragment(t.m, f, { dx: 0, dy: 10, retag: true });
+    const newPump = r.pipes.filter(p => p.kind === 'pump')[0];
+    ok('The copy is not left following the original’s sensor',
+       M.controlOf(newPump) === null, JSON.stringify(M.controlOf(newPump)));
+    ok('...and the loss was reported', r.dropped.length === 1);
+  }
+
+  /* ---- JOINING. The anchor is not duplicated; it becomes an existing node,
+   * which is what pasting onto the drawing means. */
+  {
+    const t = rig();
+    const f = M.extractFragment(t.m, sel([t.pump, t.eq, t.sens, t.spur]));
+    const target = M.addNode(t.m, t.lv, 40, 40);
+    const before = t.m.nodes.length;
+    const join = {}; join[f.anchor] = target.id;
+    const r = M.insertFragment(t.m, f, { joinTo: join, retag: true });
+    ok('One fewer node is created, because the anchor was reused',
+       t.m.nodes.length === before + 4, String(t.m.nodes.length - before));
+    const touching = M.pipesAt(t.m, target.id);
+    ok('...and a copied pipe now lands on it', touching.length === 1,
+       String(touching.length));
+    ok('...the spur, which is what the anchor was',
+       touching[0].tag === 'CHW-S-02', String(touching[0].tag));
+  }
+
+  /* ---- A LONE NODE is copyable, so a source can be duplicated on its own. */
+  {
+    const t = rig();
+    M.setSource(t.m, t.n[0].id, 300e3);
+    const f = M.extractFragment(t.m, [{ kind: 'node', id: t.n[0].id }]);
+    ok('A node on its own is a valid fragment', !!f && f.nodes.length === 1);
+    ok('...carrying its device', !!f.nodes[0].device);
+    const r = M.insertFragment(t.m, f, { dx: 0, dy: 20 });
+    ok('...and it pastes', r.nodes.length === 1 && !!r.nodes[0].device);
+  }
+
+  /* ---- NOTHING SELECTED IS NOT A FRAGMENT. */
+  {
+    const t = rig();
+    ok('An empty selection extracts nothing', M.extractFragment(t.m, []) === null);
+    ok('...and inserting nothing is refused', M.insertFragment(t.m, null) === null);
+  }
+}
+
+section('Duplicate tags are reported');
+{
+  const m = M.create();
+  const lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0), c = M.addNode(m, lv, 2, 0);
+  const p1 = M.addPipe(m, a.id, b.id, {}); p1.tag = 'CHWP-01';
+  const p2 = M.addPipe(m, b.id, c.id, {}); p2.tag = 'CHWP-01';
+  const d = M.duplicateTags(m);
+  ok('Two items with one tag are found', d.length === 1, JSON.stringify(d));
+  ok('...naming both', d[0].ids.length === 2 && d[0].tag === 'CHWP-01');
+  p2.tag = 'CHWP-02';
+  ok('...and nothing is reported once they differ', M.duplicateTags(m).length === 0);
+
+  /* uniqueTag is what paste uses to get there. */
+  ok('uniqueTag steps the trailing number', M.uniqueTag(m, 'CHWP-01') === 'CHWP-03',
+     M.uniqueTag(m, 'CHWP-01'));
+  ok('...leaves a free tag alone', M.uniqueTag(m, 'PWP-01') === 'PWP-01');
+  ok('...and appends one where there is no number',
+     M.uniqueTag(m, 'CHWP-01') !== 'CHWP-01');
+}
+
 section('zRoute: one shape, one degree of freedom');
 {
   const A = { x: 0, y: 0 };
