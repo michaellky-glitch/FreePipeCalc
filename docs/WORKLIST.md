@@ -7,6 +7,43 @@ Updated 2026-08-08, after v0.15.5.
 
 ---
 
+## DECISION NEEDED — Design ΔT (LS.5), with the evidence in
+
+Michael's manufacturer part-load table (2026-08-09) proves the current model
+wrong, and I have **built the fix, tested it against all nine rows, and then
+reverted it** — because it breaks one of his own models and the migration is his
+call, not mine.
+
+**What the table shows.** LFT is held at **20.00 °C in every row**, and the duty
+is exactly `ṁ·Cp·(EFT − LFT)` throughout — reproducing all nine rows to within
+0.7%. 12 K at design because that is design flow at design return; at 30% load
+the flow floors at its minimum 9.464 L/s and the **ΔT collapses to 10.5 K**.
+Nothing in the table is limited by ΔT.
+
+**What the model does now.** `dTMax` clamps the temperature change at any flow,
+which caps duty at `C·ΔT_max` — and C falls with flow, so the model says
+throttling a chiller reduces its capacity. On the DC model every machine sits at
+26–50% of nameplate reporting "limited by Design ΔT" while its coils starve.
+
+**The fix**, which worked and passed the table: stop clamping ΔT; when no `qMax`
+is stated, derive the capacity from the design point (`ρ·q_rated·cp·ΔT_design`,
+flow-independent). On his chiller that gives 27.65 L/s × 12 K = 1389 kW against
+a 1380 kW nameplate.
+
+**Why it is reverted.** `test/fixtures/economizer-trim` has no `qMax` on ACCH-1
+and was relying on the clamp to hold exactly 15 K. With a fixed derived capacity
+it over-cools at reduced flow (16.5 K), the mix lands at 13.5 °C instead of 20,
+PMP-02 saturates and **the model stops converging**. That is not a test to
+renumber quietly — it is a real change to how an existing drawing behaves.
+
+**What I need from you:** either
+1. accept that models without an explicit capacity must gain one (I will add
+   `qMax` to the fixture and re-derive its expectations), or
+2. keep ΔT as a clamp for machines with no stated capacity and drop it only when
+   `qMax` is given — a compatibility rule, and uglier.
+
+I would take (1). Say which and it lands in one pass.
+
 ## Now — the next thing to do
 
 **Make the control loop yield.** The only remaining cause of the freeze is that
