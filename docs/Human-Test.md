@@ -206,6 +206,20 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 5M. THE TEXT BOX, AND DETAILS YOU CAN SELECT (v0.16.6)
+
+A2 and A4. They turned out to be one bug and a half, and both were found by
+driving the real app in a browser — served on `127.0.0.1`, clicks dispatched at
+real canvas coordinates, the result read back out of the model and out of the
+pixels.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| A2 | **The text box appears** | ⬜ | It was always being drawn. The palette's default colour is named `line` and the theme's neutral is called `text`, so `detailColour('line')` returned `undefined` — and an invalid canvas colour is **silently ignored**, leaving the fill at `theme.bg`, which had been set two lines earlier for the note's own backing panel. Background text on a background panel. Proved by reading the pixels inside the note's box: **0 foreground pixels before, 97 after**. |
+| A2b | Detail lines were the same bug, wearing a disguise | ⬜ | A default-coloured detail line took whatever colour the previous draw call happened to leave. They were visible, so nobody looked — but the colour was an accident. Both now use the theme's neutral. |
+| A4 | **Details and notes are selectable with SELECT** | ⬜ | Not the erase behaviour after all, though that is real too — with the DETAIL tool active a click does erase. `pickAnnotation` says in its own comment that it is tried "before the model's own hit tests in VIEW, and after them in EDIT", and the EDIT half was never wired: the helper was called from exactly one place. Verified: clicking a detail line in SELECT now selects it and its panel renders; clicking a note selects it; VIEW still works; clicking empty space still clears and starts a marquee; clicking a pipe still selects the pipe. |
+| A4b | Ctrl and Shift still assemble a set | ⬜ | The annotation pick is only tried on a PLAIN click. With a modifier held you are building a selection by hand, and a stray detail line under the pointer must not replace it. |
+
 ## 5L. "SIZE IT FOR ME" — THE EARLY-DESIGN SIZING AID (v0.16.5)
 
 The other half of your ΔT ruling. Blank capacity now means the machine holds

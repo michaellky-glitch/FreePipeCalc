@@ -3,7 +3,7 @@
 Everything Michael has asked for that is not yet done, in the order it will be
 tackled. Closed items move to `Human-Test.md` with a verification note.
 
-Updated 2026-08-09, after v0.16.5.
+Updated 2026-08-09, after v0.16.6.
 
 ---
 
@@ -31,8 +31,6 @@ can check it.
 | # | Item | Notes |
 |---|---|---|
 | S3 | **Make the control loop yield** | The only remaining cause of the freeze. Turn `runControls` into a generator so `seek` can yield per `evaluate()` (~100 ms), with a synchronous driver for `solveModel`/tests and an async one for the app. Device-boundary slicing was tried and backed out — see `HANDOVER.md` §5. Mechanical, delicate, wants Michael able to test. |
-| A2 | **Text box does not appear** | The note IS created, on the active level, with the right text — so this is a drawing or hit-test problem, not a model one. Start in `drawNotes`. |
-| A4 | Details not selectable | Wired in the SELECT (arrange) tool; while the DETAIL tool is active a click ERASES instead, which may be all this is. Retest now that A5 makes the tool's state visible. |
 | S1 | Riser should show pipe properties | |
 | Q4 | Drag-snap to grid intersections along the pipe (0.1 m) | Presentation only; the pipe stays straight. |
 
@@ -50,6 +48,10 @@ can check it.
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.6** — A2 and A4, and they were one bug and a half. A missing theme
+  key made every text box paint itself in the background colour (an invalid
+  canvas colour is silently ignored, so it kept the last one); and
+  `pickAnnotation` was documented as being tried in EDIT and never called there.
 * **v0.16.5** — the early-design sizing aid: `qNeed` on the engine, a Required
   capacity row and a margin, Auto/Manual sizing on equipment, and a plant
   schedule on the CALCULATION sheet.

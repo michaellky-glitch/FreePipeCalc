@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.5, 2026-08-09.** Seven test suites, **1741 assertions**, all
+State: **v0.16.6, 2026-08-09.** Seven test suites, **1741 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -105,6 +105,23 @@ These are not hypothetical. Each cost a session or a user-visible bug.
 
 **Bump the `?v=` token in `index.html` after editing any module.** The browser
 serves stale code otherwise. It is not a build step.
+
+**An invalid `fillStyle` / `strokeStyle` is SILENTLY IGNORED, and the canvas
+keeps the last colour it was given.** Not an error, not a warning, not a black
+shape — the previous colour. So a typo or a missing theme key does not look like
+a colour bug, it looks like whatever was drawn just before.
+
+A2 (v0.16.6) is the case. The detail/note palette's default colour is named
+`'line'`; `View.theme` has never had a `line` key — its neutral is `text`. So
+`detailColour('line')` returned `undefined`, and in `drawNotes` the fill was left
+at `theme.bg`, set two lines earlier for the note's own backing panel. Every text
+box was painted in the background colour on top of a background-coloured
+rectangle: created correctly, drawn correctly, invisible. Detail lines took
+whatever the previous draw call had left, which is why THEY were visible — in an
+arbitrary colour nobody chose.
+
+When a canvas colour looks wrong, check the value is a string before blaming the
+drawing.
 
 **A latch that only clears on the happy path is a bug waiting for its first
 exception.** `app.solving` was set, then a call threw before the work was

@@ -996,6 +996,18 @@
            * testing it first would make the node underneath unreachable. */
           var rs = self.riserAt(w.x, w.y);
           if (rs) pick('riser', rs.id);
+          /* A DETAIL LINE OR A NOTE, if nothing in the model was under the
+           * click. A4, Michael 2026-08-08: details were not selectable, and
+           * this is why — `pickAnnotation` says in its own comment that it is
+           * tried "before the model's own hit tests in VIEW, and after them in
+           * EDIT", and the second half was never wired. It existed, it was
+           * documented, and it was called from exactly one place.
+           *
+           * AFTER the model, deliberately: while editing you are reaching for
+           * the pipework underneath the annotation, not for the annotation. And
+           * only on a plain click — with Ctrl or Shift held you are assembling
+           * a selection by hand, and a stray detail line should not replace it. */
+          else if (!modifying && pickAnnotation()) return;
           else if (!modifying) {
             self.selection = [];
             self.marquee = { x0: w.x, y0: w.y, x1: w.x, y1: w.y };
@@ -4107,11 +4119,29 @@
    * run. The bend is draggable in VIEW and is presentation only. */
   /* A palette name resolved against the CURRENT theme, so a drawing made in
    * dark mode stays legible in light. */
+  /* THE PALETTE'S DEFAULT IS 'line', AND THE THEME HAS NEVER HAD A `line`.
+   *
+   * A2, Michael 2026-08-08: the TEXT BOX tool created a note, on the right
+   * level, with the right text, and nothing appeared on the drawing. This is
+   * why, and it is nastier than a wrong colour.
+   *
+   * `t.line` is `undefined`. Assigning `undefined` to `fillStyle` or
+   * `strokeStyle` is INVALID, and the canvas spec says an invalid assignment is
+   * IGNORED — so the context silently keeps whatever colour it was last set to.
+   * In `drawNotes` that is `theme.bg`, set two lines earlier for the note's own
+   * backing panel: the text was painted in the background colour on top of a
+   * background-coloured rectangle. Drawn perfectly, and perfectly invisible.
+   *
+   * A detail line took whatever the previous draw call happened to leave, which
+   * is why THOSE were visible — in an arbitrary colour nobody chose.
+   *
+   * `text` is the theme's neutral foreground and is what 'line' always meant:
+   * the ordinary drawing colour. Both themes define it. */
   View.prototype.detailColour = function (name) {
     var t = this.theme;
     return (name === 'ok') ? t.ok : (name === 'warn') ? t.warn
          : (name === 'error') ? t.error : (name === 'accent') ? t.accent
-         : (name === 'select') ? t.select : t.line;
+         : (name === 'select') ? t.select : t.text;
   };
 
   View.prototype.drawDetails = function () {
