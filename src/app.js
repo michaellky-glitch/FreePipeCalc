@@ -3088,11 +3088,28 @@
       });
     }
 
-    displayChecks(host, p, [
-      { key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' },
-      { key: 'temp', label: 'Temperature' },
-      { key: 'setpoint', label: 'Setpoint' }
-    ]);
+    /* THE LIST OFFERS WHAT THIS SENSOR MEASURES, and nothing else.
+     *
+     * Michael, 2026-08-09: "dP sensor Display properties should show dP instead
+     * of Temperature." It was a fixed list — Tag, Flow, Temperature, Setpoint —
+     * whatever the instrument was, so a differential pressure sensor offered to
+     * draw the water temperature at its tapping and did not offer the one
+     * quantity it exists to report. Same for ΔT, which he asked me to check.
+     *
+     * FLOW stays on every mode: a sensor is a piece of pipe and the flow
+     * through it is always a real reading. */
+    var readKey = { flow: 'flow', pressure: 'pressure', dP: 'dP', dT: 'dTdiff' };
+    var readLabel = { flow: 'Flow', pressure: 'Pressure',
+                      dP: 'Differential pressure',
+                      dT: 'Differential temperature' };
+    var checks = [{ key: 'tag', label: 'Tag' }, { key: 'flow', label: 'Flow' }];
+    if (sn.mode === 'temperature') {
+      checks.push({ key: 'temp', label: 'Temperature' });
+    } else if (readKey[sn.mode] && sn.mode !== 'flow') {
+      checks.push({ key: readKey[sn.mode], label: readLabel[sn.mode] });
+    }
+    checks.push({ key: 'setpoint', label: 'Setpoint' });
+    displayChecks(host, p, checks);
 
     var del = el('button', 'btn danger', 'Remove sensor');
     del.addEventListener('click', function () {
@@ -6253,6 +6270,15 @@
     app.view.onSelect = function () {
       renderProperties();
       renderLevels();
+    };
+    /* ARRANGING THE DRAWING IS NOT CALCULATING IT. A label dragged, a note
+     * moved, the TRACE image repositioned, a control leader bent, the model
+     * slid onto the grid with ALIGN: all real document changes that must be
+     * SAVED, none of which can move a number. So save, do not solve. */
+    app.view.onArrange = function () {
+      renderProperties();
+      renderLevels();
+      scheduleSave();
     };
     // Canvas tools report back through the app's toast system rather than
     // reaching into the DOM themselves.

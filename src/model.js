@@ -382,6 +382,20 @@
     if (opts.equip) p.equip = opts.equip;   // {qRated, pdRated, qOut}
     if (opts.pump)  p.pump  = opts.pump;    // {mode, head, flow}
     if (opts.valve) p.valve = opts.valve;   // {type, kv, opening}
+    /* THE SENSOR WAS THE ONE DEVICE THIS DID NOT CARRY, and it was silent.
+     *
+     * Michael, 2026-08-09: "Using DP sensor is still creating Temperature
+     * Sensor." `sensorClick` picks the right default and hands it to
+     * `insertInline` → `addPipe`, which copied equip, pump and valve and
+     * dropped `sensor` on the floor. The pipe arrived as `kind: 'sensor'` with
+     * no sensor object at all, and the properties panel then filled one in with
+     * its temperature default — so EVERY sensor came out a temperature sensor
+     * whichever button was pressed.
+     *
+     * It hid well because the rest of the tool worked: `sensorClick` still
+     * armed the second-pipe pick for a differential, so a dP sensor asked for
+     * its reference pipe and then reported a temperature. */
+    if (opts.sensor) p.sensor = opts.sensor; // {mode, tSet, qSet, dpSet, ref}
     /* Equipment tag — the plant reference an engineer actually works from
      * ("CHW-P-01"). Shown on the drawing and in the calculation sheet. */
     if (opts.tag) p.tag = opts.tag;

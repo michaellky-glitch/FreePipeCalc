@@ -2,18 +2,97 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1681
-assertions of engine behaviour (all passing), but they
-cannot tell you whether a button is
-discoverable, whether a drawing prints legibly, or whether a result *looks*
-right to someone who sizes pipes for a living. Only Michael can sign those off.
+This is deliberately separate from the automated suites. Those cover 1762
+assertions of engine behaviour (all passing), but they cannot tell you whether a
+button is discoverable, whether a drawing prints legibly, or whether a result
+*looks* right to someone who sizes pipes for a living. Only Michael can sign
+those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-09 (v0.16.3)
+Last updated: 2026-08-09 (v0.16.7)
 
-Newest sections are at the top: **§5J is the most recent.** Anything marked ⬜
-below is waiting on you, and `WORKLIST.md` says what is waiting on me.
+**THE CURRENT BATCH IS DIRECTLY BELOW**, before anything historical — Michael
+2026-08-09, having gone looking for it and found it buried under two years of
+closed sections. Everything under `WAITING ON YOU` is from the last three
+versions and none of it has been through his eyes. Older sections follow, newest
+first. `WORKLIST.md` says what is waiting on me.
+
+---
+
+# WAITING ON YOU — v0.16.4 to v0.16.7
+
+Nothing in this block has been looked at by a person. Each row says what was
+driven and how, so you know which part is already pinned and which part is the
+bit only you can judge.
+
+## 5N. YOUR FOUR REPORTS OF 2026-08-09 (v0.16.7)
+
+All four reproduced first, measured, then fixed. The recalculate ones were
+counted by wrapping `solveModel` and driving the real gestures, so "no solve" is
+a measurement rather than an opinion.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| R.1 | **Clicking in static mode no longer re-solves** | ⬜ | Clicking a PIPE was already fine (v0.16.0). Clicking **empty space** was not: that is the marquee path, and it ended with `changed()` — a solve and a save — for a gesture that only ever writes `selection`. Every click that missed a pipe cost you a recalculate. Measured before: 1 solve. After: none. |
+| R.2 | **Picking up the PROBE no longer re-solves** | ⬜ | `setTool` ended with `onChange()`, which schedules a solve and a save. Every tool change did it. It refreshes the panel now and nothing else — the panel still has to be rebuilt because TRACE, DETAIL and the annotation modes each put their own controls in it. |
+| R.3 | **CONTROL and ANNOTATION no longer re-solve on the way in** | ⬜ | Same cause as R.2: `setUIMode` selects a tool on entry, so every mode button inherited the solve. Measured: CONTROL, ANNOTATION and SIMULATE all now cost nothing, and a real edit still solves exactly once. |
+| R.3b | And four drags that were also solving | ⬜ | Found while in there. Dragging a **label**, a **note**, the **TRACE image**, a **control-link bend**, or the whole model with **ALIGN** each scheduled a full solve. None can move a number — ALIGN is documented as unable to change a length, it moves every level by the same offset. They are saved now and not solved. There is a third verb for it: `changed` (edit → solve + save), `arranged` (drawing → save only), `selectionChanged` (neither). |
+| R.4 | **The dP button makes a dP sensor** | ⬜ | `sensorClick` always picked the right default; `M.addPipe` copied `equip`, `pump` and `valve` and **silently dropped `sensor`**. The pipe arrived as `kind: 'sensor'` with no sensor object, and the panel then filled in its temperature default. Verified all five buttons on the real ribbon path: TEMPERATURE / FLOW / PRESSURE / DIFF. PRESSURE / DIFF. TEMPERATURE now produce `temperature` / `flow` / `pressure` / `dP` / `dT`. |
+| R.5 | **A sensor's Display list offers what it measures** | ⬜ | Was a fixed list — Tag, Flow, Temperature, Setpoint — whatever the instrument was. Now: a ΔP sensor offers **Differential pressure**, a ΔT sensor **Differential temperature**, a pressure sensor **Pressure**. Flow stays on every mode, because a sensor is a piece of pipe and the flow through it is always real. |
+| R.5b | ...and the toggle actually draws it | ⬜ | A checkbox that draws nothing is the failure this project keeps catching, so the drawing was done too. Verified by capturing what the renderer paints: `374.6 kPa` on the pressure sensor, `ΔP 9.2 kPa` on the differential, `ΔT 0.0 K` on the ΔT — each matching `FD.network.sensorReading`, which is now the ONE definition of what a sensor reads, shared with the control loop so the drawing and the controller cannot disagree. |
+
+## 5M. THE TEXT BOX, AND DETAILS YOU CAN SELECT (v0.16.6)
+
+A2 and A4. They turned out to be one bug and a half, and both were found by
+driving the real app in a browser — served on `127.0.0.1`, clicks dispatched at
+real canvas coordinates, the result read back out of the model and out of the
+pixels.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| A2 | **The text box appears** | ⬜ | It was always being drawn. The palette's default colour is named `line` and the theme's neutral is called `text`, so `detailColour('line')` returned `undefined` — and an invalid canvas colour is **silently ignored**, leaving the fill at `theme.bg`, which had been set two lines earlier for the note's own backing panel. Background text on a background panel. Proved by reading the pixels inside the note's box: **0 foreground pixels before, 97 after**. |
+| A2b | Detail lines were the same bug, wearing a disguise | ⬜ | A default-coloured detail line took whatever colour the previous draw call happened to leave. They were visible, so nobody looked — but the colour was an accident. Both now use the theme's neutral. |
+| A4 | **Details and notes are selectable with SELECT** | ⬜ | Not the erase behaviour after all, though that is real too — with the DETAIL tool active a click does erase. `pickAnnotation` says in its own comment that it is tried "before the model's own hit tests in VIEW, and after them in EDIT", and the EDIT half was never wired: the helper was called from exactly one place. Verified: clicking a detail line in SELECT now selects it and its panel renders; clicking a note selects it; VIEW still works; clicking empty space still clears and starts a marquee; clicking a pipe still selects the pipe. |
+| A4b | Ctrl and Shift still assemble a set | ⬜ | The annotation pick is only tried on a PLAIN click. With a modifier held you are building a selection by hand, and a stray detail line under the pointer must not replace it. |
+
+## 5L. "SIZE IT FOR ME" — THE EARLY-DESIGN SIZING AID (v0.16.5)
+
+The other half of your ΔT ruling. Blank capacity now means the machine holds
+its setpoint whatever that takes, so the duty it lands on is the answer to what
+to buy.
+
+**These were driven in a real browser** — the app served over `127.0.0.1:8787`,
+the model loaded, the panel and the sheet read back out of the DOM, no console
+errors. That verifies the wiring and the numbers. It does not verify how any of
+it LOOKS, which still needs your eyes.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| SZ.1 | **Required capacity**, in the equipment Actual section | ⬜ | `C·(setpoint − entering)` at the flow the machine actually has. On `economizer-trim`, ACCH-1 reads **134.09 kW** required against 134.09 kW done — unlimited, the two are the same number by definition. |
+| SZ.2 | **Margin on selection** beside it | ⬜ | `+86.4% (250.00 kW selected)` on ACCH-1: 250/134.09 − 1. Red when negative. When a capacity BINDS this is the only place the shortfall is stated, because the reported duty is then the nameplate rather than the demand. |
+| SZ.3 | **Sizing: Auto / Manual** on equipment | ⬜ | Mirrors the pump panel. Verified round trip on ACCH-1: Manual −250 kW / 15 K / 3.9886 L/s → **Auto** clears the capacity and touches neither the flow nor the ΔT → **Manual** writes back the **134.09 kW it actually needs**, holds the 3.9886 L/s design flow, and moves the design ΔT to **8.05 K** = 134090.6/(998 × 0.0039886 × 4187). The design flow is held deliberately: it is a number you chose, and a sizing decision must not quietly rewrite it. |
+| SZ.4 | On Auto, the panel says what to do with the number | ⬜ | "% Load" reads `—` (there is no nameplate to be a percentage of) and a hint says *"Sizing is Auto, so this is the capacity to select. Switch Sizing to Manual to lock it in as the nameplate."* |
+| SZ.5 | **Plant schedule** on the CALCULATION sheet | ⬜ | In the Thermal section, sources and sinks only. On `economizer-trim` with CT-01 left on Auto: <br>`ACCH-1  3.99  1.43  15.00  22.50  134.09  250.00  +86.4%` <br>`CT-01   4.00  3.20   5.98   4.92   65.77  Auto    —` <br>Worth looking at the two ΔT columns together: ACCH-1 is working across **22.50 K against a 15 K design figure**, and CT-01 across **4.92 K against 5.98 K**. That is the whole of the ΔT change in two rows — ΔT is an output of the flow, above or below the schedule as the system dictates. |
+| SZ.6 | It is not a duplicate of Equipment duty | ⬜ | That table reports what every device DID; this one answers what to buy. Both are in the Thermal section; both print when it is open. |
+
+## 5K. DESIGN ΔT, AND THE SEARCH THAT COULD NOT SEE PAST ITS OWN PROBE (v0.16.4)
+
+Your ruling on LS.5, and the two control-loop defects that removing the clamp
+uncovered. All of it is covered by tests; none of it has been through your eyes
+yet.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| LS.5 | **Design ΔT stops clamping the duty** — your ruling, option 1 | ⬜ | Your part-load table is now a test: at design, 27.65 L/s across 12 K sits exactly on the 1380 kW nameplate; at 30% load, 9.464 L/s across **10.5 K** leaving at 20.00 °C is 415 kW against 30% of 1380 = 414 kW. And the row your data centre lives in: the same machine at that floored flow with a **35 °C return** now holds 20 °C across 15 K doing 593 kW, where it used to stop at 12 K, leave the water at 23 °C, and report "limited by Design ΔT" at 43% of nameplate. |
+| LS.7 | Models without a capacity must gain one | ⬜ | `economizer-trim` gained ACCH-1's own design point, 250.00 kW = ρ·q_rated·cp·ΔT on the fixture's own numbers. **Your other files will need the same** — blank now means unlimited, which is the sizing question, not a ceiling. |
+| LS.8 | `20260805-4`'s lost setpoint has gone, and it was never real | ⬜ | ACCH-1 is scheduled 7.977 L/s across 15 K = a 500 kW design point, carrying 200 kW. It was never short of anything; the clamp bit at the flow the balanced branches deliver, so it could not reach 7.5 °C and the pump was told it had lost a setpoint no speed could recover. It now holds 7.5 °C with nothing limiting it. |
+| CS.1 | **A device on its floor could not climb back** | ⬜ | The mirror of the v0.15.9 restart-from-full, and it had been there all along. On `economizer-trim`, sweep 1 puts PMP-02 on its 25% floor *honestly*; by sweep 2 the valves have throttled and the answer is at 32.9% — but with nothing below to probe, the search returned `at-min` without solving anything and the pump was parked at 100%. Now it restarts from full. |
+| CS.2 | **The response of a mixing circuit is not monotonic** | ⬜ | Two sources, a bypass, a check valve, a mixing sensor — your economizer in miniature. While the check valve holds the bypass shut the trim pump sets the *whole* loop flow, so slowing it makes the supply **colder**; once the bypass opens, mixing makes it **warmer**. The rig crosses a 20 °C setpoint twice, at 45% and 30%. One probe at the stop saw a smaller error of the same sign and gave up. The travel is scanned now — downward, so it stops at the higher root, which is where a controller ramping down from full stops. |
+| CS.3 | `economizer-trim` converges, and the split moved | ⬜ | ACCH-1 reaches 7.5 °C rather than being pinned at 15 °C, so the mix needs **four ninths** through the chiller rather than two thirds: 30x + 7.5(1−x) = 20 → x = 5/9 bypassed. PMP-02 at 32.9%, TS-2 at 19.96 °C, CT-01 66 kW + ACCH-1 134 kW = the 200 kW the four coils put in. |
+| CS.4 | It got faster, not slower | ⬜ | `20260807-DC-broken.json`: was 232 solves over 6 sweeps and **did not converge**; now 55 solves over 2 and converges with all eight devices holding setpoint — 23.5 s → 5.4 s. `20260808-DC-broken.json`: 41.5 s → 40.0 s. |
+
+---
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 
@@ -205,56 +284,6 @@ the preview browser renders no pixels.
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
-
-## 5M. THE TEXT BOX, AND DETAILS YOU CAN SELECT (v0.16.6)
-
-A2 and A4. They turned out to be one bug and a half, and both were found by
-driving the real app in a browser — served on `127.0.0.1`, clicks dispatched at
-real canvas coordinates, the result read back out of the model and out of the
-pixels.
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| A2 | **The text box appears** | ⬜ | It was always being drawn. The palette's default colour is named `line` and the theme's neutral is called `text`, so `detailColour('line')` returned `undefined` — and an invalid canvas colour is **silently ignored**, leaving the fill at `theme.bg`, which had been set two lines earlier for the note's own backing panel. Background text on a background panel. Proved by reading the pixels inside the note's box: **0 foreground pixels before, 97 after**. |
-| A2b | Detail lines were the same bug, wearing a disguise | ⬜ | A default-coloured detail line took whatever colour the previous draw call happened to leave. They were visible, so nobody looked — but the colour was an accident. Both now use the theme's neutral. |
-| A4 | **Details and notes are selectable with SELECT** | ⬜ | Not the erase behaviour after all, though that is real too — with the DETAIL tool active a click does erase. `pickAnnotation` says in its own comment that it is tried "before the model's own hit tests in VIEW, and after them in EDIT", and the EDIT half was never wired: the helper was called from exactly one place. Verified: clicking a detail line in SELECT now selects it and its panel renders; clicking a note selects it; VIEW still works; clicking empty space still clears and starts a marquee; clicking a pipe still selects the pipe. |
-| A4b | Ctrl and Shift still assemble a set | ⬜ | The annotation pick is only tried on a PLAIN click. With a modifier held you are building a selection by hand, and a stray detail line under the pointer must not replace it. |
-
-## 5L. "SIZE IT FOR ME" — THE EARLY-DESIGN SIZING AID (v0.16.5)
-
-The other half of your ΔT ruling. Blank capacity now means the machine holds
-its setpoint whatever that takes, so the duty it lands on is the answer to what
-to buy.
-
-**These were driven in a real browser** — the app served over `127.0.0.1:8787`,
-the model loaded, the panel and the sheet read back out of the DOM, no console
-errors. That verifies the wiring and the numbers. It does not verify how any of
-it LOOKS, which still needs your eyes.
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| SZ.1 | **Required capacity**, in the equipment Actual section | ⬜ | `C·(setpoint − entering)` at the flow the machine actually has. On `economizer-trim`, ACCH-1 reads **134.09 kW** required against 134.09 kW done — unlimited, the two are the same number by definition. |
-| SZ.2 | **Margin on selection** beside it | ⬜ | `+86.4% (250.00 kW selected)` on ACCH-1: 250/134.09 − 1. Red when negative. When a capacity BINDS this is the only place the shortfall is stated, because the reported duty is then the nameplate rather than the demand. |
-| SZ.3 | **Sizing: Auto / Manual** on equipment | ⬜ | Mirrors the pump panel. Verified round trip on ACCH-1: Manual −250 kW / 15 K / 3.9886 L/s → **Auto** clears the capacity and touches neither the flow nor the ΔT → **Manual** writes back the **134.09 kW it actually needs**, holds the 3.9886 L/s design flow, and moves the design ΔT to **8.05 K** = 134090.6/(998 × 0.0039886 × 4187). The design flow is held deliberately: it is a number you chose, and a sizing decision must not quietly rewrite it. |
-| SZ.4 | On Auto, the panel says what to do with the number | ⬜ | "% Load" reads `—` (there is no nameplate to be a percentage of) and a hint says *"Sizing is Auto, so this is the capacity to select. Switch Sizing to Manual to lock it in as the nameplate."* |
-| SZ.5 | **Plant schedule** on the CALCULATION sheet | ⬜ | In the Thermal section, sources and sinks only. On `economizer-trim` with CT-01 left on Auto: <br>`ACCH-1  3.99  1.43  15.00  22.50  134.09  250.00  +86.4%` <br>`CT-01   4.00  3.20   5.98   4.92   65.77  Auto    —` <br>Worth looking at the two ΔT columns together: ACCH-1 is working across **22.50 K against a 15 K design figure**, and CT-01 across **4.92 K against 5.98 K**. That is the whole of the ΔT change in two rows — ΔT is an output of the flow, above or below the schedule as the system dictates. |
-| SZ.6 | It is not a duplicate of Equipment duty | ⬜ | That table reports what every device DID; this one answers what to buy. Both are in the Thermal section; both print when it is open. |
-
-## 5K. DESIGN ΔT, AND THE SEARCH THAT COULD NOT SEE PAST ITS OWN PROBE (v0.16.4)
-
-Your ruling on LS.5, and the two control-loop defects that removing the clamp
-uncovered. All of it is covered by tests; none of it has been through your eyes
-yet.
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| LS.5 | **Design ΔT stops clamping the duty** — your ruling, option 1 | ⬜ | Your part-load table is now a test: at design, 27.65 L/s across 12 K sits exactly on the 1380 kW nameplate; at 30% load, 9.464 L/s across **10.5 K** leaving at 20.00 °C is 415 kW against 30% of 1380 = 414 kW. And the row your data centre lives in: the same machine at that floored flow with a **35 °C return** now holds 20 °C across 15 K doing 593 kW, where it used to stop at 12 K, leave the water at 23 °C, and report "limited by Design ΔT" at 43% of nameplate. |
-| LS.7 | Models without a capacity must gain one | ⬜ | `economizer-trim` gained ACCH-1's own design point, 250.00 kW = ρ·q_rated·cp·ΔT on the fixture's own numbers. **Your other files will need the same** — blank now means unlimited, which is the sizing question, not a ceiling. |
-| LS.8 | `20260805-4`'s lost setpoint has gone, and it was never real | ⬜ | ACCH-1 is scheduled 7.977 L/s across 15 K = a 500 kW design point, carrying 200 kW. It was never short of anything; the clamp bit at the flow the balanced branches deliver, so it could not reach 7.5 °C and the pump was told it had lost a setpoint no speed could recover. It now holds 7.5 °C with nothing limiting it. |
-| CS.1 | **A device on its floor could not climb back** | ⬜ | The mirror of the v0.15.9 restart-from-full, and it had been there all along. On `economizer-trim`, sweep 1 puts PMP-02 on its 25% floor *honestly*; by sweep 2 the valves have throttled and the answer is at 32.9% — but with nothing below to probe, the search returned `at-min` without solving anything and the pump was parked at 100%. Now it restarts from full. |
-| CS.2 | **The response of a mixing circuit is not monotonic** | ⬜ | Two sources, a bypass, a check valve, a mixing sensor — your economizer in miniature. While the check valve holds the bypass shut the trim pump sets the *whole* loop flow, so slowing it makes the supply **colder**; once the bypass opens, mixing makes it **warmer**. The rig crosses a 20 °C setpoint twice, at 45% and 30%. One probe at the stop saw a smaller error of the same sign and gave up. The travel is scanned now — downward, so it stops at the higher root, which is where a controller ramping down from full stops. |
-| CS.3 | `economizer-trim` converges, and the split moved | ⬜ | ACCH-1 reaches 7.5 °C rather than being pinned at 15 °C, so the mix needs **four ninths** through the chiller rather than two thirds: 30x + 7.5(1−x) = 20 → x = 5/9 bypassed. PMP-02 at 32.9%, TS-2 at 19.96 °C, CT-01 66 kW + ACCH-1 134 kW = the 200 kW the four coils put in. |
-| CS.4 | It got faster, not slower | ⬜ | `20260807-DC-broken.json`: was 232 solves over 6 sweeps and **did not converge**; now 55 solves over 2 and converges with all eight devices holding setpoint — 23.5 s → 5.4 s. `20260808-DC-broken.json`: 41.5 s → 40.0 s. |
 
 ## 5J. THE SIMULATION ACTUALLY RUNS (v0.16.3)
 

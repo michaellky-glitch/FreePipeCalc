@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.6, 2026-08-09.** Seven test suites, **1741 assertions**, all
+State: **v0.16.7, 2026-08-09.** Seven test suites, **1762 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -105,6 +105,27 @@ These are not hypothetical. Each cost a session or a user-visible bug.
 
 **Bump the `?v=` token in `index.html` after editing any module.** The browser
 serves stale code otherwise. It is not a build step.
+
+**THREE VERBS, NOT TWO: `changed`, `arranged`, `selectionChanged`.** v0.16.0
+split "selecting is not an edit" out of `changed`, and left a third case
+underneath: a change to the DRAWING that the solver cannot see. Dragging a
+label, moving a note, repositioning the TRACE image, bending a control leader,
+sliding the model onto the grid with ALIGN — all real document changes that must
+be SAVED, none of which can move a number. They were all calling `changed()` and
+scheduling a forty-second solve. `arranged()` saves and redraws and stops there.
+
+Ask which of the three a gesture is before wiring it. The marquee was calling
+`changed()` for a gesture that only writes `selection`, which is why every click
+that MISSED a pipe cost a recalculate; `setTool` was calling it too, so picking
+up the PROBE — and every mode button, since they select a tool on the way in —
+re-solved the model. Michael reported all of that on 2026-08-09.
+
+**`M.addPipe` carries `equip`, `pump`, `valve` and `sensor` — check yours is on
+the list.** It copied the first three and dropped `sensor`, so every sensor
+arrived with no sensor object and the properties panel filled in its temperature
+default: the ΔP button made a temperature sensor, and had done for as long as
+differentials have existed. The failure is silent and it is downstream of code
+that is completely correct, so it reads as a bug in the tool that placed it.
 
 **An invalid `fillStyle` / `strokeStyle` is SILENTLY IGNORED, and the canvas
 keeps the last colour it was given.** Not an error, not a warning, not a black

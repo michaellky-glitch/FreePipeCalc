@@ -1410,6 +1410,55 @@
     return null;
   }
 
+  /* WHAT A SENSOR IS READING, from a solved result. One definition, because
+   * there are now two consumers: the control loop settles against it, and the
+   * drawing prints it beside the instrument.
+   *
+   * Michael, 2026-08-09: a ΔP sensor's "Display" list offered Temperature, and
+   * ticking it drew the water temperature at the tapping — which a differential
+   * pressure sensor does not measure. A toggle that draws the wrong quantity is
+   * worse than one that draws nothing.
+   *
+   * Every mode reads at the sensor's INLET node — the water arriving, which is
+   * what a tapping on that pipe would see. The two differential modes are
+   * MAGNITUDES: which of the two pipes was picked first is an accident of
+   * drawing order, not a statement about the plant.
+   *
+   * Returns { mode, value } in SI, or null when the reading cannot be taken —
+   * no result yet, no reference pipe, or nothing setting a temperature. */
+  function sensorReading(m, p, res) {
+    if (!p || p.kind !== 'sensor' || !p.sensor || !res) return null;
+    var sn = p.sensor;
+    var num = function (x) { return (x === undefined || !isFinite(x)) ? null : x; };
+
+    if (sn.mode === 'flow') {
+      var q = res.flow ? num(res.flow[p.id]) : null;
+      return q === null ? null : { mode: 'flow', value: Math.abs(q) };
+    }
+    if (sn.mode === 'pressure') {
+      var pa = res.pressure ? num(res.pressure[p.a]) : null;
+      return pa === null ? null : { mode: 'pressure', value: pa };
+    }
+    if (sn.mode === 'dP' || sn.mode === 'dT') {
+      var ref = M.pipe(m, sn.ref);
+      if (!ref) return null;
+      if (sn.mode === 'dP') {
+        var p1 = res.pressure ? num(res.pressure[p.a]) : null;
+        var p2 = res.pressure ? num(res.pressure[ref.a]) : null;
+        return (p1 === null || p2 === null)
+          ? null : { mode: 'dP', value: Math.abs(p1 - p2) };
+      }
+      var th = res.thermal && res.thermal.temperature;
+      if (!th) return null;
+      var t1 = num(th[p.a]), t2 = num(th[ref.a]);
+      return (t1 === null || t2 === null)
+        ? null : { mode: 'dT', value: Math.abs(t1 - t2) };
+    }
+    var tt = res.thermal && res.thermal.temperature
+      ? num(res.thermal.temperature[p.a]) : null;
+    return tt === null ? null : { mode: 'temperature', value: tt };
+  }
+
   function runControls(m, core, maxPasses, opts) {
     var warnings = [], errors = [];
     var out = { acted: false, core: core, report: null, warnings: warnings,
@@ -3370,6 +3419,7 @@
     systemCurve: systemCurve,
     worstShortfall: worstShortfall,
     solveModel: solveModel,
+    sensorReading: sensorReading,
     fittingsAtNode: fittingsAtNode,
     isSymmetricSplit: isSymmetricSplit,
     fittingsByPipe: fittingsByPipe,

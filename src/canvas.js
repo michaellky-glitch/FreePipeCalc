@@ -548,6 +548,28 @@
     this.render();
   };
 
+  /* ARRANGING IS NOT CALCULATING.
+   *
+   * Between an EDIT (`changed` — the answer may have moved, so solve and save)
+   * and a SELECTION (`selectionChanged` — nothing about the document moved at
+   * all) there is a third thing, and it had nowhere to go: a change to the
+   * DRAWING that the solver cannot see. Dragging a label, moving a note,
+   * repositioning the TRACE image, bending a control-link leader, sliding the
+   * whole model onto the grid with ALIGN. Every one of those is a real document
+   * change and must be SAVED — and not one of them can alter a single number,
+   * so scheduling a forty-second solve for it is pure waste.
+   *
+   * Michael, 2026-08-09: "Clicking on pipes in static mode & selecting probe is
+   * still causing recalculates." The single-click selection path was fixed in
+   * v0.16.0; these were not, and neither was the tool change.
+   *
+   * Falls back to `onChange` when a host has not wired `onArrange`, so an
+   * unaware embedder still gets correct behaviour — just the slow kind. */
+  View.prototype.arranged = function () {
+    if (this.onArrange) this.onArrange(); else this.onChange();
+    this.render();
+  };
+
   /* SELECTING SOMETHING IS NOT AN EDIT.
    *
    * Every selection went through `changed()`, which re-renders the panel AND
@@ -1262,11 +1284,16 @@
 
     window.addEventListener('pointerup', function (e) {
       if (self.panning) { self.panning = null; return; }
-      if (self.dragTrace) { self.dragTrace = null; self.changed(); return; }
-      if (self.dragControl) { self.dragControl = null; self.changed(); return; }
-      if (self.dragNote) { self.dragNote = null; self.changed(); return; }
-      if (self.dragLabel) { self.dragLabel = null; self.changed(); return; }
-      if (self.dragAlign) { self.dragAlign = null; self.changed(); return; }
+      /* THE FIRST FIVE ARE ARRANGEMENT, NOT GEOMETRY — see `arranged` above.
+       * The background image, a control-link leader's bend, a note, a label,
+       * and ALIGN (which moves every level by the same offset and is documented
+       * as unable to touch a length). Saved, never re-solved. */
+      if (self.dragTrace) { self.dragTrace = null; self.arranged(); return; }
+      if (self.dragControl) { self.dragControl = null; self.arranged(); return; }
+      if (self.dragNote) { self.dragNote = null; self.arranged(); return; }
+      if (self.dragLabel) { self.dragLabel = null; self.arranged(); return; }
+      if (self.dragAlign) { self.dragAlign = null; self.arranged(); return; }
+      /* A device or a node IS geometry, and the answer moves with it. */
       if (self.dragDevice) { self.dragDevice = null; self.changed(); return; }
       if (self.dragNode) {
         var dropped = self.dragNode.id;
@@ -1276,9 +1303,15 @@
         return;
       }
       if (self.marquee) {
+        /* A MARQUEE ONLY SELECTS. `applyMarquee` writes `this.selection` and
+         * nothing else, so this is the same "selecting is not an edit" rule the
+         * single click already follows — it was simply left behind when that
+         * was fixed in v0.16.0. It is also the path a click on EMPTY SPACE
+         * takes, which is how Michael kept meeting it: every click that missed
+         * a pipe scheduled a solve and a save. */
         self.applyMarquee();
         self.marquee = null;
-        self.changed();
+        self.selectionChanged();
       }
     });
 
@@ -1421,7 +1454,15 @@
                             : (tool === 'view' || tool === 'trace' || tool === 'align') ? 'move'
                             : 'crosshair';
     if (this.onToolChange) this.onToolChange();
-    this.onChange();
+    /* A TOOL CHANGE IS NOT AN EDIT. It called `onChange`, which schedules a
+     * solve AND a save — so picking up the PROBE re-solved the model, and so
+     * did every mode button on the ribbon, because CONTROL and ANNOTATION both
+     * select a tool on the way in. Michael, 2026-08-09, on both counts.
+     *
+     * The panel still has to be rebuilt: TRACE, DETAIL and the annotation modes
+     * each put their own controls in it. That is `onSelect`'s job — refresh the
+     * panel and the level list, touch nothing else. */
+    if (this.onSelect) this.onSelect();
     this.render();
   };
 
@@ -3573,6 +3614,30 @@
                   ? FD.units.fmtPressure(sp.value, d.pressure, true)
               : sp.mode === 'dTdiff' ? sp.value.toFixed(1) + ' K'
               : sp.value.toFixed(1) + '\u00b0C'));
+          }
+        }
+      }
+      /* WHAT AN INSTRUMENT IS READING. Its own toggle per mode, so ticking
+       * "Differential pressure" on a ΔP sensor draws the differential — the
+       * quantity the instrument exists to report — instead of the water
+       * temperature at its tapping, which is what the old fixed Temperature
+       * toggle drew. Michael, 2026-08-09.
+       *
+       * The reading comes from `FD.network.sensorReading`, the same definition
+       * the control loop settles against, so the number on the drawing and the
+       * number the controller is holding cannot disagree. */
+      if (obj.kind === 'sensor' && obj.sensor && res &&
+          (flags.pressure || flags.dP || flags.dTdiff)) {
+        var rd = FD.network.sensorReading(m, obj, res);
+        if (rd) {
+          if (flags.pressure && rd.mode === 'pressure') {
+            lines.push(FD.units.fmtPressure(rd.value, d.pressure, true));
+          }
+          if (flags.dP && rd.mode === 'dP') {
+            lines.push('ΔP ' + FD.units.fmtPressure(rd.value, d.pressure, true));
+          }
+          if (flags.dTdiff && rd.mode === 'dT') {
+            lines.push('ΔT ' + rd.value.toFixed(1) + ' K');
           }
         }
       }

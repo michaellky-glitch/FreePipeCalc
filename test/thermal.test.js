@@ -2100,6 +2100,79 @@ section('Pressure and differential sensors');
     near('...as a magnitude', sp.value, 8, 1e-12);
   }
 
+  /* ---- WHAT THE INSTRUMENT IS READING, as one definition.
+   *
+   * `NET.sensorReading` exists because there are two consumers — the control
+   * loop settles against the reading, and the drawing prints it beside the
+   * sensor. Michael, 2026-08-09: a ΔP sensor's Display list offered
+   * "Temperature", and ticking it drew the water temperature at the tapping,
+   * which is not what a differential pressure sensor measures.
+   *
+   * Two derivations of one quantity is how they come to disagree, so these
+   * assertions check the reading against the SOLVE directly, and against what
+   * the controller settled on. */
+  {
+    const t = rig('pressure', { pSet: 300e3 });
+    const res = NET.solveModel(t.m);
+    const rd = NET.sensorReading(t.m, t.s1, res);
+    ok('A pressure sensor reads a pressure', rd && rd.mode === 'pressure',
+       JSON.stringify(rd));
+    near('...at its own inlet, the water arriving',
+         rd.value, res.pressure[t.s1.a], 1e-9);
+  }
+  {
+    const t = rig('dP', { dpSet: 150e3 });
+    t.s1.sensor.ref = t.s2.id;
+    const res = NET.solveModel(t.m);
+    const rd = NET.sensorReading(t.m, t.s1, res);
+    ok('A ΔP sensor reads a differential', rd && rd.mode === 'dP',
+       JSON.stringify(rd));
+    near('...between the two tappings',
+         rd.value, Math.abs(res.pressure[t.s1.a] - res.pressure[t.s2.a]), 1e-9);
+    ok('...as a MAGNITUDE, whichever pipe was picked first', rd.value > 0);
+    /* And the other way round is the same number — which pipe was clicked
+     * first is an accident of drawing order. */
+    const back = NET.sensorReading(t.m, t.s1, res);
+    near('...and it is stable', back.value, rd.value, 1e-12);
+  }
+  {
+    const t = rig('dT', { dtSet: 8 });
+    t.s1.sensor.ref = t.s2.id;
+    const res = NET.solveModel(t.m);
+    const rd = NET.sensorReading(t.m, t.s1, res);
+    ok('A ΔT sensor reads a temperature difference', rd && rd.mode === 'dT',
+       JSON.stringify(rd));
+    near('...between the two tappings', rd.value,
+         Math.abs(res.thermal.temperature[t.s1.a] -
+                  res.thermal.temperature[t.s2.a]), 1e-9);
+    /* The coil between them puts 40 kW in, so the two tappings CANNOT read the
+     * same temperature — a differential of zero would mean the reference was
+     * being read at the wrong node. */
+    ok('...and the coil between them makes it non-zero', rd.value > 0.5,
+       rd.value.toFixed(3) + ' K');
+  }
+  {
+    const t = rig('dP', { dpSet: 150e3 });        // no ref pipe
+    ok('A differential with nothing to measure against reads nothing',
+       NET.sensorReading(t.m, t.s1, NET.solveModel(t.m)) === null);
+  }
+  {
+    const t = rig('temperature', { tSet: 45 });
+    const res = NET.solveModel(t.m);
+    const rd = NET.sensorReading(t.m, t.s1, res);
+    ok('A temperature sensor reads a temperature', rd && rd.mode === 'temperature',
+       JSON.stringify(rd));
+    near('...at its inlet', rd.value, res.thermal.temperature[t.s1.a], 1e-9);
+  }
+  {
+    const t = rig('flow', { qSet: 0.004 });
+    const res = NET.solveModel(t.m);
+    const rd = NET.sensorReading(t.m, t.s1, res);
+    ok('A flow sensor reads the flow through it', rd && rd.mode === 'flow',
+       JSON.stringify(rd));
+    near('...as a magnitude', rd.value, Math.abs(res.flow[t.s1.id]), 1e-12);
+  }
+
   /* THE NAME COLLISION THAT BIT. Equipment already offers a setpoint called
    * 'dT' — its own Design ΔT — and routing that into the differential reader
    * sent it looking for a reference pipe that was never going to exist. The

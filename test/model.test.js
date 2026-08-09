@@ -58,6 +58,47 @@ section('Model — levels');
   ok('...and its pipes', m2.pipes.length === 0);
 }
 
+/* --------------------------------------------------------------------------
+ * addPipe CARRIES EVERY DEVICE, and it dropped one.
+ *
+ * Michael, 2026-08-09: "Using DP sensor is still creating Temperature Sensor."
+ * `sensorClick` chose the right default and handed it down; `addPipe` copied
+ * `equip`, `pump` and `valve` and silently dropped `sensor`. The pipe arrived
+ * as `kind: 'sensor'` carrying no sensor at all, and the properties panel then
+ * filled one in with its temperature default — so every sensor came out a
+ * temperature sensor whichever button was pressed.
+ *
+ * It hid well: the rest of the tool worked, so placing a ΔP sensor still asked
+ * for its second pipe and then reported a temperature.
+ * ----------------------------------------------------------------------- */
+section('Model — addPipe carries the device it was given');
+{
+  const m = M.create();
+  const lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+
+  const s = M.addPipe(m, a.id, b.id,
+    { kind: 'sensor', sensor: { mode: 'dP', dpSet: 200e3 } });
+  ok('A sensor survives being placed', !!s.sensor, JSON.stringify(s.sensor));
+  ok('...as the mode that was asked for', s.sensor.mode === 'dP', s.sensor.mode);
+  ok('...with its setpoint', s.sensor.dpSet === 200e3, String(s.sensor.dpSet));
+
+  /* The other three, so a future edit cannot drop one of those either. */
+  const e = M.addPipe(m, a.id, b.id,
+    { kind: 'equip', equip: { equipType: 'source', tSet: 6 } });
+  ok('Equipment survives', !!e.equip && e.equip.tSet === 6);
+  const p = M.addPipe(m, a.id, b.id, { kind: 'pump', pump: { mode: 'fixed', head: 20 } });
+  ok('A pump survives', !!p.pump && p.pump.head === 20);
+  const v = M.addPipe(m, a.id, b.id, { kind: 'valve', valve: { type: 'check', kv: 100 } });
+  ok('A valve survives', !!v.valve && v.valve.type === 'check');
+
+  /* And a round trip keeps it, so a saved dP sensor reopens as one. */
+  const back = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(m))));
+  const s2 = M.pipe(back, s.id);
+  ok('...and it survives a save and reload', s2.sensor.mode === 'dP',
+     JSON.stringify(s2.sensor));
+}
+
 section('Model — default pipe size is not the smallest in the schedule');
 {
   /* Regression: defaulting to sizes[0] gave DN15, which silently modelled a
