@@ -206,6 +206,22 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
+## 5K. DESIGN ΔT, AND THE SEARCH THAT COULD NOT SEE PAST ITS OWN PROBE (v0.16.4)
+
+Your ruling on LS.5, and the two control-loop defects that removing the clamp
+uncovered. All of it is covered by tests; none of it has been through your eyes
+yet.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| LS.5 | **Design ΔT stops clamping the duty** — your ruling, option 1 | ⬜ | Your part-load table is now a test: at design, 27.65 L/s across 12 K sits exactly on the 1380 kW nameplate; at 30% load, 9.464 L/s across **10.5 K** leaving at 20.00 °C is 415 kW against 30% of 1380 = 414 kW. And the row your data centre lives in: the same machine at that floored flow with a **35 °C return** now holds 20 °C across 15 K doing 593 kW, where it used to stop at 12 K, leave the water at 23 °C, and report "limited by Design ΔT" at 43% of nameplate. |
+| LS.7 | Models without a capacity must gain one | ⬜ | `economizer-trim` gained ACCH-1's own design point, 250.00 kW = ρ·q_rated·cp·ΔT on the fixture's own numbers. **Your other files will need the same** — blank now means unlimited, which is the sizing question, not a ceiling. |
+| LS.8 | `20260805-4`'s lost setpoint has gone, and it was never real | ⬜ | ACCH-1 is scheduled 7.977 L/s across 15 K = a 500 kW design point, carrying 200 kW. It was never short of anything; the clamp bit at the flow the balanced branches deliver, so it could not reach 7.5 °C and the pump was told it had lost a setpoint no speed could recover. It now holds 7.5 °C with nothing limiting it. |
+| CS.1 | **A device on its floor could not climb back** | ⬜ | The mirror of the v0.15.9 restart-from-full, and it had been there all along. On `economizer-trim`, sweep 1 puts PMP-02 on its 25% floor *honestly*; by sweep 2 the valves have throttled and the answer is at 32.9% — but with nothing below to probe, the search returned `at-min` without solving anything and the pump was parked at 100%. Now it restarts from full. |
+| CS.2 | **The response of a mixing circuit is not monotonic** | ⬜ | Two sources, a bypass, a check valve, a mixing sensor — your economizer in miniature. While the check valve holds the bypass shut the trim pump sets the *whole* loop flow, so slowing it makes the supply **colder**; once the bypass opens, mixing makes it **warmer**. The rig crosses a 20 °C setpoint twice, at 45% and 30%. One probe at the stop saw a smaller error of the same sign and gave up. The travel is scanned now — downward, so it stops at the higher root, which is where a controller ramping down from full stops. |
+| CS.3 | `economizer-trim` converges, and the split moved | ⬜ | ACCH-1 reaches 7.5 °C rather than being pinned at 15 °C, so the mix needs **four ninths** through the chiller rather than two thirds: 30x + 7.5(1−x) = 20 → x = 5/9 bypassed. PMP-02 at 32.9%, TS-2 at 19.96 °C, CT-01 66 kW + ACCH-1 134 kW = the 200 kW the four coils put in. |
+| CS.4 | It got faster, not slower | ⬜ | `20260807-DC-broken.json`: was 232 solves over 6 sweeps and **did not converge**; now 55 solves over 2 and converges with all eight devices holding setpoint — 23.5 s → 5.4 s. `20260808-DC-broken.json`: 41.5 s → 40.0 s. |
+
 ## 5J. THE SIMULATION ACTUALLY RUNS (v0.16.3)
 
 | # | What | Status | Notes |
@@ -236,7 +252,7 @@ the preview browser renders no pixels.
 | LS.2 | ...and so was the state | ✅ | It said `on` — holding — while 2.8 K out. If the final measurement is outside the deadband the device is not holding, whatever the search concluded. Now reported `unsettled`, with `driftedAfterSearch` set so the cause is distinguishable from a device that never settled at all. |
 | LS.3 | **Why the plant will not ramp up — your point, confirmed** | ⬜ | **Every chiller and tower says `limit: Design ΔT`, and none is near its capacity.** CT-01: 421 kW of 836 (50%), inlet 49.2 → outlet 39.2, i.e. exactly its 10 K Design ΔT. ACCH-01: 269 kW of 800 (34%), 39.2 → 24.2, exactly 15 K. The machines are not out of capacity — they are refusing to work harder because ΔT is treated as a hard clamp on the temperature change **at any flow**. |
 | LS.4 | So the AHUs starve | ⬜ | All 14 at 89–91% of rated flow, EWT 31–32.6 °C, ICVs wide open. The loop cannot get cold because the plant will not take more than its design ΔT out of it. |
-| LS.5 | **This is a modelling decision I want your ruling on** | ⚠️ | Design ΔT is the ΔT **at design flow**. At part flow the same machine moving the same duty produces a *larger* ΔT — Q = ṁ·Cp·ΔT. Clamping ΔT at any flow therefore caps the duty at `ṁ·Cp·ΔT_design`, which *falls as flow falls*: the model says reducing flow through a chiller reduces its capacity, which is backwards. **My recommendation:** `qMax` should be the capacity limit, and Design ΔT should be a design-point statement used to derive it — not a runtime clamp. That is a change to the physics of every existing model, so I have not made it. Say the word. |
+| LS.5 | **This is a modelling decision I want your ruling on** | ✅ **RULED, done in v0.16.4 — see 5K** | Design ΔT is the ΔT **at design flow**. At part flow the same machine moving the same duty produces a *larger* ΔT — Q = ṁ·Cp·ΔT. Clamping ΔT at any flow therefore caps the duty at `ṁ·Cp·ΔT_design`, which *falls as flow falls*: the model says reducing flow through a chiller reduces its capacity, which is backwards. **My recommendation:** `qMax` should be the capacity limit, and Design ΔT should be a design-point statement used to derive it — not a runtime clamp. That is a change to the physics of every existing model, so I have not made it. Say the word. |
 
 ### Annotation batch
 

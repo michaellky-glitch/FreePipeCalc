@@ -564,6 +564,7 @@
     "equipType": "source",
     "tSet": 7.5,
     "dTMax": 15,
+    "qMax": -250000,
     "lastEdited": [
      "duty",
      "dT"

@@ -721,12 +721,21 @@ section('Temperatures outside the plausible band are an error');
  *                      SIGNED (2026-08-03): + adds heat to the fluid, − removes
  *                      it, on the same convention as a load. A chiller has a
  *                      NEGATIVE capacity and cannot heat at all.
- *   ΔT max    dTMax  — binds at LOW flow, where a small duty is still a big ΔT
  *   T limit   tLimit — the temperature it physically cannot pass: a tower
- *                      cannot go below wet bulb, an economizer below ambient
+ *                      cannot go below wet bulb, an economizer below ambient.
+ *                      HEAT EXCHANGERS ONLY since v0.12.2.
  *
- * Which one binds is reported, because "CH-01 limited by ΔT max" is the
+ * Which one binds is reported, because "CH-01 limited by Capacity" is the
  * sentence an engineer wants rather than an unexplained leaving temperature.
+ *
+ * DESIGN ΔT IS NOT IN THAT LIST ANY MORE, and used to be — it clamped the
+ * difference the machine could work across, at any flow. Michael's manufacturer
+ * part-load table settled it on 2026-08-09 and the assertions below moved with
+ * the physics rather than being renumbered: see `Design ΔT is a design point,
+ * not a limit` further down for the table and the arithmetic. `dTMax` is still
+ * stored and still has a job — it is one leg of the design-point relation
+ * Q = ṁ·Cp·ΔT that `M.setEquipTrio` keeps consistent — but nothing in the
+ * thermal solve reads it on a source/sink.
  * ----------------------------------------------------------------------- */
 section('Source / Sink holds a setpoint until a limit binds');
 {
@@ -773,33 +782,48 @@ section('Source / Sink holds a setpoint until a limit binds');
     ok('...and says which limit bound it', l.limit === 'Capacity', String(l.limit));
   }
 
-  /* ΔT MAX. A machine that cannot work across more than 8 K leaves at 10 C,
-   * whatever its capacity. */
+  /* ΔT MAX DOES NOT CAP THE DIFFERENCE — v0.16.4, and this block used to assert
+   * the opposite.
+   *
+   * WHAT MOVED AND WHY. The same machine — setpoint 6, inlet 18, a stated
+   * Design ΔT of 8 K — used to leave at 10 °C doing 167 kW, because the model
+   * clamped ΔT at 8 K. It now reaches its setpoint: 12 K, 250.7 kW. Michael's
+   * manufacturer part-load table shows a machine holding its leaving
+   * temperature at every load while its ΔT slides from 12 K down to 10.5 K, so
+   * ΔT is an OUTPUT of the flow, not something the machine refuses to exceed.
+   * Nothing else in the block changed: the hand figures are the unconstrained
+   * ones from the top of this section. */
   {
     const t = plant({ tSet: 6, qMax: -1e9, dTMax: 8 }, flow, 18);
     const l = NET.solveModel(t.m).thermal.links[t.e.id];
-    near('The difference is capped', l.dT, -8, 1e-9);
-    near('...so it leaves at 10 C', l.tOut, 10, 1e-9);
-    near('...at a duty of -167.1 kW', l.qW, -8 * C, 1e-6);
-    ok('...reported as the ΔT limit', l.limit === 'Design ΔT', String(l.limit));
+    near('A stated Design ΔT does not cap the difference', l.dT, -12, 1e-9);
+    near('...so it still reaches its 6 C setpoint', l.tOut, 6, 1e-9);
+    near('...at the full -250.7 kW that took', l.qW, -12 * C, 1e-6);
+    ok('...and nothing is reported as limiting it', !l.limit, String(l.limit));
   }
 
-  /* Both set: whichever is tighter wins. At this flow, 8 K is 167 kW, so a
-   * 100 kW machine is capacity-limited even though ΔT would allow more. */
+  /* CAPACITY IS WHAT BINDS, and it is the only thing that does. 12 K at this
+   * flow is 250.7 kW, so a 100 kW machine gets 100 kW. */
   {
     const t = plant({ tSet: 6, qMax: -100000, dTMax: 8 }, flow, 18);
     const l = NET.solveModel(t.m).thermal.links[t.e.id];
-    ok('The tighter of the two binds', l.limit === 'Capacity', String(l.limit));
+    ok('Capacity binds, ΔT does not', l.limit === 'Capacity', String(l.limit));
     near('...at 100 kW', l.qW, -100000, 1e-6);
   }
   {
-    /* Quarter the flow and the SAME machine becomes ΔT-limited: 8 K is now
-     * only 41.8 kW, well inside its 100 kW. This is why both limits exist. */
+    /* QUARTER THE FLOW AND THE SAME MACHINE IS COMFORTABLE. 12 K on a quarter
+     * of the flow is 62.7 kW, well inside its 100 kW, so it holds setpoint —
+     * and it is THIS row that the old clamp got backwards. Under the clamp the
+     * duty was capped at C·ΔT_max, and C falls with flow, so throttling a
+     * chiller appeared to reduce its capacity: 8 K × C/4 = 41.8 kW, and the
+     * machine was reported as limited while running at a quarter of its
+     * nameplate. Michael, 2026-08-09: that is why every machine on the data
+     * centre model sat at 26–50% of nameplate with its coils starving. */
     const t = plant({ tSet: 6, qMax: -100000, dTMax: 8 }, flow / 4, 18);
     const l = NET.solveModel(t.m).thermal.links[t.e.id];
-    ok('At a quarter flow the ΔT limit binds instead', l.limit === 'Design ΔT',
-       String(l.limit));
-    near('...at 41.8 kW', l.qW, -8 * C / 4, 1);
+    ok('At a quarter flow nothing binds at all', !l.limit, String(l.limit));
+    near('...and it does the 62.7 kW that 12 K needs', l.qW, -12 * C / 4, 1);
+    near('...still leaving at setpoint', l.tOut, 6, 1e-9);
   }
 
   /* THE T LIMIT IS GONE FROM A SOURCE/SINK  (Michael, 2026-08-04).
@@ -892,14 +916,17 @@ section('Source / Sink holds a setpoint until a limit binds');
   }
 
   /* A BOILER is the same machine with the signs the other way up: setpoint
-   * above inlet, positive duty, and the limits behave identically. */
+   * above inlet, positive duty, and the limits behave identically — which now
+   * means a stated Design ΔT does not hold it back either. 60 → 80 is 20 K,
+   * not the 15 K it is scheduled at, and 20 × 20893.13 = 417.9 kW. */
   {
     const t = plant({ tSet: 80, qMax: 1e9, dTMax: 15 }, flow, 60);
     const l = NET.solveModel(t.m).thermal.links[t.e.id];
-    near('Heating is capped by the same ΔT limit', l.dT, 15, 1e-9);
-    near('...leaving at 75 C', l.tOut, 75, 1e-9);
+    near('Heating is not capped by Design ΔT either', l.dT, 20, 1e-9);
+    near('...leaving at its 80 C setpoint', l.tOut, 80, 1e-9);
+    near('...at 417.9 kW', l.qW, 20 * C, 1e-6);
     ok('...with a positive duty', l.qW > 0);
-    ok('...reported the same way', l.limit === 'Design ΔT');
+    ok('...and nothing binding', !l.limit, String(l.limit));
   }
 
   /* The active set settles rather than oscillating — the check-valve lesson.
@@ -931,11 +958,139 @@ section('Source / Sink holds a setpoint until a limit binds');
        !th.warnings.some(w => w.code === 'THERMAL_LIMIT_OSCILLATION'));
     ok('...in a handful of passes', th.iterations <= 5, String(th.iterations));
     ok('The first is capacity-limited', th.links[e1.id].limit === 'Capacity');
-    ok('The second is ΔT-limited', th.links[e2.id].limit === 'Design ΔT');
-    near('...dropping exactly 3 K', th.links[e2.id].dT, -3, 1e-9);
+    /* THE SECOND PICKS UP WHAT THE FIRST COULD NOT, and its scheduled 3 K does
+     * not stop it. The first leaves at 30 − 100000/20893.13 = 25.2137 °C, so
+     * the second works across 25.2137 − 6 = 19.2137 K to reach the same
+     * setpoint. It used to stop at 3 K and leave the water at 22.21 °C, which
+     * is the clamp saying a machine in series is only allowed its design
+     * difference — and the design difference is a design-point figure, not a
+     * stop. */
+    ok('The second is not held to its design ΔT', !th.links[e2.id].limit,
+       String(th.links[e2.id].limit));
+    near('...so it finishes the job the first could not',
+         th.links[e2.id].tOut, 6, 1e-9);
+    near('...working across 19.21 K', th.links[e2.id].dT,
+         6 - (30 - 100000 / C), 1e-9);
     /* And the two together are still just Q = C.dT, link by link. */
     near('Duty and difference agree on the first',
          th.links[e1.id].qW, th.links[e1.id].C * th.links[e1.id].dT, 1e-6);
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * DESIGN ΔT IS A DESIGN POINT, NOT A LIMIT.
+ *
+ * The evidence, and the reason the assertions above moved: Michael's
+ * manufacturer part-load table for a 1380 kW air-cooled chiller, 2026-08-09.
+ * The two rows recorded in `HANDOVER.md` §6 are used here — the design point
+ * and the 30% row, which is the bottom of the table where the flow floors.
+ *
+ *     load    flow        ΔT       LWT       duty
+ *     100%    27.65 L/s   12.0 K   20.00 C   1380 kW  (nameplate)
+ *      30%     9.464 L/s  10.5 K   20.00 C    414 kW  (30% of nameplate)
+ *
+ * TWO THINGS TO READ OFF IT. The leaving temperature is 20.00 °C in BOTH rows —
+ * the machine holds its setpoint across the whole range. And the ΔT is not 12 K
+ * in both: it collapses to 10.5 K once the flow has floored, because ΔT is what
+ * you get when a duty meets a flow, not something the machine refuses to
+ * exceed. The design figure of 12 K is 12 K because that is design flow at
+ * design return, and nothing else.
+ *
+ * The arithmetic is Q = ṁ·Cp·ΔT throughout, and it closes:
+ *
+ *     998 × 0.02765 × 4187 × 12.0  = 1386 kW  against a 1380 kW nameplate
+ *     998 × 0.009464 × 4187 × 10.5 =  415 kW  against 30% of 1380 = 414 kW
+ *
+ * both inside 0.5%, on figures nobody here chose.
+ * ----------------------------------------------------------------------- */
+section('Design ΔT is a design point, not a limit');
+{
+  function chiller(flow, inletT) {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: inletT, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), j = M.addNode(m, lv, 1, 0);
+    const k = M.addNode(m, lv, 2, 0), b = M.addNode(m, lv, 3, 0);
+    M.setSource(m, a.id, 900e3); a.device.temperature = inletT;
+    b.device = { kind: 'demand', flow: flow, reqPressure: 100e3, include: true };
+    M.addPipe(m, a.id, j.id, { size: 'DN150', schedule: 'sch40' });
+    const e = M.addPipe(m, j.id, k.id, { kind: 'equip' });
+    /* The machine EXACTLY as scheduled: 27.65 L/s, 12 K, 1380 kW. */
+    e.equip = { qRated: 0.02765, pdRated: 60e3, equipType: 'source',
+                tSet: 20, dTMax: 12, qMax: -1380000 };
+    M.addPipe(m, k.id, b.id, { size: 'DN150', schedule: 'sch40' });
+    m.pipes.forEach(p => { p.insulation_mm = 0; });
+    return NET.solveModel(m).thermal.links[e.id];
+  }
+
+  /* ---- ROW 1, the design point. 27.65 L/s entering at 32 °C.
+   *
+   * IT SITS EXACTLY ON ITS NAMEPLATE, which is what a machine selected at its
+   * design point does, and the last 0.5% is worth stating rather than tuning
+   * away. 27.65 L/s across 12 K is 1386.5 kW on the fluid table this model
+   * uses (998 kg/m³, 4187 J/kg·K); the schedule says 1380 kW. The 6.5 kW
+   * between them is the manufacturer quoting properties at the mean water
+   * temperature and rounding the flow, not a disagreement about the physics.
+   *
+   * So capacity binds by half a percent and the machine leaves at 20.06 °C
+   * rather than 20.00 — six hundredths of a kelvin, which is inside the
+   * control deadband and far inside anything a sensor would read. */
+  {
+    const l = chiller(0.02765, 32);
+    near('At design flow it does exactly its 1380 kW nameplate', l.qW, -1380000, 1);
+    ok('...sitting on the capacity boundary, as a design selection should',
+       l.limit === 'Capacity', String(l.limit));
+    near('...and leaves within a tenth of a kelvin of 20.00 C', l.tOut, 20, 0.1);
+    ok('...the gap being the half percent between 1380 kW and ρ·q·cp·ΔT',
+       Math.abs(RHO * 0.02765 * CP * 12 / 1380000 - 1) < 0.005,
+       ((RHO * 0.02765 * CP * 12 / 1380000 - 1) * 100).toFixed(2) + '%');
+  }
+
+  /* ---- ROW 2, the 30% row, and it is the one that settles the argument.
+   * The flow has floored at 9.464 L/s and the return is 30.5 °C, so the machine
+   * works across 10.5 K — not 12 — and still leaves at 20.00 °C. */
+  {
+    const l = chiller(0.009464, 30.5);
+    near('At 30% load it still leaves at 20.00 C', l.tOut, 20, 1e-9);
+    near('...but across 10.5 K, not the 12 K design figure', l.dT, -10.5, 1e-9);
+    near('...doing 415 kW', l.qW / 1000, -415.2, 1);
+    ok('...which is 30% of the nameplate, as the table says',
+       Math.abs(l.qW / -1380000 - 0.30) < 0.005,
+       (l.qW / -13800).toFixed(1) + '% of nameplate');
+    ok('...with nothing limiting it', !l.limit, String(l.limit));
+  }
+
+  /* ---- AND THE ROW THE OLD MODEL GOT WRONG. Not from the table — the table
+   * never asks for more than 12 K — but the direct consequence of reading ΔT as
+   * an output, and the case Michael's data centre lives in: the same machine at
+   * the same floored flow with a WARM return, because the coils are starving.
+   * 9.464 L/s from 35 °C is 15 K, above the design figure, and 594 kW — well
+   * inside 1380 kW. It holds 20 °C.
+   *
+   * The old model clamped at 12 K, left the water at 23 °C, and reported
+   * "limited by Design ΔT" on a machine running at 43% of its nameplate. That
+   * is the sentence that appeared on 26–50% of the machines in his model. */
+  {
+    const l = chiller(0.009464, 35);
+    near('A warm return does not stop it holding 20 C', l.tOut, 20, 1e-9);
+    near('...working across 15 K', l.dT, -15, 1e-9);
+    near('...at 593 kW', l.qW / 1000, -593.2, 1);
+    ok('...still well inside its capacity', Math.abs(l.qW) < 1380000,
+       (l.qW / -13800).toFixed(1) + '% of nameplate');
+    ok('...and not reported as limited by anything', !l.limit, String(l.limit));
+  }
+
+  /* CAPACITY IS STILL A CAPACITY. Ask the same machine for more than 1380 kW
+   * and it delivers 1380 kW and says so — the limit that survived is the one
+   * that is a nameplate figure rather than a design condition. 27.65 L/s from
+   * 45 °C wants 25 K, which is 2889 kW. */
+  {
+    const l = chiller(0.02765, 45);
+    near('Asked for 2889 kW it does its 1380 kW', l.qW, -1380000, 1);
+    ok('...and names the capacity', l.limit === 'Capacity', String(l.limit));
+    near('...leaving at 33.06 C, which is the honest answer',
+         l.tOut, 45 - 1380000 / (RHO * 0.02765 * CP), 1e-6);
   }
 }
 
@@ -1113,21 +1268,35 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
     ok('...in Michael\u2019s own words', !!e &&
        /System is unable to maintain setpoint\. Check heat balance\./.test(e.message),
        e && e.message);
+    /* AND IT NAMES WHAT STOPPED THE MACHINE. "Check heat balance" on its own
+     * sends an engineer looking in the right place; "limited by Capacity" tells
+     * them what they will find when they get there. */
+    ok('...naming what limited the machine',
+       !!e && /limited by Capacity/.test(e.message), e && e.message);
     ok('...and it clears converged', r.converged === false);
   }
 
   // ---- 5. THE SIGN IS NOT ASSUMED: backing off must be shown to help.
   {
-    /* A machine capped by ΔT max leaves at tIn - dTMax whatever the flow, so
-     * slowing the pump changes NOTHING about its leaving temperature. A
-     * controller that simply "ramps down towards a setpoint" would wind this
-     * pump to its floor for no benefit. The perturbation catches it. */
+    /* A machine that does NOTHING leaves the water as it arrived whatever the
+     * flow, so slowing the pump changes nothing about its leaving temperature.
+     * A controller that simply "ramps down towards a setpoint" would wind this
+     * pump to its floor for no benefit. The perturbation catches it.
+     *
+     * THE VEHICLE CHANGED WITH THE PHYSICS, v0.16.4. This used to be a machine
+     * pinned 2 K below its inlet by a Design ΔT of 2 K — the only genuinely
+     * flat response the model had, and Design ΔT no longer clamps anything. A
+     * capacity with the WRONG SIGN is flat for a reason that is still real: a
+     * chiller asked to heat delivers nothing at any flow, and says so. The
+     * property under test is unchanged — backing off must be SHOWN to help
+     * before the search believes it. */
     const t = economizer({ link: 'pump',
-                           equip: { qMax: -1e9, dTMax: 2 } });
+                           equip: { tSet: 25, qMax: 1e9 } });
     const r = NET.solveModel(t.m);
     const l = r.thermal.links[t.eq.id];
-    near('The machine is pinned 2 K below inlet', l.tOut, 28, 1e-9);
-    ok('...by its ΔT limit', l.limit === 'Design ΔT', String(l.limit));
+    near('The machine leaves the water exactly as it arrived', l.tOut, 30, 1e-9);
+    ok('...because its capacity is the wrong way round',
+       l.limit === 'Capacity (wrong direction)', String(l.limit));
     ok('The pump stayed at full speed', M.pumpSpeed(t.m, t.pump) === 1,
        String(M.pumpSpeed(t.m, t.pump)));
     ok('...reported as at-max', r.controls.devices[0].state === 'at-max',
@@ -2314,17 +2483,31 @@ section('Parallel branches balance against each other');
        byPipe[id].state === 'on', id + ': ' + byPipe[id].state);
   });
 
-  /* THE PUMP is a separate matter and the error it raises is CORRECT: the
-   * chiller's Design ΔT of 15 K stops it reaching 7.5 °C, and no pump speed
-   * fixes that. What was wrong was the message blaming the heat balance
-   * without naming the limit. */
+  /* THE PUMP'S LOST SETPOINT WAS THE CLAMP'S DOING, and it is gone — v0.16.4.
+   *
+   * This block used to assert the opposite, and explaining the movement is the
+   * point of it. ACCH-1 is scheduled at 7.977 L/s across 15 K, which is a
+   * design point of 500 kW, and it states no capacity. The load on it is
+   * 200.1 kW. It was never short of anything — but the model clamped its ΔT at
+   * 15 K, and at the flow the four balanced branches actually deliver that cap
+   * bit, so it could not reach 7.5 °C and the pump was told it had lost a
+   * setpoint no pump speed could recover.
+   *
+   * That is Michael's data-centre symptom in miniature, on a five-device model
+   * small enough to check by hand: machines reported as limited while running
+   * well inside their nameplate. With the clamp gone it holds 7.5 °C exactly,
+   * doing the 200.1 kW asked of it, and nothing is lost. */
   {
     const e = (res.errors || []).filter(x => x.code === 'SETPOINT_LOST')[0];
-    ok('The pump still reports a lost setpoint', !!e);
-    ok('...naming what limited the machine', !!e && /limited by Design ΔT/.test(e.message),
-       e && e.message);
-    ok('...and only the pump, not the valves', !!e &&
-       !/P43|P46|P49|P52/.test(e.message), e && e.message);
+    ok('No setpoint is lost any more', !e, e && e.message);
+    const l = res.thermal.links['P13'];
+    near('ACCH-1 holds its 7.5 °C setpoint', l.tOut, 7.5, 1e-6);
+    ok('...with nothing limiting it', !l.limit, String(l.limit));
+    ok('...doing about 200 kW of a 500 kW design point',
+       Math.abs(l.qW + 200e3) < 2e3, (l.qW / 1000).toFixed(1) + ' kW');
+    ok('...and every device reports as holding its setpoint',
+       res.controls.devices.every(d => d.state === 'on'),
+       JSON.stringify(res.controls.devices.map(d => (d.tag || d.pipe) + ':' + d.state)));
   }
 
   /* THE BUDGET. It has to be enough for five devices, and it has to be a
@@ -2548,26 +2731,43 @@ section('Economizer + trim: six controllers that must settle together');
 
   /* THE PLANT, by hand from Michael's own description of the system.
    *
-   * CT-01 holds 30 °C leaving. ACCH-1 is capped by its 15 K design ΔT, so from
-   * 30 °C it can only reach 15 °C. The mix at TS-2 must then be 20 °C, which
-   * fixes the split: with x the fraction bypassed at 30 °C,
+   * THE SPLIT MOVED WITH THE PHYSICS, v0.16.4, and it moved because ACCH-1 now
+   * reaches its setpoint. It used to be capped by its 15 K design ΔT, so from
+   * 30 °C it could only reach 15 °C and the mix needed a third of the flow
+   * bypassed. Design ΔT no longer clamps, and ACCH-1 has gained the capacity it
+   * was relying on the clamp to imply — 250 kW, which is its OWN design point,
+   * ρ·q_rated·cp·ΔT_design = 998 × 3.9886 L/s × 4187 × 15 K = 250.00 kW exactly.
+   * Michael's ruling of 2026-08-09: a model without a stated capacity must gain
+   * one.
    *
-   *     30x + 15(1 − x) = 20   →   x = 1/3
+   * So ACCH-1 now leaves at its 7.5 °C setpoint, and with x the fraction
+   * bypassed at 30 °C the mix at TS-2 is
    *
-   * so a third of the flow bypasses and two thirds goes through the chiller —
-   * which is what PMP-02 is modulating to achieve. */
+   *     30x + 7.5(1 − x) = 20   →   x = 5/9
+   *
+   * — five ninths bypasses and FOUR NINTHS goes through the chiller, which is
+   * what PMP-02 is modulating to achieve. The duties follow from the same two
+   * numbers: the four coils put in 4 × 50 = 200 kW, ACCH-1 takes 4/9 of
+   * 3.197 L/s across 30 − 7.5 = 22.5 K, and CT-01 takes the rest. */
   const th = res.thermal;
   near('CT-01 holds its 30 °C leaving temperature',
        th.links[byTag('CT-01').id].tOut, 30, 0.1);
-  near('ACCH-1 is ΔT-limited to 15 °C from 30',
-       th.links[byTag('ACCH-1').id].tOut, 15, 0.1);
+  near('ACCH-1 reaches its 7.5 °C setpoint',
+       th.links[byTag('ACCH-1').id].tOut, 7.5, 0.1);
+  ok('...with nothing limiting it', !th.links[byTag('ACCH-1').id].limit,
+     String(th.links[byTag('ACCH-1').id].limit));
   near('TS-2 reads the 20 °C supply setpoint',
        th.temperature[byTag('TS-2').a], 20, 0.3);
 
   const q1 = Math.abs(res.flow[byTag('PMP-01').id]);
   const q2 = Math.abs(res.flow[byTag('PMP-02').id]);
-  near('...because two thirds of the flow goes through the chiller',
-       q2 / q1, 2 / 3, 0.03);
+  near('...because four ninths of the flow goes through the chiller',
+       q2 / q1, 4 / 9, 0.03);
+  /* AND THE HEAT BALANCE CLOSES ON THE SAME TWO NUMBERS. 200 kW in, and the
+   * two machines share it — no third party, and nothing left over. */
+  near('The two machines between them reject the 200 kW put in',
+       th.links[byTag('CT-01').id].qW + th.links[byTag('ACCH-1').id].qW,
+       -200e3, 2e3);
   ok('...and the rest bypasses it, forwards through the check valve',
      q1 - q2 > 0, ((q1 - q2) * 1000).toFixed(3) + ' L/s');
 
@@ -2584,6 +2784,184 @@ section('Economizer + trim: six controllers that must settle together');
      (p2.value * 100).toFixed(1) + '%');
   ok('...and holding the supply temperature', Math.abs(p2.error) <= 0.5,
      p2.error.toPrecision(4) + ' K');
+}
+
+/* =====================================================================
+ * A MIXING CIRCUIT'S RESPONSE IS NOT MONOTONIC, AND THE SEARCH ASSUMED IT WAS.
+ *
+ * Michael's economizer in miniature — two sources, a bypass, a check valve and
+ * a mixing sensor, which is the smallest thing that shows the behaviour:
+ *
+ *     S -> B -+-- PMP-02 --> CHW (18 C setpoint, 150 kW) --+-> TS-1 -> PMP-01
+ *             |                                            |            |
+ *             +----------- check valve (bypass) -----------+          coil
+ *                                                                       |
+ *     S <------------------ CT-01 (30 C) <------------------------------+
+ *
+ * TWO EFFECTS FIGHT, and they pull opposite ways:
+ *
+ *   While the check valve holds the bypass SHUT, PMP-02 is in series with the
+ *   loop and sets the WHOLE flow. Slowing it puts the same kilowatts into fewer
+ *   kilograms, so the supply gets COLDER.
+ *
+ *   Below the speed at which PMP-02 can no longer carry what PMP-01 delivers,
+ *   the bypass opens, 30 °C water joins the mix, and the supply gets WARMER.
+ *
+ * So sweeping PMP-02 from full to its floor, TS-1 FALLS and then RISES, and it
+ * crosses a 20 °C setpoint TWICE — near 45% and again near 30%. Both are
+ * perfectly good answers; a controller ramping down from full would stop at the
+ * first.
+ *
+ * WHAT THE SEARCH DID (before v0.16.4): it probed once at the 25% floor, read a
+ * smaller error OF THE SAME SIGN, descended to the floor, reported `at-min`, and
+ * the lost-setpoint rule parked the pump at 100% with the sensor 4.4 K high. One
+ * sample at the stop cannot describe a curve that turns. It scans the travel
+ * now when the far stop does not bracket the setpoint.
+ * ===================================================================== */
+section('A mixing circuit: the response falls, then rises');
+{
+  const P = FD.pumps;
+
+  function mixRig(opts) {
+    opts = opts || {};
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    m.settings.systemType = 'closed';
+    /* Adiabatic pipework: the two machines and the coil are the only thermal
+     * elements, so every number below is a hand calculation. */
+    m.settings.thermal = { ambient: 20, supplyTemp: 30, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+    m.settings.control = { minSpeed: 0.25, minOpening: 10, tol: 0.05, maxSolves: 0 };
+    const lv = m.levels[0].id;
+    const N = (x, y) => M.addNode(m, lv, x, y);
+    const S = N(0, 0), B = N(4, 0), C = N(8, 4), D = N(12, 0), E = N(16, 0),
+          F = N(20, 0), G = N(24, 0), H = N(28, 0);
+    M.setSource(m, S.id, 0);
+    M.addPipe(m, S.id, B.id, { size: 'DN100', schedule: 'sch40' });
+
+    /* The trim pump, in series with the loop while the bypass is shut. */
+    const p2 = M.addPipe(m, B.id, C.id, { kind: 'pump' });
+    p2.pump = { mode: 'fixed', sizing: 'manual', head: 60, qDesign: 0.004,
+                hDesign: 60 };
+    p2.pump.curve = P.fit([{ q: 0, h: 84 }, { q: 0.004, h: 60 }, { q: 0.006, h: 39 }]);
+    p2.tag = 'PMP-02';
+
+    const chw = M.addPipe(m, C.id, D.id, { kind: 'equip' });
+    chw.equip = { qRated: 0.004, pdRated: 8e3, equipType: 'source',
+                  tSet: 18, qMax: -150000 };
+    chw.tag = 'CHW-1';
+
+    /* THE BYPASS. A check valve, so it can only ever carry B -> D: when PMP-02
+     * over-pumps its branch there is nothing for it to do, and it opens by
+     * itself once PMP-02 can no longer take the whole loop flow. */
+    const chk = M.addPipe(m, B.id, D.id, { kind: 'valve' });
+    chk.valve = { type: 'check', kv: 120, opening: 100 };
+    chk.tag = 'BYPASS';
+
+    const ts = M.addPipe(m, D.id, E.id, { kind: 'sensor' });
+    ts.sensor = { mode: 'temperature', tSet: 20 };
+    ts.tag = 'TS-1';
+
+    const p1 = M.addPipe(m, E.id, F.id, { kind: 'pump' });
+    p1.pump = { mode: 'fixed', sizing: 'manual', head: 8, qDesign: 0.004,
+                hDesign: 8 };
+    p1.pump.curve = P.fit([{ q: 0, h: 11.2 }, { q: 0.004, h: 8 }, { q: 0.006, h: 5.2 }]);
+    p1.tag = 'PMP-01';
+
+    const coil = M.addPipe(m, F.id, G.id, { kind: 'equip' });
+    coil.equip = { qRated: 0.004, pdRated: 80e3, equipType: 'exchanger',
+                   duty: 200e3 };
+    coil.tag = 'AHU-1';
+
+    const ct = M.addPipe(m, G.id, H.id, { kind: 'equip' });
+    ct.equip = { qRated: 0.004, pdRated: 60e3, equipType: 'source',
+                 tSet: 30, qMax: -100000 };
+    ct.tag = 'CT-01';
+
+    M.addPipe(m, H.id, S.id, { size: 'DN100', schedule: 'sch40' });
+    m.pipes.forEach(p => { p.insulation_mm = 0; });
+
+    if (opts.control !== false) M.setControl(m, p2, ts.id);
+    return { m, p1, p2, chw, ct, coil, ts, chk, mix: D };
+  }
+
+  /* ---- 1. THE RESPONSE ITSELF, swept by hand with nothing controlling.
+   * This is the fixture for everything below: if the shape ever stops being a
+   * fall and then a rise, the rest of this section is testing nothing. */
+  {
+    const t = mixRig({ control: false });
+    const at = s => {
+      t.p2.pump.speed = s;
+      return NET.solveModel(t.m, 8).thermal.temperature[t.mix.id];
+    };
+    const full = at(1), dip = at(0.35), floor = at(0.25);
+    ok('At full speed the mix is ABOVE setpoint', full > 20.5,
+       full.toFixed(3) + ' C');
+    ok('...it falls BELOW setpoint in the middle of the travel', dip < 19.5,
+       dip.toFixed(3) + ' C');
+    ok('...and is back ABOVE setpoint at the 25% floor', floor > 20.5,
+       floor.toFixed(3) + ' C');
+    ok('So the setpoint is crossed twice, and the floor tells you nothing',
+       (full - 20) > 0 && (dip - 20) < 0 && (floor - 20) > 0,
+       [full, dip, floor].map(x => x.toFixed(2)).join(' / '));
+
+    /* AND THE TWO LIMBS ARE THE TWO EFFECTS. Above the turn the bypass is shut
+     * and PMP-02 carries the whole loop; below it the bypass is carrying real
+     * flow. */
+    t.p2.pump.speed = 1;
+    const hi = NET.solveModel(t.m, 8);
+    t.p2.pump.speed = 0.25;
+    const lo = NET.solveModel(t.m, 8);
+    ok('At full speed the check valve is shut',
+       Math.abs(hi.flow[t.chk.id]) < 0.01 * Math.abs(hi.flow[t.chw.id]),
+       (Math.abs(hi.flow[t.chk.id]) * 1000).toFixed(4) + ' L/s');
+    ok('...and at the floor the bypass is carrying a third of the flow',
+       Math.abs(lo.flow[t.chk.id]) > 0.25 * Math.abs(lo.flow[t.chw.id]),
+       (Math.abs(lo.flow[t.chk.id]) * 1000).toFixed(4) + ' L/s');
+  }
+
+  /* ---- 2. AND THE CONTROL LOOP FINDS IT. */
+  {
+    const t = mixRig({});
+    const r = NET.solveModel(t.m);
+    ok('It converges', r.converged === true,
+       JSON.stringify((r.errors || []).map(e => e.code)));
+    ok('...with no lost setpoint',
+       !(r.errors || []).some(e => e.code === 'SETPOINT_LOST'),
+       JSON.stringify((r.errors || []).map(e => e.code)));
+
+    const d = r.controls.devices[0];
+    ok('PMP-02 is modulating, not parked at full', d.value < 0.99,
+       (d.value * 100).toFixed(1) + '%');
+    ok('...and it stopped at the HIGHER of the two roots, which is where a ' +
+       'controller ramping down from full would stop', d.value > 0.4,
+       (d.value * 100).toFixed(1) + '%');
+    ok('...reported as holding its setpoint', d.state === 'on', d.state);
+    near('...and the sensor reads 20 C',
+         r.thermal.temperature[t.mix.id], 20, 0.05);
+
+    /* THE SETTLED POINT, BY HAND, and it needs nothing from the search.
+     *
+     * At the answer the bypass is shut, so the whole loop flow passes through
+     * CHW-1, which is working at its 150 kW capacity. The mix is therefore
+     *
+     *     TS-1 = 30 − 150000/(ρ·Q·cp) = 20   →   Q = 150000/(10 × ρ × cp)
+     *
+     * and ρ·cp = 998 × 4187 = 4 178 626 J/(m³·K), so Q = 3.5896 L/s.
+     * Nothing in that line was read out of the code. */
+    const qHand = 150000 / (10 * RHO * CP);
+    near('The settled flow is the hand-calculated 3.590 L/s',
+         Math.abs(r.flow[t.chw.id]), qHand, qHand * 0.01);
+
+    /* AND THE HEAT BALANCE CLOSES. The coil puts in 200 kW; CHW-1 takes its
+     * 150 kW and CT-01 takes the other 50 kW, holding 30 °C into the branch. */
+    const th = r.thermal;
+    near('CHW-1 is working at its 150 kW capacity',
+         th.links[t.chw.id].qW, -150e3, 500);
+    near('...and CT-01 takes the other 50 kW', th.links[t.ct.id].qW, -50e3, 1500);
+    near('...holding 30 C into the mixing circuit',
+         th.links[t.ct.id].tOut, 30, 0.05);
+  }
 }
 
 /* =====================================================================

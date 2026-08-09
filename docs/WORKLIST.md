@@ -3,52 +3,36 @@
 Everything Michael has asked for that is not yet done, in the order it will be
 tackled. Closed items move to `Human-Test.md` with a verification note.
 
-Updated 2026-08-09, after v0.16.3.
+Updated 2026-08-09, after v0.16.4.
 
 ---
 
-## Next — LS.5, RULED, and what actually blocks it
+## Next — the early-design sizing aid
 
-**Michael chose option 1 on 2026-08-09:** Design ΔT stops clamping; models
-without an explicit capacity must gain one.
+**LS.5 is done** (v0.16.4): Design ΔT no longer clamps, and the two control-loop
+defects that removing it exposed are fixed. `HANDOVER.md` §6 has the whole story.
 
-The physics change itself is ~15 lines and correct (`equipOutlet`, the
-source/sink branch — delete the `dTMax` clamp; `dTMax` keeps its real job in
-`setEquipTrio`). It was applied, the manufacturer table was turned into a
-nine-row test and **passed**, and the older ΔT-clamp assertions were migrated.
+What falls out of it, and what Michael asked for next: **blank capacity now
+means "size it for me."** The machine holds its setpoint whatever it takes, and
+the duty it lands on IS the answer to what to buy — the same pattern
+`autoSizePumps` already uses. Cheapest first:
 
-**IT IS BLOCKED ON SOMETHING ELSE, and this is the finding that matters.**
-
-`economizer-trim` stops converging, and NOT because of the physics. Removing the
-clamp exposes a **non-monotonic control response** that the clamp was masking.
-Sweeping PMP-02 by hand, with everything else frozen:
-
-    PMP-02 speed   100%   80%    60%    50%    40%    30%    25%
-    TS-2 reads    13.55  11.86  11.77  14.80  17.83  20.86  22.37
-
-It falls, then rises. Two effects fight: slowing PMP-02 makes ACCH-1 colder
-(less flow, same duty) while the check valve has not yet opened the bypass;
-below ~60% the bypass opens and the mixing effect takes over. Under the clamp
-ACCH-1's outlet was pinned regardless of flow, so only the second effect existed
-and the response was monotonic.
-
-**The bracketed search cannot handle it.** It probes at the minimum, sees a sign
-change, and should bisect to the root near 32% — but it reports `at-min` and is
-parked at 100%. That is a control-loop defect in its own right, independent of
-ΔT, and it will bite any model with a bypass and a mixing setpoint.
-
-**So the order of work is:**
-
-1. **Fix the search on a non-monotonic response** — reproduce with the sweep
-   above, which is a small rig (two sources, a bypass, a check valve, a mixing
-   sensor). Probably needs the descent to keep the best bracket rather than
-   trusting the first crossing.
-2. **Then land the ΔT change**, which is already written and tested.
-
-Reverted for now so master stays green. Nothing about the ruling has changed.
+| # | Item | Notes |
+|---|---|---|
+| LS.6a | **"Required capacity" row** in the equipment Actual section | The duty the machine settled on, shown as the answer to a question rather than as a reading. |
+| LS.6b | **Auto/Manual sizing on equipment**, mirroring the pump panel | Auto = blank `qMax`; Manual = the stated nameplate. |
+| LS.6c | **A plant schedule on the CALCULATION sheet** | Design flow, design ΔT, required capacity, selected capacity, margin. |
 
 **DX.1 —** does the DXF open in real CAD? Untested; nothing in this environment
 can check it.
+
+---
+
+## Found in passing, not fixed
+
+| # | Item | Notes |
+|---|---|---|
+| S4 | **Park-at-full happens AFTER the sweeps, and nothing re-settles behind it** | Found while migrating the `20260805-4` tests, v0.16.4. Give ACCH-1 a capacity it genuinely cannot meet and the pump is parked at 100% at the very end — correctly — but the four coil valves settled against the *starved* plant the pump had produced during the sweeps, and are left at 100% with their branches 14–16% over. The final positions do not describe the final answer. Not a regression (it predates v0.16.4) and not exercised by any of Michael's real files, so it is recorded rather than chased. The fix is probably one more settling sweep after the parking pass. |
 
 ---
 
@@ -75,6 +59,11 @@ can check it.
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
+
+* **v0.16.4** — Design ΔT stops clamping the duty at part flow (LS.5, Michael's
+  manufacturer table); and the two control-search defects that change exposed —
+  a device on its floor could not climb back, and a single probe at the stop
+  could not see a response that turns.
 
 * **v0.16.3** — a stranded `app.solving` latch stopped the simulation running at
   all; released on every path now.

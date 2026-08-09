@@ -1347,6 +1347,13 @@
    */
   var CTRL_DEFAULTS = { minSpeed: 0.25, minOpening: 10, tol: 0.05 };
 
+  /* WHERE THE SEARCH LOOKS WHEN THE FAR STOP TELLS IT NOTHING — fractions of
+   * the travel between the floor and where the device stands, walked DOWNWARD.
+   * With the floor itself that is five samples evenly across the range. See the
+   * scan in `seek`; four is a bound on the cost, not a resolution anybody
+   * derived. */
+  var CTRL_SCAN = [0.8, 0.6, 0.4, 0.2];
+
   /* The thing being modulated, described so the loop never asks whether it is
    * a pump or a valve (HANDOVER §9A, trap 5). `x` is always a fraction of full
    * travel, so one search serves both. */
@@ -1790,6 +1797,36 @@
        * walk there — so it usually costs fewer solves, not more. */
       var probe = act.min;
       if (!(probe < x0 - 1e-12)) {
+        /* --- ALREADY ON THE FLOOR, AND THE SEARCH ONLY DESCENDS.
+         *
+         * The mirror of the `at-max` case below, and it costs exactly the same
+         * bug. A device that walked to its floor on an earlier sweep is asked
+         * again on the next one — by which time the OTHER devices have moved
+         * the plant out from under it, and what was unreachable may now be one
+         * step above where it stands. There is nowhere below to probe, so the
+         * search returned `at-min` without solving anything at all, the
+         * lost-setpoint rule read that as "nothing in its range holds the
+         * setpoint", and slammed it to 100%.
+         *
+         * `economizer-trim` with ACCH-1's real capacity, 2026-08-09. Sweep 1
+         * put PMP-02 on its 25% floor honestly: with all four valves still wide
+         * open the mix was 12 K below setpoint at EVERY speed. Sweeps 2 and 3
+         * then measured +2.4 K at that same floor — the valves had throttled,
+         * the response had turned, and the root was sitting at about 28% — and
+         * both sweeps reported `at-min` and moved nothing.
+         *
+         * So restart from FULL, which is the only direction this search can
+         * travel from, under the same one-shot guard: from full travel there is
+         * genuinely nowhere further up and `at-min` then means what it says. */
+        if (x0 < 1 - 1e-9 && !pair.reseeking) {
+          pair.reseeking = true;
+          act.set(1);
+          cur = evaluate();
+          var upward = seek(pair);
+          pair.reseeking = false;
+          if (Math.abs(upward.x - x0) > 1e-9) upward.moved = true;
+          return upward;
+        }
         return { state: 'at-min', x: x0, error: e0, moved: false };
       }
       /* Keep the BEST point seen anywhere in this search, not merely the last
@@ -1813,6 +1850,61 @@
       var trial = evaluate();
       var e1 = errorOf(trial, pair);
       record(probe, e1, trial);
+
+      /* --- ONE SAMPLE AT THE STOP CANNOT DESCRIBE A CURVE THAT TURNS.
+       *
+       * Everything below this line assumes the error moves one way with the
+       * actuator: the far probe says whether backing off helps, and the descent
+       * and the bisection take it from there. On a mixing circuit that
+       * assumption is simply false, and it fails silently.
+       *
+       * The rig in `thermal.test.js` — two sources, a bypass, a check valve and
+       * a mixing sensor, which is Michael's economizer in miniature — reads
+       * +4.4 K at full speed, falls through setpoint at about 45%, bottoms at
+       * −1.4 K near 35%, and rises back through setpoint at about 30%. Two
+       * effects fight: while the check valve holds the bypass shut the trim pump
+       * sets the WHOLE loop flow, so slowing it puts the same kilowatts into
+       * fewer kilograms and the supply gets COLDER; once the bypass opens,
+       * mixing takes over and it gets warmer. TWO perfectly good answers, and
+       * the single probe at 25% saw only a smaller error of the same sign,
+       * descended to the floor, reported `at-min`, and the lost-setpoint rule
+       * parked the pump at 100% with the sensor 4.4 K high.
+       *
+       * So when the far stop does not bracket the setpoint, SCAN the travel
+       * before believing it. Walked downward from where the device stands, so
+       * the first crossing found is the HIGHEST position that holds setpoint —
+       * which is where a controller ramping down from full would stop, and is
+       * the same tie-break `record` uses.
+       *
+       * COSTED, because solves are the currency here: it is skipped entirely
+       * whenever the far probe already brackets, which is the ordinary case and
+       * still one solve. It is paid only by a device that would otherwise have
+       * ended at `at-min`, `at-max` or `unsettled` — that is, only where the
+       * answer today is "I could not do it". */
+      var scanMet = null, scanHi = x0, scanC = null;
+      if (e1 !== null && !metBy(e1, e0, pair) &&
+          x0 - probe > 3 * act.step && solves < MAX_SOLVES) {
+        var prevX = x0;
+        for (var si = 0; si < CTRL_SCAN.length && solves < MAX_SOLVES; si++) {
+          var xs = quantise(act, probe + (x0 - probe) * CTRL_SCAN[si]);
+          if (!(xs < prevX - 1e-12) || !(xs > probe + 1e-12)) continue;
+          act.set(xs);
+          var sc = evaluate();
+          var se = errorOf(sc, pair);
+          record(xs, se, sc);
+          if (se === null) {
+            cur = sc;
+            return { state: 'no-flow', x: xs, error: null, moved: true };
+          }
+          if (metBy(se, e0, pair)) { scanMet = xs; scanHi = prevX; scanC = sc; break; }
+          prevX = xs;
+        }
+        /* Nothing found. Put the actuator back where the far probe left it, so
+         * `trial` still describes the model the descent is about to start
+         * from — no solve, just the position. */
+        if (scanMet === null) act.set(probe);
+      }
+
       /* HELPED, OR WENT PAST IT. Both mean backing off is the right direction —
        * and the second has to be allowed for, because probing at the MINIMUM
        * usually overshoots hard: on this rig the error goes from +0.15 L/s at
@@ -1820,8 +1912,8 @@
        * "no better" and leave the valve wide open, which is exactly what three
        * of Michael's valves did. A crossing is the strongest possible evidence
        * that the setpoint is reachable — it brackets the root. */
-      var helped = (e1 !== null) &&
-                   (Math.abs(e1) < Math.abs(e0) - 1e-12 || metBy(e1, e0, pair));
+      var helped = (scanMet !== null) || ((e1 !== null) &&
+                   (Math.abs(e1) < Math.abs(e0) - 1e-12 || metBy(e1, e0, pair)));
       if (!helped) {
         /* No better and no crossing. Put it back — and note that `cur` is still
          * the answer at x0, so restoring the model costs nothing to re-solve. */
@@ -1892,13 +1984,29 @@
        * The probe already sits at the minimum, so if it crossed the setpoint
        * this loop exits immediately and the bisection below does the work. */
       var xPrev = x0, ePrev = e0, x = probe, e = e1, c = trial;
+      /* THE SCAN ALREADY BRACKETED IT. Hand the two ends straight to the
+       * bisection: the descent has nothing left to find. */
+      if (scanMet !== null) {
+        xPrev = scanHi; x = scanMet; e = errorOf(scanC, pair); c = scanC;
+      }
       var met = null, guard = 0;
       while (guard++ < 14 && solves < MAX_SOLVES) {
         if (metBy(e, e0, pair)) { met = x; cur = c; break; }
         if (x <= act.min + 1e-12) {
+          /* ON THE FLOOR — and the floor is not automatically the best place to
+           * be. It is on a response that only falls, which is the only kind
+           * this descent used to meet; on one that turns, the scan above may
+           * have found a better position further up, and `best` is tracking it.
+           * Reporting the floor regardless threw that away. */
+          if (best.x > x + 1e-12 && Math.abs(best.e) < Math.abs(e) - 1e-12) {
+            act.set(best.x); cur = best.c;
+            return { state: Math.abs(best.e) <= band ? 'on' : 'unsettled',
+                     x: best.x, error: best.e,
+                     moved: Math.abs(best.x - x0) > 1e-9 };
+          }
           cur = c;
-          /* On the floor. Inside the deadband is still "holding setpoint" —
-           * it just cannot be held any more tightly than this. */
+          /* Inside the deadband is still "holding setpoint" — it just cannot be
+           * held any more tightly than this. */
           return { state: Math.abs(e) <= band ? 'on' : 'at-min',
                    x: x, error: e, moved: true };
         }

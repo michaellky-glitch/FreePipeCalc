@@ -331,11 +331,23 @@
       var want = set - tIn;                       // the ΔT it would like
       var got = want;
 
-      var dTMax = Math.abs(Number(e.dTMax));
-      if (isFinite(dTMax) && dTMax > 0 && Math.abs(got) > dTMax) {
-        got = (got < 0 ? -1 : 1) * dTMax;
-        lim = 'Design ΔT';
-      }
+      /* DESIGN ΔT DOES NOT LIMIT THE DUTY, and used to. Michael, 2026-08-09,
+       * from a manufacturer part-load table: the leaving temperature is held at
+       * 20.00 °C in every row and the duty is exactly ṁ·Cp·(EFT − LFT)
+       * throughout. 12 K at design because that is design flow at design
+       * return; at 30% load the flow floors at its minimum and the ΔT collapses
+       * to 10.5 K. Nothing in that table is limited by ΔT.
+       *
+       * Clamping ΔT caps the duty at C·ΔT_max, and C falls with flow — so the
+       * model said THROTTLING A CHILLER REDUCES ITS CAPACITY. Backwards, and it
+       * is why every machine on the data-centre model sat at 26–50% of
+       * nameplate reporting "limited by Design ΔT" while its coils starved.
+       *
+       * `dTMax` keeps its real job in `M.setEquipTrio`: the design-point
+       * relation Q = ṁ·Cp·ΔT that ties capacity, rated flow and ΔT together.
+       * What limits the machine here is its CAPACITY, below — and a blank
+       * capacity still means unlimited, which is what asks the model to size
+       * the machine for you. */
       /* CAPACITY IS SIGNED (Michael, 2026-08-03), on the same convention as a
        * load: + adds heat to the fluid, − removes it. A chiller has a negative
        * capacity and therefore CANNOT heat, however its setpoint is set.

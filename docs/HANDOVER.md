@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.3, 2026-08-09.** Seven test suites, **1681 assertions**, all
+State: **v0.16.4, 2026-08-09.** Seven test suites, **1722 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -42,14 +42,17 @@ loops, sync, and the DXF/print paths all work and are covered. The last few
 sessions have been UX and a run of genuine solver bugs found on Michael's
 data-centre model, all fixed.
 
-**The two questions actually outstanding are in `WORKLIST.md`**, and one of them
-needs Michael before any code moves:
+**Design ΔT and the control search are both DONE** (v0.16.4) — §6 now records
+what happened rather than what was pending. The one big thing still outstanding
+is in `WORKLIST.md`:
 
-* **Design ΔT (LS.5) — DECISION NEEDED.** His manufacturer part-load table
-  proves the current model wrong. The fix is written and passes all nine rows,
-  and is reverted, because it stops `economizer-trim` converging. See §6.
 * **A non-blocking solve.** The control loop is one uninterruptible block; the
-  DC model takes ~39 s. See §5.
+  DC model takes ~40 s. See §5.
+
+The next feature, and it falls straight out of the ΔT change, is the
+**early-design sizing aid**: blank capacity now means "size it for me", so the
+duty a machine lands on IS the answer to what to buy. `WORKLIST.md` has the
+three pieces.
 
 ---
 
@@ -144,7 +147,7 @@ OpenWebUI.
 ## 5. Performance — where the time goes, and what is left
 
 On `debug/20260808-DC-broken.json` (278 pipes, 253 nodes, 19 controlled
-devices) a full simulation is **~39 s**. Profiled:
+devices) a full simulation is **~40 s**. Profiled:
 
     hydraulics   ~35 s   422 solveCore calls
     thermal       ~3.5 s 422 thermal solves
@@ -179,55 +182,62 @@ again blind.
 
 ---
 
-## 6. The one engineering decision waiting on Michael
+## 6. Design ΔT, and the two search bugs it uncovered — DONE, v0.16.4
 
-**Design ΔT should not clamp the duty at part flow.**
+Kept because it is the most consequential physics change the project has made,
+and because the two control-loop defects it exposed will bite again.
 
-His manufacturer part-load table (2026-08-09) settles it. Leaving temperature is
-held at **20.00 °C in every row**, and the duty is exactly `ṁ·Cp·(EFT − LFT)`
-throughout — all nine rows reproduce to within 0.7%. 12 K at design because that
-is design flow at design return; at 30% load the flow floors at its minimum
-9.464 L/s and the **ΔT collapses to 10.5 K**. Nothing in that table is limited
-by ΔT.
+**Design ΔT no longer clamps the duty.** Michael's manufacturer part-load table
+(2026-08-09) settled it: leaving temperature held at **20.00 °C in every row**,
+duty exactly `ṁ·Cp·(EFT − LFT)` throughout, 12 K at design because that is
+design flow at design return, and at 30% load the flow floors at 9.464 L/s and
+the **ΔT collapses to 10.5 K**. Nothing in that table is limited by ΔT. The
+clamp capped duty at `C·ΔT_max` and `C` falls with flow, so the model said
+throttling a chiller reduces its capacity — which is why 26–50% of the machines
+on his data-centre model reported "limited by Design ΔT" while their coils
+starved. `dTMax` keeps its real job in `M.setEquipTrio` as the design-point
+relation; the thermal solve no longer reads it on a source/sink. Two rows of the
+table are `test/thermal.test.js` → *"Design ΔT is a design point, not a limit"*.
 
-The model clamps ΔT at any flow, which caps duty at `C·ΔT_max` — and C falls
-with flow, so it says **throttling a chiller reduces its capacity**. That is
-backwards, and it is why every machine on the DC model sits at 26–50% of
-nameplate reporting "limited by Design ΔT" while its coils starve at 89–91% of
-rated flow.
+**Blank capacity is now genuinely unlimited**, where the clamp used to imply a
+ceiling. Michael's ruling: models without an explicit capacity must gain one.
+`test/fixtures/economizer-trim` gained ACCH-1's own design point,
+`ρ·q_rated·cp·ΔT = 250.00 kW` exactly. That same property is what makes the
+sizing aid in `WORKLIST.md` possible.
 
-The fix was written and passes the whole table: stop clamping, and when no
-`qMax` is stated derive the capacity from the design point
-(`ρ·q_rated·cp·ΔT_design`, flow-independent). On his chiller that is
-27.65 L/s × 12 K = 1389 kW against a 1380 kW nameplate.
+**Removing the clamp exposed a NON-MONOTONIC control response, and the search
+could not cope with it. Two separate defects, both fixed, both in §17C of
+`ARCHITECTURE.md`:**
 
-**It is reverted** because `test/fixtures/economizer-trim` has no `qMax` on
-ACCH-1 and was relying on the clamp to hold exactly 15 K. With a fixed derived
-capacity it over-cools at reduced flow, the mix lands at 13.5 °C instead of 20,
-PMP-02 saturates and the model **stops converging**. That is a real change to
-how one of his own drawings behaves, not a test to renumber quietly.
+1. **A device on its FLOOR could not climb.** The exact mirror of the `at-max`
+   restart-from-full fixed in v0.15.9, and it had been sitting there unnoticed.
+   `seek` probes at `act.min`; when the device is already there it returned
+   `at-min` *without solving anything*, and the lost-setpoint rule parked it at
+   100%. On `economizer-trim`, sweep 1 put PMP-02 on its floor honestly — with
+   the valves wide open the mix was 12 K low at every speed — and sweeps 2 and 3
+   measured **+2.4 K at that same floor** and moved nothing. It restarts from
+   full now and settles at 32.9%.
 
-**Michael ruled on 2026-08-09: option 1** — models without an explicit capacity
-must gain one.
+2. **One sample at the stop cannot describe a curve that turns.** On a mixing
+   circuit the response falls and then rises: while the check valve holds the
+   bypass shut the trim pump sets the *whole* loop flow, so slowing it makes the
+   supply colder; once the bypass opens, mixing makes it warmer. The rig in
+   `thermal.test.js` crosses a 20 °C setpoint **twice**, at 45% and 30%, and the
+   single probe at the floor saw a smaller error of the same sign and gave up.
+   The travel is scanned now — four points, downward, so the first crossing is
+   the highest position that holds setpoint — and **only** when the far probe
+   fails to bracket, so the ordinary case still costs one solve.
 
-**But it is blocked on a different bug, and that is the discovery.** Removing the
-clamp exposes a NON-MONOTONIC control response in `economizer-trim` that the
-clamp was masking. Sweeping PMP-02 with everything else frozen, TS-2 reads
-13.55 → 11.86 → 11.77 → 14.80 → 17.83 → 20.86 → 22.37 as the speed drops from
-100% to 25%: it falls, then rises. Two effects fight — slowing the pump makes
-ACCH-1 colder while the check valve has not yet opened the bypass, and below
-~60% the bypass opens and mixing takes over. Under the clamp ACCH-1's outlet was
-pinned regardless of flow, so only the second effect existed.
+Both were found by removing the clamp, and neither is about ΔT: any model with a
+bypass and a mixing setpoint would have hit them.
 
-The bracketed search cannot cope: it probes the minimum, sees the sign change,
-and should bisect to the root near 32%, but reports `at-min` and parks at 100%.
-**That is a control-loop defect in its own right**, independent of ΔT, and it
-will bite any model with a bypass and a mixing setpoint.
-
-Order of work is therefore: fix the search on a non-monotonic response first
-(small rig — two sources, a bypass, a check valve, a mixing sensor), then land
-the ΔT change, which is already written and passes the whole table. See
-`WORKLIST.md`.
+**What it did to Michael's own files.** `economizer-trim` converges with all six
+controllers holding setpoint; ACCH-1 reaches 7.5 °C and four ninths of the flow
+goes through it, which is the mixing arithmetic for 30 °C and 7.5 °C mixing to
+20 °C. `20260805-4.json` no longer reports a lost setpoint at all — that error
+was the clamp's doing on a machine running 200 kW of a 500 kW design point.
+`20260807-DC-broken.json` went from not converging in 232 solves to converging
+in 55, with all eight devices holding setpoint (23.5 s → 5.4 s).
 
 ---
 
@@ -275,8 +285,9 @@ Short index of the least obvious things, all expanded in `ARCHITECTURE.md`:
 | Thing | Why it is like that |
 |---|---|
 | Control loop settles ONE device at a time, then sweeps | Devices interact; six sweeps, and a search that cannot finish is a no-op |
+| The search SCANS when the far stop tells it nothing | A mixing circuit's response turns, so one probe at the stop can miss two roots |
 | Devices sharing a setpoint are GANGED | N controllers on one measurement is degenerate; real plant shares one command |
-| The search only ever DESCENDS from full travel | A device needing to open restarts from full — it has no other direction |
+| The search only ever DESCENDS from full travel | A device needing to open restarts from full — it has no other direction, and that applies at the FLOOR as well as mid-travel |
 | Thermal is SOLVED, not iterated | Every relation is affine; Gauss-Seidel was hopeless on a lagged loop |
 | A source MIXES, it does not reset | It states the temperature of the water it brings IN |
 | The datum is pinned only on a SINGULAR solve | Pinning on suspicion overrode machines already holding a setpoint |

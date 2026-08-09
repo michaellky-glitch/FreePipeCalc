@@ -16,3 +16,10 @@ node_modules/
 # history already preserves every old version, and shipping a second copy of
 # the app only raises "which one do I run?".
 Previous Version/
+
+# Michael's problem files. `HANDOVER.md` §8 has said these are gitignored since
+# they existed; they were not, and a single `git add -A` would have published
+# them. They are his drawings, they are the best test material in the project,
+# and a copy of anything that produces a fix is frozen into `test/fixtures/`
+# instead — which is what the tests read.
+debug/

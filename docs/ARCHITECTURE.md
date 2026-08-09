@@ -1461,8 +1461,67 @@ nowhere further up, and `at-max` then means what its name says.
 
 With it, the same model converges in five sweeps — valve at 59% and three
 correctly wide open, PMP-01 at 91.9% holding 200.8 kPa against a 200 kPa
-setpoint, PMP-02 at 48.8% holding the mix at 20.08 °C, and a third of the flow
-bypassing the chiller exactly as the mixing arithmetic requires.
+setpoint, PMP-02 holding the mix at 20 °C, and the flow splitting between
+chiller and bypass exactly as the mixing arithmetic requires.
+
+### …and a device on its FLOOR cannot climb either (v0.16.4)
+
+The exact mirror of the paragraph above, and it went unnoticed because the
+`at-max` case was the one that showed up first. `seek` probes at
+`act.min`; when the device is **already there**, `probe < x0` is false and it
+returns `at-min` *without solving anything at all*. The lost-setpoint rule reads
+that as "nothing in its range holds the setpoint" and slams it to 100%.
+
+`test/fixtures/economizer-trim` with ACCH-1's real capacity is the case.
+Sweep 1 put PMP-02 on its 25% floor **honestly**: with all four coil valves
+still wide open the mix was 12 K below setpoint at every speed in the range.
+Sweeps 2 and 3 then measured **+2.4 K at that same floor** — the valves had
+throttled, the plant had changed underneath it, the root was sitting at about
+28% — and both sweeps reported `at-min` and moved nothing. It restarts from full
+now, under the same one-shot guard, and settles at 32.9%.
+
+### One sample at the stop cannot describe a curve that TURNS (v0.16.4)
+
+Everything above assumes the error moves one way with the actuator. On a mixing
+circuit it does not, and the assumption fails silently.
+
+The rig in `thermal.test.js` — two sources, a bypass, a check valve and a mixing
+sensor — is Michael's economizer in miniature. Two effects fight. While the
+check valve holds the bypass **shut**, the trim pump is in series with the loop
+and sets the *whole* flow, so slowing it puts the same kilowatts into fewer
+kilograms and the supply gets **colder**. Once the bypass **opens**, 30 °C water
+joins the mix and the supply gets **warmer**. Sweeping the pump down, the sensor
+reads
+
+    100%   +4.4 K        the bypass is shut
+     45%    0            ← root 1
+     35%   −1.4 K        the turn
+     30%    0            ← root 2
+     25%   +1.7 K        the bypass is carrying a third of the flow
+
+Two perfectly good answers. The single probe at the 25% floor read a smaller
+error *of the same sign*, the descent went to the floor, and the pump was parked
+at 100% with the sensor 4.4 K high.
+
+**So when the far stop does not bracket the setpoint, the travel is scanned**
+before the search believes it — four points, walked **downward** from where the
+device stands, so the first crossing found is the highest position that holds
+setpoint. That is where a controller ramping down from full would stop, and it
+is the same tie-break the rest of the search uses.
+
+It is costed. The scan is skipped entirely whenever the far probe already
+brackets, which is the ordinary case and still one solve; it is paid only by a
+device that would otherwise have ended `at-min`, `at-max` or `unsettled` — that
+is, only where the answer today is "I could not do it". Measured on
+`20260808-DC-broken.json`: 421 → 455 solves, and **fewer sweeps** (6 → 3),
+because devices settle instead of being re-tried, so the wall time went 41.5 s →
+40.0 s. On `20260807-DC-broken.json` the two v0.16.4 changes together take it
+from 232 solves over 6 sweeps, not converging, to **55 solves over 2, converging
+with all eight devices holding setpoint** — 23.5 s to 5.4 s.
+
+While in there, the descent stopped throwing away its best point when it reaches
+the floor. On a response that only falls the floor *is* the best point, which is
+why it never mattered; on one that turns it is not.
 
 ### Losing the setpoint: park at FULL, do not throttle
 
@@ -1847,10 +1906,31 @@ temperature at a physical bound — wet bulb on a tower, ambient on an economize
 Michael's instruction, 2026-08-04: *"let the engineer evaluate."* Whether a
 leaving temperature is achievable is a judgement about the **selection**, and
 clamping it silently produced an answer that looked achieved when no machine
-could have done it. Capacity and Design ΔT still bind: those are nameplate
-figures, not judgements. An exchanger keeps its T limit, where it is the
-entering-air temperature in disguise — a stated condition rather than a
-judgement.
+could have done it. Capacity still binds: that is a nameplate figure, not a
+judgement. An exchanger keeps its T limit, where it is the entering-air
+temperature in disguise — a stated condition rather than a judgement.
+
+**And Design ΔT is gone from a source/sink too** (v0.16.4), which leaves
+capacity as the only thing that binds one. Michael's manufacturer part-load
+table for a 1380 kW chiller settled it, 2026-08-09: the leaving temperature is
+held at **20.00 °C in every row** while the ΔT slides from 12 K at design down
+to **10.5 K** at 30% load, where the flow has floored. `Q = ṁ·Cp·ΔT` reproduces
+the whole table inside 0.5%. ΔT is what you get when a duty meets a flow, not
+something a machine refuses to exceed; 12 K is 12 K because that is design flow
+at design return.
+
+The clamp capped the duty at `C·ΔT_max`, and `C` falls with flow — so the model
+said **throttling a chiller reduces its capacity**, which is backwards. It is
+why 26–50% of the machines on his data-centre model reported *"limited by
+Design ΔT"* while running well inside their nameplate and starving their coils.
+`test/thermal.test.js`, *"Design ΔT is a design point, not a limit"*, holds the
+table.
+
+The cost of the change is that **a model with no stated capacity is now
+unlimited**, where the clamp used to imply one. Michael ruled on that directly
+(2026-08-09): models without an explicit capacity must gain one, and blank goes
+on meaning unlimited — which is what makes it usable as a sizing question, "hold
+the setpoint whatever it takes and tell me what that took".
 
 `dTMax` is now labelled **Design ΔT**, and on a source/sink it is one of three
 stored figures rather than a limit bolted on: design flow, Heating/Cooling
