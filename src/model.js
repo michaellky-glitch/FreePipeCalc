@@ -1739,12 +1739,96 @@
     return w;
   }
 
-  function controlRoute(m, p) {
+  /* Which floor a pipe is drawn on. Both ends are always on the same level —
+   * a riser is its own kind — so the `a` end answers for it. */
+  function pipeLevel(m, p) {
+    var n = p && node(m, p.a);
+    return n ? n.level : null;
+  }
+
+  /* ================================ A CONTROL LINK THAT CHANGES FLOOR
+   *
+   * Michael, 2026-08-09. A pump on the plant floor following a sensor two
+   * storeys up is an ordinary arrangement, and until now it was drawn as
+   * NOTHING AT ALL: `drawControlLinks` refused any link whose two ends were not
+   * both on the level being drawn, because a straight dashed line between them
+   * would cut across a floor it has no business on.
+   *
+   * So it gets a RISER, exactly as pipework does. One point in world XY where
+   * the signal changes floor, drawn on BOTH floors at the same place — on the
+   * device's floor a dashed line runs from the device out to it, and on the
+   * target's floor another runs from it to the sensor. Read together the two
+   * halves meet at the same spot on the plan, which is what makes them legible
+   * as one link.
+   *
+   * It is ANNOTATION, not model: the engine never reads it, and moving it
+   * cannot change a number. Stored on the control object beside the routing
+   * that is already there. */
+  function controlRiser(m, p) {
     var c = controlOf(p);
     if (!c) return null;
-    var a = deviceMid(m, p), b = deviceMid(m, pipe(m, c.equip));
+    var tgt = pipe(m, c.equip);
+    if (!tgt) return null;
+    var la = pipeLevel(m, p), lb = pipeLevel(m, tgt);
+    if (!la || !lb || la === lb) return null;          // same floor: no riser
+    if (c.riser && isFinite(Number(c.riser.x)) && isFinite(Number(c.riser.y))) {
+      return { x: Number(c.riser.x), y: Number(c.riser.y) };
+    }
+    /* DEFAULT: halfway between the two devices in plan. Symmetric, so neither
+     * half of the link is a long reach and the other a stub, and it lands
+     * somewhere the eye is already looking. */
+    var a = deviceMid(m, p), b = deviceMid(m, tgt);
     if (!a || !b) return null;
-    return zRoute(a, b, c.axis, c.mid, c.pts);
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+
+  function setControlRiser(m, p, x, y) {
+    var c = controlOf(p);
+    if (!c || !isFinite(x) || !isFinite(y)) return null;
+    c.riser = { x: x, y: y };
+    return c.riser;
+  }
+
+  /* Does this link cross floors, and which way round? Null when it does not. */
+  function controlSpan(m, p) {
+    var c = controlOf(p);
+    if (!c) return null;
+    var tgt = pipe(m, c.equip);
+    if (!tgt) return null;
+    var la = pipeLevel(m, p), lb = pipeLevel(m, tgt);
+    if (!la || !lb || la === lb) return null;
+    var riser = controlRiser(m, p);
+    return riser ? { device: la, target: lb, riser: riser, targetPipe: tgt } : null;
+  }
+
+  /* THE ROUTE, FOR THE FLOOR BEING DRAWN.
+   *
+   * Same floor, or no level asked for: unchanged, and that is every existing
+   * caller. Crossing floors: the LEG that belongs to `levelId` — device to
+   * riser, or riser to target — and null for any other floor, so a link that
+   * has nothing to do with this plan draws nothing.
+   *
+   * Without a `levelId` a crossing link returns null rather than the straight
+   * A-to-B route it used to compute: that route ran across a floor it does not
+   * belong to, and returning it would put it back on the drawing. */
+  function controlRoute(m, p, levelId) {
+    var c = controlOf(p);
+    if (!c) return null;
+    var tgt = pipe(m, c.equip);
+    var a = deviceMid(m, p), b = deviceMid(m, tgt);
+    if (!a || !b) return null;
+
+    var span = controlSpan(m, p);
+    if (!span) return zRoute(a, b, c.axis, c.mid, c.pts);
+    if (!levelId) return null;
+    if (levelId === span.device) return zRoute(a, span.riser, c.axis, c.mid, c.pts);
+    if (levelId === span.target) {
+      /* The far leg keeps its own routing, or the two halves would share one
+       * axis and one mid and fight over them. */
+      var f = c.far || {};
+      return zRoute(span.riser, b, f.axis, f.mid, f.pts);
+    }
+    return null;
   }
 
   /* THE DIFFERENTIAL SENSOR'S ROUTE — the same Z, between the two tappings.
@@ -2145,6 +2229,8 @@
     removeDetail: removeDetail, removeNote: removeNote,
     DETAIL_COLOURS: DETAIL_COLOURS,
     controlRoute: controlRoute, sensorRoute: sensorRoute, zRoute: zRoute,
+    controlRiser: controlRiser, setControlRiser: setControlRiser,
+    controlSpan: controlSpan, pipeLevel: pipeLevel,
     routeWaypoints: routeWaypoints, insertWaypoint: insertWaypoint,
     sensorRefPoint: sensorRefPoint,
     deviceMid: deviceMid,

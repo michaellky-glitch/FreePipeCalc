@@ -717,6 +717,15 @@
           }
           return;
         }
+        /* The riser first: it sits ON the end of the route, so a bend handle
+         * at the same spot would win and drag the wrong thing. */
+        var crh = self.controlRiserAt(sx, sy);
+        if (crh) {
+          self.onBeforeEdit();
+          self.dragControlRiser = { pipe: crh.pipe };
+          c.setPointerCapture(e.pointerId);
+          return;
+        }
         var ch = self.controlHandleAt(sx, sy);
         if (ch) {
           self.dragControl = { pipe: ch.pipe, host: ch.host, key: ch.key,
@@ -1090,6 +1099,15 @@
         self.render();
         return;
       }
+      if (self.dragControlRiser) {
+        /* The riser is a plain point on the plan, so it snaps like one. Both
+         * halves of the link follow it, on both floors, because there is only
+         * one of it — a control cable rising through a shaft is in one place. */
+        var rp = self.snapWorld(w);
+        M.setControlRiser(self.getModel(), self.dragControlRiser.pipe, rp.x, rp.y);
+        self.render();
+        return;
+      }
       if (self.dragControl) {
         /* Slide the whole middle segment. `mid` is a WORLD coordinate, so the
          * route stays where it was put through zoom and pan. Presentation
@@ -1289,6 +1307,7 @@
        * and ALIGN (which moves every level by the same offset and is documented
        * as unable to touch a length). Saved, never re-solved. */
       if (self.dragTrace) { self.dragTrace = null; self.arranged(); return; }
+      if (self.dragControlRiser) { self.dragControlRiser = null; self.arranged(); return; }
       if (self.dragControl) { self.dragControl = null; self.arranged(); return; }
       if (self.dragNote) { self.dragNote = null; self.arranged(); return; }
       if (self.dragLabel) { self.dragLabel = null; self.arranged(); return; }
@@ -2020,6 +2039,10 @@
      * route registers handles too and the sensors are drawn first — resetting
      * the list later threw them away. */
     this._controlHandles = [];
+    /* Cleared beside the control handles rather than inside
+     * `drawControlLinks`, which returns early when links are hidden —
+     * leaving stale handles behind that are still draggable. */
+    this._riserHandles = [];
     /* UNDER the model. Detail lines are a backdrop — a room outline, a plant
      * box — and pipework must never be hidden behind one. */
     this.drawDetails();
@@ -4378,14 +4401,14 @@
     var m = this.getModel(), ctx = this.ctx, self = this;
 
     m.pipes.forEach(function (p) {
-      var r = M.controlRoute(m, p);
-      if (!r) return;
-      var target = M.pipe(m, M.controlOf(p).equip);
+      var target = M.pipe(m, (M.controlOf(p) || {}).equip);
       if (!target) return;
-      /* Both ends must be on the level being drawn, or the route would cut
-       * across a floor it does not belong to. */
-      var na = M.node(m, p.a), nb = M.node(m, target.a);
-      if (!na || !nb || na.level !== m.activeLevel || nb.level !== m.activeLevel) return;
+      /* THE ROUTE FOR THIS FLOOR. Same-level links are unchanged; a link that
+       * changes floor comes back as the LEG belonging to the level being drawn,
+       * and as null on any floor it has nothing to do with. */
+      var r = M.controlRoute(m, p, m.activeLevel);
+      if (!r) return;
+      var span = M.controlSpan(m, p);
 
       var pts = r.points.map(function (q) { return self.toScreen(q.x, q.y); });
       ctx.save();
@@ -4398,10 +4421,65 @@
       ctx.stroke();
       ctx.setLineDash([]);
 
-      /* A small ring at the equipment end says which way the signal runs. */
+      /* A small ring at the equipment end says which way the signal runs. On
+       * the device's floor of a crossing link that end IS the riser, and the
+       * riser draws its own marker below — so the ring is skipped there rather
+       * than drawn inside it. */
       var end = pts[pts.length - 1];
-      ctx.beginPath(); ctx.arc(end.x, end.y, 4, 0, Math.PI * 2); ctx.stroke();
+      var endIsRiser = span && m.activeLevel === span.device;
+      if (!endIsRiser) {
+        ctx.beginPath(); ctx.arc(end.x, end.y, 4, 0, Math.PI * 2); ctx.stroke();
+      }
       ctx.restore();
+
+      /* ---- THE RISER NODE, where the link changes floor.
+       *
+       * Drawn on BOTH floors at the same plan position, which is what makes the
+       * two halves read as one link. The ring echoes a pipework riser — same
+       * shape, control colour — and the label says where the signal is going,
+       * because "up to what?" is the question the marker raises. */
+      if (span) {
+        var rs = self.toScreen(span.riser.x, span.riser.y);
+        var onDeviceFloor = (m.activeLevel === span.device);
+        /* The far end's name, and the floor it is on. */
+        var far = onDeviceFloor ? span.targetPipe : p;
+        var farLevel = M.level(m, onDeviceFloor ? span.target : span.device);
+        var going = (far.tag || far.id) +
+                    (farLevel ? '  (' + (farLevel.name || farLevel.id) + ')' : '');
+
+        ctx.save();
+        ctx.strokeStyle = self.theme.ok;
+        ctx.fillStyle = self.theme.bg;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(rs.x, rs.y, 8, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        /* A dot in the middle: this is a point on the plan, not a hole. */
+        ctx.fillStyle = self.theme.ok;
+        ctx.beginPath(); ctx.arc(rs.x, rs.y, 2.5, 0, Math.PI * 2); ctx.fill();
+
+        var size = self.labelSize();
+        ctx.font = size + 'px system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        var txt = '↑ ' + going;
+        var tw = ctx.measureText(txt).width;
+        ctx.fillStyle = self.theme.bg;
+        ctx.globalAlpha = 0.82;
+        ctx.fillRect(rs.x + 11, rs.y - size * 0.7, tw + 6, size * 1.4);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = self.theme.ok;
+        ctx.fillText(txt, rs.x + 14, rs.y);
+        ctx.restore();
+
+        /* DRAGGABLE WHILE ARRANGING — the `view` tool, which is what the
+         * ANNOTATION ribbon selects. Registered whichever floor you are on, so
+         * it can be placed from either end of the link. */
+        if (self.tool === 'view') {
+          self._riserHandles.push({
+            pipe: p, x: rs.x - 11, y: rs.y - 11, w: 22, h: 22
+          });
+        }
+      }
 
       if (self.tool === 'view' && pts.length > 2) {
         /* One handle per bend; both slide the same mid line, which is what
@@ -4484,6 +4562,18 @@
     holder.pts = pts;
     delete holder.axis; delete holder.mid;
     return true;
+  };
+
+  /* The control-link riser under the pointer, if any. Registered by
+   * `drawControlLinks` while the `view` tool is active — the same rule the bend
+   * handles follow, because both are arranging rather than editing. */
+  View.prototype.controlRiserAt = function (sx, sy) {
+    var hs = this._riserHandles || [];
+    for (var i = hs.length - 1; i >= 0; i--) {
+      var h = hs[i];
+      if (sx >= h.x && sx <= h.x + h.w && sy >= h.y && sy <= h.y + h.h) return h;
+    }
+    return null;
   };
 
   View.prototype.controlHandleAt = function (sx, sy) {

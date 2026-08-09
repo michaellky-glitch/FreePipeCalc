@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.8, 2026-08-09.** Seven test suites, **1762 assertions**, all
+State: **v0.16.9, 2026-08-09.** Seven test suites, **1789 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -181,6 +181,13 @@ re-renders the panel, and the calculation sheet reads back out of the DOM.
 
 `--bind 127.0.0.1` is not optional — a server on 0.0.0.0 clashes with Michael's
 OpenWebUI. `.claude/` is gitignored, so the file is yours and does not ship.
+
+**And CLOSE any `file://` tab before you start.** A stuck `file://` tab wedges
+the whole renderer, not just itself: with one open in the background, every
+`javascript_tool` call against the SERVED tab times out too — including a bare
+`1 + 1`. It reads exactly like an infinite loop in whatever you just wrote, and
+it is not. `tabs_context` then `tabs_close` on the `file:` one clears it
+instantly. Cost half an hour on 2026-08-09.
 Nothing about the app depends on the origin; `file://` remains what it must SHIP
 as, and is what Michael runs.
 
@@ -392,5 +399,6 @@ Short index of the least obvious things, all expanded in `ARCHITECTURE.md`:
 | A source MIXES, it does not reset | It states the temperature of the water it brings IN |
 | The datum is pinned only on a SINGULAR solve | Pinning on suspicion overrode machines already holding a setpoint |
 | `pump.head` vs `hDesign` | One is what the solver ran on, the other is a report of it |
+| A control link across floors rises through a NODE | Half the link on each floor, meeting at one draggable point in plan |
 | Routes are `zRoute`, one degree of freedom | Three orthogonal segments between two fixed points have exactly one |
 | Details and notes are their own collections | Nothing in the engine reads them, so a room outline cannot become pipework |

@@ -293,23 +293,42 @@
     // ---- control links and differential routes ----
     if (showControl) {
       m.pipes.forEach(function (p) {
-        var r = M.controlRoute(m, p);
+        /* PER FLOOR, so a link that changes floor prints its own half on each
+         * plan with the riser where the two meet — the same thing the canvas
+         * draws. `controlRoute` returns null for a floor the link has nothing
+         * to do with, which is the whole of the filtering that used to be
+         * written out here. */
+        var r = M.controlRoute(m, p, level.id);
         if (r) {
-          var tgt = M.pipe(m, M.controlOf(p).equip);
-          var na2 = M.node(m, p.a), nb2 = tgt && M.node(m, tgt.a);
-          if (na2 && nb2 && na2.level === level.id && nb2.level === level.id) {
-            svg.appendChild(svgEl('polyline', {
-              points: r.points.map(function (q) {
-                return tf.x(q.x).toFixed(2) + ',' + tf.y(q.y).toFixed(2);
-              }).join(' '),
-              fill: 'none', stroke: '#0a7a3d', 'stroke-width': 1,
-              'stroke-dasharray': '6,4'
-            }));
-            var e = r.points[r.points.length - 1];
+          svg.appendChild(svgEl('polyline', {
+            points: r.points.map(function (q) {
+              return tf.x(q.x).toFixed(2) + ',' + tf.y(q.y).toFixed(2);
+            }).join(' '),
+            fill: 'none', stroke: '#0a7a3d', 'stroke-width': 1,
+            'stroke-dasharray': '6,4'
+          }));
+          var span = M.controlSpan(m, p);
+          var e = r.points[r.points.length - 1];
+          if (!(span && level.id === span.device)) {
             svg.appendChild(svgEl('circle', {
               cx: tf.x(e.x), cy: tf.y(e.y), r: 3,
               fill: 'none', stroke: '#0a7a3d', 'stroke-width': 1
             }));
+          }
+          if (span) {
+            var far = (level.id === span.device) ? span.targetPipe : p;
+            var fl = M.level(m, (level.id === span.device) ? span.target : span.device);
+            svg.appendChild(svgEl('circle', {
+              cx: tf.x(span.riser.x), cy: tf.y(span.riser.y), r: 5,
+              fill: '#fff', stroke: '#0a7a3d', 'stroke-width': 1.5
+            }));
+            var rt = svgEl('text', {
+              x: tf.x(span.riser.x) + 9, y: tf.y(span.riser.y) + 3,
+              'font-size': 8, fill: '#0a7a3d'
+            });
+            rt.textContent = '\u2191 ' + (far.tag || far.id) +
+                             (fl ? ' (' + (fl.name || fl.id) + ')' : '');
+            svg.appendChild(rt);
           }
         }
         var sr = M.sensorRoute(m, p);

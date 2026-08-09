@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1762
+This is deliberately separate from the automated suites. Those cover 1789
 assertions of engine behaviour (all passing), but they cannot tell you whether a
 button is discoverable, whether a drawing prints legibly, or whether a result
 *looks* right to someone who sizes pipes for a living. Only Michael can sign
@@ -10,7 +10,7 @@ those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-09 (v0.16.8)
+Last updated: 2026-08-09 (v0.16.9)
 
 **THE CURRENT BATCH IS DIRECTLY BELOW**, before anything historical — Michael
 2026-08-09, having gone looking for it and found it buried under two years of
@@ -20,11 +20,29 @@ first. `WORKLIST.md` says what is waiting on me.
 
 ---
 
-# WAITING ON YOU — v0.16.4 to v0.16.8
+# WAITING ON YOU — v0.16.4 to v0.16.9
 
 Nothing in this block has been looked at by a person. Each row says what was
 driven and how, so you know which part is already pinned and which part is the
 bit only you can judge.
+
+## 5Q. A CONTROL LINK THAT CHANGES FLOOR (v0.16.9)
+
+Your new item. A pump on the plant floor following a sensor two storeys up used
+to be drawn as **nothing at all** — the renderer refused any link whose two ends
+were not both on the level being drawn, because a straight dashed line between
+them cuts across a floor it has no business on.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| CF.1 | **Half the link on each floor** | ⬜ | On the device's floor, a dashed line from the device out to a riser node. On the sensor's floor, a dashed line from the same node to the sensor. Verified by capturing what the renderer paints: ground floor draws `PMP-01` and `↑ TS-1  (Level 1)`; Level 1 draws `TS-1` and `↑ PMP-01  (Level 0)`. |
+| CF.2 | The node says where it goes | ⬜ | A ring in the control colour — same shape as a pipework riser, so it reads as "this goes up" — labelled with the far end's tag and the floor it is on. "Up to what?" is the question the marker raises, so it answers it. |
+| CF.3 | **Draggable in ANNOTATION** | ⬜ | ANNOTATION selects the `view` tool, which is where the control-link bend handles already live, so it is the same gesture. Verified: drag moves it and it snaps to the grid. Not draggable with SELECT — the handle is not even registered there. |
+| CF.4 | One riser, moved from either floor | ⬜ | There is only one of it: a control cable rising through a shaft is in one place. Dragged from the ground floor to (4, −6), then from Level 1 to (13, 2) — the same point moved both times, and both halves of the link still meet at it exactly. |
+| CF.5 | It is annotation, so it saves without re-solving | ⬜ | Released through `arranged()`, the verb added in v0.16.7 — the drawing changed, the answer cannot have. It survives a save and reload. |
+| CF.6 | The two halves route independently | ⬜ | Each leg keeps its own axis and mid, or they would share one degree of freedom between two lines and fight over it. |
+| CF.7 | Same-floor links are untouched | ⬜ | The case every existing model is. Checked on `economizer-trim`: 6 controlled devices, 0 spans, all 6 routes drawn, 16 bend handles, no riser handles, and the sample route is the same four points as before. |
+| CF.8 | It prints | ⬜ | The printed plan follows the same rule per sheet, riser and label included. **Not verified — printing has never been checked on real paper.** |
 
 ## 5P. YOUR DATA CENTRE, ON THE REPAIRED FILE (`debug/20260809-DC`)
 

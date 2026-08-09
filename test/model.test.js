@@ -2467,6 +2467,132 @@ section('Control-link routing is one consistent rule');
 /* =====================================================================
  * THE Z ROUTE, and the differential sensor built on it.
  * ===================================================================== */
+/* --------------------------------------------------------------------------
+ * A CONTROL LINK THAT CHANGES FLOOR  (Michael, 2026-08-09)
+ *
+ * A pump on the plant floor following a sensor two storeys up is an ordinary
+ * arrangement, and it used to be drawn as NOTHING: the renderer refused any
+ * link whose two ends were not both on the level being drawn, because a
+ * straight dashed line between them cuts across a floor it has no business on.
+ *
+ * So it gets a RISER, exactly as pipework does — one point in plan where the
+ * signal changes floor, and half the link on each floor meeting at it.
+ * ----------------------------------------------------------------------- */
+section('A control link that changes floor rises through a node');
+{
+  function rig(sameFloor) {
+    const m = M.create();
+    const l0 = m.levels[0].id;
+    const l1 = M.addLevel(m, 'Level 1').id;
+    const a1 = M.addNode(m, l0, 0, 0), a2 = M.addNode(m, l0, 1, 0);
+    const pump = M.addPipe(m, a1.id, a2.id, { kind: 'pump' });
+    pump.pump = { mode: 'auto', head: 10 };
+    pump.tag = 'PMP-01';
+    const up = sameFloor ? l0 : l1;
+    const b1 = M.addNode(m, up, 19.5, 8), b2 = M.addNode(m, up, 20.5, 8);
+    const sens = M.addPipe(m, b1.id, b2.id, { kind: 'sensor' });
+    sens.sensor = { mode: 'temperature', tSet: 30 };
+    sens.tag = 'TS-1';
+    M.setControl(m, pump, sens.id);
+    return { m, pump, sens, l0, l1 };
+  }
+
+  /* ---- SAME FLOOR is untouched. Every existing model is this case. */
+  {
+    const t = rig(true);
+    ok('No riser when both ends are on one floor',
+       M.controlRiser(t.m, t.pump) === null);
+    ok('...and no span', M.controlSpan(t.m, t.pump) === null);
+    const r = M.controlRoute(t.m, t.pump, t.l0);
+    ok('...the route is the whole link, as before', !!r && r.points.length >= 3,
+       JSON.stringify(r && r.points));
+    const nolevel = M.controlRoute(t.m, t.pump);
+    ok('...and asking without a floor still answers', !!nolevel);
+  }
+
+  /* ---- DIFFERENT FLOORS: a riser appears, halfway between the two devices. */
+  {
+    const t = rig(false);
+    const span = M.controlSpan(t.m, t.pump);
+    ok('A crossing link reports a span', !!span, JSON.stringify(span));
+    ok('...naming the device floor', span.device === t.l0);
+    ok('...and the target floor', span.target === t.l1);
+
+    /* The default sits midway between the two device MIDPOINTS: the pump spans
+     * x = 0…1 so its midpoint is (0.5, 0), and the sensor's is (20, 8). */
+    const am = M.deviceMid(t.m, t.pump), bm = M.deviceMid(t.m, t.sens);
+    near('The riser defaults to halfway between them, in x',
+         span.riser.x, (am.x + bm.x) / 2, 1e-9);
+    near('...and in y', span.riser.y, (am.y + bm.y) / 2, 1e-9);
+    near('...which is (10.25, 4) here', span.riser.x, 10.25, 1e-9);
+    near('...', span.riser.y, 4, 1e-9);
+
+    /* ---- HALF THE LINK ON EACH FLOOR, meeting at the riser. */
+    const near0 = M.controlRoute(t.m, t.pump, t.l0);
+    const far1 = M.controlRoute(t.m, t.pump, t.l1);
+    ok('The device floor gets a route', !!near0);
+    ok('...ending at the riser',
+       Math.abs(near0.points[near0.points.length - 1].x - span.riser.x) < 1e-9 &&
+       Math.abs(near0.points[near0.points.length - 1].y - span.riser.y) < 1e-9,
+       JSON.stringify(near0.points[near0.points.length - 1]));
+    near('...and starting at the pump', near0.points[0].x, am.x, 1e-9);
+
+    ok('The sensor floor gets a route', !!far1);
+    ok('...starting at the riser',
+       Math.abs(far1.points[0].x - span.riser.x) < 1e-9 &&
+       Math.abs(far1.points[0].y - span.riser.y) < 1e-9,
+       JSON.stringify(far1.points[0]));
+    near('...and ending at the sensor',
+         far1.points[far1.points.length - 1].x, bm.x, 1e-9);
+
+    /* A floor with neither end on it draws nothing at all. */
+    const l2 = M.addLevel(t.m, 'Level 2').id;
+    ok('A floor the link does not touch gets nothing',
+       M.controlRoute(t.m, t.pump, l2) === null);
+    /* And asking without naming a floor is refused rather than answered with
+     * the straight line that cuts across one. */
+    ok('...as is asking without naming a floor',
+       M.controlRoute(t.m, t.pump) === null);
+  }
+
+  /* ---- DRAGGED, and it moves BOTH halves, because there is one riser. */
+  {
+    const t = rig(false);
+    M.setControlRiser(t.m, t.pump, 6, -3);
+    const span = M.controlSpan(t.m, t.pump);
+    near('A dragged riser is honoured, in x', span.riser.x, 6, 1e-12);
+    near('...and in y', span.riser.y, -3, 1e-12);
+
+    const a = M.controlRoute(t.m, t.pump, t.l0);
+    const b = M.controlRoute(t.m, t.pump, t.l1);
+    const aEnd = a.points[a.points.length - 1], bStart = b.points[0];
+    ok('Both halves still meet at it',
+       Math.abs(aEnd.x - 6) < 1e-9 && Math.abs(aEnd.y + 3) < 1e-9 &&
+       Math.abs(bStart.x - 6) < 1e-9 && Math.abs(bStart.y + 3) < 1e-9,
+       JSON.stringify([aEnd, bStart]));
+
+    /* It survives a save, because it is part of the drawing. */
+    const back = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(t.m))));
+    const p2 = M.pipe(back, t.pump.id);
+    near('...and it survives a round trip', M.controlRiser(back, p2).x, 6, 1e-12);
+  }
+
+  /* ---- THE TWO HALVES ROUTE INDEPENDENTLY. One shared axis would have them
+   * fighting over a single degree of freedom that belongs to two lines. */
+  {
+    const t = rig(false);
+    const c = M.controlOf(t.pump);
+    c.axis = 'h'; c.mid = 3;
+    c.far = { axis: 'v', mid: 17 };
+    const a = M.controlRoute(t.m, t.pump, t.l0);
+    const b = M.controlRoute(t.m, t.pump, t.l1);
+    ok('The near leg keeps its own axis', a.axis === 'h', a.axis);
+    near('...and its own mid', a.mid, 3, 1e-12);
+    ok('The far leg keeps its own', b.axis === 'v', b.axis);
+    near('...and its own mid', b.mid, 17, 1e-12);
+  }
+}
+
 section('zRoute: one shape, one degree of freedom');
 {
   const A = { x: 0, y: 0 };

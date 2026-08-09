@@ -3,7 +3,7 @@
 Everything Michael has asked for that is not yet done, in the order it will be
 tackled. Closed items move to `Human-Test.md` with a verification note.
 
-Updated 2026-08-09, after v0.16.8.
+Updated 2026-08-09, after v0.16.9.
 
 ---
 
@@ -48,6 +48,9 @@ can check it.
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.9** — a control link whose two ends are on different floors is drawn
+  at last: half on each floor, meeting at a riser node you can drag in
+  ANNOTATION. It used to be drawn as nothing at all.
 * **v0.16.8** — S3: the solve is a generator and the page no longer freezes.
   459 heartbeats during a 29.5 s solve where there used to be one; an edit
   mid-solve abandons the run rather than overwriting with a stale answer.
