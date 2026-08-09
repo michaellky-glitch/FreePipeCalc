@@ -207,9 +207,27 @@ capacity it over-cools at reduced flow, the mix lands at 13.5 °C instead of 20,
 PMP-02 saturates and the model **stops converging**. That is a real change to
 how one of his own drawings behaves, not a test to renumber quietly.
 
-Two ways forward, his call: (1) models without an explicit capacity must gain
-one — recommended; or (2) keep the clamp only when `qMax` is absent, a
-compatibility rule and uglier.
+**Michael ruled on 2026-08-09: option 1** — models without an explicit capacity
+must gain one.
+
+**But it is blocked on a different bug, and that is the discovery.** Removing the
+clamp exposes a NON-MONOTONIC control response in `economizer-trim` that the
+clamp was masking. Sweeping PMP-02 with everything else frozen, TS-2 reads
+13.55 → 11.86 → 11.77 → 14.80 → 17.83 → 20.86 → 22.37 as the speed drops from
+100% to 25%: it falls, then rises. Two effects fight — slowing the pump makes
+ACCH-1 colder while the check valve has not yet opened the bypass, and below
+~60% the bypass opens and mixing takes over. Under the clamp ACCH-1's outlet was
+pinned regardless of flow, so only the second effect existed.
+
+The bracketed search cannot cope: it probes the minimum, sees the sign change,
+and should bisect to the root near 32%, but reports `at-min` and parks at 100%.
+**That is a control-loop defect in its own right**, independent of ΔT, and it
+will bite any model with a bypass and a mixing setpoint.
+
+Order of work is therefore: fix the search on a non-monotonic response first
+(small rig — two sources, a bypass, a check valve, a mixing sensor), then land
+the ΔT change, which is already written and passes the whole table. See
+`WORKLIST.md`.
 
 ---
 

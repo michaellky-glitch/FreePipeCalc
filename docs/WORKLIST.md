@@ -7,19 +7,45 @@ Updated 2026-08-09, after v0.16.3.
 
 ---
 
-## Waiting on Michael
+## Next — LS.5, RULED, and what actually blocks it
 
-**LS.5 — Design ΔT should stop clamping the duty at part flow.**
-Built, validated against his manufacturer part-load table (all nine rows), and
-**reverted** because it stops `economizer-trim` converging. Full reasoning in
-`HANDOVER.md` §6. Two ways forward:
+**Michael chose option 1 on 2026-08-09:** Design ΔT stops clamping; models
+without an explicit capacity must gain one.
 
-1. Models without an explicit capacity must gain one — I add `qMax` to the
-   fixture and re-derive its expectations. **Recommended.**
-2. Keep ΔT as a clamp only when `qMax` is absent — a compatibility rule, and
-   uglier.
+The physics change itself is ~15 lines and correct (`equipOutlet`, the
+source/sink branch — delete the `dTMax` clamp; `dTMax` keeps its real job in
+`setEquipTrio`). It was applied, the manufacturer table was turned into a
+nine-row test and **passed**, and the older ΔT-clamp assertions were migrated.
 
-One word and it lands in a single pass.
+**IT IS BLOCKED ON SOMETHING ELSE, and this is the finding that matters.**
+
+`economizer-trim` stops converging, and NOT because of the physics. Removing the
+clamp exposes a **non-monotonic control response** that the clamp was masking.
+Sweeping PMP-02 by hand, with everything else frozen:
+
+    PMP-02 speed   100%   80%    60%    50%    40%    30%    25%
+    TS-2 reads    13.55  11.86  11.77  14.80  17.83  20.86  22.37
+
+It falls, then rises. Two effects fight: slowing PMP-02 makes ACCH-1 colder
+(less flow, same duty) while the check valve has not yet opened the bypass;
+below ~60% the bypass opens and the mixing effect takes over. Under the clamp
+ACCH-1's outlet was pinned regardless of flow, so only the second effect existed
+and the response was monotonic.
+
+**The bracketed search cannot handle it.** It probes at the minimum, sees a sign
+change, and should bisect to the root near 32% — but it reports `at-min` and is
+parked at 100%. That is a control-loop defect in its own right, independent of
+ΔT, and it will bite any model with a bypass and a mixing setpoint.
+
+**So the order of work is:**
+
+1. **Fix the search on a non-monotonic response** — reproduce with the sweep
+   above, which is a small rig (two sources, a bypass, a check valve, a mixing
+   sensor). Probably needs the descent to keep the best bracket rather than
+   trusting the first crossing.
+2. **Then land the ΔT change**, which is already written and tested.
+
+Reverted for now so master stays green. Nothing about the ruling has changed.
 
 **DX.1 —** does the DXF open in real CAD? Untested; nothing in this environment
 can check it.
