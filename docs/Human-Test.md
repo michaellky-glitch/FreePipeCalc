@@ -26,6 +26,19 @@ Nothing in this block has been looked at by a person. Each row says what was
 driven and how, so you know which part is already pinned and which part is the
 bit only you can judge.
 
+## 5R. Q4 — A DEVICE SLIDES ALONG ITS RUN (v0.16.9)
+
+"Drag-snap to grid intersections along the pipe (0.1 m) — presentation only;
+the pipe stays straight."
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| Q4.1 | **It slides along the run, and the run stays straight** | ⬜ | A device is two nodes spliced into a run, so dragging it anywhere but along that run put a dog-leg in the pipework either side. Verified on a straight 20 m main with a gate valve at 8 m: dragged 3.37 m along and **4 m sideways**, it moved 3.40 m along and **zero** sideways, and every node stayed on y = 0. |
+| Q4.2 | 0.1 m steps | ⬜ | 3.37 m of travel lands on 3.40. Finer than the drawing grid on purpose — this is positioning a valve in a run, not laying out pipework, and the device is only 0.5 m long. |
+| Q4.3 | The neighbours absorb it | ⬜ | 7.75 + 0.50 + 11.75 became 11.15 + 0.50 + 8.35. The run is still 20 m and still one straight line. **It is an EDIT, not presentation** — those two pipe lengths really changed, so it solves and saves like any other geometry change. |
+| Q4.4 | It cannot be driven off the end | ⬜ | Dragged to x = 60 it stops at 19.00…19.50, leaving a device length of margin before the outflow. Without the clamp the neighbour pipe turns inside out and reports a negative length. |
+| Q4.5 | **Alt frees it** — and NOT Shift | ⬜ | Alt gives back the old unconstrained move. Shift would have matched the convention everywhere else, and it cannot be used: on a device Shift already means "select the run between", and it suppresses the drag from starting at all, so a Shift-freed move could never have worked. The mode hint now says so. |
+
 ## 5Q. A CONTROL LINK THAT CHANGES FLOOR (v0.16.9)
 
 Your new item. A pump on the plant floor following a sensor two storeys up used

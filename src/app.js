@@ -6431,7 +6431,7 @@
       });
     });
     var MODE_HINTS = {
-      edit:   'Click to select · drag a node to move it · Delete removes the selection',
+      edit:   'Click to select · drag a node to move it · drag a device to slide it along its run (Alt frees it) · Delete removes the selection',
       /* 'edit' is the internal tool id for both DESIGN and SIMULATE. */
       pipe:   'Click to place vertices · type a length + Enter · scroll = pipe size · Shift = free angle · Esc = finish',
       view:   'Drag any label to reposition it for printing · tick properties in the panel to show them on the drawing · TRACE adds a background drawing',

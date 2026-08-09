@@ -27,6 +27,11 @@
    * with the host pipe) means the amount to subtract from a drawn run is always
    * the same number, and 0.5 m sits on the default grid. */
   var DEVICE_LEN = 0.5;
+  /* Q4, Michael: an in-line device slides ALONG its run in 0.1 m steps.
+   * Finer than the drawing grid on purpose — this is positioning a valve in a
+   * run, not laying out pipework, and 0.5 m steps would be unusable on a
+   * device 0.5 m long. */
+  var DEVICE_SLIDE_STEP = 0.1;
   var ANGLE_SNAP = 15;      // degrees (§5)
 
   /* Risers use much larger radii than drawing does. A riser belongs on existing
@@ -1008,7 +1013,8 @@
         if (!modifying && !self.locked()) {
           self.dragDevice = {
             pipe: dev, startX: w.x, startY: w.y,
-            ax: da.x, ay: da.y, bx: db.x, by: db.y
+            ax: da.x, ay: da.y, bx: db.x, by: db.y,
+            axis: self.deviceSlideAxis(dev)
           };
           c.setPointerCapture(e.pointerId);
         }
@@ -1232,19 +1238,59 @@
       if (self.marquee) { self.marquee.x1 = w.x; self.marquee.y1 = w.y; self.render(); return; }
       if (self.dragDevice) {
         /* Both endpoints move together by the same delta, so the device keeps
-         * its length and orientation. Snapping is applied to the MIDPOINT and
-         * the same shift is given to both ends — snapping each end separately
-         * would stretch or rotate the device as the two ends landed on
-         * different grid lines. */
+         * its length and orientation. */
         var dd = self.dragDevice;
         var mdl = self.getModel();
         var lvd = M.level(mdl, mdl.activeLevel);
         var dx = w.x - dd.startX, dy = w.y - dd.startY;
+        var na = M.node(mdl, dd.pipe.a), nb = M.node(mdl, dd.pipe.b);
+        /* Read off the event as it actually is at this instant, for the same
+         * reason `shiftDown` is (§4): a modifier released in another window
+         * never sends its keyup here. */
+        dd.free = !!e.altKey;
+
+        /* ---- Q4: IT SLIDES ALONG THE RUN, AND THE RUN STAYS STRAIGHT.
+         *
+         * Michael: "drag-snap to grid intersections along the pipe (0.1 m) —
+         * presentation only; the pipe stays straight."
+         *
+         * A device is two nodes spliced into a run, so dragging it anywhere but
+         * along that run puts a dog-leg in the pipework either side of it: the
+         * neighbours stretch to follow, and a straight main becomes a Z. That
+         * is a drawing defect produced by a gesture that means "put the valve a
+         * bit further along", which is a POSITIONING intent, not a geometry
+         * one.
+         *
+         * So the drag is projected onto the device's own axis and quantised to
+         * 0.1 m of travel. The two neighbour pipes lengthen and shorten by the
+         * same amount, the run stays collinear, and nothing else in the model
+         * moves. Lengths change, so it is still an EDIT — the friction in those
+         * two pipes really did change.
+         *
+         * ALT FREES IT, giving back the old unconstrained move for the times you
+         * genuinely want the device somewhere else. NOT Shift, which is the
+         * convention everywhere else in this app — on a device Shift is already
+         * "select the run between", and it does not merely mean something else,
+         * it stops the drag STARTING (`modifying` suppresses it), so a
+         * Shift-freed move could never have worked. Found by trying it. */
+        if (dd.axis && !dd.free) {
+          var t = dx * dd.axis.ux + dy * dd.axis.uy;
+          t = Math.round(t / DEVICE_SLIDE_STEP) * DEVICE_SLIDE_STEP;
+          t = Math.max(dd.axis.min, Math.min(dd.axis.max, t));
+          na.x = dd.ax + dd.axis.ux * t; na.y = dd.ay + dd.axis.uy * t;
+          nb.x = dd.bx + dd.axis.ux * t; nb.y = dd.by + dd.axis.uy * t;
+          self.render();
+          return;
+        }
+
+        /* FREE MOVE (Alt, or a device with no axis to slide along). Snapping
+         * is applied to the MIDPOINT and the same shift given to both ends —
+         * snapping each end separately would stretch or rotate the device as
+         * the two ends landed on different grid lines. */
         var midX = (dd.ax + dd.bx) / 2 + dx, midY = (dd.ay + dd.by) / 2 + dy;
         var snapped = self.snap(midX + lvd.dx, midY + lvd.dy);
         dx += (snapped.x - lvd.dx) - midX;
         dy += (snapped.y - lvd.dy) - midY;
-        var na = M.node(mdl, dd.pipe.a), nb = M.node(mdl, dd.pipe.b);
         na.x = dd.ax + dx; na.y = dd.ay + dy;
         nb.x = dd.bx + dx; nb.y = dd.by + dy;
         self.render();
@@ -4567,6 +4613,54 @@
   /* The control-link riser under the pointer, if any. Registered by
    * `drawControlLinks` while the `view` tool is active — the same rule the bend
    * handles follow, because both are arranging rather than editing. */
+  /* WHERE AN IN-LINE DEVICE MAY SLIDE TO, worked out once when the drag starts.
+   *
+   * The direction is the device's OWN axis — the line through its two nodes —
+   * because that is the run it was spliced into. The travel is bounded by the
+   * neighbour at each end: slide far enough and the device would pass through
+   * the node it is joined to and turn its neighbour pipe inside out, which is a
+   * negative length and a nonsense drawing.
+   *
+   * Both limits are measured by PROJECTING the neighbour onto the axis, so a
+   * run that bends at the device still gives a sane answer rather than none.
+   * A margin of one device length is left at each end so the device cannot be
+   * driven exactly onto a tee.
+   *
+   * Returns null when there is nothing to slide along — a device with no
+   * neighbours, or one whose two nodes are on top of each other. */
+  View.prototype.deviceSlideAxis = function (dev) {
+    var m = this.getModel();
+    var a = M.node(m, dev.a), b = M.node(m, dev.b);
+    if (!a || !b) return null;
+    var wa = M.worldXY(m, a), wb = M.worldXY(m, b);
+    var L = Math.hypot(wb.x - wa.x, wb.y - wa.y);
+    if (!(L > 1e-9)) return null;
+    var ux = (wb.x - wa.x) / L, uy = (wb.y - wa.y) / L;
+
+    /* The far end of whatever pipe is attached at each of the device's nodes. */
+    function beyond(nodeId) {
+      var best = null;
+      M.pipesAt(m, nodeId).forEach(function (q) {
+        if (q.id === dev.id) return;
+        var other = M.node(m, q.a === nodeId ? q.b : q.a);
+        if (!other) return;
+        var wo = M.worldXY(m, other);
+        /* Distance along the axis from the device's `a` node, signed. */
+        var t = (wo.x - wa.x) * ux + (wo.y - wa.y) * uy;
+        if (best === null || Math.abs(t) < Math.abs(best)) best = t;
+      });
+      return best;
+    }
+    var back = beyond(dev.a);      // negative side, normally
+    var fwd = beyond(dev.b);       // positive side, normally
+    var margin = DEVICE_LEN;
+    /* `t` in the drag is an OFFSET from where the device already is, so the
+     * limits are relative too. Unbounded on a side with no neighbour. */
+    var min = (back === null) ? -Infinity : Math.min(0, back + margin);
+    var max = (fwd === null) ? Infinity : Math.max(0, fwd - L - margin);
+    return { ux: ux, uy: uy, min: min, max: max, length: L };
+  };
+
   View.prototype.controlRiserAt = function (sx, sy) {
     var hs = this._riserHandles || [];
     for (var i = hs.length - 1; i >= 0; i--) {

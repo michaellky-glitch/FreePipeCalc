@@ -32,7 +32,6 @@ can check it.
 |---|---|---|
 | S1 | Riser should show pipe properties | |
 | T1 | **Tag repair is both incomplete and lossy** | Measured 2026-08-09, after Michael repaired `20260809-DC` — his file is clean now, so this is latent rather than live. Two separate faults. (a) `looksMangled` only recognises an appended tag matching `(PMP\|AHU\|TS\|SRC\|OF\|STR)-\d+`, so `PWP-04MP-4MP-4…` is neither flagged nor repaired: what got appended is `MP-4`, which is `PMP-4` with its first character absorbed by the character before it. The corruption is not always a clean append. (b) Even when it repairs, it can repair to the wrong thing — `CHWP-0AHU-15AHU-152` comes back as **`CHWP-0`**, not `CHWP-02`, because the real tag's trailing `2` was swallowed into `AHU-152`. Michael's file has `CHWP-02`, so he corrected that one by hand. Worth saying out loud in the message: the mangling is lossy, so REPAIR is a best guess and the result wants checking. |
-| Q4 | Drag-snap to grid intersections along the pipe (0.1 m) | Presentation only; the pipe stays straight. |
 
 ## Then
 
@@ -48,7 +47,9 @@ can check it.
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
-* **v0.16.9** — a control link whose two ends are on different floors is drawn
+* **v0.16.9** — Q4: an in-line device slides ALONG its run in 0.1 m steps
+  instead of being dragged off it and kinking the pipework (Alt frees it); and
+  a control link whose two ends are on different floors is drawn
   at last: half on each floor, meeting at a riser node you can drag in
   ANNOTATION. It used to be drawn as nothing at all.
 * **v0.16.8** — S3: the solve is a generator and the page no longer freezes.
