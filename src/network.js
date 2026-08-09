@@ -771,7 +771,45 @@
     return { res: res, net: net, passes: passes, sizing: sizing, stable: stable };
   }
 
+  /* ============================================ THE SOLVE, AS A GENERATOR
+   *
+   * `solveModelGen` is the real implementation and it YIELDS — once per network
+   * solve inside the control loop, which is the only place a big model spends
+   * real time. Everything else drives it:
+   *
+   *     solveModel(m)            drains it synchronously. Identical answers,
+   *                              identical call signature, and it is what
+   *                              `solveNow`, the printer and all 1762 test
+   *                              assertions use.
+   *     the app                  steps it, handing the browser back between
+   *                              steps, so the page paints and stays alive.
+   *
+   * WHY A GENERATOR AND NOT A WORKER (Michael asked, 2026-08-09). A Worker
+   * needs `importScripts` or `fetch` to load this file, and BOTH are refused
+   * from a `file://` null origin — as is `new Worker('src/network.js')` itself.
+   * A Blob worker sidesteps the origin in some browsers and still cannot get
+   * the engine into itself without inlining every module as a string, which is
+   * a build step. Two independent blockers, and the second one is not a browser
+   * quirk that might age out.
+   *
+   * WHY ONE `evaluate()` IS THE ATOM. Slicing at the DEVICE boundary was tried
+   * and backed out: one device's search is a probe, a scan, a descent and a
+   * bisection — fifteen or so full solves, seconds on the data centre — so it
+   * still blocked for seconds at a time, and each resumed slice re-ran the
+   * non-control work on top. One `evaluate()` is about 100 ms, which is a
+   * frame's worth of jank rather than a hung page.
+   *
+   * The yielded value is progress, never state: `{ solves, sweep, device,
+   * fraction }`. Nothing is expected to be done with it, and the driver may
+   * ignore it entirely. */
   function solveModel(m, maxPasses, opts) {
+    var it = solveModelGen(m, maxPasses, opts);
+    var r = it.next();
+    while (!r.done) r = it.next();
+    return r.value;
+  }
+
+  function* solveModelGen(m, maxPasses, opts) {
     /* 3 is plenty for tee reassignment alone; check valves can need another
      * round or two to seat, so the ceiling is a little higher. */
     maxPasses = maxPasses || 5;
@@ -783,7 +821,7 @@
      * hydraulics. It re-runs the core several times and leaves the settled
      * modulation on the model, so everything below sees a single consistent
      * answer. §17C. */
-    var controls = runControls(m, core, maxPasses, opts);
+    var controls = yield* runControlsGen(m, core, maxPasses, opts);
     if (controls.acted) core = controls.core;
 
     var net = core.net, res = core.res, passes = core.passes, sizing = core.sizing;
@@ -1459,7 +1497,17 @@
     return tt === null ? null : { mode: 'temperature', value: tt };
   }
 
+  /* Drains the control loop synchronously. Kept as a named function because it
+   * is the shape everything except the app wants, and because a test that has
+   * to know about generators is a test about the wrong thing. */
   function runControls(m, core, maxPasses, opts) {
+    var it = runControlsGen(m, core, maxPasses, opts);
+    var r = it.next();
+    while (!r.done) r = it.next();
+    return r.value;
+  }
+
+  function* runControlsGen(m, core, maxPasses, opts) {
     var warnings = [], errors = [];
     var out = { acted: false, core: core, report: null, warnings: warnings,
                 errors: errors };
@@ -1672,11 +1720,45 @@
        * instead of buying the first few all of them. */
       : Math.max(400, 120 * pairs.length);
     var solves = 0;
+    /* WHERE THE LOOP HAS GOT TO. Declared up here because `evaluate` reports
+     * it on every yield, and a `var` hoisted from two hundred lines below reads
+     * as a bug even when hoisting saves it. */
+    var sweep = 0, doneUnits = 0, curDevice = null;
+    /* The worst case: every device settled on every one of the six sweeps.
+     * Declared with the rest of the progress state rather than beside the sweep
+     * loop, because `evaluate` divides by it on the very first yield — and a
+     * hoisted `var` read before its assignment is `undefined`, which would have
+     * made every fraction NaN. */
+    var totalUnits = Math.max(1, searchPairs.length * 6);
 
-    function evaluate() {
+    /* ONE NETWORK SOLVE, AND THE ONLY PLACE THIS LOOP YIELDS.
+     *
+     * About 100 ms on the data centre, and everything expensive in a controlled
+     * solve is a multiple of it — so it is both the unit of work and the unit
+     * of progress. The yield happens AFTER the solve, so a driver that pauses
+     * here is pausing on a consistent state with the newest numbers in hand.
+     *
+     * `sweep` and `curDevice` are read at yield time rather than passed in, so
+     * adding a caller cannot forget to report where it is. */
+    function* evaluate() {
       solves++;
       var c = solveCore(m, maxPasses);
       c.thermal = FD.thermal.solve(m, c.res);
+      /* PROGRESS, AND IT IS HONEST ABOUT WHAT IT CANNOT KNOW.
+       *
+       * The loop cannot say how many solves a search will need, so `fraction`
+       * is DEVICES SETTLED out of the worst case — every device, every one of
+       * the six sweeps. It is monotonic and it never overstates, which means a
+       * model that converges in two sweeps finishes with the bar at a third.
+       * That is not a bar that broke: it is a bar that was never told the
+       * answer would come early, and the alternative is a number that goes
+       * backwards or lies. `sweep` is yielded beside it so the caller can say
+       * "sweep 2 of 6" and let the reader draw the right conclusion. */
+      yield {
+        solves: solves, sweep: sweep, sweeps: 6, device: curDevice,
+        done: doneUnits, total: totalUnits,
+        fraction: Math.min(1, doneUnits / Math.max(1, totalUnits))
+      };
       return c;
     }
     /* What the controller is looking at. A temperature comes out of the thermal
@@ -1739,7 +1821,7 @@
     pairs.forEach(function (pr) { pr.act.set(1); });
     var cur;
     if (needReset) {
-      cur = evaluate();
+      cur = yield* evaluate();
     } else {
       cur = core;
       if (!cur.thermal) cur.thermal = FD.thermal.solve(m, cur.res);
@@ -1789,8 +1871,13 @@
       return (e > 0) !== (e0 > 0);          // crossed
     }
 
-    /* Settle ONE device, holding every other where it is. */
-    function seek(pair) {
+    /* Settle ONE device, holding every other where it is.
+     *
+     * A GENERATOR, because every `evaluate()` in here is a yield point —
+     * that is the whole of S3. It recurses into itself in two places (the
+     * restart-from-full paths), and `yield*` carries those through the same
+     * way it carries a plain call. */
+    function* seek(pair) {
       var act = pair.act;
       /* The deadband can never be finer than the ACTUATOR can resolve. A globe
        * valve is set in whole percent, so a mixed temperature lands on a grid
@@ -1870,8 +1957,8 @@
         if (x0 < 1 - 1e-9 && !pair.reseeking) {
           pair.reseeking = true;
           act.set(1);
-          cur = evaluate();
-          var upward = seek(pair);
+          cur = yield* evaluate();
+          var upward = yield* seek(pair);
           pair.reseeking = false;
           if (Math.abs(upward.x - x0) > 1e-9) upward.moved = true;
           return upward;
@@ -1896,7 +1983,7 @@
       }
 
       act.set(probe);
-      var trial = evaluate();
+      var trial = yield* evaluate();
       var e1 = errorOf(trial, pair);
       record(probe, e1, trial);
 
@@ -1938,7 +2025,7 @@
           var xs = quantise(act, probe + (x0 - probe) * CTRL_SCAN[si]);
           if (!(xs < prevX - 1e-12) || !(xs > probe + 1e-12)) continue;
           act.set(xs);
-          var sc = evaluate();
+          var sc = yield* evaluate();
           var se = errorOf(sc, pair);
           record(xs, se, sc);
           if (se === null) {
@@ -1993,8 +2080,8 @@
         if (x0 < 1 - 1e-9 && !pair.reseeking) {
           pair.reseeking = true;
           act.set(1);
-          cur = evaluate();
-          var again = seek(pair);
+          cur = yield* evaluate();
+          var again = yield* seek(pair);
           pair.reseeking = false;
           /* It MOVED — from x0 to wherever this landed — even if the search
            * itself reports otherwise, or the sweep would stop while devices
@@ -2067,7 +2154,7 @@
         xPrev = x; ePrev = e;
         x = nx;
         act.set(x);
-        c = evaluate();
+        c = yield* evaluate();
         e = errorOf(c, pair);
         record(x, e, c);
         if (e === null) { cur = c; return { state: 'no-flow', x: x, error: null, moved: true }; }
@@ -2090,7 +2177,7 @@
         var mid = quantise(act, (a + b) / 2);
         if (!(mid > a + 1e-12) || !(mid < b - 1e-12)) break;
         act.set(mid);
-        var mc = evaluate();
+        var mc = yield* evaluate();
         var me = errorOf(mc, pair);
         record(mid, me, mc);
         if (metBy(me, e0, pair)) { a = mid; } else { b = mid; }
@@ -2139,7 +2226,7 @@
 
     /* Six sweeps rather than four. Parallel branches balancing against each
      * other need a few passes to settle, and the budget now allows them. */
-    var acted = false, moving = true, sweep = 0;
+    var acted = false, moving = true;
     /* PROGRESS, and a chance to breathe.
      *
      * `onProgress` is called after every device is settled. The app uses it to
@@ -2151,15 +2238,17 @@
      * Michael, 2026-08-08: "Users can accept a progress bar, but not a browser
      * freeze." */
     var onProgress = (opts && opts.onProgress) || null;
-    var totalUnits = Math.max(1, searchPairs.length * 6);
-    var doneUnits = 0;
 
+    /* A `for` LOOP, NOT `forEach` — a callback cannot yield, and every `seek`
+     * in here is now a `yield*`. That is the only reason this shape changed;
+     * the body below is the same body. */
     while (moving && sweep < 6 && solves < MAX_SOLVES) {
       moving = false; sweep++;
       var abandoned = false;
-      searchPairs.forEach(function (pair) {
-        if (abandoned) return;
-        var r = seek(pair);
+      for (var si2 = 0; si2 < searchPairs.length; si2++) {
+        var pair = searchPairs[si2];
+        curDevice = pair.act.pipe.tag || pair.act.pipe.id;
+        var r = yield* seek(pair);
         /* FALL BACK. "LWT first, then ΔT" is a priority, not a blend: if the
          * first setpoint cannot be reached — the actuator on a stop, or backing
          * off making it worse — chase the next one instead of sitting on a
@@ -2175,8 +2264,8 @@
           /* Each setpoint is chased from FULL TRAVEL. The previous one may
            * have left the actuator on its stop, and starting the next search
            * there hides half the range from it. */
-          if (pair.act.get() < 1 - 1e-9) { pair.act.set(1); cur = evaluate(); }
-          r = seek(pair);
+          if (pair.act.get() < 1 - 1e-9) { pair.act.set(1); cur = yield* evaluate(); }
+          r = yield* seek(pair);
         }
 
         pair.result = r;
@@ -2188,13 +2277,15 @@
             done: doneUnits, total: totalUnits,
             fraction: Math.min(1, doneUnits / totalUnits),
             sweep: sweep, solves: solves,
-            device: pair.act.pipe.tag || pair.act.pipe.id
+            device: curDevice
           });
           if (keepGoing === false) { abandoned = true; moving = false; }
         }
-      });
+        if (abandoned) break;
+      }
       if (abandoned) break;
     }
+    curDevice = null;
 
     /* PARK AT FULL WHEN THE SETPOINT IS LOST — AFTER the sweeps, never during
      * (Michael, 2026-08-04 for the rule; moved out of the loop 2026-08-05).
@@ -2215,17 +2306,19 @@
      * `debug/20260805-4.json` it left a valve at 100% that had been perfectly
      * capable of holding its branch. Judged once, at the end, on the state the
      * device actually finished in. */
-    searchPairs.forEach(function (pair) {
-      var r = pair.result;
-      if (!r || !lostSetpoint(r.state)) return;
-      if (pair.act.get() < 1 - 1e-9) {
-        pair.act.set(1);
-        cur = evaluate();
-        r.x = 1;
-        r.error = errorOf(cur, pair);
+    /* `for`, not `forEach` — this one re-solves after parking, so it yields. */
+    for (var pi = 0; pi < searchPairs.length; pi++) {
+      var ppair = searchPairs[pi];
+      var pr2 = ppair.result;
+      if (!pr2 || !lostSetpoint(pr2.state)) continue;
+      if (ppair.act.get() < 1 - 1e-9) {
+        ppair.act.set(1);
+        cur = yield* evaluate();
+        pr2.x = 1;
+        pr2.error = errorOf(cur, ppair);
       }
-      r.lost = true;
-    });
+      pr2.lost = true;
+    }
     var ranOut = pairs.some(function (pr) {
       return pr.result && pr.result.state === 'budget';
     });
@@ -3419,6 +3512,10 @@
     systemCurve: systemCurve,
     worstShortfall: worstShortfall,
     solveModel: solveModel,
+    /* The same solve, yielding once per network solve. The app steps this so
+     * the page stays alive; everything else uses `solveModel` above, which
+     * drains it. See the note on `solveModelGen`. */
+    solveModelGen: solveModelGen,
     sensorReading: sensorReading,
     fittingsAtNode: fittingsAtNode,
     isSymmetricSplit: isSymmetricSplit,

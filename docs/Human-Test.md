@@ -10,7 +10,7 @@ those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-09 (v0.16.7)
+Last updated: 2026-08-09 (v0.16.8)
 
 **THE CURRENT BATCH IS DIRECTLY BELOW**, before anything historical — Michael
 2026-08-09, having gone looking for it and found it buried under two years of
@@ -20,11 +20,29 @@ first. `WORKLIST.md` says what is waiting on me.
 
 ---
 
-# WAITING ON YOU — v0.16.4 to v0.16.7
+# WAITING ON YOU — v0.16.4 to v0.16.8
 
 Nothing in this block has been looked at by a person. Each row says what was
 driven and how, so you know which part is already pinned and which part is the
 bit only you can judge.
+
+## 5O. THE PAGE NO LONGER FREEZES WHILE IT SOLVES (S3, v0.16.8)
+
+The solve still TAKES 30–40 s on your data centre. What changed is that the
+browser stays alive for all of it.
+
+Everything below was measured in a real browser on `20260808-DC-broken.json`
+(278 pipes, 19 controlled devices) with a 50 ms heartbeat: if the thread is
+blocked, the ticks stop.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| S3.1 | **The page answers while it solves** | ⬜ | **459 heartbeats during a 29.5 s solve.** 591 is the ceiling if the thread were completely idle, so the page was live for about four fifths of the wall clock. Median gap 62 ms, 95th 74 ms, worst 207 ms, and **nothing over 300 ms**. Before this, the whole 29.5 s was one uninterruptible block and the heartbeat fired **once**. |
+| S3.2 | The answer did not change | ⬜ | This is the assertion that matters most and it is why the sync driver was kept: `solveModel` drains the same generator, so all 1762 test assertions run through the new code unchanged. Checked directly on three models — economizer-trim, and both DC files — comparing every flow to 12 significant figures, every device state and position, every warning and error code. **Identical.** |
+| S3.3 | The progress bar means something | ⬜ | Reads e.g. `29%  Simulating… sweep 2 of 6 · CHWP-01`. The fraction is *devices settled out of the worst case* — every device on all six sweeps — so it never overstates, and a model that settles in two sweeps **finishes with the bar at a third**. That is why the sweep count is spelled out beside it. A bar that stops early beats one that goes backwards, but tell me if you would rather have an indeterminate stripe. |
+| S3.4 | **An edit during a solve abandons it** | ⬜ | New hazard, and it arrived WITH the fix: while the page froze, nothing could be edited underneath a running solve. Now it can be, and the loop writes actuator positions into the live model as it searches — so a solve that started before an edit is answering about a model that has moved. Verified: edit mid-solve, the first run is dropped, exactly one continues, the latch releases and the bar clears. |
+| S3.5 | Nothing else changed shape | ⬜ | `solveNow`, the printer, the calculation sheet and the DXF path all still call the plain synchronous `solveModel`. Only the app's debounced background solve steps the generator, and only for models over 60 pipes in SIMULATION — a small model still solves in one go, as before. |
+| S3.6 | Web Workers — asked and answered | ⬜ | No, and for two reasons rather than one. `file://` is a null origin so `new Worker('src/network.js')` is a SecurityError; and even past that a worker cannot `importScripts` or fetch the engine from a null origin, so the source would have to be inlined as a string — a build step. The second blocker is architectural, not a browser quirk that ages out. Written up in `HANDOVER.md` §5. |
 
 ## 5N. YOUR FOUR REPORTS OF 2026-08-09 (v0.16.7)
 

@@ -242,6 +242,19 @@
   // -------------------------------------------------------------- solve
   function scheduleSolve() {
     clearTimeout(app.solveTimer);
+    /* ANY NEW REQUEST INVALIDATES A SOLVE ALREADY IN FLIGHT.
+     *
+     * New in v0.16.8 and it is the hazard that comes WITH the fix: while the
+     * solve blocked the page, nothing could be edited underneath it. Now that
+     * it yields, it can be — and the generator holds a live reference to the
+     * model and writes actuator positions into it as it searches. A solve that
+     * started before an edit is answering a question about a model that no
+     * longer exists, so it must be abandoned rather than allowed to finish and
+     * overwrite the answer with a stale one.
+     *
+     * A counter rather than a flag: two edits in quick succession must not
+     * leave the second one thinking it owns the run. */
+    app.solveEpoch = (app.solveEpoch || 0) + 1;
     app.solveTimer = setTimeout(solveSliced, 250);
   }
 
@@ -263,28 +276,34 @@
     if (bar) bar.hidden = true;
   }
 
-  /* SHOW THE BAR, YIELD ONCE, THEN SOLVE.
+  /* THE SOLVE NO LONGER BLOCKS THE PAGE  (S3, v0.16.8)
    *
-   * SLICING WAS TRIED AND BACKED OUT, and the reason is worth keeping.
-   * `runControls` reports progress after each DEVICE it settles, which sounded
-   * like a natural place to hand the browser back — but one device's search is
-   * a probe, a descent and a bisection, fifteen or so full network solves, two
-   * seconds on Michael's data centre. Stopping between devices therefore still
-   * blocks for seconds at a time, and each resumed slice has to re-run all the
-   * non-control work in `solveModel` on top.
+   * `FD.network.solveModelGen` yields once per network solve — about 100 ms on
+   * Michael's data centre, 455 of them over a 40-second simulation. This steps
+   * it, handing the browser back between steps, so the bar paints, the tab
+   * answers, and a 40-second answer feels like a 40-second answer rather than a
+   * hung window.
    *
-   * The atom that WOULD work is one `evaluate()`, about 100 ms. Reaching it
-   * means turning the control loop into a generator so `seek` can yield
-   * mid-search — every `evaluate()` becoming a `yield*` through `seek` and the
-   * sweep loop. That is the most delicate code in the project and it is not
-   * something to restructure while Michael is offline and cannot test it. It is
-   * written up in WORKLIST as the next step.
+   * WHAT WAS TRIED AND BACKED OUT, so it is not tried again: slicing at the
+   * DEVICE boundary. One device is a probe, a scan, a descent and a bisection —
+   * fifteen or so solves, seconds at a time — so it still froze, and each
+   * resumed slice re-ran the non-control work on top. And a Web Worker, which
+   * is the obvious answer and is refused twice over from `file://`: the null
+   * origin blocks `new Worker`, and even past that a worker cannot
+   * `importScripts` the engine, so the source would have to be inlined as a
+   * string — a build step.
    *
-   * What IS here: the bar goes up, the browser gets one turn to paint it, and
-   * then the solve runs. The wait is no shorter than the work, but it is
-   * explained rather than looking like a hung page — and the two changes that
-   * actually removed most of the waiting are elsewhere: selection no longer
-   * solves at all, and STATIC mode means edits do not either. */
+   * THE BUDGET IS DELIBERATELY SMALLER THAN ONE SOLVE. `do/while` runs at least
+   * one `next()` and then checks the clock, so a 24 ms budget means exactly one
+   * network solve per turn: the finest granularity available. Raising it would
+   * only batch solves back together and give the page less air.
+   *
+   * `requestAnimationFrame` is NOT used to resume: it does not fire in a hidden
+   * or backgrounded tab, and a solve that only runs while you are looking at it
+   * is a solve that silently never finishes.
+   */
+  var STEP_BUDGET_MS = 24;
+
   function solveSliced() {
     if (app.solving) { app.solveAgain = true; return; }
     var heavy = app.model.settings.calcMode === 'simulation' &&
@@ -300,44 +319,88 @@
      * no error on screen, for the rest of the session. Michael, 2026-08-09.
      *
      * A latch that only clears on the happy path is a bug waiting for its
-     * first exception. This one now clears on every path. */
+     * first exception. This one now clears on every path, including the
+     * abandoned one. */
+    var epoch = app.solveEpoch || 0;
+    var gen;
     app.solving = true;
     try {
-      showSolveProgress(0.05, 'Simulating\u2026');
+      showSolveProgress(0.02, 'Simulating\u2026');
+      gen = FD.network.solveModelGen(app.model);
     } catch (e) {
       app.solving = false;
-      if (window.console) window.console.error('progress bar', e);
+      if (window.console) window.console.error('starting the solve', e);
       solveNow();
       return;
     }
-    /* setTimeout, NOT requestAnimationFrame: rAF does not fire in a hidden or
-     * backgrounded tab, and a solve that only runs when the tab is visible is a
-     * solve that silently never finishes. */
-    setTimeout(function () {
-      var t0 = Date.now();
-      try { solveNow(); }
-      finally {
-        app.solving = false;
-        try { hideSolveProgress(); } catch (e2) { /* never strand the latch */ }
-        if (Date.now() - t0 > 1500) {
-          toast('Simulated in ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s.');
-        }
+
+    var t0 = Date.now();
+
+    function release() {
+      app.solving = false;
+      try { hideSolveProgress(); } catch (e2) { /* never strand the latch */ }
+    }
+
+    function step() {
+      /* SUPERSEDED. An edit landed while this was running — which is now
+       * possible, because the page is alive — so this answer is about a model
+       * that has moved. Drop it; `scheduleSolve` has already queued the next
+       * one. */
+      if ((app.solveEpoch || 0) !== epoch) { release(); return; }
+
+      var r, started = Date.now();
+      try {
+        do { r = gen.next(); } while (!r.done && Date.now() - started < STEP_BUDGET_MS);
+      } catch (e) {
+        release();
+        console.error(e);
+        updateStatusChip(null, e.message);
         if (app.solveAgain) { app.solveAgain = false; scheduleSolve(); }
+        return;
       }
-    }, 0);
+
+      if (!r.done) {
+        var p = r.value || {};
+        try {
+          /* "sweep 2 of 6" beside the device, because the bar can only show
+           * the WORST case and will therefore finish early on a model that
+           * settles quickly. The sentence explains the bar; without it a run
+           * that stops at a third looks like something went wrong. */
+          showSolveProgress(p.fraction || 0,
+            'Simulating\u2026 sweep ' + (p.sweep || 1) + ' of ' + (p.sweeps || 6) +
+            (p.device ? ' \u00b7 ' + p.device : ''));
+        } catch (e3) { /* the bar is not worth failing the solve for */ }
+        setTimeout(step, 0);
+        return;
+      }
+
+      release();
+      applyResult(r.value);
+      if (Date.now() - t0 > 1500) {
+        toast('Simulated in ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s.');
+      }
+      if (app.solveAgain) { app.solveAgain = false; scheduleSolve(); }
+    }
+
+    setTimeout(step, 0);
+  }
+
+  /* Everything that happens to a finished result, wherever it came from — the
+   * stepped path above and the synchronous `solveNow` must not drift apart. */
+  function applyResult(res) {
+    app.results = res;
+    app.view.results = res;
+    app.view.render();
+    updateStatusChip(res);
+    updateSystemChip();
+    updateModeChip();
+    refreshPropertyReadouts();
+    return res;
   }
 
   function solveNow() {
     try {
-      var res = FD.network.solveModel(app.model);
-      app.results = res;
-      app.view.results = res;
-      app.view.render();
-      updateStatusChip(res);
-      updateSystemChip();
-      updateModeChip();
-      refreshPropertyReadouts();
-      return res;
+      return applyResult(FD.network.solveModel(app.model));
     } catch (e) {
       console.error(e);
       updateStatusChip(null, e.message);

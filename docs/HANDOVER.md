@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.7, 2026-08-09.** Seven test suites, **1762 assertions**, all
+State: **v0.16.8, 2026-08-09.** Seven test suites, **1762 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -42,12 +42,10 @@ loops, sync, and the DXF/print paths all work and are covered. The last few
 sessions have been UX and a run of genuine solver bugs found on Michael's
 data-centre model, all fixed.
 
-**Design ΔT and the control search are both DONE** (v0.16.4) — §6 now records
-what happened rather than what was pending. The one big thing still outstanding
-is in `WORKLIST.md`:
-
-* **A non-blocking solve.** The control loop is one uninterruptible block; the
-  DC model takes ~40 s. See §5.
+**Design ΔT, the control search and the non-blocking solve are all DONE**
+(v0.16.4, v0.16.8) — §5 and §6 record what happened rather than what is pending.
+The solve still TAKES 30–40 s on the data centre; what changed is that the page
+stays alive throughout it.
 
 The **early-design sizing aid** is in too (v0.16.5), which is what the ΔT change
 was for: blank capacity means "size it for me", and the duty a machine lands on
@@ -198,41 +196,83 @@ OpenWebUI.
 
 ---
 
-## 5. Performance — where the time goes, and what is left
+## 5. Performance — where the time goes, and the freeze that is gone
 
 On `debug/20260808-DC-broken.json` (278 pipes, 253 nodes, 19 controlled
-devices) a full simulation is **~40 s**. Profiled:
+devices) a full simulation is **~30–40 s**. Profiled:
 
-    hydraulics   ~35 s   422 solveCore calls
-    thermal       ~3.5 s 422 thermal solves
+    hydraulics   ~35 s   455 solveCore calls
+    thermal       ~3.5 s 455 thermal solves
 
-Three things already done, and they matter:
+Four things already done, and they matter:
 
-* **Selection no longer solves.** Every selection used to go through
-  `changed()`, which schedules a solve AND a save. Clicking a pipe queued a
-  40-second solve for an answer that cannot have changed.
+* **Selection no longer solves**, and neither does a tool change, a mode
+  change, or dragging a label (v0.16.0, v0.16.7). Clicking a pipe used to queue
+  a forty-second solve for an answer that cannot have changed.
 * **STATIC mode** (the Simulate default) locks anything that would change the
   answer, so nothing re-solves until **RUN SIMULATION**.
 * **The GGA matrix is factorised as a skyline LDLᵀ**, not dense Gaussian. It is
   a graph Laplacian — symmetric, positive definite, ~4 non-zeros per row.
   57 s → 39 s, identical answers.
+* **THE SOLVE NO LONGER BLOCKS THE PAGE** (S3, v0.16.8). See below.
 
-**What is left, and it is the real fix:** `runControls` is one uninterruptible
-block, so the page is unresponsive while it runs. A Worker is unavailable
-(`file://`). Slicing at the DEVICE boundary was tried and backed out — one
-device's search is ~15 full solves, so it still blocked for seconds and each
-resumed slice re-ran the non-control work. **The atom that works is one
-`evaluate()`** (~100 ms), which means turning the control loop into a generator
-so `seek` can yield mid-search: every `evaluate()` becoming a `yield*` through
-`seek` and the sweep loop, with two drivers — a synchronous one for
-`solveModel`/tests and an async one for the app. Mechanical, but it is the most
-delicate code in the project and wants Michael able to test it.
+### S3 — the control loop yields
 
-Reverse Cuthill-McKee ordering was also tried and backed out: it narrows the
-profile, but applying the permutation is n² copies per iteration — 57 s against
-39 s for no reordering. It would pay only if computed once per network with the
-assembly writing into permuted slots. Recorded in `solver.js` so it is not tried
-again blind.
+`solveModelGen` is now the real implementation and it is a **generator**:
+`runControlsGen` and `seek` are generators too, and every `evaluate()` — one
+network solve plus its thermal pass, about 100 ms — is a `yield*` point.
+Everything else drives it:
+
+    solveModel(m)     drains it synchronously. Identical answers, identical
+                      signature; `solveNow`, the printer and all 1762 test
+                      assertions go through it and did not change.
+    the app           steps it on a 24 ms budget, handing the browser back
+                      between steps.
+
+The budget is deliberately SMALLER than one solve: `do/while` runs at least one
+`next()` before checking the clock, so 24 ms means exactly one network solve per
+turn — the finest granularity available. Resumed with `setTimeout`, never
+`requestAnimationFrame`, which does not fire in a hidden tab.
+
+**Measured, in the browser, on the 278-pipe model.** A 50 ms heartbeat fired
+**459 times during a 29.5 s solve** — 591 is the ceiling if the thread were
+completely idle — with a median gap of 62 ms, a 95th of 74 ms, a maximum of
+207 ms and **no block over 300 ms**. Before it, the entire 29.5 s was one
+uninterruptible block and the heartbeat fired once.
+
+**The new hazard, and it comes WITH the fix.** While the solve blocked, nothing
+could be edited underneath it. Now it can be — and the generator holds a live
+reference to the model and writes actuator positions into it as it searches. So
+`scheduleSolve` bumps `app.solveEpoch`, and a step that finds the epoch moved
+**abandons its run**: an answer about a model that has moved is worse than no
+answer. Verified by editing mid-solve — the first generator is dropped, exactly
+one continues, and the latch releases.
+
+**Progress is honest about what it cannot know.** The loop cannot say how many
+solves a search will need, so the fraction is *devices settled out of the worst
+case* — every device, every one of the six sweeps. A model that converges in two
+sweeps therefore finishes with the bar at a third, which is why the label reads
+"sweep 2 of 6" beside it. A bar that never overstates and stops early beats one
+that goes backwards.
+
+### Why NOT a Web Worker (Michael asked, 2026-08-09)
+
+It is the obvious answer and it is refused **twice**, which is why the generator
+is not a consolation prize:
+
+1. **The origin.** `file://` is a null origin, and `new Worker('src/network.js')`
+   is a SecurityError there. A Blob worker sidesteps that in some browsers.
+2. **The code cannot get in.** A worker loads the engine with `importScripts`
+   or `fetch`, and both are refused from a null origin too. The only way round
+   is inlining every module as a string in the page — a **build step**, which is
+   the one thing this project does not have.
+
+The second blocker is architectural rather than a browser quirk, so it does not
+age out. Reverse Cuthill-McKee ordering was also tried and backed out: it
+narrows the profile, but applying the permutation is n² copies per iteration —
+57 s against 39 s for no reordering. It would pay only if computed once per
+network with the assembly writing into permuted slots. Recorded in `solver.js`
+so it is not tried again blind.
 
 ---
 
@@ -338,6 +378,8 @@ Short index of the least obvious things, all expanded in `ARCHITECTURE.md`:
 
 | Thing | Why it is like that |
 |---|---|
+| The solve is a GENERATOR, drained sync or stepped async | One `evaluate()` is the atom; a Worker cannot load the engine from `file://` |
+| An edit during a solve ABANDONS it (`solveEpoch`) | The generator writes into the live model; a stale answer is worse than none |
 | Control loop settles ONE device at a time, then sweeps | Devices interact; six sweeps, and a search that cannot finish is a no-op |
 | The search SCANS when the far stop tells it nothing | A mixing circuit's response turns, so one probe at the stop can miss two roots |
 | Devices sharing a setpoint are GANGED | N controllers on one measurement is degenerate; real plant shares one command |

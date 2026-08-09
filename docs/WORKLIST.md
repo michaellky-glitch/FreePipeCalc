@@ -3,7 +3,7 @@
 Everything Michael has asked for that is not yet done, in the order it will be
 tackled. Closed items move to `Human-Test.md` with a verification note.
 
-Updated 2026-08-09, after v0.16.7.
+Updated 2026-08-09, after v0.16.8.
 
 ---
 
@@ -30,9 +30,9 @@ can check it.
 
 | # | Item | Notes |
 |---|---|---|
-| S5 | **A "running simulation" dialog while a solve is in flight** | Michael, 2026-08-09. Centred on screen, an ✕ to close at the top right, and shown for EVERY recalculate — Dynamic or Static. His wording, to be used verbatim: <br>*"Running Simulation, please stand by."* <br>*"Note: Your browser may hang for up to 5 minutes depending on system complexity."* <br>*"Please do not refresh."* <br>Note the ordering problem this has to solve: the solve is one synchronous block, so a dialog shown immediately before it will not paint until the block finishes. It needs a repaint to be forced between showing the dialog and starting the work — the same reason S3 exists. Worth doing S5 first anyway: it is the honest interim answer while the freeze is still there. |
-| S3 | **Make the control loop yield** | The only remaining cause of the freeze. Turn `runControls` into a generator so `seek` can yield per `evaluate()` (~100 ms), with a synchronous driver for `solveModel`/tests and an async one for the app. Device-boundary slicing was tried and backed out — see `HANDOVER.md` §5. Mechanical, delicate, wants Michael able to test. |
+| S5 | **A "running simulation" dialog while a solve is in flight** | Michael, 2026-08-09. Centred on screen, an ✕ to close at the top right, and shown for EVERY recalculate — Dynamic or Static. His wording, to be used verbatim: <br>*"Running Simulation, please stand by."* <br>*"Note: Your browser may hang for up to 5 minutes depending on system complexity."* <br>*"Please do not refresh."* <br>**S3 (v0.16.8) removed the ordering problem and half the reason for the wording.** A dialog shown now WILL paint, because the loop yields — and the browser no longer hangs, so the second line may want rewording before it ships. Ask Michael: the sentence he wrote described the app as it was that morning. The progress bar already shows sweep, device and a worst-case fraction; this would be the louder, modal version of it. |
 | S1 | Riser should show pipe properties | |
+| T1 | `TAG_MANGLED` misses a repeated suffix | Found in passing, v0.16.8. On `20260807-DC-broken.json` it correctly flags `CHWP-0AHU-15AHU-152` and `CHWP-04PMP-1`, but NOT `PWP-04MP-4MP-4MP-4MP-4MP-4MP-4MP-4` — a tag with its generated suffix appended seven times. The detector matches one appended tag, not N. Michael's file still carries all three; Repair tags will not fix the one it cannot see. |
 | Q4 | Drag-snap to grid intersections along the pipe (0.1 m) | Presentation only; the pipe stays straight. |
 
 ## Then
@@ -49,6 +49,9 @@ can check it.
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.8** — S3: the solve is a generator and the page no longer freezes.
+  459 heartbeats during a 29.5 s solve where there used to be one; an edit
+  mid-solve abandons the run rather than overwriting with a stale answer.
 * **v0.16.7** — four reports from Michael: static-mode clicks and tool changes
   were still re-solving (the marquee path and `setTool`); ALIGN, label, note,
   TRACE and control-leader drags now save without solving; `addPipe` was
