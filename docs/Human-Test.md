@@ -10,7 +10,10 @@ right to someone who sizes pipes for a living. Only Michael can sign those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-05 (v0.14.1)
+Last updated: 2026-08-09 (v0.16.3)
+
+Newest sections are at the top: **§5J is the most recent.** Anything marked ⬜
+below is waiting on you, and `WORKLIST.md` says what is waiting on me.
 
 ## Awaiting Michael's eye — new in v0.7.0-dev
 

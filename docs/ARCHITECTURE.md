@@ -11,6 +11,15 @@ Companion documents:
 * `ENGINE.md` — the hydraulics maths, with hand-checkable worked examples.
 * `piping-friction-loss-spec.md` — the original specification, plus §12 which
   logs every deviation from it and the reason.
+* `HANDOVER.md` — **start there.** Where things stand, the conventions that must
+  not be undone, and the traps that have already cost a session.
+* `WORKLIST.md` — what is outstanding, and what is waiting on Michael.
+* `Human-Test.md` — what a person has actually verified, as against what the
+  suites cover.
+* `MESSAGES.md` — every message the app can produce. Checked against the source
+  in both directions by `engine.test.js`.
+
+Current as of **v0.16.3, 2026-08-09**.
 
 ---
 

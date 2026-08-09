@@ -4,6 +4,14 @@ Small, non-urgent defects and follow-ups that are logged rather than fixed
 immediately, so they are not rediscovered from scratch. Each entry says what it
 is, why it is deferred, and where the fix would go.
 
+**Read `HANDOVER.md` first** — this file is a long tail, not a plan. Everything
+actually queued is in `WORKLIST.md`. The **Resolved** half is kept as a record
+of what was decided and why; it is history, not work.
+
+Reviewed 2026-08-09 (v0.16.3). One entry was retired as obsolete —
+`actualDelivery` diverging in SIMULATION, because that whole second pass was
+removed in v0.14.7 when DESIGN stopped answering SIMULATION's question.
+
 ---
 
 ## Open
@@ -56,28 +64,6 @@ otherwise be quietly wrong by a sign.
 
 Fix in the model: put a minus in front of the capacity of anything that cools.
 
-### `actualDelivery` diverges in SIMULATION when a terminal is short
-
-`src/network.js` — the pressure-driven second pass returns flows of order
-**1e10 m³/s** and pressures of order **1e27 Pa** on a simulation model whose
-terminal cannot be met. Reproduced on master at 30672e5, so this is not new in
-v0.11.1: source at 0 gauge, pump curve `singlePoint(8.8, 0.0108)`, an equipment
-link and 4 m of DN100 to a demand node asking 20 L/s at 200 kPa.
-
-The pass pins each deficient terminal at the pressure it *requires* and reads
-the net inflow. In SIMULATION that terminal is already represented by a virtual
-`__out_` link, so pinning the host node fights the virtual link instead of
-replacing it, and the solver runs away down an unbounded branch. In DESIGN
-there is no virtual link and the same code behaves.
-
-It surfaces as the bracketed "actual" figures beside the demand-driven answer,
-which is a display path — the primary numbers are unaffected. **Setpoint
-control (§17C) makes it much easier to hit**, because a controlled pump
-routinely reduces flow until a terminal is short. Fix would be in
-`actualDelivery`: in SIMULATION the terminal is already pressure-driven, so the
-whole second pass is redundant there and should return `null` rather than
-re-deriving it.
-
 ### The `testrun-*.js` walkthroughs OVERWRITE files in `examples/`
 
 `test/testrun-3floor.js` and `test/testrun-datacentre.js` regenerate the
@@ -104,16 +90,16 @@ add a one-line guard at the top of `quadWarnings` if a zero ever reaches it.
 
 ### Printed plans draw devices as plain pipe, with no symbol
 
-`src/printer.js` strokes every pipe at full bore width (line ~126) and never
-draws a pump, valve or equipment symbol. On a printed level plan an in-line
-device is therefore indistinguishable from a short piece of pipe.
+`src/printer.js` strokes every pipe at full bore width and never draws a pump,
+valve or equipment SYMBOL. On a printed level plan an in-line device is
+therefore indistinguishable from a short piece of pipe.
 
-This was always true, but it is now *inconsistent* with the canvas, which draws
-devices as point symbols on a thin connector (2026-07-30). The fix is to mirror
-that in the SVG: a thin connector for the device link plus a symbol at the
-midpoint. Deferred because printing has never been checked on real paper
-(`Human-Test.md` §5.5), so the print path is better reviewed in one pass than
-piecemeal.
+**Partly addressed in v0.15.3**: the plan now carries device tags, value boxes,
+control links, ΔP routes, detail lines and notes — "as shown on screen". What is
+still missing is the symbol itself. The fix is to mirror the canvas: a thin
+connector for the device link plus a symbol at the midpoint. Still deferred
+because printing has never been checked on real paper (`DX`/print items in
+`Human-Test.md`), so the print path is better reviewed in one pass.
 
 ---
 
