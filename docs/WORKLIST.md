@@ -6,7 +6,7 @@ Everything Michael has asked for that is not yet done. Closed items move to
 **Every item he has raised so far is done.** What is left is his testing of it,
 and one thing found in passing (DX.1).
 
-Updated 2026-08-10, after v0.16.16.
+Updated 2026-08-10, after v0.16.17.
 
 ---
 
@@ -42,6 +42,15 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.17** — the network solve is now cross-checked against an INDEPENDENT
+  algorithm (`test/crosscheck.test.js`, a ninth suite). Hardy Cross — loop-flow
+  corrections, no shared code with the GGA below the pipe law — re-solves looped
+  networks and agrees with FreePipeCalc's flows to 1e-10 across a two-loop grid,
+  a three-loop ladder and a rewired grid (Hazen-Williams). It isolates the flow
+  DISTRIBUTION, which was never independently checked, from the single-pipe law,
+  which Michael validated. First real dent in the biggest gap (HANDOVER §7);
+  what remains external-unchecked is thermal, control, the single-pipe law vs a
+  published table, and a real job with known answers.
 * **v0.16.16** — S4 closed: the survivors re-settle behind a device parked at
   full. Parking a lost device at full moves the plant, and the other
   controllers had settled against the plant *before* that move — so their final

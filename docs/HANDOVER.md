@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.16, 2026-08-10.** Eight test suites, **1949 assertions**, all
+State: **v0.16.17, 2026-08-10.** Nine test suites, **1964 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -399,10 +399,24 @@ CONVERGES with every machine holding its setpoint and nothing reporting a limit.
 It did not before. That is the closest thing to an independent check the project
 has, because he drew it and he knows what it should do.
 
-**Still never independently verified — the biggest gap.** Almost every number is
-internal consistency plus hand calculations by the author of the code, which is
-the weakest form of check. **A comparison against another tool, or against a job
-with known answers, is the single most valuable thing left to do.**
+**The network solve is now cross-checked against an independent algorithm
+(v0.16.17).** `test/crosscheck.test.js` re-solves looped networks by HARDY CROSS
+— loop-flow corrections, no shared code with the GGA below the pipe law — and
+the two land on the same flows to 1e-10 or better across a two-loop grid, a
+three-loop ladder and a rewired grid, under Hazen-Williams. It is handed each
+pipe's own r and n, so it isolates the DISTRIBUTION (never independently checked)
+from the single-pipe law (which Michael validated). Darcy is out of scope on
+purpose: its friction factor moves with the flow, so a constant-r loop method
+would be testing the physics, not the solver.
+
+**Still the biggest gap, narrowed but not closed.** The cross-check settles the
+looped-network hydraulics; what remains unchecked against anything external is
+the THERMAL solve, the CONTROL loop, the single-pipe law against a published
+table (as opposed to Michael's eye), and a real job with known/commissioned
+answers. `debug/20260809-DC.json` and `debug/20260910-HighRise.json` are
+Michael's own "known-good" models — rational to his eye, not CFD-verified — and
+are the best sanity references short of that. **A comparison against a real job
+with known answers is still the single most valuable thing left to do.**
 
 **Also never done:** a pump curve fitted from a real manufacturer datasheet;
 TRACE against a real drawing; printing on real paper; the light theme; whether
