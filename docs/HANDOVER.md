@@ -38,21 +38,31 @@ model is wrong, and that has held up every time it has been tested.
 
 ## 2. Where things stand
 
-**The engine is in good shape.** Hydraulics, thermal, pump sizing, control
-loops, sync, and the DXF/print paths all work and are covered. The last few
-sessions have been UX and a run of genuine solver bugs found on Michael's
-data-centre model, all fixed.
+**The engine is in good shape and the backlog is empty.** Hydraulics, thermal,
+pump sizing, control loops, sync, copy-paste, the tools and the DXF/print paths
+all work and are covered. Every item Michael has raised is done.
 
-**Design ΔT, the control search and the non-blocking solve are all DONE**
-(v0.16.4, v0.16.8) — §5 and §6 record what happened rather than what is pending.
-The solve still TAKES 30–40 s on the data centre; what changed is that the page
-stays alive throughout it.
+Nine versions were built in one session on 2026-08-09 (v0.16.4 → v0.16.15), and
+the big ones were:
 
-The **early-design sizing aid** is in too (v0.16.5), which is what the ΔT change
-was for: blank capacity means "size it for me", and the duty a machine lands on
-IS the answer to what to buy. `ARCHITECTURE.md` §18 has it — `qNeed` on the
-engine, a Required capacity row with its margin, Auto/Manual sizing on
-equipment, and a plant schedule on the CALCULATION sheet.
+* **Design ΔT stopped clamping the duty** (v0.16.4) — his manufacturer
+  part-load table settled it. §6 has the story and the two control-search
+  defects it uncovered.
+* **Blank capacity became a sizing question** (v0.16.5). `ARCHITECTURE.md` §18.
+* **The solve stopped blocking the page** (v0.16.8, S3). §5.
+* **Copy and paste**, built as two pure-model functions (v0.16.13).
+* **The TOOLS window**, with six calculators (v0.16.10, v0.16.12).
+
+**THE ONE THING OUTSTANDING IS THAT HE HAS NOT SEEN ANY OF IT.** All of it was
+driven through the DOM and every number was checked, but the preview browser
+renders nothing to pixels, so no question of the form "does that LOOK right" has
+been answered. `Human-Test.md` opens with a `WAITING ON YOU` block holding
+**§5K–§5Y** — that is the backlog, and `WORKLIST.md` names the four things most
+likely to come back.
+
+Two things are recorded but not chased: **S4** (park-at-full leaves other
+devices settled against a plant that has since moved) and **DX.1** (does the DXF
+open in real CAD).
 
 ---
 
@@ -375,7 +385,14 @@ outflow refusal. The NFPA 20 worked example. The economizer + trim system
 **Found wrong by Michael, and fixed:** Hazen-Williams for converging/diverging
 flow; pump sizing on plant rather than loads; the flow deadband; four pumps on
 one differential; a control search that could only close; a truncated search
-leaving actuators on their floor.
+leaving actuators on their floor; Design ΔT clamping the duty at part flow; and
+across 2026-08-09, four more rounds of UI defects he found by using it.
+
+**The strongest evidence the engine is right** is `debug/20260809-DC.json`, his
+own data centre: 278 pipes, 19 controlled devices, and since v0.16.4 it
+CONVERGES with every machine holding its setpoint and nothing reporting a limit.
+It did not before. That is the closest thing to an independent check the project
+has, because he drew it and he knows what it should do.
 
 **Still never independently verified — the biggest gap.** Almost every number is
 internal consistency plus hand calculations by the author of the code, which is
@@ -384,7 +401,8 @@ with known answers, is the single most valuable thing left to do.**
 
 **Also never done:** a pump curve fitted from a real manufacturer datasheet;
 TRACE against a real drawing; printing on real paper; the light theme; whether
-the DXF opens in real CAD (`DX.1`).
+the DXF opens in real CAD (`DX.1`). And **none of the v0.16.4–v0.16.15 UI has
+been looked at** — see §2.
 
 ---
 

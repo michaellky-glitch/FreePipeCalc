@@ -1,35 +1,41 @@
 # FreePipeCalc — outstanding work
 
-Everything Michael has asked for that is not yet done, in the order it will be
-tackled. Closed items move to `Human-Test.md` with a verification note.
+Everything Michael has asked for that is not yet done. Closed items move to
+`Human-Test.md` with a verification note.
+
+**Every item he has raised so far is done.** What is left is his testing of it,
+and two things found in passing.
 
 Updated 2026-08-09, after v0.16.15.
 
 ---
 
-## Next
+## THE ONE THING OUTSTANDING: MICHAEL HAS NOT SEEN ANY OF IT
 
-**LS.5 and the early-design sizing aid are both done** (v0.16.4 / v0.16.5).
-`HANDOVER.md` §6 has the ΔT story and the two search defects; `ARCHITECTURE.md`
-§18 has the sizing aid. What is left below is the list as it stood.
+Nine versions were built in one session (v0.16.4 → v0.16.15) and **none of the
+UI has been through his eyes.** Everything was driven through the DOM and the
+numbers were checked, but the preview browser renders nothing to pixels, so no
+question of the form "does that LOOK right" has been answered.
 
-**DX.1 —** does the DXF open in real CAD? Untested; nothing in this environment
-can check it.
+`Human-Test.md` opens with a `WAITING ON YOU` block holding **§5K–§5Y**. That is
+the backlog. Expect a long list back; work down it and say plainly what was not
+done.
+
+The likeliest things to come back:
+
+* the **riser notation** box size and where its leader points (§5Y)
+* the **TOOLS window** at 400 px — the Convert rows, the tab strip (§5S)
+* the **paste preview** and its rotation on screen (§5W, §5X)
+* the **greyed tags** and the grid-sized annotation handles (§5T)
 
 ---
 
-## Found in passing, not fixed
+## Still open
 
 | # | Item | Notes |
 |---|---|---|
-| S4 | **Park-at-full happens AFTER the sweeps, and nothing re-settles behind it** | Found while migrating the `20260805-4` tests, v0.16.4. Give ACCH-1 a capacity it genuinely cannot meet and the pump is parked at 100% at the very end — correctly — but the four coil valves settled against the *starved* plant the pump had produced during the sweeps, and are left at 100% with their branches 14–16% over. The final positions do not describe the final answer. Not a regression (it predates v0.16.4) and not exercised by any of Michael's real files, so it is recorded rather than chased. The fix is probably one more settling sweep after the parking pass. |
-
----
-
-## Next
-
-| # | Item | Notes |
-|---|---|---|
+| S4 | **Park-at-full happens after the sweeps, and nothing re-settles behind it** | Found while migrating the `20260805-4` tests, v0.16.4. Give ACCH-1 a capacity it genuinely cannot meet and the pump is parked at 100% at the end — correctly — but the four coil valves settled against the *starved* plant the pump produced during the sweeps, and are left at 100% with their branches 14–16% over. The final positions do not describe the final answer. Predates v0.16.4 and no real file of his hits it, so it is recorded rather than chased. The fix is probably one more settling sweep after the parking pass. |
+| DX.1 | Does the DXF open in real CAD? | Untested; nothing in this environment can check it. |
 
 ---
 
