@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.14, 2026-08-09.** Eight test suites, **1932 assertions**, all
+State: **v0.16.15, 2026-08-09.** Eight test suites, **1942 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -154,7 +154,16 @@ exception.** `app.solving` was set, then a call threw before the work was
 scheduled — so the latch stayed on and the model stopped simulating, silently,
 for the rest of the session (v0.16.3). Release state on every path.
 
-**Region-replacement edits swallow definitions.** It happened AGAIN on
+**Region-replacement edits swallow definitions.** THREE times now, the third on
+2026-08-09 in `canvas.js`: replacing `drawRisers`…`labelSize` deleted ten draw
+methods, because between those two names sit the valve, sensor, equipment, tag,
+pump, arrow, pipe-label and node-label renderers. The suite did NOT catch it —
+they are all DOM code — and it took a console error in the browser. If you
+replace a span, list what is inside it FIRST:
+
+    git show HEAD:src/canvas.js | sed -n '/drawRisers/,/labelSize/p' | grep prototype
+
+It happened AGAIN on
 2026-08-09 — replacing the span from `copyLevel` to `clearDevice` in `model.js`
 deleted **fifty-three functions**, because `clearDevice` is nowhere near
 `copyLevel`. The tests caught it instantly (`outflowResistance is not defined`),
@@ -414,6 +423,7 @@ Short index of the least obvious things, all expanded in `ARCHITECTURE.md`:
 | `pump.head` vs `hDesign` | One is what the solver ran on, the other is a report of it |
 | ANNOTATION selects annotation, never pipework | Everything that mode moves sits ON TOP of the drawing; the pipe underneath was winning the click |
 | Annotation handles are sized in GRID SQUARES | A pixel target shrinks with the zoom while everything you aim at is in metres |
+| A riser marker says direction AND where the column stops | A chevron for the flow, a bar across the end that terminates — Michael's own convention |
 | ALT frees any constraint; Shift only the 15° snap | Shift was already "select the run between" on a device, so one rule could only ever be Alt |
 | A cross-floor link has TWO legs, routed separately | `control` and `control.far`; editing the wrong one puts your node on the other floor |
 | Copy is a closed FRAGMENT: extract, then insert | Every id it points at is remapped or dropped; a copy following the original's sensor is two devices on one measurement |

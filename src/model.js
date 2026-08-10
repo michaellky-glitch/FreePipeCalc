@@ -530,6 +530,63 @@
    *
    * Reported for the ENDS only. A middle attachment with nothing else on it is
    * a pass-through: the column simply continues, which is ordinary. */
+  /* ============================== WHAT A RISER MARKER HAS TO SAY
+   *
+   * Michael's notation, 2026-08-09, from his own drawings. Two facts, and the
+   * symbol carries both at once:
+   *
+   *   WHICH WAY THE WATER GOES     a chevron: V down, Λ up
+   *   WHERE THE COLUMN STOPS       a bar across the end that terminates
+   *
+   * So on any floor the marker reads:
+   *
+   *     ‾V   bar above, one chevron   the column starts here and drops:
+   *                                   "riser does not go up, flow goes down"
+   *     V
+   *     V    two chevrons, no bar     it passes straight through, going down
+   *     V_   one chevron, bar below   it ends here: "flow from above,
+   *                                   riser does not go down"
+   *
+   * and the mirror of each with Λ for a column carrying water upwards.
+   *
+   * The bar is NOT decoration: on a floor plan the one thing you cannot see is
+   * whether the pipe carries on past this storey, and that is exactly what an
+   * engineer reading the plan needs to know.
+   *
+   * Returns { up, down, capTop, capBottom, dir } or null when this column does
+   * not touch the level. `dir` is 'up', 'down' or null when nothing is solved
+   * yet — a chevron is a statement about flow and there is none to make. */
+  function riserNotation(m, riser, levelId, flows) {
+    if (!riser || !riser.attachments) return null;
+    var idx = -1;
+    riser.attachments.forEach(function (a, i) { if (a.level === levelId) idx = i; });
+    if (idx < 0) return null;
+
+    /* Attachments are sorted TOP FIRST (see `attachRiser`), so anything before
+     * this one is above it and anything after is below. */
+    var hasAbove = idx > 0;
+    var hasBelow = idx < riser.attachments.length - 1;
+
+    /* The flow, from whichever segment touches this attachment. A riser pipe is
+     * built a = UPPER, b = LOWER (see `riserPipes`), so a POSITIVE flow runs
+     * a→b, which is DOWNWARD. Getting that backwards would draw every arrow the
+     * wrong way up, so it is spelled out. */
+    var dir = null;
+    if (flows) {
+      var node = riser.attachments[idx].node;
+      m.pipes.forEach(function (p) {
+        if (dir !== null) return;
+        if (p.kind !== 'riser' || p.riser !== riser.id) return;
+        if (p.a !== node && p.b !== node) return;
+        var q = flows[p.id];
+        if (q === undefined || !isFinite(q) || Math.abs(q) < 1e-9) return;
+        dir = (q > 0) ? 'down' : 'up';
+      });
+    }
+    return { up: hasAbove, down: hasBelow,
+             capTop: !hasAbove, capBottom: !hasBelow, dir: dir };
+  }
+
   function riserOpenEnds(m) {
     var out = [];
     m.risers.forEach(function (r) {
@@ -2649,7 +2706,7 @@
     pipeBore: pipeBore,
 
     addRiser: addRiser, attachRiser: attachRiser, riserPipes: riserPipes,
-    riserOpenEnds: riserOpenEnds,
+    riserOpenEnds: riserOpenEnds, riserNotation: riserNotation,
     removeRiser: removeRiser, setRiserProps: setRiserProps,
     copyLevel: copyLevel,
     MIN_OUTFLOW_PRESSURE: MIN_OUTFLOW_PRESSURE,

@@ -198,14 +198,68 @@
     });
 
     // ---- riser columns ----
+    /* THE SAME NOTATION AS THE SCREEN: a circle on the connection, a leader out
+     * to a box, and inside it a chevron for the flow direction and a bar across
+     * whichever end the column terminates at. `M.riserNotation` decides; this
+     * only draws. The paper and the screen go through the one definition so
+     * they cannot disagree. */
     m.risers.forEach(function (r) {
       var here = r.attachments.some(function (att) { return att.level === level.id; });
+      var x0 = tf.x(r.x), y0 = tf.y(r.y);
+      var R = 7, GAP = 10, BOX = 20, k = Math.SQRT1_2;
       var c = svgEl('circle', {
-        cx: tf.x(r.x), cy: tf.y(r.y), r: 7,
-        fill: 'none', stroke: '#000', 'stroke-width': here ? 2 : 1
+        cx: x0, cy: y0, r: R,
+        fill: 'none', stroke: '#000', 'stroke-width': here ? 1.4 : 0.8
       });
       if (!here) c.setAttribute('stroke-dasharray', '3,3');
       svg.appendChild(c);
+
+      var bx = x0 + (R + GAP) * k, by = y0 + (R + GAP) * k;
+      var lead = svgEl('line', {
+        x1: x0 + R * k, y1: y0 + R * k, x2: bx, y2: by,
+        stroke: '#000', 'stroke-width': here ? 1.2 : 0.7
+      });
+      if (!here) lead.setAttribute('stroke-dasharray', '3,3');
+      svg.appendChild(lead);
+      var box = svgEl('rect', {
+        x: bx, y: by, width: BOX, height: BOX,
+        fill: 'none', stroke: '#000', 'stroke-width': here ? 1.2 : 0.7
+      });
+      if (!here) box.setAttribute('stroke-dasharray', '3,3');
+      svg.appendChild(box);
+
+      var note = M.riserNotation
+        ? M.riserNotation(m, r, level.id, results && results.flow) : null;
+      if (!note) return;
+      var cx = bx + BOX / 2, cy = by + BOX / 2;
+      var W = 10, H = 5.5, G = 2.5;
+      var up = (note.dir === 'up');
+      function chev(yTop) {
+        svg.appendChild(svgEl('polyline', {
+          points: up
+            ? [(cx - W / 2) + ',' + (yTop + H), cx + ',' + yTop,
+               (cx + W / 2) + ',' + (yTop + H)].join(' ')
+            : [(cx - W / 2) + ',' + yTop, cx + ',' + (yTop + H),
+               (cx + W / 2) + ',' + yTop].join(' '),
+          fill: 'none', stroke: '#000', 'stroke-width': 1.4
+        }));
+      }
+      function bar(y) {
+        svg.appendChild(svgEl('line', {
+          x1: cx - W / 2 - 1, y1: y, x2: cx + W / 2 + 1, y2: y,
+          stroke: '#000', 'stroke-width': 1.4
+        }));
+      }
+      if (note.dir === null) {
+        if (note.capTop) bar(cy - H / 2 - G);
+        if (note.capBottom) bar(cy + H / 2 + G);
+      } else if (note.up && note.down) {
+        chev(cy - H - G / 2); chev(cy + G / 2);
+      } else if (note.capTop) {
+        bar(cy - H / 2 - G); chev(cy - H / 2 + 1);
+      } else {
+        chev(cy - H / 2 - 1); bar(cy + H / 2 + G);
+      }
     });
 
     // ---- nodes ----

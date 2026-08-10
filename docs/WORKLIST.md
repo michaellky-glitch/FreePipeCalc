@@ -3,7 +3,7 @@
 Everything Michael has asked for that is not yet done, in the order it will be
 tackled. Closed items move to `Human-Test.md` with a verification note.
 
-Updated 2026-08-09, after v0.16.14.
+Updated 2026-08-09, after v0.16.15.
 
 ---
 
@@ -37,6 +37,9 @@ can check it.
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.15** — riser notation to Michael's own drawing convention: a circle,
+  a leader and a box carrying a chevron for the flow direction and a bar across
+  whichever end the column terminates at.
 * **v0.16.14** — Michael's testing round: half-grid device snapping, sensor
   tags by mode, Part Load and its sync, a Hydraulic tool that sizes on a
   friction gradient, Enter to calculate, tee-on-drop, paste Tab/R, Alt as the

@@ -2880,6 +2880,72 @@ section('Duplicate tags are reported');
      M.uniqueTag(m, 'CHWP-01') !== 'CHWP-01');
 }
 
+/* --------------------------------------------------------------------------
+ * THE RISER MARKER SAYS TWO THINGS  (Michael's notation, 2026-08-09)
+ *
+ *   WHICH WAY THE WATER GOES     a chevron: V down, Λ up
+ *   WHERE THE COLUMN STOPS       a bar across the end that terminates
+ *
+ *     ‾V   starts here, drops        V over V   passes through, going down
+ *     V_   ends here, fed from above
+ *
+ * and the mirror with Λ. On a floor plan the one thing you cannot see is
+ * whether the pipe carries on past this storey, which is exactly what the bar
+ * is for.
+ * ----------------------------------------------------------------------- */
+section('Riser notation: direction, and where the column stops');
+{
+  /* Three floors, one column, so there is a top, a middle and a bottom. */
+  const m = M.create();
+  const L0 = m.levels[0];
+  const L1 = M.addLevel(m, { name: 'L1', altitude: 3.5 });
+  const L2 = M.addLevel(m, { name: 'L2', altitude: 7 });
+  const n0 = M.addNode(m, L0.id, 0, 0);
+  const n1 = M.addNode(m, L1.id, 0, 0);
+  const n2 = M.addNode(m, L2.id, 0, 0);
+  const col = M.addRiser(m, 0, 0);
+  M.attachRiser(m, col.id, L0.id, n0.id);
+  M.attachRiser(m, col.id, L1.id, n1.id);
+  M.attachRiser(m, col.id, L2.id, n2.id);
+  const segs = M.riserPipes(m);
+  ok('Two segments for three floors', segs.length === 2, String(segs.length));
+
+  /* WHERE IT STOPS, before any flow is known. */
+  const top = M.riserNotation(m, col, L2.id, null);
+  const mid = M.riserNotation(m, col, L1.id, null);
+  const bot = M.riserNotation(m, col, L0.id, null);
+  ok('The top floor is capped above', top.capTop && !top.capBottom,
+     JSON.stringify(top));
+  ok('The middle floor is capped at neither', !mid.capTop && !mid.capBottom);
+  ok('...and passes through both ways', mid.up && mid.down);
+  ok('The bottom floor is capped below', bot.capBottom && !bot.capTop,
+     JSON.stringify(bot));
+  ok('A level the column does not reach gets nothing',
+     M.riserNotation(m, col, M.addLevel(m, { name: 'L3', altitude: 10.5 }).id, null) === null);
+
+  /* WHICH WAY THE WATER GOES. A riser pipe is built a = UPPER, b = LOWER, so a
+   * POSITIVE flow runs a→b and that is DOWNWARD. Getting this backwards draws
+   * every arrow upside down, so it is asserted rather than assumed. */
+  {
+    const flows = {};
+    segs.forEach(s2 => { flows[s2.id] = 0.004; });        // a -> b
+    ok('Positive flow reads as DOWN',
+       M.riserNotation(m, col, L1.id, flows).dir === 'down',
+       M.riserNotation(m, col, L1.id, flows).dir);
+    const up = {};
+    segs.forEach(s2 => { up[s2.id] = -0.004; });
+    ok('...and negative as UP', M.riserNotation(m, col, L1.id, up).dir === 'up');
+  }
+  /* NOTHING SOLVED IS NOT "DOWN". A chevron states a flow direction, and with
+   * no answer there is none to state. */
+  ok('No solve, no direction', M.riserNotation(m, col, L1.id, null).dir === null);
+  {
+    const still = {};
+    segs.forEach(s2 => { still[s2.id] = 0; });
+    ok('...and neither is a dead column', M.riserNotation(m, col, L1.id, still).dir === null);
+  }
+}
+
 section('A pipe end dropped on a pipe makes a tee');
 {
   const m = M.create();

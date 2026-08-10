@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1932
+This is deliberately separate from the automated suites. Those cover 1942
 assertions of engine behaviour (all passing), but they cannot tell you whether a
 button is discoverable, whether a drawing prints legibly, or whether a result
 *looks* right to someone who sizes pipes for a living. Only Michael can sign
@@ -10,7 +10,7 @@ those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-09 (v0.16.14)
+Last updated: 2026-08-09 (v0.16.15)
 
 **THE CURRENT BATCH IS DIRECTLY BELOW**, before anything historical — Michael
 2026-08-09, having gone looking for it and found it buried under two years of
@@ -20,11 +20,36 @@ first. `WORKLIST.md` says what is waiting on me.
 
 ---
 
-# WAITING ON YOU — v0.16.4 to v0.16.14
+# WAITING ON YOU — v0.16.4 to v0.16.15
 
 Nothing in this block has been looked at by a person. Each row says what was
 driven and how, so you know which part is already pinned and which part is the
 bit only you can judge.
+
+## 5Y. RISER NOTATION, AS YOU DRAW IT (v0.16.15)
+
+A circle where the column meets this floor's pipework, a leader out at 45°, and
+a box carrying the notation — the arrangement from your screenshots.
+
+The symbol says **two** things at once, and the second is the one a floor plan
+otherwise cannot tell you: whether the pipe carries on past this storey.
+
+| on the drawing | means |
+|---|---|
+| `‾V` bar above, one chevron | the column starts here and drops — riser does not go up |
+| `V` `V` two chevrons, no bar | it passes straight through, going down |
+| `V_` one chevron, bar below | it ends here, fed from above — riser does not go down |
+
+and the mirror of each with `Λ` for water going up.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| RN.1 | **The chevron is the flow direction** | ⬜ | Taken from the solved flow in the segment touching this floor. A riser pipe is built a = UPPER, b = LOWER, so a positive flow runs downward — getting that backwards would draw every arrow upside down, so there is a test that says so. Verified both ways: reversing the flow flips all six symbols. |
+| RN.2 | **The bar marks where the column stops** | ⬜ | Verified on a three-floor stack: top floor draws the bar ABOVE the chevron, the middle draws two chevrons and no bar, the bottom draws the bar BELOW. Checked by capturing the actual canvas geometry — the bar lands at y=142 above a box centred on 149, and at y=155 below it. |
+| RN.3 | Nothing solved states nothing | ⬜ | With no answer yet only the bars are drawn — where the column terminates is geometry and is always true; a chevron is a claim about flow, and inventing "down" because nothing has been calculated would be exactly the sort of invention this project refuses. A dead column (zero flow) is treated the same way. |
+| RN.4 | **The box is the select handle now** | ⬜ | The little triangle beside the circle existed only because the circle sits on the node and the node wins the click. The box is a bigger target and already clear of the pipework, so the workaround went with the thing it worked around. |
+| RN.5 | It prints | ⬜ | Same notation on paper, through the same `M.riserNotation`, so the plan and the sheet cannot disagree. **Not verified — printing has still never been checked on real paper.** |
+| RN.6 | **Looks** | ⬜ | The geometry is verified by capturing every canvas operation — circle, 45° leader, 26 px box, chevron apexes, bar positions — but the *appearance* at working zoom is yours to judge: whether the box is the right size against your pipework, and whether the leader wants to go down-right on every floor or should dodge. |
 
 ## 5X. YOUR TESTING ROUND OF 2026-08-09 (v0.16.14)
 

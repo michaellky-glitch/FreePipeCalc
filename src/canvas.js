@@ -388,19 +388,22 @@
   };
 
   /* A riser marker sits directly on top of the node it attaches to, so a click
-   * on the marker selects that NODE and the riser column is unreachable. The
-   * fix is a dedicated select handle — a small triangle drawn beside the marker
-   * — hit-tested in SCREEN space and given priority over the node underneath. */
-  var RISER_HANDLE_DX = 16;      // screen px, right of the marker centre
+   * on the marker selects that NODE and the riser column is unreachable.
+   *
+   * THE NOTATION BOX IS THE HANDLE. It used to be a small triangle beside the
+   * circle, which existed only because the circle sits on the node and the node
+   * wins the click. The box is a bigger, more obvious target and it is already
+   * off the pipework, so the workaround is gone with the thing it worked
+   * around. */
   View.prototype.riserHandleAt = function (sx, sy) {
-    var m = this.getModel(), self = this, best = null, bestD = Infinity;
-    m.risers.forEach(function (r) {
-      var s = self.toScreen(r.x, r.y);
-      var d = Math.hypot(sx - (s.x + RISER_HANDLE_DX), sy - s.y);
-      if (d < 10 && d < bestD) { bestD = d; best = r; }
-    });
-    return best;
+    var bs = this._riserBoxes || [];
+    for (var i = bs.length - 1; i >= 0; i--) {
+      var b = bs[i];
+      if (sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h) return b.riser;
+    }
+    return null;
   };
+
 
   View.prototype._distToSeg = function (px, py, a, b) {
     var dx = b.x - a.x, dy = b.y - a.y;
@@ -2367,6 +2370,7 @@
      * `drawControlLinks`, which returns early when links are hidden —
      * leaving stale handles behind that are still draggable. */
     this._riserHandles = [];
+    this._riserBoxes = [];
     /* UNDER the model. Detail lines are a backdrop — a room outline, a plant
      * box — and pipework must never be hidden behind one. */
     this.drawDetails();
@@ -3131,8 +3135,29 @@
   /* Riser columns. A column that does not reach the active level still renders,
    * hollow and dashed, as a "riser stub" — it is the snap target you click to
    * complete the connection from this floor (spec §7.2 step 2). */
+  /* ==================================== THE RISER MARKER, AS MICHAEL DRAWS IT
+   *
+   * A CIRCLE where the column meets this floor's pipework, a short leader out
+   * to a SQUARE, and the notation inside the square:
+   *
+   *     ‾V   the column starts here and drops     V    passes through,
+   *     V_   it ends here, fed from above         V    going down
+   *
+   * and the mirror with Λ for water going up. The chevron is the flow
+   * direction; the BAR marks the end that terminates. `M.riserNotation` works
+   * out which — the drawing only draws it.
+   *
+   * The circle sits on the node, because that is where the pipework actually
+   * connects; the box is offset so the symbol does not sit on top of the
+   * junction it is describing. That is the arrangement on his own drawings.
+   */
+  var RISER_R = 9;                 // circle radius, px
+  var RISER_BOX = 26;              // box side, px
+  var RISER_GAP = 13;              // leader length, px
+
   View.prototype.drawRisers = function () {
     var m = this.getModel(), ctx = this.ctx, self = this;
+    var res = this.results;
     /* Which columns stop in mid-air, and at which end. Drawn on the level the
      * open end is ON, so it appears where the fix has to be made. */
     var open = {};
@@ -3147,63 +3172,139 @@
       var sel = self.selection.some(function (x) {
         return x.kind === 'riser' && x.id === r.id;
       });
+      var colour = sel ? self.theme.select : (here ? self.theme.flow : self.theme.mute);
+
+      /* ---- the circle, on the connection itself. */
       ctx.save();
-      if (sel) {
-        ctx.strokeStyle = self.theme.select;
-        ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.arc(s.x, s.y, 12, 0, Math.PI * 2); ctx.stroke();
-      }
-      if (here) {
-        ctx.strokeStyle = self.theme.flow;
-        ctx.lineWidth = 2.5;
-        ctx.beginPath(); ctx.arc(s.x, s.y, 9, 0, Math.PI * 2); ctx.stroke();
-      } else {
-        ctx.strokeStyle = self.theme.mute;
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([3, 3]);
-        ctx.beginPath(); ctx.arc(s.x, s.y, 9, 0, Math.PI * 2); ctx.stroke();
-      }
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = here ? 2.5 : 1.5;
+      if (!here) ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.arc(s.x, s.y, RISER_R, 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
 
-      /* Select handle: a small triangle beside the marker. The marker sits on
-       * the attached node, so this gives a spot to click that selects the
-       * COLUMN (to size it) rather than the node underneath. */
+      /* ---- the leader and the box, offset down-right on a 45°, which is how
+       * it is drawn on paper and keeps the box clear of the pipework running
+       * through the node. */
+      var k = Math.SQRT1_2;
+      var bx = s.x + (RISER_R + RISER_GAP) * k;
+      var by = s.y + (RISER_R + RISER_GAP) * k;
       ctx.save();
-      var hx = s.x + RISER_HANDLE_DX, hy = s.y;
-      ctx.fillStyle = sel ? self.theme.select : (here ? self.theme.flow : self.theme.mute);
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = here ? 2 : 1.2;
+      if (!here) ctx.setLineDash([3, 3]);
       ctx.beginPath();
-      ctx.moveTo(hx - 4, hy - 5);
-      ctx.lineTo(hx + 4, hy);
-      ctx.lineTo(hx - 4, hy + 5);
-      ctx.closePath();
-      ctx.fill();
+      ctx.moveTo(s.x + RISER_R * k, s.y + RISER_R * k);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+      var half = RISER_BOX / 2;
+      var cx = bx + half, cy = by + half;
+      ctx.strokeRect(cx - half, cy - half, RISER_BOX, RISER_BOX);
       ctx.restore();
+
+      /* ---- the notation inside it. */
+      var note = M.riserNotation
+        ? M.riserNotation(m, r, m.activeLevel, res && res.flow)
+        : null;
+      if (note) self.drawRiserNotation(cx, cy, note, colour, here);
+
+      /* The box IS the select handle now: a big, obvious target that is not on
+       * top of the node underneath, which is what the little triangle was
+       * working around. */
+      self._riserBoxes.push({ riser: r, x: cx - half, y: cy - half,
+                              w: RISER_BOX, h: RISER_BOX });
 
       if (m.settings.annotate.fitType) {
+        ctx.save();
         ctx.font = '10px system-ui, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillStyle = here ? self.theme.flow : self.theme.mute;
-        ctx.fillText('R' + r.attachments.length, s.x, s.y - 13);
+        ctx.fillStyle = colour;
+        ctx.fillText('R' + r.attachments.length, s.x, s.y - RISER_R - 4);
+        ctx.restore();
       }
 
       /* AN OPEN END. The column hands over to horizontal pipework at its top
        * and bottom; if that node carries nothing else, the riser stops in mid
-       * air. Marked with an open half-circle and the word, in the warning
-       * colour — it is a modelling error, not a fault of the plant. */
+       * air. Marked in the warning colour — it is a modelling error, not a
+       * fault of the plant. */
       if (open[r.id] && open[r.id].length) {
         ctx.save();
         ctx.strokeStyle = self.theme.warn;
         ctx.lineWidth = 2;
         ctx.setLineDash([2, 2]);
-        ctx.beginPath(); ctx.arc(s.x, s.y, 14, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(s.x, s.y, RISER_R + 5, 0, Math.PI * 2); ctx.stroke();
         ctx.setLineDash([]);
         ctx.font = '600 9px system-ui, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillStyle = self.theme.warn;
-        ctx.fillText(open[r.id].join('/') + ' open', s.x, s.y + 25);
+        ctx.fillText(open[r.id].join('/') + ' open', s.x, s.y - RISER_R - 16);
         ctx.restore();
       }
     });
+  };
+
+  /* The chevrons and the bar, centred in the box.
+   *
+   * A chevron is drawn as two strokes rather than a filled triangle: it is a
+   * DIRECTION mark on a drawing, not an arrowhead on a line, and Michael's
+   * drawings have it open. With no solved flow there is no direction to state,
+   * so a bar alone is drawn on whichever ends terminate and nothing else —
+   * saying "down" because nothing has been calculated would be an invention. */
+  View.prototype.drawRiserNotation = function (cx, cy, note, colour, solid) {
+    var ctx = this.ctx;
+    var W = 13, H = 7, GAP = 3;
+    var up = (note.dir === 'up');
+    var pass = note.up && note.down;
+
+    ctx.save();
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = solid ? 2.2 : 1.4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    function chevron(yTop) {
+      /* Drawn from its top edge; points DOWN unless the flow is up. */
+      ctx.beginPath();
+      if (up) {
+        ctx.moveTo(cx - W / 2, yTop + H);
+        ctx.lineTo(cx, yTop);
+        ctx.lineTo(cx + W / 2, yTop + H);
+      } else {
+        ctx.moveTo(cx - W / 2, yTop);
+        ctx.lineTo(cx, yTop + H);
+        ctx.lineTo(cx + W / 2, yTop);
+      }
+      ctx.stroke();
+    }
+    function bar(y) {
+      ctx.beginPath();
+      ctx.moveTo(cx - W / 2 - 1, y);
+      ctx.lineTo(cx + W / 2 + 1, y);
+      ctx.stroke();
+    }
+
+    if (note.dir === null) {
+      /* Nothing solved: state only what the geometry says. */
+      if (note.capTop) bar(cy - H / 2 - GAP);
+      if (note.capBottom) bar(cy + H / 2 + GAP);
+      if (note.capTop || note.capBottom) { ctx.restore(); return; }
+      ctx.restore();
+      return;
+    }
+
+    if (pass) {
+      /* Two chevrons, no bar — it carries on both ways. */
+      chevron(cy - H - GAP / 2);
+      chevron(cy + GAP / 2);
+    } else if (note.capTop) {
+      /* Bar above, one chevron: the column starts on this floor. */
+      bar(cy - H / 2 - GAP);
+      chevron(cy - H / 2 + 1);
+    } else {
+      /* One chevron, bar below: the column ends on this floor. */
+      chevron(cy - H / 2 - 1);
+      bar(cy + H / 2 + GAP);
+    }
+    ctx.restore();
   };
 
   /* Valve glyph: the standard opposed-triangles bowtie, drawn along the pipe.
