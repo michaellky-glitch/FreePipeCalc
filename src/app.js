@@ -387,8 +387,18 @@
 
   /* Everything that happens to a finished result, wherever it came from — the
    * stepped path above and the synchronous `solveNow` must not drift apart. */
+  function syncRepairButton() {
+    var b = $('btn-repair');
+    if (!b) return;
+    var any = app.model.pipes.concat(app.model.nodes).some(function (o) {
+      return M.looksMangled(o.tag);
+    });
+    b.hidden = !any;
+  }
+
   function applyResult(res) {
     app.results = res;
+    syncRepairButton();
     app.view.results = res;
     app.view.render();
     updateStatusChip(res);
@@ -2140,6 +2150,46 @@
       else { cIn.value = curC; toast('C factor must be a positive number.', 'error'); }
     });
 
+    /* ---- WHAT THE COLUMN IS DOING. Michael, 2026-08-09: "risers should show
+     * the same properties as pipes." A column is not one pipe — it is a
+     * generated link between each consecutive pair of attachments — so the
+     * readout is per SEGMENT, which is also the only honest way to show it: on
+     * a stack serving four floors the bottom segment carries far more than the
+     * top one, and one averaged number would hide exactly that. */
+    var res = app.results;
+    if (res && segs.length) {
+      var act = section(host, 'Actual');
+      var d = m.settings.display;
+      var rho = (res.thermal && res.thermal.fluid && res.thermal.fluid.density) || 998;
+      segs.forEach(function (sg) {
+        var q = res.flow ? res.flow[sg.id] : undefined;
+        if (q === undefined) return;
+        var link = res.network && res.network.links
+          ? res.network.links.find(function (l) { return l.id === sg.id; }) : null;
+        var na = M.node(m, sg.a), nb = M.node(m, sg.b);
+        var la = na && M.level(m, na.level), lb = nb && M.level(m, nb.level);
+        var bits = [FD.units.fmtFlow(Math.abs(q), d.flow, true)];
+        if (link && link._d) {
+          bits.push(FD.hydraulics.velocity(q, link._d).toFixed(2) + ' m/s');
+          bits.push(FD.units.fmtPressure(
+            FD.units.headToPaWith(Math.abs(FD.hydraulics.linkLoss(link, q)), rho),
+            d.pressure, true));
+        }
+        act.ro((la ? la.name : '?') + ' → ' + (lb ? lb.name : '?'), bits.join('  ·  '));
+      });
+      act.ro('Segments', String(segs.length));
+      var tl = res.thermal && res.thermal.links;
+      if (tl) {
+        var gain = 0, any = false;
+        segs.forEach(function (sg) {
+          if (tl[sg.id]) { gain += tl[sg.id].qW; any = true; }
+        });
+        if (any) act.ro('Gain / loss', (gain >= 0 ? '+' : '') + gain.toFixed(1) + ' W');
+      }
+    }
+
+    displayChecks(host, r, []);
+
     var del = el('button', 'btn danger', 'Delete riser column');
     del.addEventListener('click', function () {
       pushUndo(); M.removeRiser(m, r.id);
@@ -2357,8 +2407,9 @@
         if (q.id === syncId) o.selected = true;
         syncSel.appendChild(o);
       });
-      field(sec.box, 'Sync ' + (p.kind === 'pump' ? 'VFD %' : 'opening %') + ' with',
-            syncSel);
+      field(sec.box, 'Sync ' + (p.kind === 'pump' ? 'VFD %'
+                              : p.kind === 'equip' ? 'part load %' : 'opening %') +
+            ' with', syncSel);
       infoMark(fieldLabel(syncSel),
                'Hold whatever position that device lands on. Use it when several ' +
                'machines share a header: link ONE to the sensor and sync the ' +
@@ -2374,7 +2425,8 @@
       sec.ro('Monitoring', lead ? (lead.tag || lead.id) : syncId);
       var pos = M.syncedPosition(m, p);
       sec.ro('Now holding',
-             (p.kind === 'pump' ? 'VFD ' : 'Opening ') +
+             (p.kind === 'pump' ? 'VFD ' : p.kind === 'equip' ? 'Part load '
+                                                             : 'Opening ') +
              Math.round((pos === null ? 1 : pos) * 100) + '%');
       sec.box.appendChild(el('p', 'hint',
         'Synced devices do not chase a setpoint of their own \u2014 clear the ' +
@@ -2911,6 +2963,24 @@
     host.appendChild(del);
   }
 
+  /* PROPERTY COPY / PASTE, in the panel rather than on the ribbon — Michael,
+   * 2026-08-09. It copies the SETTINGS of the selected item, which is a
+   * different verb from the ribbon's COPY (that copies the drawing), and two
+   * buttons a foot apart both saying COPY is a trap. Bottom of DESIGN, because
+   * that is what it copies.
+   *
+   * Geometry and tag are deliberately not among them: pasting one pipe's
+   * endpoints onto another would move it, and a tag is a unique reference. */
+  function propCopyRow(sec) {
+    var row = el('div', 'btn-row');
+    var c = el('button', 'btn', 'Copy properties');
+    c.addEventListener('click', copyProps);
+    var v = el('button', 'btn', 'Paste properties');
+    v.addEventListener('click', pasteProps);
+    row.appendChild(c); row.appendChild(v);
+    sec.box.appendChild(row);
+  }
+
   /* VIEW mode: which of this entity's values are echoed on the drawing.
    * Only offered in VIEW, because that is the mode for arranging a drawing
    * for print — in EDIT they would be noise. */
@@ -3335,6 +3405,8 @@
 
     renderEquipThermal(des, p);
 
+    propCopyRow(des);
+
     // ----------------------------------------------------------- L2 ACTUAL
     var res = app.results;
     var thL = res && res.thermal && res.thermal.links[p.id];
@@ -3454,6 +3526,34 @@
     var m = app.model, e = p.equip;
     var sec = section(host, 'Control');
 
+    /* SYNC THE PART LOAD, coil to coil (Michael, 2026-08-09). Offered first,
+     * for the same reason it is on a pump: it is the simpler relationship, and
+     * a coil that is following another has no use for the rest of this. */
+    if (e.equipType === 'exchanger') {
+      var syncId = M.syncOf(p);
+      var cands = m.pipes.filter(function (q) { return M.canSync(p, q); });
+      if (cands.length) {
+        var ss = el('select');
+        var none = el('option', '', 'None'); none.value = '';
+        ss.appendChild(none);
+        cands.forEach(function (q) {
+          var o = el('option', '', q.tag || q.id); o.value = q.id;
+          if (q.id === syncId) o.selected = true;
+          ss.appendChild(o);
+        });
+        field(sec.box, 'Sync part load % with', ss);
+        ss.addEventListener('change', commit(function () {
+          pushUndo();
+          M.setSync(m, p, ss.value || null);
+          changed(); renderProperties();
+        }));
+        if (syncId) {
+          var lead = M.pipe(m, syncId);
+          sec.ro('Monitoring', lead ? (lead.tag || lead.id) : syncId);
+        }
+      }
+    }
+
     /* ---- INTEGRATED CONTROL VALVE ------------------------------------- */
     var hasICV = !!e.icv;
     switchRow(sec.box, 'Integrated control valve', hasICV, function (on) {
@@ -3495,19 +3595,20 @@
       sec.ro('Holding', 'Design \u0394T of ' + (p.tag || p.id));
     }
 
-    /* ---- CAPACITY OVERRIDE -------------------------------------------- */
+    /* ---- PART LOAD ----------------------------------------------------
+     * Renamed from "Capacity override" — Michael, 2026-08-09. It never was an
+     * override of the capacity: the design figure is untouched and this asks
+     * what the machine is doing today. */
     var ovOn = (e.loadPct !== undefined && e.loadPct !== null);
-    switchRow(sec.box, 'Capacity override', ovOn, function (on) {
+    switchRow(sec.box, 'Part load', ovOn, function (on) {
       pushUndo();
       if (on) e.loadPct = 100; else delete e.loadPct;
       changed(); renderProperties();
     });
     if (ovOn) {
-      pctSlider(sec.box, 'Capacity (%)', e.loadPct, function (n) {
+      pctSlider(sec.box, 'Part load (%)', e.loadPct, function (n) {
         pushUndo(); e.loadPct = n; changed(); renderProperties();
-      }, 'Scales the stated load. The DESIGN figure above is untouched, so the ' +
-         'machine is still on the schedule at its full duty — this only asks ' +
-         'what it does at part load.');
+      });
       var full = Number(e.equipType === 'source' ? e.qMax : e.duty) || 0;
       sec.ro('Effective', ((Math.abs(full) * e.loadPct / 100) / 1000).toFixed(2) +
              ' kW ' + (full < 0 ? 'cooling' : 'heating'));
@@ -4007,6 +4108,8 @@
     des.box.appendChild(el('p', 'hint',
       'Default Kv values are derived from typical resistance coefficients, not ' +
       'manufacturer data. Replace with published Kv for real design work.'));
+
+    propCopyRow(des);
 
     // ----------------------------------------------------------- L2 ACTUAL
     var res = app.results;
@@ -4540,6 +4643,8 @@
       rrow.appendChild(rbtn);
       des.box.appendChild(rrow);
     }
+    propCopyRow(des);
+
     /* The curve is the INPUT to SIMULATION, so it has to be enterable in
      * DESIGN. Gating it behind SIMULATION created a deadlock: you could not
      * reach SIMULATION without a curve, and could not add a curve without
@@ -6606,8 +6711,10 @@
       var want = TOOL_MODE[app.view.tool];
       if (want && want !== app.uiMode) { app.uiMode = want; }
       syncUIMode();
-      var group = $('group-tools');
-      if (group) group.dataset.group = 'COMMAND';
+      /* The caption used to be re-applied here every time the mode changed,
+       * which is why removing it from the markup was not enough. Michael,
+       * 2026-08-09: "remove 'Command' from the command ribbon, just show the
+       * ribbon" — the word named nothing the eye needed. */
     }
 
     [].slice.call(document.querySelectorAll('[data-uimode]')).forEach(function (b) {
@@ -6931,6 +7038,12 @@
     /* REPAIR TAGS. Never silent and never automatic: it edits names on a
      * drawing, so it says exactly what it changed and does nothing if there is
      * nothing to change. */
+    /* REPAIR TAGS HIDES ITSELF WHEN THERE IS NOTHING TO REPAIR — Michael,
+     * 2026-08-09: "so far mangled tags have not been appearing; if the issue is
+     * solved, hide the button." It is not deleted, because the corruption was
+     * real and the repair is the only way back from it; it simply stops taking
+     * up a slot on a ribbon for a fault that is not present. `syncRepairButton`
+     * is called on every solve. */
     var repairBtn = $('btn-repair');
     if (repairBtn) repairBtn.addEventListener('click', function () {
       var found = [];
@@ -7009,8 +7122,20 @@
      * useful, pasting one pipe's endpoints onto another would move it. And a
      * tag is a unique reference on a drawing: duplicating one would be worse
      * than leaving it blank. */
-    $('btn-copy-props').addEventListener('click', copyProps);
-    $('btn-paste-props').addEventListener('click', pasteProps);
+    /* COPY AND PASTE ON THE RIBBON, doing what Ctrl+C / Ctrl+V do — Michael,
+     * 2026-08-09. The two buttons that used to sit here copied PROPERTIES, a
+     * quite different thing that has moved to the properties panel where the
+     * properties are. */
+    var copyBtn = $('btn-copy');
+    if (copyBtn) copyBtn.addEventListener('click', function () {
+      window.dispatchEvent(new KeyboardEvent('keydown',
+        { key: 'c', ctrlKey: true, bubbles: true }));
+    });
+    var pasteBtn = $('btn-paste');
+    if (pasteBtn) pasteBtn.addEventListener('click', function () {
+      window.dispatchEvent(new KeyboardEvent('keydown',
+        { key: 'v', ctrlKey: true, bubbles: true }));
+    });
     $('btn-undo').addEventListener('click', undo);
     $('btn-redo').addEventListener('click', redo);
     $('btn-fit').addEventListener('click', function () { app.view.zoomToFit(); });

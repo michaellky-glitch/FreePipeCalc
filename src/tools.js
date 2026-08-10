@@ -593,7 +593,7 @@
    */
   var velState = null;
   function velDefaults() {
-    return { known: 'qv', flow: '4', bore: '', vel: '1.5', result: null };
+    return { known: 'qv', flow: '4', bore: '', vel: '1.5', pdm: '', result: null };
   }
 
   function renderVelocityTool(host, app) {
@@ -601,12 +601,19 @@
     if (!velState) velState = velDefaults();
     var st = velState;
 
-    host.appendChild(el('h3', '', 'Pipe velocity & friction'));
+    host.appendChild(el('h3', '', 'Hydraulic'));
 
     /* SOLVE FOR, naming the OUTPUT rather than the inputs — Michael,
      * 2026-08-09. "Flow + velocity → bore" made you read a sentence to find the
      * one word you were choosing. */
-    var SOLVE = [['qv', 'Pipe diameter'], ['qd', 'Velocity'], ['dv', 'Flow']];
+    /* FRICTION DROP is the fourth thing worth solving for — Michael,
+     * 2026-08-09 — and it comes from a different equation: the other three are
+     * Q = v·A between themselves, this one comes out of the friction method.
+     * Given a flow and a bore it is an output; asked for a bore it is an INPUT,
+     * which is how a main gets sized on "400 Pa/m" rather than on a velocity. */
+    var SOLVE = [['qv', 'Pipe diameter (from velocity)'],
+                 ['qf', 'Pipe diameter (from friction drop)'],
+                 ['qd', 'Velocity'], ['dv', 'Flow'], ['qdf', 'Friction drop']];
     var pick = el('select');
     SOLVE.forEach(function (o) {
       var opt = el('option', '', o[1]); opt.value = o[0];
@@ -633,19 +640,27 @@
       }
     }
 
-    /* THE ONE BEING SOLVED FOR GOES LAST, so the eye runs inputs → answer. */
+    /* THE ONE BEING SOLVED FOR GOES LAST, so the eye runs inputs → answer, and
+     * only the fields a mode uses are shown — an empty box is a question you
+     * are being asked for no reason. */
     var FIELDS = {
       flow: ['flow', 'Flow', d.flow],
       bore: ['bore', 'Pipe diameter', 'mm'],
-      vel:  ['vel', 'Velocity', 'm/s']
+      vel:  ['vel', 'Velocity', 'm/s'],
+      pdm:  ['pdm', 'Friction drop', d.pdm]
     };
-    var solved = { qv: 'bore', qd: 'vel', dv: 'flow' }[st.known];
-    ['flow', 'bore', 'vel'].filter(function (k) { return k !== solved; })
-      .concat([solved])
-      .forEach(function (k) {
-        var f = FIELDS[k];
-        box(f[0], f[1], f[2], k === solved);
-      });
+    var USES = {
+      qv:  { show: ['flow', 'vel', 'bore'], solved: 'bore' },
+      qf:  { show: ['flow', 'pdm', 'bore'], solved: 'bore' },
+      qd:  { show: ['flow', 'bore', 'vel'], solved: 'vel' },
+      dv:  { show: ['bore', 'vel', 'flow'], solved: 'flow' },
+      qdf: { show: ['flow', 'bore', 'pdm'], solved: 'pdm' }
+    };
+    var use = USES[st.known] || USES.qv;
+    use.show.forEach(function (k) {
+      var f = FIELDS[k];
+      box(f[0], f[1], f[2], k === use.solved);
+    });
 
     var row = el('div', 'btn-row');
     var go = el('button', 'btn primary', 'Calculate');
@@ -663,6 +678,24 @@
 
   /* The arithmetic, separated from the form so it can be tested with no DOM.
    * SI throughout; the display units are converted at the edges only. */
+  /* THE FRICTION GRADIENT for a flow in a bore, Pa/m, assembled exactly as
+   * `network.build` assembles a pipe — same method, same context, same C. One
+   * metre with no fittings, so `r` IS the resistance per metre. One definition,
+   * used by the tool and by the bisection inside it. */
+  function pdmFor(m, Q, D) {
+    var s2 = m.settings;
+    var fluid = FD.fluids.resolve(s2);
+    var ctx = {
+      hw: s2.hw, ashrae: s2.ashrae, fluid: s2.fluid,
+      frictionFactor: s2.dw && s2.dw.frictionFactor,
+      roughness_mm: s2.dw && s2.dw.roughness_mm,
+      q: Q
+    };
+    var method = FD.hydraulics.method(s2.frictionMethod);
+    var nExp = FD.hydraulics.exponent(s2.frictionMethod, ctx);
+    return FD.hydraulics.pdPerMetre(method.r(1, D, s2.C, ctx), Q, nExp, 1, fluid.density);
+  }
+
   function velocity(st, m) {
     var d = m.settings.display;
     var out = { flow: null, bore: null, vel: null, errors: [] };
@@ -678,6 +711,34 @@
       if (!(Q > 0) || !(V > 0)) { out.errors.push('Enter a flow and a velocity, both above zero.'); return out; }
       D = Math.sqrt(4 * Q / (Math.PI * V));
       out.bore = D * 1000;
+    } else if (st.known === 'qf') {
+      /* SIZE ON A FRICTION GRADIENT — how a main is actually picked.
+       *
+       * BISECTED rather than inverted. There is no closed form for the bore:
+       * one written for Hazen-Williams would not serve Darcy, whose friction
+       * factor depends on the bore it is solving for. Bisecting `pdmFor` covers
+       * every method with the same ten lines and re-derives none of them. 1 mm
+       * to 3 m brackets anything anyone will draw; 60 halvings resolve it far
+       * below a micron. */
+      var target = FD.units.toSIPdm(FD.units.parse(st.pdm), d.pdm);
+      if (!(Q > 0) || !(target > 0)) {
+        out.errors.push('Enter a flow and a friction drop, both above zero.'); return out;
+      }
+      var lo = 0.001, hi = 3;
+      for (var it = 0; it < 60; it++) {
+        var mid = (lo + hi) / 2;
+        /* A bigger bore gives a SMALLER gradient, so the test is inverted. */
+        if (pdmFor(m, Q, mid) > target) lo = mid; else hi = mid;
+      }
+      D = (lo + hi) / 2;
+      V = Q / (Math.PI * D * D / 4);
+      out.bore = D * 1000;
+    } else if (st.known === 'qdf') {
+      if (!(Q > 0) || !(D > 0)) {
+        out.errors.push('Enter a flow and a bore, both above zero.'); return out;
+      }
+      V = Q / (Math.PI * D * D / 4);
+      out.pdm = FD.units.pdm(pdmFor(m, Q, D), d.pdm);
     } else if (st.known === 'qd') {
       if (!(Q > 0) || !(D > 0)) { out.errors.push('Enter a flow and a bore, both above zero.'); return out; }
       V = Q / (Math.PI * D * D / 4);
@@ -697,18 +758,8 @@
      *
      * One metre of pipe with no fittings, so `r` IS the resistance per metre
      * and `pdPerMetre` returns the gradient directly. */
-    var s2 = m.settings;
-    var ctx = {
-      hw: s2.hw, ashrae: s2.ashrae, fluid: s2.fluid,
-      frictionFactor: s2.dw && s2.dw.frictionFactor,
-      roughness_mm: s2.dw && s2.dw.roughness_mm,
-      q: Q
-    };
-    var method = FD.hydraulics.method(s2.frictionMethod);
-    var nExp = FD.hydraulics.exponent(s2.frictionMethod, ctx);
-    var r1 = method.r(1, D, s2.C, ctx);
-    out.pdm = FD.hydraulics.pdPerMetre(r1, Q, nExp, 1, fluid.density);
-    out.method = s2.frictionMethod;
+    out.pdm = pdmFor(m, Q, D);
+    out.method = m.settings.frictionMethod;
 
     /* Reynolds takes the FLOW, not the velocity — it derives the velocity from
      * the bore itself. */
@@ -722,8 +773,8 @@
      * the same one the sizer uses — so the tool cannot recommend a size the
      * model would not have chosen. */
     if (FD.schedules && FD.schedules.sizeForFlow && Q > 0 && V > 0) {
-      var lbl = FD.schedules.sizeForFlow(s2.schedule, Q, V, m.customSchedules);
-      var sz = lbl && FD.schedules.size(s2.schedule, lbl, m.customSchedules);
+      var lbl = FD.schedules.sizeForFlow(m.settings.schedule, Q, V, m.customSchedules);
+      var sz = lbl && FD.schedules.size(m.settings.schedule, lbl, m.customSchedules);
       if (sz) out.pick = { name: lbl, bore: sz.id_mm / 1000 };
     }
     return out;
@@ -940,6 +991,25 @@
     wrap.appendChild(el('div', 'conv-title', opts.title));
 
     var line = el('div', 'conv-line');
+    var boxes = {};
+    /* THE OTHER BOX IS WRITTEN DIRECTLY, NEVER BY RE-RENDERING.
+     *
+     * Michael, 2026-08-09: "entering a single digit exits the box — I want to
+     * type 35 and only 3 appears." Every keystroke rebuilt the whole tab, which
+     * destroys the input the caret is in and puts a fresh one in its place, so
+     * the second character went nowhere. The same trap `renderProperties` has
+     * (§4): a panel rebuilt under a focused field detaches it mid-edit.
+     *
+     * So typing updates state and writes the OPPOSITE box's value in place.
+     * Nothing is re-rendered until the units change, which is a click and
+     * cannot be mid-word. */
+    function refresh(exclude) {
+      opts.recompute();
+      ['a', 'b'].forEach(function (w) {
+        if (w === exclude || !boxes[w]) return;
+        boxes[w].value = opts.valueOf(w);
+      });
+    }
     function side(which) {
       var cell = el('div', 'conv-cell');
       if (opts.units) {
@@ -950,17 +1020,17 @@
           sel.appendChild(o);
         });
         sel.addEventListener('change', function () {
-          opts.setUnit(which, sel.value); opts.recompute(); opts.rerender();
+          opts.setUnit(which, sel.value); refresh(null);
         });
         cell.appendChild(sel);
       } else {
         cell.appendChild(el('span', 'conv-unit', opts.labelOf(which)));
       }
       var i = num(opts.valueOf(which));
+      boxes[which] = i;
       i.addEventListener('input', function () {
         opts.setValue(which, i.value);
-        opts.recompute();
-        opts.rerender();
+        refresh(which);
       });
       cell.appendChild(i);
       return cell;
@@ -1154,7 +1224,7 @@
   var TABS = [
     { key: 'pump',  label: 'Pump curve',   render: renderPumpCurveTool },
     { key: 'crit',  label: 'Critical radius', render: renderCriticalTool },
-    { key: 'vel',   label: 'Velocity & friction', render: renderVelocityTool },
+    { key: 'vel',   label: 'Hydraulic',     render: renderVelocityTool },
     { key: 'heat',  label: 'Heat transfer', render: renderHeatTool },
     { key: 'conv',  label: 'Convert',       render: renderConvertTool },
     { key: 'find',  label: 'Find',          render: renderFindTool }
@@ -1181,6 +1251,31 @@
     }
     host.innerHTML = '';
     TABS.forEach(function (t) { if (t.key === state.tab) t.render(host, app); });
+
+    /* ENTER CALCULATES. Michael, 2026-08-09. Every one of these is a form whose
+     * only verb is one button, so the key that means "done" should press it —
+     * typing a flow and reaching for the mouse is a step nobody wants.
+     *
+     * Bound to the BODY rather than to each input, so a tool that grows a field
+     * cannot forget; and only when there is a primary button to press, which is
+     * what makes CONVERT (no button, live as you type) simply ignore it. */
+    if (!host._enterBound) {
+      host._enterBound = true;
+      host.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        if (e.target && e.target.tagName === 'TEXTAREA') return;
+        var go = host.querySelector('button.primary');
+        if (!go) return;
+        e.preventDefault();
+        /* Commit whatever is being typed first: the tools read their state from
+         * `input` events, and a value entered and Entered in one motion has
+         * fired one. */
+        if (e.target && e.target.tagName === 'INPUT') {
+          e.target.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        go.click();
+      });
+    }
   }
 
   /* Arrive from a pump with its design duty already in the boxes.

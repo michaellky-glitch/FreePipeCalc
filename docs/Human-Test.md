@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1915
+This is deliberately separate from the automated suites. Those cover 1932
 assertions of engine behaviour (all passing), but they cannot tell you whether a
 button is discoverable, whether a drawing prints legibly, or whether a result
 *looks* right to someone who sizes pipes for a living. Only Michael can sign
@@ -10,7 +10,7 @@ those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-09 (v0.16.13)
+Last updated: 2026-08-09 (v0.16.14)
 
 **THE CURRENT BATCH IS DIRECTLY BELOW**, before anything historical — Michael
 2026-08-09, having gone looking for it and found it buried under two years of
@@ -20,11 +20,40 @@ first. `WORKLIST.md` says what is waiting on me.
 
 ---
 
-# WAITING ON YOU — v0.16.4 to v0.16.13
+# WAITING ON YOU — v0.16.4 to v0.16.14
 
 Nothing in this block has been looked at by a person. Each row says what was
 driven and how, so you know which part is already pinned and which part is the
 bit only you can judge.
+
+## 5X. YOUR TESTING ROUND OF 2026-08-09 (v0.16.14)
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| TR.1 | **A device snaps to half a grid, not to travel** | ⬜ | I had it wrong: quantising the DISTANCE MOVED means where a device ends up depends on where it started, so two valves nudged along the same main never line up. The POSITION is snapped now, to half a minor grid. Verified: dragged towards 21.37 m it lands on **12.750** — on the 0.25 lattice — and the y never moves. |
+| TR.2 | **Display > Design Load works on plant** | ⬜ | It was drawn only for an EXCHANGER, whose design figure is `duty`; a source/sink keeps its on `qMax`, so on a chiller or tower the switch did nothing at all. |
+| TR.3 | **Sensor tags say what they measure** | ⬜ | `TS / PS / FS / DPS / DTS`. Verified all five on the real button path: temperature=TS-1, pressure=PS-1, flow=FS-1, dP=**DPS-1**, dT=**DTS-1**. The mangled-tag detector was taught the new prefixes at the same time, so `DPS-1` does not read as corruption. |
+| TR.4 | Capacity override → **Part load**, no explanation | ⬜ | It never was an override of the capacity: the design figure is untouched and this asks what the machine is doing today. |
+| TR.5 | **Coils sync their part load** | ⬜ | Coil to coil only — a percentage of duty and a percentage of travel are not the same quantity, so a pump is not offered. Verified: leader at 40%, follower reads 40 after a solve. Fourteen AHUs on a floor is the case. |
+| TR.6 | **Enter calculates** | ⬜ | Bound to the tools body, so a tool that grows a field cannot forget, and only where there is a button to press — which is why CONVERT (live as you type) ignores it. |
+| TR.7 | Velocity & friction → **Hydraulic** | ⬜ | |
+| TR.8 | **Solve for Friction drop** — and for a bore FROM one | ⬜ | Five modes now. Sizing on a gradient is how a main is actually picked, so that direction is there too: 10 L/s at 400 Pa/m gives 88.1 mm → DN100. **Bisected, not inverted** — a closed form written for Hazen-Williams would not serve Darcy, whose friction factor depends on the bore it is solving for. Round-trips exactly: 4 L/s in 58.269 mm reads 550 Pa/m, and 550.465 Pa/m gives 58.269 mm back. |
+| TR.9 | **A link node on the upper floor stays on the upper floor** | ⬜ | Real bug, mine. A cross-floor link has TWO legs that route independently — the near one on `control`, the far one on `control.far` — and every edit wrote to the near leg whatever floor you were on. That is also the "dragging nodes on the wrong level". Verified: adding on the upper floor puts 3 points on the far leg and **0** on the near one. |
+| TR.10 | Risers show what they are doing | ⬜ | Per SEGMENT — flow, velocity, ΔP between each pair of floors — because a column is not one pipe: on a stack serving four floors the bottom segment carries far more than the top, and one averaged number would hide exactly that. Plus the tag switch. |
+| TR.11 | **Paste: Tab picks the end, R turns it** | ⬜ | Tab cycles the joining node round the boundary; R turns the fragment 90° clockwise about it. Verified both. Only the geometry turns — label offsets are stored in screen pixels and route bends in world coordinates, so those are dropped rather than left pointing the wrong way. |
+| TR.12 | **A pipe end dropped on a pipe makes a tee** | ⬜ | It used to mean nothing, so the node sat on top of the run touching nothing — the silent break `disconnections()` exists to report, made by hand. Verified: the main is replaced by two halves that keep its size, schedule and C, and three pipes meet at the drop. |
+| TR.13 | **Convert keeps the caret** | ⬜ | Every keystroke rebuilt the tab, which destroys the input you are typing in — the same trap `renderProperties` has. The opposite box is written in place now. Verified: typing 3 then 5 leaves the SAME input element focused and gives 35 °C → 95.00 °F. |
+
+### Interface
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| TR.14 | "COMMAND" gone from the ribbon | ⬜ | It was also being re-applied in JavaScript on every mode change, which is why taking it out of the markup was not enough on its own. |
+| TR.15 | **COPY / PASTE on Design > Edit** | ⬜ | They do what Ctrl+C / Ctrl+V do. The two that used to sit there copied PROPERTIES — a different verb — and have moved to the bottom of the properties panel's DESIGN section, as **Copy properties / Paste properties**. Two buttons a foot apart both saying COPY is a trap. |
+| TR.16 | Valves duplicated into CONTROL | ⬜ | Beside the sensors, since a control valve is placed while you are wiring controls. |
+| TR.17 | **ADD CONTROL works in either direction** | ⬜ | Sensor first or pump first. A pump can only ever be the follower and a sensor only ever the target, so there is nothing ambiguous and no reason to make the hand remember an order. |
+| TR.18 | REPAIR hides itself | ⬜ | Shown only when something in the model actually looks mangled, re-checked on every solve. Not deleted — the corruption was real and this is the only way back from it. |
+| TR.19 | **Alt frees any constraint** | ⬜ | Pipe angles, the grid, detail lines, device sliding. Shift still frees the 15° snap because the fingers know it, but Alt is the one that means it everywhere — on a device drag Shift was already taken (it selects the run between), so a single rule was only ever going to be Alt. |
 
 ## 5W. COPY AND PASTE, FIND, AND THE FLOOR ABOVE (v0.16.13)
 

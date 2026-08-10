@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.13, 2026-08-09.** Eight test suites, **1915 assertions**, all
+State: **v0.16.14, 2026-08-09.** Eight test suites, **1932 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -414,6 +414,8 @@ Short index of the least obvious things, all expanded in `ARCHITECTURE.md`:
 | `pump.head` vs `hDesign` | One is what the solver ran on, the other is a report of it |
 | ANNOTATION selects annotation, never pipework | Everything that mode moves sits ON TOP of the drawing; the pipe underneath was winning the click |
 | Annotation handles are sized in GRID SQUARES | A pixel target shrinks with the zoom while everything you aim at is in metres |
+| ALT frees any constraint; Shift only the 15° snap | Shift was already "select the run between" on a device, so one rule could only ever be Alt |
+| A cross-floor link has TWO legs, routed separately | `control` and `control.far`; editing the wrong one puts your node on the other floor |
 | Copy is a closed FRAGMENT: extract, then insert | Every id it points at is remapped or dropped; a copy following the original's sensor is two devices on one measurement |
 | A control link across floors rises through a NODE | Half the link on each floor, meeting at one draggable point in plan |
 | Routes are `zRoute`, one degree of freedom | Three orthogonal segments between two fixed points have exactly one |

@@ -318,6 +318,10 @@
       if (x === null) return;
       if (p.kind === 'pump' && p.pump) p.pump.speed = x;
       else if (p.kind === 'valve' && p.valve) p.valve.opening = Math.round(x * 100);
+      /* A COIL COPIES ITS LEADER'S PART LOAD (Michael, 2026-08-09). Fourteen
+       * AHUs on a floor sit at the same percentage on a given day, and typing
+       * that fourteen times is what sync exists to avoid. */
+      else if (p.kind === 'equip' && p.equip) p.equip.loadPct = x * 100;
     });
   }
 

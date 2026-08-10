@@ -66,6 +66,12 @@
     },
 
     // --- display -> SI -------------------------------------------------
+    /* The inverse of `pdm` above, and it needs its own branch for the same
+     * reason: ft/100ft is a slope, not a scaled pressure. */
+    toSIPdm: function (v, u) {
+      if (u === 'ft/100ft') return (v / 100) * RHO * G;
+      return v;
+    },
     toSIFlow:     function (v, u) { return v * conv(FLOW, u).factor; },
     toSIPressure: function (v, u) { return v * conv(PRESSURE, u).factor; },
     toSILength:   function (v, u) { return v * conv(LENGTH, u).factor; },

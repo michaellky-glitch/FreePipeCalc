@@ -1802,11 +1802,22 @@
     if (a.kind === 'valve' && b.kind === 'valve') {
       return canControl(a) && canControl(b);      // globe to globe
     }
+    /* HEAT EXCHANGERS SYNC THEIR PART LOAD — Michael, 2026-08-09. Fourteen AHUs
+     * on one floor are all at the same percentage on a given day, and setting
+     * that fourteen times is the sort of tedium sync exists for. Like to like,
+     * as everywhere else: a percentage of duty and a percentage of travel are
+     * not the same quantity. */
+    if (a.kind === 'equip' && b.kind === 'equip') {
+      return !!(a.equip && b.equip &&
+                a.equip.equipType === 'exchanger' && b.equip.equipType === 'exchanger');
+    }
     return false;
   }
 
   function setSync(m, p, leaderId) {
-    var host = (p.kind === 'pump') ? p.pump : p.valve;
+    var host = (p.kind === 'pump') ? p.pump
+             : (p.kind === 'valve') ? p.valve
+             : (p.kind === 'equip') ? p.equip : null;
     if (!host) return null;
     if (!leaderId) { delete host.sync; return null; }
     var lead = pipe(m, leaderId);
@@ -1832,7 +1843,9 @@
 
   function syncOf(p) {
     if (!p) return null;
-    var host = (p.kind === 'pump') ? p.pump : (p.kind === 'valve' ? p.valve : null);
+    var host = (p.kind === 'pump') ? p.pump
+             : (p.kind === 'valve') ? p.valve
+             : (p.kind === 'equip') ? p.equip : null;
     return (host && host.sync) || null;
   }
 
@@ -1849,8 +1862,16 @@
       var o = Number(lead.valve && lead.valve.opening);
       return isFinite(o) ? Math.max(0, Math.min(100, o)) / 100 : 1;
     }
+    /* A COIL COPIES ITS LEADER'S PART LOAD. Reported as a fraction like the
+     * others so callers do not have to know which kind they are looking at;
+     * `applySyncs` puts it back as a percentage. */
+    if (p.kind === 'equip' && lead.kind === 'equip') {
+      var pc = Number(lead.equip && lead.equip.loadPct);
+      return isFinite(pc) ? Math.max(0, pc) / 100 : null;
+    }
     return null;
   }
+
 
   /* Where an in-line device sits on the drawing: the midpoint of its link. */
   function deviceMid(m, p) {
@@ -2312,10 +2333,10 @@
    * The prefixes are exactly the ones `nextTag` can produce. A tag that is
    * ITSELF a generated one is left alone — `PMP-1` is a perfectly good tag; it
    * is `<something>PMP-1` that cannot have been typed. */
-  var GENERATED_TAG = /(?:PMP|AHU|TS|SRC|OF|STR)-\d+/;
-  var TRAILING_GENERATED = /^(.+?)((?:(?:PMP|AHU|TS|SRC|OF|STR)-\d+)+)$/;
-  var PLAIN_GENERATED = /^(?:PMP|AHU|TS|SRC|OF|STR)-\d+$/;
-  var GENERATED_G = /(?:PMP|AHU|TS|SRC|OF|STR)-\d+/g;
+  var GENERATED_TAG = /(?:PMP|AHU|TS|PS|FS|DPS|DTS|SRC|OF|STR)-\d+/;
+  var TRAILING_GENERATED = /^(.+?)((?:(?:PMP|AHU|TS|PS|FS|DPS|DTS|SRC|OF|STR)-\d+)+)$/;
+  var PLAIN_GENERATED = /^(?:PMP|AHU|TS|PS|FS|DPS|DTS|SRC|OF|STR)-\d+$/;
+  var GENERATED_G = /(?:PMP|AHU|TS|PS|FS|DPS|DTS|SRC|OF|STR)-\d+/g;
 
   /* ============================== WHAT THE MANGLING ACTUALLY LOOKS LIKE
    *
@@ -2418,6 +2439,34 @@
     m.pipes.forEach(fix);
     m.nodes.forEach(fix);
     return fixed;
+  }
+
+  /* SPLIT A PIPE AT AN EXISTING NODE, making a tee.
+   *
+   * The pipe becomes two, meeting at `nodeId`, each keeping the original's
+   * schedule, size and C — a tee in a run is the same pipe on both sides of it,
+   * and inventing a size change would be a statement nobody made. The original
+   * is removed rather than shortened so nothing downstream sees a pipe whose
+   * ends have quietly changed.
+   *
+   * Refused on anything that is not a plain pipe: splitting a pump or a coil
+   * has no meaning, and a riser link is generated rather than drawn. Refused
+   * too when the node is already one of the ends, which would make a
+   * zero-length pipe.
+   *
+   * Returns the two new pipes, or null. */
+  function splitPipeAt(m, pipeId, nodeId) {
+    var p = pipe(m, pipeId), n = node(m, nodeId);
+    if (!p || !n || p.kind !== 'pipe') return null;
+    if (p.a === nodeId || p.b === nodeId) return null;
+    var a = node(m, p.a), b = node(m, p.b);
+    if (!a || !b) return null;
+    var opts = { kind: 'pipe', schedule: p.schedule, size: p.size, C: p.C };
+    if (p.temperature !== undefined) opts.temperature = p.temperature;
+    var aId = p.a, bId = p.b;
+    removePipe(m, pipeId);
+    return { first: addPipe(m, aId, nodeId, opts),
+             second: addPipe(m, nodeId, bId, opts) };
   }
 
   function clearDevice(m, nodeId) {
@@ -2630,6 +2679,7 @@
     DETAIL_COLOURS: DETAIL_COLOURS,
     controlRoute: controlRoute, sensorRoute: sensorRoute, zRoute: zRoute,
     extractFragment: extractFragment, insertFragment: insertFragment,
+    splitPipeAt: splitPipeAt,
     nextLevelName: nextLevelName,
     uniqueTag: uniqueTag, duplicateTags: duplicateTags,
     controlRiser: controlRiser, setControlRiser: setControlRiser,

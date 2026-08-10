@@ -27,11 +27,21 @@
    * with the host pipe) means the amount to subtract from a drawn run is always
    * the same number, and 0.5 m sits on the default grid. */
   var DEVICE_LEN = 0.5;
-  /* Q4, Michael: an in-line device slides ALONG its run in 0.1 m steps.
-   * Finer than the drawing grid on purpose — this is positioning a valve in a
-   * run, not laying out pipework, and 0.5 m steps would be unusable on a
-   * device 0.5 m long. */
-  var DEVICE_SLIDE_STEP = 0.1;
+  /* Q4, Michael: an in-line device slides ALONG its run — and it lands on the
+   * GRID, not on a multiple of travel.
+   *
+   * The first attempt quantised the DISTANCE MOVED to 0.1 m, which is a
+   * different thing and reads wrong: where the device ends up then depends on
+   * where it started, so two valves nudged along the same main do not line up
+   * with each other or with anything else on the drawing. Michael, 2026-08-09:
+   * "they should snap align with 1/2 grid, not lengths along the pipe."
+   *
+   * So the POSITION is snapped, to half a minor grid square. On an
+   * axis-aligned run — which is nearly all of them — that is exactly grid
+   * alignment, and two devices on the same main line up with each other because
+   * they are both on the lattice rather than both 0.1 m from wherever they
+   * happened to be. */
+  var DEVICE_SLIDE_FRACTION = 0.5;          // of the minor grid
   /* HOW BIG AN ANNOTATION HANDLE IS TO CLICK ON, in GRID squares.
    *
    * Michael, 2026-08-09: control-link nodes and the cross-floor riser were both
@@ -103,6 +113,7 @@
     this.drawSize = null;            // size badge during DRAW
     this.lengthEntry = null;         // digits typed mid-run, committed on Enter
     this.shiftDown = false;
+    this.altDown = false;
 
     this._bind();
     this.resize();
@@ -474,9 +485,21 @@
     return s;
   };
 
-  /* Constrain a point to 15° increments from an anchor (Shift disables). */
+  /* ONE MODIFIER FOR "LET ME" — Michael, 2026-08-09: "standardise Alt for
+   * unconstrained movement (e.g. also for pipe angles)."
+   *
+   * ALT frees any constraint. Shift keeps working here because it has always
+   * freed the 15° snap and the fingers know it, but Alt is the one that means
+   * it everywhere: on a DEVICE drag Shift was already taken — it selects the
+   * run between — so a single rule was only ever going to be Alt.
+   *
+   * Read from the pointer event on both down and move (§4), so it cannot go
+   * stale in another window. */
+  View.prototype.freeform = function () { return this.altDown || this.shiftDown; };
+
+  /* Constrain a point to 15° increments from an anchor (Alt or Shift frees). */
   View.prototype.angleSnap = function (ax, ay, wx, wy) {
-    if (this.shiftDown) return { x: wx, y: wy };
+    if (this.freeform()) return { x: wx, y: wy };
     var dx = wx - ax, dy = wy - ay;
     var len = Math.hypot(dx, dy);
     if (len < 1e-9) return { x: wx, y: wy };
@@ -660,11 +683,13 @@
        * with no pointermove of its own, and it was snapping or not according to
        * whatever the last move had seen. Michael, 2026-08-09. */
       self.shiftDown = e.shiftKey;
+      self.altDown = e.altKey;
       var r = c.getBoundingClientRect();
       var sx = e.clientX - r.left, sy = e.clientY - r.top;
       var w = self.toWorld(sx, sy);
       var m0 = self.getModel();
       self.shiftDown = e.shiftKey;            // authoritative — see pointermove
+      self.altDown = e.altKey;
 
       if (e.button === 1) {                       // middle drag = pan (§4)
         self.panning = { sx: sx, sy: sy, ox: self.originX, oy: self.originY };
@@ -722,12 +747,24 @@
         return;
       }
       if (self.controlPick) {
-        /* THE TARGET, preferring a device over whatever pipe runs past it —
-         * same reasoning as `controllableAt`. */
-        var pickHit = self.deviceAt(w.x, w.y, 26) ||
-                      (self.pipeAt(w.x, w.y) || {}).pipe;
-        var src = M.pipe(m0, self.controlPick.pipeId);
+        /* THE SECOND CLICK, whichever end it is. Started from a device, this
+         * looks for a target; started from a target, for a device. One
+         * implementation of "what may be linked to what" either way. */
+        var startedAtTarget = (self.controlPick.from === 'target');
+        var pickHit, src;
+        if (startedAtTarget) {
+          src = self.controllableAt(w.x, w.y);
+          pickHit = M.pipe(m0, self.controlPick.targetId);
+        } else {
+          pickHit = self.deviceAt(w.x, w.y, 26) || (self.pipeAt(w.x, w.y) || {}).pipe;
+          src = M.pipe(m0, self.controlPick.pipeId);
+        }
         self.controlPick = null;
+        if (startedAtTarget && !src) {
+          self.onMessage('Nothing linked — pick a pump or a control valve.', 'error');
+          self.changed();
+          return;
+        }
         if (pickHit && M.canBeControlled(pickHit) && src) {
           self.onBeforeEdit();
           M.setControl(m0, src, pickHit.id);
@@ -895,15 +932,32 @@
        * The second click is handled by the `controlPick` branch above, so there
        * is one implementation of "what may be linked to what". */
       if (self.tool === 'link') {
+        /* EITHER ORDER. Michael, 2026-08-09: "Add Control should allow reverse
+         * direction (sensor → pump/valve as well as pump/valve → sensor)."
+         *
+         * You point at the two things and the app works out which is which —
+         * a pump can only ever be the FOLLOWER and a sensor only ever the
+         * TARGET, so there is nothing ambiguous to resolve and no reason to
+         * make the hand remember an order. Starting from the sensor is the
+         * natural gesture when the sensor is what you just placed. */
         var lp = self.controllableAt(w.x, w.y);
         if (lp) {
-          self.controlPick = { pipeId: lp.id };
+          self.controlPick = { pipeId: lp.id, from: 'device' };
           self.onMessage('Now click the sensor or equipment ' +
                          (lp.tag || lp.id) + ' should follow.');
           self.render();
-        } else {
-          self.onMessage('Click a pump or a control valve first.', 'error');
+          return;
         }
+        var tp = self.deviceAt(w.x, w.y, 26) || (self.pipeAt(w.x, w.y) || {}).pipe;
+        if (tp && M.canBeControlled(tp)) {
+          self.controlPick = { targetId: tp.id, from: 'target' };
+          self.onMessage('Now click the pump or valve that should follow ' +
+                         (tp.tag || tp.id) + '.');
+          self.render();
+          return;
+        }
+        self.onMessage('Click a pump, a valve, or the sensor they should follow.',
+                       'error');
         return;
       }
       /* DETAIL: a free line that the model never sees. Click to place vertices,
@@ -1163,6 +1217,7 @@
        * that instant, so reading it here cannot go stale — and a pointermove
        * always precedes the click that would use it. */
       self.shiftDown = e.shiftKey;
+      self.altDown = e.altKey;
 
       if (self.panning) {
         self.originX = self.panning.ox + (sx - self.panning.sx);
@@ -1317,7 +1372,7 @@
          * different grid lines. Shift overrides, as everywhere else. */
         var mm = self.getModel();
         var g = mm.settings.grid;
-        if (g && g.snap && !self.shiftDown) {
+        if (g && g.snap && !self.freeform()) {
           var wpt = self.toWorld(d.ax + nox, d.ay + noy);
           var step = g.minor || 0.5;
           var swx = Math.round(wpt.x / step) * step;
@@ -1336,7 +1391,7 @@
         var da = self.dragAlign, mA = self.getModel();
         var tx = w.x + da.offX, ty = w.y + da.offY;
         var gA = mA.settings.grid;
-        if (gA && gA.snap && !self.shiftDown) {
+        if (gA && gA.snap && !self.freeform()) {
           var step = gA.minor || 0.5;
           tx = Math.round(tx / step) * step;
           ty = Math.round(ty / step) * step;
@@ -1390,7 +1445,17 @@
          * Shift-freed move could never have worked. Found by trying it. */
         if (dd.axis && !dd.free) {
           var t = dx * dd.axis.ux + dy * dd.axis.uy;
-          t = Math.round(t / DEVICE_SLIDE_STEP) * DEVICE_SLIDE_STEP;
+          /* SNAP THE POSITION, NOT THE TRAVEL. The device's `a` end is put on
+           * the lattice along the axis: its along-axis coordinate, measured from
+           * the origin, is rounded to half a grid square. `t0` is where that end
+           * already sits, so the rounding is absolute rather than relative to
+           * where the drag began. */
+          var gmin = (mdl.settings.grid && mdl.settings.grid.minor) || 0.5;
+          var step = gmin * DEVICE_SLIDE_FRACTION;
+          if (step > 0) {
+            var t0 = dd.ax * dd.axis.ux + dd.ay * dd.axis.uy;
+            t = Math.round((t0 + t) / step) * step - t0;
+          }
           t = Math.max(dd.axis.min, Math.min(dd.axis.max, t));
           na.x = dd.ax + dd.axis.ux * t; na.y = dd.ay + dd.axis.uy * t;
           nb.x = dd.bx + dd.axis.ux * t; nb.y = dd.by + dd.axis.uy * t;
@@ -1567,6 +1632,26 @@
           ' to items outside the selection will be dropped' : '') + '.');
         return;
       }
+      /* WHILE A PASTE IS IN FLIGHT: Tab picks which end joins, R turns it.
+       * Michael, 2026-08-09. Both act on the fragment being placed, so they are
+       * only live while there is one — no mode, no button. */
+      if (self.pasting && e.key === 'Tab') {
+        e.preventDefault();
+        var cands = (self.pasting.frag.boundary && self.pasting.frag.boundary.length)
+          ? self.pasting.frag.boundary
+          : self.pasting.frag.nodes.map(function (n) { return n.id; });
+        var at = cands.indexOf(self.pasting.frag.anchor);
+        self.pasting.frag.anchor = cands[(at + 1) % cands.length];
+        self.onMessage('Joining by ' + self.pasting.frag.anchor + '.');
+        self.render();
+        return;
+      }
+      if (self.pasting && (e.key === 'r' || e.key === 'R')) {
+        e.preventDefault();
+        self.rotatePasting();
+        self.render();
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
         if (!self.clipboard) { self.onMessage('Nothing copied yet.', 'error'); return; }
         if (self.locked()) return self.refuseLocked('Pasting');
@@ -1581,11 +1666,14 @@
     });
     window.addEventListener('keyup', function (e) {
       if (e.key === 'Shift') self.shiftDown = false;
+      if (e.key === 'Alt') self.altDown = false;
     });
     /* Losing the window is the case the keyup never covers: the release
      * happens in whatever took focus. Belt and braces beside the pointer
      * events, which are what actually make this correct. */
-    window.addEventListener('blur', function () { self.shiftDown = false; });
+    window.addEventListener('blur', function () {
+      self.shiftDown = false; self.altDown = false;
+    });
   };
 
   /* A node dropped on top of another one JOINS it.
@@ -1615,7 +1703,32 @@
       var d = Math.hypot(w.x - here.x, w.y - here.y);
       if (d < rad && d < bestD) { bestD = d; target = o; }
     });
-    if (!target) return;
+
+    /* NO NODE THERE — BUT MAYBE A PIPE. Michael, 2026-08-09: "dragging the end
+     * node of a pipe onto a pipe should create a tee. Elbow seems to work."
+     *
+     * The elbow worked because that is node-onto-node. Dropping onto the MIDDLE
+     * of a run had no meaning at all, so the node was left sitting on top of
+     * the pipe, touching nothing — which is exactly the silent break
+     * `disconnections()` exists to report, made by hand.
+     *
+     * So the run is SPLIT at the drop point and the dropped node becomes the
+     * junction. Refused when the pipe is one the dragged node already belongs
+     * to: splitting a pipe with its own end is a zero-length pipe and a
+     * nonsense. */
+    if (!target) {
+      var hit = this.pipeAt(here.x, here.y, SNAP_PX);
+      if (hit && hit.pipe && hit.pipe.kind === 'pipe' &&
+          hit.pipe.a !== id && hit.pipe.b !== id && M.splitPipeAt) {
+        var tee = M.splitPipeAt(m, hit.pipe.id, id);
+        if (tee) {
+          this.selection = [{ kind: 'node', id: id }];
+          this.onMessage && this.onMessage('Tee made in ' + hit.pipe.id + '.');
+          return;
+        }
+      }
+      return;
+    }
 
     // Already joined by a pipe? Then this is a zero-length pipe, not a merge.
     var joined = M.pipesAt(m, id).some(function (p) {
@@ -1728,7 +1841,7 @@
     var a = this.detailDraft.pts[this.detailDraft.pts.length - 1];
     var aim = this.angleSnap(a.x, a.y, w.x, w.y);
     var m = this.getModel(), g = m.settings.grid;
-    if (this.shiftDown || !g || !g.snap || !(g.minor > 0)) return aim;
+    if (this.freeform() || !g || !g.snap || !(g.minor > 0)) return aim;
     var dx = aim.x - a.x, dy = aim.y - a.y;
     var len = Math.hypot(dx, dy);
     if (!(len > 1e-9)) return aim;
@@ -1850,14 +1963,19 @@
    * than climbing forever. */
   var TAG_PREFIX = { source: 'SRC', demand: 'OF', pump: 'PMP', equip: 'AHU',
                      adiabatic: 'STR', sensor: 'TS' };
+  /* A SENSOR'S TAG SAYS WHAT IT MEASURES. Michael, 2026-08-09: a ΔP sensor came
+   * out as TS-1, which reads as a thermostat on the drawing and in the
+   * schedule. The prefixes are the ones an engineer writes: T, P, F, DP, DT. */
+  var SENSOR_PREFIX = { temperature: 'TS', pressure: 'PS', flow: 'FS',
+                        dP: 'DPS', dT: 'DTS' };
 
   /* In-line 2-port devices: they sit IN a pipe rather than at a node, are drawn
    * as a point symbol on a short link, and are hit-tested at their midpoint. */
   var IN_LINE = { pump: true, valve: true, equip: true, sensor: true };
 
-  View.prototype.nextTag = function (kind) {
+  View.prototype.nextTag = function (kind, forcePrefix) {
     var m = this.getModel();
-    var prefix = TAG_PREFIX[kind];
+    var prefix = forcePrefix || TAG_PREFIX[kind];
     if (!prefix) return null;
     var used = {};
     function note(tag) {
@@ -1968,7 +2086,10 @@
       sensor: JSON.parse(JSON.stringify(def))
     }, 'sensor');
     if (!sn) return;
-    if (!sn.tag) { sn.tag = this.nextTag('sensor'); this.changed(); }
+    if (!sn.tag) {
+      sn.tag = this.nextTag('sensor', SENSOR_PREFIX[def.mode] || 'TS');
+      this.changed();
+    }
     if (def.mode === 'dP' || def.mode === 'dT') {
       this.refPick = { pipeId: sn.id };
       this.onMessage && this.onMessage('Now click the second pipe to measure against.');
@@ -3897,10 +4018,16 @@
       }
       /* THE DESIGN LOAD on an exchanger — what it was sized for, beside what it
        * is doing. Michael, 2026-08-05. */
-      if (flags.load && obj.equip && obj.equip.equipType === 'exchanger' &&
-          obj.equip.duty !== undefined && obj.equip.duty !== null) {
-        lines.push('Q\u1d48 ' + (obj.equip.duty >= 0 ? '+' : '') +
-                   (Number(obj.equip.duty) / 1000).toFixed(1) + ' kW');
+      /* THE DESIGN FIGURE, wherever the machine keeps it. Michael, 2026-08-09:
+       * "Display > Design Load does not pop up anything." It was drawn only for
+       * an EXCHANGER, whose design figure is `duty` — a source/sink keeps its
+       * on `qMax`, so on a chiller or a tower the switch did nothing at all. */
+      if (flags.load && obj.equip) {
+        var dsn = (obj.equip.equipType === 'source') ? obj.equip.qMax : obj.equip.duty;
+        if (dsn !== undefined && dsn !== null && isFinite(Number(dsn))) {
+          lines.push('Q\u1d48 ' + (Number(dsn) >= 0 ? '+' : '') +
+                     (Number(dsn) / 1000).toFixed(1) + ' kW');
+        }
       }
     }
     if (!lines.length) return;
@@ -4581,6 +4708,39 @@
    * looks placed but is not is the worst kind of preview. The ANCHOR gets a
    * ring — filled when it is over an existing node, so "this will join here" is
    * visible before the click rather than discovered after it. */
+  /* TURN THE FRAGMENT A QUARTER TURN CLOCKWISE, about its anchor.
+   *
+   * Screen y runs DOWN while world y runs up, so "clockwise on the drawing" is
+   * (x, y) -> (y, -x) in world terms. Getting that backwards is the classic
+   * way to ship a rotate that turns the wrong way, so it is written out.
+   *
+   * Only the GEOMETRY turns. Label offsets are stored in screen pixels and
+   * route bends in world coordinates; rotating those as well is a bigger job
+   * than this is worth, so they are dropped rather than left pointing the wrong
+   * way — a leader that has to be re-dragged is better than one that lies. */
+  View.prototype.rotatePasting = function () {
+    var ps = this.pasting;
+    if (!ps) return;
+    var frag = ps.frag, anchor = null;
+    frag.nodes.forEach(function (n) { if (n.id === frag.anchor) anchor = n; });
+    if (!anchor) return;
+    var ax = anchor.x, ay = anchor.y;
+    frag.nodes.forEach(function (n) {
+      var rx = n.x - ax, ry = n.y - ay;
+      n.x = ax + ry; n.y = ay - rx;
+      if (n.labelOffset) delete n.labelOffset;
+    });
+    frag.pipes.forEach(function (p) {
+      if (p.labelOffset) delete p.labelOffset;
+      var host = (p.kind === 'pump') ? p.pump : (p.kind === 'valve') ? p.valve : null;
+      if (host && host.control) { delete host.control.pts; delete host.control.mid;
+                                  delete host.control.axis; delete host.control.far; }
+      if (p.sensor && p.sensor.route) delete p.sensor.route;
+    });
+    ps.rot = ((ps.rot || 0) + 90) % 360;
+    this.onMessage('Rotated ' + ps.rot + '°.');
+  };
+
   View.prototype.drawPastePreview = function () {
     var ps = this.pasting;
     if (!ps || !ps.at) return;
@@ -4797,10 +4957,13 @@
         /* One handle per bend; both slide the same mid line, which is what
          * makes the route stay orthogonal however it is dragged. */
         var bh = self.pickHalf();
+        /* The leg being drawn, so a bend dragged here moves THIS floor's line. */
+        var legHolder = self.controlLegHolder(p) ||
+                        { host: (p.kind === 'pump') ? p.pump : p.valve, key: 'control' };
         for (var j = 1; j < pts.length - 1; j++) {
           self.labelHandle(pts[j].x - 5, pts[j].y - 5, 10, 10);
           self._controlHandles.push({
-            pipe: p, host: (p.kind === 'pump') ? p.pump : p.valve, key: 'control',
+            pipe: p, host: legHolder.host, key: legHolder.key,
             axis: r.axis, from: r.from, to: r.to, route: r,
             vertex: j - 1,
             x: pts[j].x - bh, y: pts[j].y - bh, w: bh * 2, h: bh * 2
@@ -4822,7 +4985,7 @@
   View.prototype.snapWorld = function (w) {
     var m = this.getModel();
     var g = m.settings.grid;
-    if (this.shiftDown || !g || !g.snap || !(g.minor > 0)) return { x: w.x, y: w.y };
+    if (this.freeform() || !g || !g.snap || !(g.minor > 0)) return { x: w.x, y: w.y };
     return { x: Math.round(w.x / g.minor) * g.minor,
              y: Math.round(w.y / g.minor) * g.minor };
   };
@@ -4836,6 +4999,30 @@
    *
    * Returns what is needed to insert it: the route's owner, which segment was
    * hit, and the snapped world point. */
+  /* WHICH OBJECT HOLDS THE ROUTING for the leg of a control link drawn on the
+   * floor being looked at.
+   *
+   * A link that changes floor has TWO legs and they route independently: the
+   * near one on `control` itself, the far one on `control.far`. Everything that
+   * edits a route — adding a bend, removing one, dragging one — wrote to the
+   * NEAR leg whatever floor you were on, so working on the upper floor put the
+   * node on the lower one. Michael, 2026-08-09: "creating link node on upper
+   * level creates node on lower levels instead."
+   *
+   * Returns { host, key } for `host[key].pts`. */
+  View.prototype.controlLegHolder = function (p) {
+    var m = this.getModel();
+    var host = (p.kind === 'pump') ? p.pump : p.valve;
+    var c = M.controlOf(p);
+    if (!host || !c) return null;
+    var span = M.controlSpan(m, p);
+    if (span && m.activeLevel === span.target) {
+      if (!c.far) c.far = {};
+      return { host: c, key: 'far' };
+    }
+    return { host: host, key: 'control' };
+  };
+
   View.prototype.routePointAt = function (wx, wy, tolPx) {
     var m = this.getModel(), self = this, best = null, bestD = Infinity;
     /* THE SAME TARGET SIZE AS EVERY OTHER ANNOTATION HANDLE. It was a flat
@@ -4862,13 +5049,11 @@
       }
       var c = M.controlOf(p);
       if (c) {
-        /* THROUGH THE LEVEL-AWARE ROUTE. Asking without a floor returns null on
-         * a link that changes floor (v0.16.9), so a cross-floor link had no
-         * route to click on at all — which is exactly the pair Michael could
-         * not place a node between. `controlRoute` does the floor filtering
-         * itself now, so there is none left to do here. */
-        consider(p, p.kind === 'pump' ? p.pump : p.valve, 'control',
-                 M.controlRoute(m, p, m.activeLevel));
+        /* THROUGH THE LEVEL-AWARE ROUTE, and into the leg that belongs to this
+         * floor. `controlRoute` does the floor filtering; `controlLegHolder`
+         * says which of the two legs a bend placed here belongs to. */
+        var lg = self.controlLegHolder(p);
+        if (lg) consider(p, lg.host, lg.key, M.controlRoute(m, p, m.activeLevel));
       }
     });
     return best;
@@ -4900,8 +5085,11 @@
       }
       var c = M.controlOf(p);
       if (c) {
-        consider(p, p.kind === 'pump' ? p.pump : p.valve, 'control',
-                 M.controlRoute(m, p, m.activeLevel));
+        /* THROUGH THE LEVEL-AWARE ROUTE, and into the leg that belongs to this
+         * floor. `controlRoute` does the floor filtering; `controlLegHolder`
+         * says which of the two legs a bend placed here belongs to. */
+        var lg = self.controlLegHolder(p);
+        if (lg) consider(p, lg.host, lg.key, M.controlRoute(m, p, m.activeLevel));
       }
     });
     return best;

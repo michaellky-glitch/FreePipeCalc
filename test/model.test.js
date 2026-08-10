@@ -2880,6 +2880,64 @@ section('Duplicate tags are reported');
      M.uniqueTag(m, 'CHWP-01') !== 'CHWP-01');
 }
 
+section('A pipe end dropped on a pipe makes a tee');
+{
+  const m = M.create();
+  const lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 20, 0);
+  const main = M.addPipe(m, a.id, b.id, { size: 'DN65', schedule: 'sch40', C: 130 });
+  const j = M.addNode(m, lv, 10, 0);
+
+  const r = M.splitPipeAt(m, main.id, j.id);
+  ok('It splits', !!r && !!r.first && !!r.second);
+  ok('...and the original is gone', !M.pipe(m, main.id));
+  ok('...leaving two that meet at the node',
+     M.pipesAt(m, j.id).length === 2, String(M.pipesAt(m, j.id).length));
+  /* A TEE IS THE SAME PIPE ON BOTH SIDES. Inventing a size change at a
+   * junction would be a statement nobody made. */
+  ok('Both halves keep the size', r.first.size === 'DN65' && r.second.size === 'DN65');
+  ok('...the schedule', r.first.schedule === 'sch40' && r.second.schedule === 'sch40');
+  ok('...and the C factor', r.first.C === 130 && r.second.C === 130);
+  near('...and the lengths still add up',
+       M.pipeLength(m, r.first) + M.pipeLength(m, r.second), 20, 1e-9);
+
+  /* Refusals: the ends, and anything that is not a plain pipe. */
+  ok('Splitting at its own end is refused',
+     M.splitPipeAt(m, r.first.id, a.id) === null);
+  const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+  ok('A pump is not splittable', M.splitPipeAt(m, pump.id, j.id) === null);
+  ok('A missing pipe is null, not a crash', M.splitPipeAt(m, 'P999', j.id) === null);
+}
+
+section('Heat exchangers sync their part load');
+{
+  const m = M.create();
+  const lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+  function coil(pct) {
+    const p = M.addPipe(m, a.id, b.id, { kind: 'equip' });
+    p.equip = { qRated: 0.004, pdRated: 80e3, equipType: 'exchanger', duty: 50000 };
+    if (pct !== undefined) p.equip.loadPct = pct;
+    return p;
+  }
+  const lead = coil(40), follow = coil();
+  ok('A coil can sync a coil', M.canSync(follow, lead));
+  ok('...and syncing takes', !!M.setSync(m, follow, lead.id));
+  ok('...reported by syncOf', M.syncOf(follow) === lead.id);
+  near('...at the leader\u2019s part load', M.syncedPosition(m, follow), 0.4, 1e-12);
+
+  /* LIKE TO LIKE, as everywhere else: a percentage of duty and a percentage of
+   * travel are not the same quantity. */
+  const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+  pump.pump = { mode: 'auto', head: 10 };
+  ok('A coil cannot sync a pump', !M.canSync(follow, pump));
+  ok('...nor a pump a coil', !M.canSync(pump, follow));
+  /* And a source/sink is not an exchanger: it has no part load to copy. */
+  const src = M.addPipe(m, a.id, b.id, { kind: 'equip' });
+  src.equip = { qRated: 0.004, pdRated: 80e3, equipType: 'source', tSet: 6 };
+  ok('A source/sink is not offered it', !M.canSync(src, lead));
+}
+
 section('zRoute: one shape, one degree of freedom');
 {
   const A = { x: 0, y: 0 };
