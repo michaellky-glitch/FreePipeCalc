@@ -189,40 +189,14 @@
     return { sizes: sizes, skipped: skipped };
   }
 
-  /* Default insulation thickness against NOMINAL size, in millimetres.
-   *
-   * Michael's rule (2026-08-02): 25 mm below DN50, 50 mm from DN50 up. It
-   * replaces the placeholder curve that shipped with the thermal module, and
-   * it is a DECISION rather than a transcription — his standard, the way a
-   * Custom fluid's properties are the engineer's. It is not flagged as
-   * unverified for the same reason.
-   *
-   * DN50 itself takes the larger figure: "below 50" is the smaller, so 50 and
-   * above is the larger.
-   *
-   * Insulation lives on the SCHEDULE rather than in a table of its own,
-   * because that is where an engineer looks for a pipe's physical properties —
-   * bore, outside diameter, and now what it is lagged with. A pipe's own
-   * `insulation_mm` still overrides it, including 0 for a bare pipe. */
-  function defaultInsulation(nominal_mm) {
-    return (nominal_mm > 0 && nominal_mm < 50) ? 25 : 50;
-  }
-
-  /* The insulation for one size of one schedule: the model's override if there
-   * is one, else the rule above. `overrides` is settings.insulation, keyed
-   * { scheduleKey: { sizeLabel: mm } }. */
-  function insulationFor(scheduleKey, sizeLabel, nominal_mm, overrides) {
-    var row = overrides && overrides[scheduleKey];
-    var v = row && row[sizeLabel];
-    if (v !== undefined && v !== null && v !== '' && isFinite(Number(v))) {
-      return Math.max(0, Number(v));
-    }
-    return defaultInsulation(nominal_mm);
-  }
+  /* INSULATION no longer lives on the schedule (2026-08-10). It was "25 mm
+   * below DN50, 50 mm from DN50 up", keyed per schedule and size; it is now a
+   * single global thickness in Thermal settings (`thermal.insulation_mm`),
+   * overridden per pipe. A schedule is its published dimensions only — bore,
+   * outside diameter, wall — because insulation is a specification the engineer
+   * sets, not a fixed property of a pipe size. See `thermal.js thicknessOf`. */
 
   FD.schedules = {
-    defaultInsulation: defaultInsulation,
-    insulationFor: insulationFor,
     builtin: SCHEDULES,
     parseSizeTable: parseSizeTable,
 

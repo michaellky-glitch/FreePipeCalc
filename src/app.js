@@ -1118,13 +1118,14 @@
           'against a printed table. Specific heat scales every duty below ' +
           'linearly. Check before issue.'));
       }
-      /* Insulation thickness is now the engineer's own — set on the schedule,
-       * or per pipe — so it is no longer flagged. The surface coefficient
-       * still is: it is a default, and on a BARE pipe it is the entire
-       * resistance. */
+      /* Insulation thickness is now the engineer's own — one global default,
+       * overridden per pipe — so it is no longer flagged. The surface
+       * coefficient still is: it is a default, and on a BARE pipe it is the
+       * entire resistance. */
       secT.appendChild(el('p', 'legend',
-        'Pipe gains and losses use the insulation on each pipe’s schedule ' +
-        '(overridden per pipe where set) and an outside surface coefficient of ' +
+        'Pipe gains and losses use ' + FD.thermal.defaultThicknessMm(m).toFixed(0) +
+        ' mm insulation (overridden per pipe where set) and an outside surface ' +
+        'coefficient of ' +
         (m.settings.thermal.surfaceCoeff).toFixed(1) + ' W/(m²·K), which is a ' +
         'DEFAULT rather than sourced data — on a bare pipe it is the whole of ' +
         'the resistance.'));
@@ -2878,11 +2879,10 @@
 
     /* ---- thermal: insulation ----
      * A pipe's OWN thickness always wins, including 0 for a bare pipe — a
-     * blank falls back to its schedule. That distinction matters: a
-     * deliberately uninsulated pipe must not silently pick up 50 mm. */
-    var nominal = FD.schedules.nominalMm ? FD.schedules.nominalMm(p.size) : 0;
-    var insDefault = FD.schedules.insulationFor(p.schedule, p.size, nominal,
-                                               m.settings.insulation);
+     * blank falls back to the model's global default in THERMAL. That
+     * distinction matters: a deliberately uninsulated pipe must not silently
+     * pick up the default. */
+    var insDefault = FD.thermal.defaultThicknessMm(m);
     var insIn = el('input'); insIn.type = 'text';
     insIn.value = (p.insulation_mm === undefined || p.insulation_mm === null ||
                    p.insulation_mm === '') ? '' : p.insulation_mm;
@@ -5500,6 +5500,11 @@
 
     h2('Insulation');
     var g2 = grid();
+    numField(g2, 'Thickness', FD.thermal.defaultThicknessMm(m),
+      function (v) {
+        m.settings.thermal.insulation_mm = Math.max(0, v);
+        renderThermal(); redrawAll();
+      }, '(mm)');
     numField(g2, 'Thermal conductivity', th.insulationK,
       function (v) { m.settings.thermal.insulationK = v; renderThermal(); redrawAll(); },
       '(W/m·K)');
@@ -5573,12 +5578,11 @@
                  'insulation wraps the outside, not the bore.');
     host.appendChild(uh);
 
-    /* THICKNESS lives on the schedule, not here (v0.10.1). It is a physical
-     * property of the pipe alongside bore and outside diameter, and having it
-     * in a table of its own meant looking in two places for one pipe. */
-    var th2 = el('p', 'hint', 'Thickness: HYDRAULIC ▸ schedule table. ');
-    infoMark(th2, '25 mm below DN50, 50 mm from DN50 up. Any pipe overrides ' +
-                  'it, including 0 for bare.');
+    /* THICKNESS is a global default set above (decoupled from the schedule,
+     * 2026-08-10). Any pipe overrides it on the pipe itself. */
+    var th2 = el('p', 'hint', 'Thickness applies to every pipe. ');
+    infoMark(th2, 'One default for the whole model. A single pipe overrides it ' +
+                  'on HYDRAULIC ▸ Insulation, including 0 for a bare pipe.');
     host.appendChild(th2);
 
     var hw = el('div', 'notice warn-notice');
@@ -5588,18 +5592,18 @@
     hw.appendChild(hp);
     host.appendChild(hw);
 
-    /* What the current schedule's thicknesses actually cost, so the two
-     * numbers above can be seen doing something. */
+    /* What the global thickness actually costs across the current schedule's
+     * bores, so the numbers above can be seen doing something — the same lagging
+     * loses more off a fat pipe than a thin one. */
     var allS = FD.schedules.all(m.customSchedules);
     var curS = allS[m.settings.schedule] || allS[Object.keys(allS)[0]];
+    var gThick = FD.thermal.defaultThicknessMm(m);
     var tbl = el('table', 'sheet');
     tbl.innerHTML = '<thead><tr><th class="txt">' + curS.name + '</th>' +
                     '<th>Insulation (mm)</th><th>Loss (W/m·K)</th></tr></thead>';
     var tb = el('tbody');
     curS.sizes.forEach(function (sz) {
-      var nominal = FD.schedules.nominalMm ? FD.schedules.nominalMm(sz.label) : 0;
-      var t = FD.schedules.insulationFor(m.settings.schedule, sz.label, nominal,
-                                         m.settings.insulation);
+      var t = gThick;
       var od = (sz.od_mm || sz.id_mm) / 1000;
       var tr = el('tr');
       tr.appendChild(el('td', 'txt', sz.label));
@@ -5966,62 +5970,35 @@
     }
     host.appendChild(schBtns);
 
-    /* Everything except INSULATION is read-only. Bore and outside diameter are
-     * the published dimensions of a standard pipe — typing over them would
-     * leave the sheet naming "ASME Schedule 40" beside numbers that are not
-     * schedule 40. Copy the schedule to change them. */
+    /* The schedule is its published dimensions only — bore, outside diameter,
+     * wall. INSULATION no longer lives here (2026-08-10): it is a global default
+     * in THERMAL, overridden per pipe, because it is a specification the
+     * engineer sets, not a fixed property of a pipe size. Dimensions are
+     * read-only — typing over them would leave the sheet naming "ASME Schedule
+     * 40" beside numbers that are not schedule 40. Copy the schedule to change
+     * them. */
     var schWrap = el('div', 'table-scroll');
-    var schTable = el('table', 'sheet editable');
+    var schTable = el('table', 'sheet');
     schTable.innerHTML = '<thead><tr><th class="txt">Nominal</th>' +
                          '<th>Inside dia (mm)</th><th>Outside dia (mm)</th>' +
-                         '<th>Wall (mm)</th><th>Insulation (mm)</th></tr></thead>';
+                         '<th>Wall (mm)</th></tr></thead>';
     var schBody = el('tbody');
     cur.sizes.forEach(function (sz) {
-      var nominal = FD.schedules.nominalMm ? FD.schedules.nominalMm(sz.label) : 0;
       var tr = el('tr');
       tr.appendChild(el('td', 'txt', sz.label));
       tr.appendChild(el('td', '', sz.id_mm.toFixed(2)));
       tr.appendChild(el('td', '', sz.od_mm ? sz.od_mm.toFixed(2) : '—'));
       tr.appendChild(el('td', 'dim', sz.od_mm
         ? ((sz.od_mm - sz.id_mm) / 2).toFixed(2) : '—'));
-
-      var td = el('td');
-      var ovRow = m.settings.insulation[curKey] || {};
-      var stored = ovRow[sz.label];
-      var deflt = FD.schedules.defaultInsulation(nominal);
-      var inp = el('input', 'cell-input'); inp.type = 'text';
-      inp.value = (stored === undefined || stored === null || stored === '')
-        ? '' : stored;
-      inp.placeholder = deflt.toFixed(0);
-      if (stored !== undefined && stored !== null && stored !== '') {
-        td.className = 'edited';
-        inp.title = 'Edited. The default for this size is ' + deflt + ' mm.';
-      }
-      inp.addEventListener('change', function () {
-        var raw = inp.value.trim();
-        pushUndo();
-        if (!m.settings.insulation[curKey]) m.settings.insulation[curKey] = {};
-        if (raw === '') {
-          delete m.settings.insulation[curKey][sz.label];
-        } else {
-          var v = FD.units.parse(raw);
-          if (!isFinite(v) || v < 0) { renderHydraulic(); return; }
-          m.settings.insulation[curKey][sz.label] = v;
-        }
-        renderHydraulic(); redrawAll();
-      });
-      td.appendChild(inp);
-      tr.appendChild(td);
       schBody.appendChild(tr);
     });
     schTable.appendChild(schBody);
     schWrap.appendChild(schTable);
     host.appendChild(schWrap);
 
-    var sch1 = el('p', 'hint', 'Insulation is editable; dimensions are not. ');
-    infoMark(sch1, 'Blank takes the default: 25 mm below DN50, 50 mm from DN50 ' +
-                   'up. A pipe overrides it, including 0 for bare. Copy the ' +
-                   'schedule to change dimensions.');
+    var sch1 = el('p', 'hint', 'Dimensions are read-only. ');
+    infoMark(sch1, 'Insulation thickness is now set in THERMAL (one default, ' +
+                   'overridden per pipe). Copy the schedule to change dimensions.');
     host.appendChild(sch1);
     host.appendChild(el('p', 'legend',
       'Source: ' + (isCustom ? 'custom schedule.' : cur.name + ', published dimensions.')));

@@ -447,47 +447,47 @@ section('Fluid properties and the unverified flag');
        round.settings.fluid.density, 1015, 1e-12);
 }
 
-section('Insulation lives on the pipe schedule');
+section('Insulation is a global default, overridden per pipe');
 {
-  /* Michael's rule (v0.10.1): 25 mm below DN50, 50 mm from DN50 up. It is his
-   * standard rather than a transcription, so it is not flagged the way the
-   * glycol properties are — it is a decision, and decisions are his to make. */
-  near('DN15 takes 25 mm', FD.schedules.defaultInsulation(15), 25, 1e-12);
-  near('DN40 takes 25 mm', FD.schedules.defaultInsulation(40), 25, 1e-12);
-  near('DN50 is the boundary and takes the LARGER',
-       FD.schedules.defaultInsulation(50), 50, 1e-12);
-  near('DN300 takes 50 mm', FD.schedules.defaultInsulation(300), 50, 1e-12);
-
-  // An override on the schedule wins over the rule.
-  const ov = { sch40: { DN50: 80 } };
-  near('A schedule override is used',
-       FD.schedules.insulationFor('sch40', 'DN50', 50, ov), 80, 1e-12);
-  near('...only for the size it names',
-       FD.schedules.insulationFor('sch40', 'DN100', 100, ov), 50, 1e-12);
-  near('...and only for the schedule it names',
-       FD.schedules.insulationFor('sch10', 'DN50', 50, ov), 50, 1e-12);
-  near('A blank override falls back to the rule',
-       FD.schedules.insulationFor('sch40', 'DN50', 50, { sch40: { DN50: '' } }),
-       50, 1e-12);
-  near('Zero is a real override, not a blank',
-       FD.schedules.insulationFor('sch40', 'DN50', 50, { sch40: { DN50: 0 } }),
-       0, 1e-12);
-
-  /* A pipe's OWN value always wins, INCLUDING zero — otherwise a deliberately
-   * bare pipe would silently pick up its schedule's figure. */
+  /* DECOUPLED FROM THE SCHEDULE (2026-08-10). Thickness was "25 mm below DN50,
+   * 50 mm from DN50 up", keyed per schedule and size; it is now one global
+   * value in Thermal settings, overridden per pipe. A schedule is its published
+   * dimensions only. The value under test is a design INPUT — the number the
+   * engineer sets — not one read back out of the code. */
   const m = M.create();
   const lv = m.levels[0].id;
   const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 10, 0);
   const p = M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
-  near('With nothing set it takes the schedule figure',
+
+  near('A fresh model defaults to 50 mm', TH.defaultThicknessMm(m), 50, 1e-12);
+  near('...and a blank pipe takes that default',
        TH.thicknessOf(m, p), 0.050, 1e-12);
-  m.settings.insulation = { sch40: { DN50: 80 } };
-  near('...and follows an edit to the schedule', TH.thicknessOf(m, p), 0.080, 1e-12);
+
+  /* IT FOLLOWS THE GLOBAL SETTING, not the schedule. */
+  m.settings.thermal.insulation_mm = 80;
+  near('A blank pipe follows the global thickness',
+       TH.thicknessOf(m, p), 0.080, 1e-12);
+
+  /* THE SCHEDULE NO LONGER TOUCHES IT. A DN50 sch40 pipe and a DN300 one take
+   * the same global thickness — the whole point of the decoupling. */
+  const p2 = M.addPipe(m, a.id, b.id, { size: 'DN300', schedule: 'sch40' });
+  near('A different size takes the same global thickness',
+       TH.thicknessOf(m, p2), 0.080, 1e-12);
+
+  /* A PIPE'S OWN VALUE ALWAYS WINS, INCLUDING ZERO — otherwise a deliberately
+   * bare pipe would silently pick up the default. */
   p.insulation_mm = 0;
-  near('A pipe set to zero is bare, whatever the schedule says',
+  near('A pipe set to zero is bare, whatever the default',
        TH.thicknessOf(m, p), 0, 1e-12);
   p.insulation_mm = 45;
   near('...and its own value is used', TH.thicknessOf(m, p), 0.045, 1e-12);
+
+  /* A MODEL WHOSE SETTINGS PREDATE THE FIELD falls back to 50 mm rather than
+   * NaN or zero — old files re-solve against the default. */
+  const bare = M.create();
+  delete bare.settings.thermal.insulation_mm;
+  near('An absent setting falls back to 50 mm',
+       TH.defaultThicknessMm(bare), 50, 1e-12);
 
   /* Custom schedules can now carry an OUTSIDE diameter, which is what the
    * insulation geometry needs. Without one it falls back to the bore, which

@@ -34,6 +34,7 @@ The likeliest things to come back:
 
 | # | Item | Notes |
 |---|---|---|
+| UI.1 | **Calculate input boxes should be black, to match the other input boxes** | Michael, 2026-08-10. In the TOOLS window the *input* boxes already use the standard near-black `--text`; the boxes that render muted grey are the read-only CALCULATED-RESULT boxes (they share the panel's `.field input[readonly]` styling — grey, dashed). Likely he wants the answer shown in black like the inputs, but it is a visual call — confirm exactly which boxes before changing, and scope any change to the tools so the auto-sized-pump read-only fields keep their "not yours to type in" grey. Not yet done. |
 | DX.1 | Does the DXF open in real CAD? | Untested; nothing in this environment can check it. |
 
 ---
@@ -42,6 +43,17 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.19** — two from Michael's list of 2026-08-10. (1) The CHECK VALVE is
+  now an arrowhead pointing the way flow is allowed with a seat bar across its
+  tip — the standard non-return symbol, replacing the swing flapper. (2)
+  INSULATION is decoupled from the pipe schedule: thickness is a single global
+  default in Thermal (50 mm, `thermal.insulation_mm`), overridden per pipe
+  (including 0 for bare). The old "25 mm below DN50, 50 mm above" schedule rule
+  and its per-size editor are gone; a schedule is now its published dimensions
+  only. Old files re-solve on the 50 mm default (sub-DN50 pipes shift 25→50);
+  the two known-good files still converge. Both are visual/behavioural and
+  await Michael's eye. **The check-valve appearance cannot be verified here —
+  screenshots render nothing to pixels.**
 * **v0.16.18** — the number of settling sweeps is now the user's to set
   (`control.sweeps`, a field in Thermal ▸ Setpoint control, default 6). A first
   pass keeps the six it always did; a final answer can ask for 10+ and wait. The

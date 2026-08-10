@@ -130,18 +130,28 @@
   /* Insulation thickness in metres for a pipe.
    *
    * A pipe's OWN value always wins, INCLUDING zero — a deliberately bare pipe
-   * must not silently pick up its schedule's figure. With nothing set it takes
-   * the value from its SCHEDULE, which is where insulation now lives
-   * (v0.10.1): it is a physical property of the pipe, alongside bore and
-   * outside diameter, rather than a separate table keyed on size. */
+   * must not silently pick up the default. With nothing set it takes the model's
+   * GLOBAL thickness from the Thermal settings (2026-08-10, Michael), decoupled
+   * from the schedule: insulation is a specification the engineer sets once, not
+   * a fixed property of a pipe size. `DEFAULT_INSULATION_MM` is the fallback for
+   * a model whose settings predate the field. */
+  var DEFAULT_INSULATION_MM = 50;
   function thicknessOf(m, p) {
     if (p.insulation_mm !== undefined && p.insulation_mm !== null &&
         p.insulation_mm !== '') {
       return Math.max(0, Number(p.insulation_mm)) / 1000;
     }
-    var nominal = FD.schedules.nominalMm ? FD.schedules.nominalMm(p.size) : 0;
-    return FD.schedules.insulationFor(p.schedule, p.size, nominal,
-                                      m.settings && m.settings.insulation) / 1000;
+    return defaultThicknessMm(m) / 1000;
+  }
+
+  /* The model's global default thickness in mm — what a pipe with no value of
+   * its own is lagged with. Shown in the panel as the placeholder default. */
+  function defaultThicknessMm(m) {
+    var g = m && m.settings && m.settings.thermal && m.settings.thermal.insulation_mm;
+    if (g !== undefined && g !== null && g !== '' && isFinite(Number(g))) {
+      return Math.max(0, Number(g));
+    }
+    return DEFAULT_INSULATION_MM;
   }
 
   function pipeOD(m, p) {
@@ -1042,6 +1052,7 @@
     pipeOutlet: pipeOutlet,
     params: params,
     thicknessOf: thicknessOf,
+    defaultThicknessMm: defaultThicknessMm,
     pipeOD: pipeOD
   };
 })(window.FD = window.FD || {});

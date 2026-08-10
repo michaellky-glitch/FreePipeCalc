@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1942
+This is deliberately separate from the automated suites. Those cover 1964
 assertions of engine behaviour (all passing), but they cannot tell you whether a
 button is discoverable, whether a drawing prints legibly, or whether a result
 *looks* right to someone who sizes pipes for a living. Only Michael can sign
@@ -10,7 +10,7 @@ those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-09 (v0.16.15)
+Last updated: 2026-08-10 (v0.16.19)
 
 **THE CURRENT BATCH IS DIRECTLY BELOW**, before anything historical — Michael
 2026-08-09, having gone looking for it and found it buried under two years of
@@ -20,11 +20,26 @@ first. `WORKLIST.md` says what is waiting on me.
 
 ---
 
-# WAITING ON YOU — v0.16.4 to v0.16.15
+# WAITING ON YOU — v0.16.4 to v0.16.19
 
 Nothing in this block has been looked at by a person. Each row says what was
 driven and how, so you know which part is already pinned and which part is the
 bit only you can judge.
+
+## 5AA. WHILE YOU WERE AWAY — v0.16.16 to v0.16.19 (2026-08-10)
+
+Done from your list and the standing backlog while you slept. The engine
+changes are covered by new tests; the two UI/visual ones are driven and wired
+but, as always, not looked at.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| S4.7 | **Survivors re-settle behind a device parked at full** (v0.16.16) | ⬜ | The recorded S4. Parking a lost device at full moves the plant, and the others had settled against the plant BEFORE that move — so their positions no longer described the answer. Now the loop settles the survivors again against the parked plant, re-parking anything that itself finishes lost, bounded. On `economizer-trim` with ACCH-1 undersized to 145 kW: coils went from ~14% over rated → within 0.3%, PMP-01 from 30.8 kPa off its differential → 147 Pa, five drifted devices → none. Provably inert when nothing is lost — `20260809-DC` solves identically (675 solves, no drift). Genuine limit cycles (two non-ganged pumps fighting) are still, correctly, flagged CONTROL_HUNTING. New `thermal.test.js` section, red-before/green-after. |
+| XC.1 | **The network solve is cross-checked against an INDEPENDENT algorithm** (v0.16.17) | ⬜ | Your biggest gap (§7), first dent. `test/crosscheck.test.js` re-solves looped networks by HARDY CROSS — loop-flow corrections, no shared code with the GGA below the pipe law — and the two agree on every flow to 1e-10 across a two-loop grid, a three-loop ladder and a rewired grid (Hazen-Williams). Handed each pipe's own r and n, so it checks the DISTRIBUTION, which was never independently checked, not the single-pipe law, which you validated. Darcy is out of scope on purpose (its friction factor moves with the flow). Nothing user-facing — this is validation only. |
+| SW.1 | **Settling sweeps is configurable** (v0.16.18) | ⬜ | THERMAL ▸ Setpoint control ▸ **Settling sweeps** (default 6). Your ask: a first pass keeps six, a final answer can have 10+ and wait. The auto solve budget scales with it so the extra sweeps are actually taken. Default behaviour identical (unset = 6 sweeps, same solve count). Verified in the live app: the field is present; 12 → 12 sweeps, 20 → 20, a converging model still stops early. |
+| CV.7 | **Check valve is now an arrowhead + seat bar** (v0.16.19) | ⬜ | Your sketch of 2026-08-10, read as the standard non-return symbol: a triangle pointing the way flow is ALLOWED (a→b, confirmed against the solver's reverse-flow rule) with a seat bar across its tip, replacing the swing flapper. Drawn larger than the bowtie valves so the direction reads. **Driven in the live app — placed and rendered with no error — but the APPEARANCE is unverified: screenshots render nothing to pixels here. This one needs your eye.** If the arrow points the wrong way or the seat sits wrong, say so. |
+| INS.1 | **Insulation decoupled from the schedule** (v0.16.19) | ⬜ | Your ask. Thickness is now one global default in THERMAL (50 mm, `thermal.insulation_mm`), overridden per pipe (including 0 for bare) — the "25 mm below DN50, 50 mm above" schedule rule and its per-size editor are gone; a schedule is its published dimensions only. Verified in the live app: THERMAL shows a **Thickness** field, the schedule table lost its Insulation column, and the per-pipe override still wins. **Your two known-good files re-solve on the 50 mm default** — sub-DN50 pipes shift 25→50 mm, so their pipe heat-loss changes slightly; both still converge (DC 20.0–45.1 °C, HighRise 6.0–16.1 °C). You chose "let them re-solve". |
+| UI.1 | Calculate input boxes black | ⬜ | **Logged in WORKLIST, not yet done.** From the code the tool INPUT boxes already use the standard near-black colour; the muted-grey ones are the read-only CALCULATED-RESULT boxes. Needs your eye to confirm exactly which boxes you mean before I touch shared styling. |
 
 ## 5Y. RISER NOTATION, AS YOU DRAW IT (v0.16.15)
 

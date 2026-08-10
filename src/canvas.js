@@ -3332,28 +3332,26 @@
     var w = 8, h = 7;
 
     if (t.checkValve) {
-      /* Check valve: the standard flapper — a seat bar across the pipe with a
-       * hinged disc swinging onto it, per the symbol Michael supplied. It is
-       * not a bowtie, and drawing it as one made a check valve look like an
-       * isolating valve.
+      /* Check valve: an ARROWHEAD pointing the way flow is ALLOWED, with a SEAT
+       * BAR across its tip — the standard non-return symbol Michael asked for
+       * (2026-08-10), replacing the swing flapper. The valve holds against flow
+       * b→a (it shuts when the head at a falls below b, see network.js), so it
+       * passes a→b, which is local +x here — the arrow points that way.
        *
        * Drawn LARGER than the bowtie valves on purpose: the whole point of the
-       * symbol is that it states a direction, and at bowtie size the flapper
-       * was too small to read which way it swings. */
-      var cw = w * 1.6, ch = h * 1.5;
+       * symbol is that it states a direction, and it has to read at a glance. */
+      var aw = w * 1.4, ah = h * 1.4;          // arrowhead half-length / half-height
       ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(cw, -ch - 2); ctx.lineTo(cw, ch + 2);        // seat
+      ctx.beginPath();                         // the arrowhead, apex toward b
+      ctx.moveTo(-aw, -ah);
+      ctx.lineTo(aw, 0);
+      ctx.lineTo(-aw, ah);
+      ctx.closePath();
       ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(-cw + 1, -ch - 2); ctx.lineTo(-cw + 1, ch + 2); // hinge post
+      ctx.beginPath();                         // the seat bar across the tip
+      ctx.moveTo(aw + 2, -ah - 2);
+      ctx.lineTo(aw + 2, ah + 2);
       ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(-cw + 1, -ch);  ctx.lineTo(cw - 1, ch);      // flapper
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(-cw + 1, -ch, 3.2, 0, Math.PI * 2);             // hinge pin
-      ctx.fillStyle = colour; ctx.fill();
       ctx.lineWidth = 2;
     } else {
       // Bowtie body, shared by gate and globe.
