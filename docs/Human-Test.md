@@ -44,41 +44,41 @@ and the mirror of each with `Λ` for water going up.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| RN.1 | **The chevron is the flow direction** | ⬜ | Taken from the solved flow in the segment touching this floor. A riser pipe is built a = UPPER, b = LOWER, so a positive flow runs downward — getting that backwards would draw every arrow upside down, so there is a test that says so. Verified both ways: reversing the flow flips all six symbols. |
-| RN.2 | **The bar marks where the column stops** | ⬜ | Verified on a three-floor stack: top floor draws the bar ABOVE the chevron, the middle draws two chevrons and no bar, the bottom draws the bar BELOW. Checked by capturing the actual canvas geometry — the bar lands at y=142 above a box centred on 149, and at y=155 below it. |
+| RN.1 | **The chevron is the flow direction** | ✅ | Taken from the solved flow in the segment touching this floor. A riser pipe is built a = UPPER, b = LOWER, so a positive flow runs downward — getting that backwards would draw every arrow upside down, so there is a test that says so. Verified both ways: reversing the flow flips all six symbols. |
+| RN.2 | **The bar marks where the column stops** | ✅ | Verified on a three-floor stack: top floor draws the bar ABOVE the chevron, the middle draws two chevrons and no bar, the bottom draws the bar BELOW. Checked by capturing the actual canvas geometry — the bar lands at y=142 above a box centred on 149, and at y=155 below it. |
 | RN.3 | Nothing solved states nothing | ⬜ | With no answer yet only the bars are drawn — where the column terminates is geometry and is always true; a chevron is a claim about flow, and inventing "down" because nothing has been calculated would be exactly the sort of invention this project refuses. A dead column (zero flow) is treated the same way. |
-| RN.4 | **The box is the select handle now** | ⬜ | The little triangle beside the circle existed only because the circle sits on the node and the node wins the click. The box is a bigger target and already clear of the pipework, so the workaround went with the thing it worked around. |
+| RN.4 | **The box is the select handle now** | ✅ | The little triangle beside the circle existed only because the circle sits on the node and the node wins the click. The box is a bigger target and already clear of the pipework, so the workaround went with the thing it worked around. |
 | RN.5 | It prints | ⬜ | Same notation on paper, through the same `M.riserNotation`, so the plan and the sheet cannot disagree. **Not verified — printing has still never been checked on real paper.** |
-| RN.6 | **Looks** | ⬜ | The geometry is verified by capturing every canvas operation — circle, 45° leader, 26 px box, chevron apexes, bar positions — but the *appearance* at working zoom is yours to judge: whether the box is the right size against your pipework, and whether the leader wants to go down-right on every floor or should dodge. |
+| RN.6 | **Looks** | ✅ | The geometry is verified by capturing every canvas operation — circle, 45° leader, 26 px box, chevron apexes, bar positions — but the *appearance* at working zoom is yours to judge: whether the box is the right size against your pipework, and whether the leader wants to go down-right on every floor or should dodge. |
 
 ## 5X. YOUR TESTING ROUND OF 2026-08-09 (v0.16.14)
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| TR.1 | **A device snaps to half a grid, not to travel** | ⬜ | I had it wrong: quantising the DISTANCE MOVED means where a device ends up depends on where it started, so two valves nudged along the same main never line up. The POSITION is snapped now, to half a minor grid. Verified: dragged towards 21.37 m it lands on **12.750** — on the 0.25 lattice — and the y never moves. |
-| TR.2 | **Display > Design Load works on plant** | ⬜ | It was drawn only for an EXCHANGER, whose design figure is `duty`; a source/sink keeps its on `qMax`, so on a chiller or tower the switch did nothing at all. |
-| TR.3 | **Sensor tags say what they measure** | ⬜ | `TS / PS / FS / DPS / DTS`. Verified all five on the real button path: temperature=TS-1, pressure=PS-1, flow=FS-1, dP=**DPS-1**, dT=**DTS-1**. The mangled-tag detector was taught the new prefixes at the same time, so `DPS-1` does not read as corruption. |
-| TR.4 | Capacity override → **Part load**, no explanation | ⬜ | It never was an override of the capacity: the design figure is untouched and this asks what the machine is doing today. |
+| TR.1 | **A device snaps to half a grid, not to travel** | ✅ | I had it wrong: quantising the DISTANCE MOVED means where a device ends up depends on where it started, so two valves nudged along the same main never line up. The POSITION is snapped now, to half a minor grid. Verified: dragged towards 21.37 m it lands on **12.750** — on the 0.25 lattice — and the y never moves. |
+| TR.2 | **Display > Design Load works on plant** | ✅ | It was drawn only for an EXCHANGER, whose design figure is `duty`; a source/sink keeps its on `qMax`, so on a chiller or tower the switch did nothing at all. |
+| TR.3 | **Sensor tags say what they measure** | ✅ | `TS / PS / FS / DPS / DTS`. Verified all five on the real button path: temperature=TS-1, pressure=PS-1, flow=FS-1, dP=**DPS-1**, dT=**DTS-1**. The mangled-tag detector was taught the new prefixes at the same time, so `DPS-1` does not read as corruption. |
+| TR.4 | Capacity override → **Part load**, no explanation | ✅ | It never was an override of the capacity: the design figure is untouched and this asks what the machine is doing today. |
 | TR.5 | **Coils sync their part load** | ⬜ | Coil to coil only — a percentage of duty and a percentage of travel are not the same quantity, so a pump is not offered. Verified: leader at 40%, follower reads 40 after a solve. Fourteen AHUs on a floor is the case. |
-| TR.6 | **Enter calculates** | ⬜ | Bound to the tools body, so a tool that grows a field cannot forget, and only where there is a button to press — which is why CONVERT (live as you type) ignores it. |
-| TR.7 | Velocity & friction → **Hydraulic** | ⬜ | |
+| TR.6 | **Enter calculates** | ✅ | Bound to the tools body, so a tool that grows a field cannot forget, and only where there is a button to press — which is why CONVERT (live as you type) ignores it. |
+| TR.7 | Velocity & friction → **Hydraulic** | ✅ | |
 | TR.8 | **Solve for Friction drop** — and for a bore FROM one | ⬜ | Five modes now. Sizing on a gradient is how a main is actually picked, so that direction is there too: 10 L/s at 400 Pa/m gives 88.1 mm → DN100. **Bisected, not inverted** — a closed form written for Hazen-Williams would not serve Darcy, whose friction factor depends on the bore it is solving for. Round-trips exactly: 4 L/s in 58.269 mm reads 550 Pa/m, and 550.465 Pa/m gives 58.269 mm back. |
 | TR.9 | **A link node on the upper floor stays on the upper floor** | ⬜ | Real bug, mine. A cross-floor link has TWO legs that route independently — the near one on `control`, the far one on `control.far` — and every edit wrote to the near leg whatever floor you were on. That is also the "dragging nodes on the wrong level". Verified: adding on the upper floor puts 3 points on the far leg and **0** on the near one. |
 | TR.10 | Risers show what they are doing | ⬜ | Per SEGMENT — flow, velocity, ΔP between each pair of floors — because a column is not one pipe: on a stack serving four floors the bottom segment carries far more than the top, and one averaged number would hide exactly that. Plus the tag switch. |
-| TR.11 | **Paste: Tab picks the end, R turns it** | ⬜ | Tab cycles the joining node round the boundary; R turns the fragment 90° clockwise about it. Verified both. Only the geometry turns — label offsets are stored in screen pixels and route bends in world coordinates, so those are dropped rather than left pointing the wrong way. |
-| TR.12 | **A pipe end dropped on a pipe makes a tee** | ⬜ | It used to mean nothing, so the node sat on top of the run touching nothing — the silent break `disconnections()` exists to report, made by hand. Verified: the main is replaced by two halves that keep its size, schedule and C, and three pipes meet at the drop. |
+| TR.11 | **Paste: Tab picks the end, R turns it** | ✅ | Tab cycles the joining node round the boundary; R turns the fragment 90° clockwise about it. Verified both. Only the geometry turns — label offsets are stored in screen pixels and route bends in world coordinates, so those are dropped rather than left pointing the wrong way. |
+| TR.12 | **A pipe end dropped on a pipe makes a tee** | ✅ | It used to mean nothing, so the node sat on top of the run touching nothing — the silent break `disconnections()` exists to report, made by hand. Verified: the main is replaced by two halves that keep its size, schedule and C, and three pipes meet at the drop. |
 | TR.13 | **Convert keeps the caret** | ⬜ | Every keystroke rebuilt the tab, which destroys the input you are typing in — the same trap `renderProperties` has. The opposite box is written in place now. Verified: typing 3 then 5 leaves the SAME input element focused and gives 35 °C → 95.00 °F. |
 
 ### Interface
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| TR.14 | "COMMAND" gone from the ribbon | ⬜ | It was also being re-applied in JavaScript on every mode change, which is why taking it out of the markup was not enough on its own. |
-| TR.15 | **COPY / PASTE on Design > Edit** | ⬜ | They do what Ctrl+C / Ctrl+V do. The two that used to sit there copied PROPERTIES — a different verb — and have moved to the bottom of the properties panel's DESIGN section, as **Copy properties / Paste properties**. Two buttons a foot apart both saying COPY is a trap. |
-| TR.16 | Valves duplicated into CONTROL | ⬜ | Beside the sensors, since a control valve is placed while you are wiring controls. |
-| TR.17 | **ADD CONTROL works in either direction** | ⬜ | Sensor first or pump first. A pump can only ever be the follower and a sensor only ever the target, so there is nothing ambiguous and no reason to make the hand remember an order. |
-| TR.18 | REPAIR hides itself | ⬜ | Shown only when something in the model actually looks mangled, re-checked on every solve. Not deleted — the corruption was real and this is the only way back from it. |
-| TR.19 | **Alt frees any constraint** | ⬜ | Pipe angles, the grid, detail lines, device sliding. Shift still frees the 15° snap because the fingers know it, but Alt is the one that means it everywhere — on a device drag Shift was already taken (it selects the run between), so a single rule was only ever going to be Alt. |
+| TR.14 | "COMMAND" gone from the ribbon | ✅ | It was also being re-applied in JavaScript on every mode change, which is why taking it out of the markup was not enough on its own. |
+| TR.15 | **COPY / PASTE on Design > Edit** | ✅ | They do what Ctrl+C / Ctrl+V do. The two that used to sit there copied PROPERTIES — a different verb — and have moved to the bottom of the properties panel's DESIGN section, as **Copy properties / Paste properties**. Two buttons a foot apart both saying COPY is a trap. |
+| TR.16 | Valves duplicated into CONTROL | ✅ | Beside the sensors, since a control valve is placed while you are wiring controls. |
+| TR.17 | **ADD CONTROL works in either direction** | ✅ | Sensor first or pump first. A pump can only ever be the follower and a sensor only ever the target, so there is nothing ambiguous and no reason to make the hand remember an order. |
+| TR.18 | REPAIR hides itself | ✅ | Shown only when something in the model actually looks mangled, re-checked on every solve. Not deleted — the corruption was real and this is the only way back from it. |
+| TR.19 | **Alt frees any constraint** | ✅ | Pipe angles, the grid, detail lines, device sliding. Shift still frees the 15° snap because the fingers know it, but Alt is the one that means it everywhere — on a device drag Shift was already taken (it selects the run between), so a single rule was only ever going to be Alt. |
 
 ## 5W. COPY AND PASTE, FIND, AND THE FLOOR ABOVE (v0.16.13)
 
@@ -89,15 +89,15 @@ this and diffed against the working tree to confirm it is identical.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| CP.1 | **Ctrl+C takes the selection, Ctrl+V places it** | ⬜ | Shift-click still selects the run, exactly as you expected. On `economizer-trim`: PMP-02 → ACCH-1 gives 3 pipes; Ctrl+C reports "3 pipes and 4 nodes copied — 1 link to items outside the selection will be dropped". The fragment follows the pointer and the next click drops it; Esc cancels. |
-| CP.2 | The anchor is where it met the loop | ⬜ | A boundary node — one that a copied pipe and an uncopied pipe both touch. That is where the copy will want to join, which is what you predicted. If there is no boundary it falls back to the lowest-then-leftmost node, so the answer is stable rather than dependent on selection order. |
-| CP.3 | **Dropping onto a node JOINS it** | ⬜ | The anchor ring fills green when it is over an existing node. Verified: dropping onto one creates 3 nodes instead of 4 — the anchor is reused rather than duplicated — and a copied pipe lands on it. Dropping in free space is allowed too, and `disconnections()` flags the loose end, which is the existing safety net. |
+| CP.1 | **Ctrl+C takes the selection, Ctrl+V places it** | ✅ | Shift-click still selects the run, exactly as you expected. On `economizer-trim`: PMP-02 → ACCH-1 gives 3 pipes; Ctrl+C reports "3 pipes and 4 nodes copied — 1 link to items outside the selection will be dropped". The fragment follows the pointer and the next click drops it; Esc cancels. |
+| CP.2 | The anchor is where it met the loop | ✅ | A boundary node — one that a copied pipe and an uncopied pipe both touch. That is where the copy will want to join, which is what you predicted. If there is no boundary it falls back to the lowest-then-leftmost node, so the answer is stable rather than dependent on selection order. |
+| CP.3 | **Dropping onto a node JOINS it** | ✅ | The anchor ring fills green when it is over an existing node. Verified: dropping onto one creates 3 nodes instead of 4 — the anchor is reused rather than duplicated — and a copied pipe lands on it. Dropping in free space is allowed too, and `disconnections()` flags the loose end, which is the existing safety net. |
 | CP.4 | **A copied pump follows the COPIED sensor** | ⬜ | Not the original's. Pointing at the original is two pumps on one measurement, which is the degenerate case `CONTROL_GANGED` exists to complain about. |
 | CP.5 | ...and a link out of the selection is DROPPED and said so | ⬜ | On `economizer-trim` the copied PMP-02 came out with no control link, because TS-2 was not in the selection — and the toast said so at copy time, not after. |
-| CP.6 | **Tags are made unique** | ⬜ | ACCH-1 → ACCH-2, PMP-02 → PMP-03, keeping the printed width (CHWP-01 → CHWP-02, not CHWP-2). Zero duplicate tags in the model afterwards. |
+| CP.6 | **Tags are made unique** | ✅ | ACCH-1 → ACCH-2, PMP-02 → PMP-03, keeping the printed width (CHWP-01 → CHWP-02, not CHWP-2). Zero duplicate tags in the model afterwards. |
 | CP.7 | A settled VFD position does not travel | ⬜ | The copy starts at full travel; it came out of a solve of different plant, and the control loop resets to full anyway. |
-| CP.8 | The copy is left selected | ⬜ | So it can be moved or deleted straight away. |
-| CP.9 | **Duplicate tags are now reported** | ⬜ | `TAG_DUPLICATE`. Nothing detected this before — every table on the CALCULATION sheet is keyed on the tag, so two rows called CHWP-01 could not be told apart. A warning, not a defect: it is a real state mid-edit. |
+| CP.8 | The copy is left selected | ✅ | So it can be moved or deleted straight away. |
+| CP.9 | **Duplicate tags are now reported** | ✅ | `TAG_DUPLICATE`. Nothing detected this before — every table on the CALCULATION sheet is keyed on the tag, so two rows called CHWP-01 could not be told apart. A warning, not a defect: it is a real state mid-edit. |
 
 ### What this fixed on the way
 
