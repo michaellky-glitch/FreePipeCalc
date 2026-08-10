@@ -2944,6 +2944,88 @@ section('Economizer + trim: six controllers that must settle together');
 }
 
 /* =====================================================================
+ * S4 — THE SURVIVORS MUST RE-SETTLE BEHIND A PARKED DEVICE.
+ *
+ * Parking a device that has lost its setpoint at full MOVES THE PLANT, and the
+ * other controllers settled during the sweeps against the plant BEFORE that
+ * move. Judged once and left there, their final positions describe a plant that
+ * no longer exists (WORKLIST S4, recorded v0.16.4).
+ *
+ * The same economizer + trim, with ACCH-1 given 145 kW — a capacity it cannot
+ * meet. It can no longer reach its 7.5 °C setpoint (it leaves capacity-limited
+ * near 20 °C), so the mix at TS-2 cannot be pulled down to 20 °C at any trim
+ * speed: PMP-02 walks to its floor, finds it no better, and is PARKED AT FULL.
+ * That parking opens the whole chiller branch back up — and the four coil
+ * valves, which had throttled to hold their rated flow against the starved plant
+ * PMP-02 produced mid-sweep, are now passing too much, while PMP-01 is left tens
+ * of kPa off the differential it was holding.
+ *
+ * Before the re-settle pass this test was RED: PMP-02 parked correctly, but
+ * PMP-01 sat 30.8 kPa off a 1 kPa band and all four coils and PMP-01 were
+ * flagged `driftedAfterSearch` — the search finished happily, then the parking
+ * moved the plant out from under them and nothing settled them again. The fix
+ * settles the survivors against the plant the parked pump now holds.
+ *
+ * EVERY NUMBER HERE IS A DESIGN INPUT, not a figure read back out: the coils'
+ * rated flow is their own qRated, and PMP-01's band is half a percent of its
+ * own differential setpoint. The only claim is that each controller that is
+ * still modulating is doing its stated job.
+ * ===================================================================== */
+section('S4: survivors re-settle behind a device parked at full');
+{
+  const raw = fs.readFileSync(
+    path.join(__dirname, 'fixtures', 'economizer-trim.pnet.json'), 'utf8');
+  const m = M.fromJSON(JSON.parse(raw));
+  m.settings.calcMode = 'simulation';
+  const byTag = t => m.pipes.filter(p => p.tag === t)[0];
+  /* Undersize the chiller so it cannot hold its setpoint — the whole point. */
+  byTag('ACCH-1').equip.qMax = -145000;
+  const res = NET.solveModel(m);
+
+  const dev = id => res.controls.devices.filter(x => x.pipe === id)[0];
+
+  /* THE PARK ACTUALLY HAPPENED — otherwise the rest is vacuous. PMP-02 chased
+   * the mix it can no longer reach, and was returned to full. */
+  const p2 = dev(byTag('PMP-02').id);
+  ok('PMP-02 has lost its setpoint and is parked at full',
+     p2.lost === true && p2.value >= 0.999,
+     `lost=${p2.lost} value=${(p2.value * 100).toFixed(1)}%`);
+  ok('...so SETPOINT_LOST is raised',
+     (res.errors || []).some(e => e.code === 'SETPOINT_LOST'),
+     JSON.stringify((res.errors || []).map(e => e.code)));
+
+  /* THE FIX ITSELF: nothing that is still modulating may be left describing the
+   * pre-parking plant. `driftedAfterSearch` is exactly that condition — a device
+   * that came to rest on setpoint, then had the plant moved under it. After the
+   * re-settle pass no survivor carries it. */
+  const stranded = res.controls.devices.filter(
+    d => d.driftedAfterSearch && !d.lost);
+  ok('No survivor is left drifted behind the parked pump',
+     stranded.length === 0,
+     stranded.map(d => `${d.tag || d.pipe} ${d.searchState}`).join(', '));
+
+  /* THE COILS CARRY THEIR RATED FLOW. Each is rated 0.7977 L/s; 2% is well
+   * inside what one percent of valve travel resolves. A coil valve that is
+   * itself parked is exempt — it is at full because it genuinely cannot hold
+   * its branch, which is a different finding. */
+  ['AHU-1', 'AHU-3', 'AHU-4', 'AHU-5'].forEach(tag => {
+    const p = byTag(tag);
+    const d = res.controls.devices.filter(x => x.equipTag === tag)[0];
+    if (d && d.lost) return;
+    near(`${tag} carries its rated flow, not the starved-plant flow`,
+         Math.abs(res.flow[p.id]), p.equip.qRated, p.equip.qRated * 0.02);
+  });
+
+  /* PMP-01 HOLDS ITS DIFFERENTIAL. The band is half a percent of the setpoint,
+   * the same deadband the engine uses; before the fix it was 30 kPa out. */
+  const dp = dev(byTag('PMP-01').id);
+  const band = Math.max(100, Math.abs(dp.target) * 0.005);
+  ok('PMP-01 re-settles onto its differential setpoint',
+     !dp.lost && Math.abs(dp.error) <= band,
+     `${dp.error.toFixed(0)} Pa (band ${band.toFixed(0)} Pa)`);
+}
+
+/* =====================================================================
  * A MIXING CIRCUIT'S RESPONSE IS NOT MONOTONIC, AND THE SEARCH ASSUMED IT WAS.
  *
  * Michael's economizer in miniature — two sources, a bypass, a check valve and

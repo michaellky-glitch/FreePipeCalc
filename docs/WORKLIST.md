@@ -4,9 +4,9 @@ Everything Michael has asked for that is not yet done. Closed items move to
 `Human-Test.md` with a verification note.
 
 **Every item he has raised so far is done.** What is left is his testing of it,
-and two things found in passing.
+and one thing found in passing (DX.1).
 
-Updated 2026-08-09, after v0.16.15.
+Updated 2026-08-10, after v0.16.16.
 
 ---
 
@@ -34,7 +34,6 @@ The likeliest things to come back:
 
 | # | Item | Notes |
 |---|---|---|
-| S4 | **Park-at-full happens after the sweeps, and nothing re-settles behind it** | Found while migrating the `20260805-4` tests, v0.16.4. Give ACCH-1 a capacity it genuinely cannot meet and the pump is parked at 100% at the end — correctly — but the four coil valves settled against the *starved* plant the pump produced during the sweeps, and are left at 100% with their branches 14–16% over. The final positions do not describe the final answer. Predates v0.16.4 and no real file of his hits it, so it is recorded rather than chased. The fix is probably one more settling sweep after the parking pass. |
 | DX.1 | Does the DXF open in real CAD? | Untested; nothing in this environment can check it. |
 
 ---
@@ -43,6 +42,16 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.16** — S4 closed: the survivors re-settle behind a device parked at
+  full. Parking a lost device at full moves the plant, and the other
+  controllers had settled against the plant *before* that move — so their final
+  positions described a plant that no longer existed (on `economizer-trim` with
+  ACCH-1 undersized, the coils sat 14% over their rated flow and PMP-01 ended
+  30 kPa off its differential). The control loop now settles the survivors again
+  against the plant the parked devices hold, re-parking anything that itself
+  finishes lost, bounded and terminating because the lost set only grows.
+  Parking is still judged only between converged sweep-sets, never mid-sweep.
+  New `thermal.test.js` section; the fix is provably inert when nothing is lost.
 * **v0.16.15** — riser notation to Michael's own drawing convention: a circle,
   a leader and a box carrying a chevron for the flow direction and a bar across
   whichever end the column terminates at.

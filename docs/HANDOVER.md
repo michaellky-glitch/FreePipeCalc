@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.15, 2026-08-09.** Eight test suites, **1942 assertions**, all
+State: **v0.16.16, 2026-08-10.** Eight test suites, **1949 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -60,9 +60,14 @@ been answered. `Human-Test.md` opens with a `WAITING ON YOU` block holding
 **§5K–§5Y** — that is the backlog, and `WORKLIST.md` names the four things most
 likely to come back.
 
-Two things are recorded but not chased: **S4** (park-at-full leaves other
-devices settled against a plant that has since moved) and **DX.1** (does the DXF
-open in real CAD).
+One thing is recorded but not chased: **DX.1** (does the DXF open in real CAD).
+**S4** — park-at-full leaving other devices settled against a plant that has
+since moved — is now fixed (v0.16.16): after the sweeps and the parking pass the
+loop settles the survivors again against the plant the parked devices hold, and
+re-parks anything that itself finishes lost, bounded because the lost set only
+ever grows. Parking is still judged only between converged sweep-sets, never
+mid-sweep. Provably inert when nothing is lost — the real data centre
+(`20260809-DC.json`) solves identically, 675 solves and no drift.
 
 ---
 

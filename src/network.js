@@ -2262,6 +2262,58 @@
      * freeze." */
     var onProgress = (opts && opts.onProgress) || null;
 
+    /* SETTLE ONE PAIR: the search, plus the priority fall-back to the next
+     * setpoint when the first cannot be reached. Pulled out of the sweep loop
+     * because the re-settle pass after parking (S4, below) runs exactly this
+     * body — and a second hand-copied fall-back would drift out of step with
+     * this one the first time either was touched. */
+    function* settleOnce(pair) {
+      var r = yield* seek(pair);
+      /* FALL BACK. "LWT first, then ΔT" is a priority, not a blend: if the
+       * first setpoint cannot be reached — the actuator on a stop, or backing
+       * off making it worse — chase the next one instead of sitting on a
+       * result nobody asked for. Only once per sweep, so a device cannot
+       * cycle through its options forever. */
+      while (failed(r.state) && pair.optIndex + 1 < pair.options.length) {
+        pair.optIndex++;
+        var nx = pair.options[pair.optIndex];
+        pair.target = nx.value; pair.mode = nx.mode;
+        pair.label = nx.label; pair.key = nx.key;
+        pair.floorErr = 0;
+        pair.fellBack = true;
+        /* Each setpoint is chased from FULL TRAVEL. The previous one may have
+         * left the actuator on its stop, and starting the next search there
+         * hides half the range from it. */
+        if (pair.act.get() < 1 - 1e-9) { pair.act.set(1); cur = yield* evaluate(); }
+        r = yield* seek(pair);
+      }
+      return r;
+    }
+
+    /* PARK EVERY DEVICE THAT FINISHED LOST AT FULL, and report whether that
+     * actually MOVED the plant. A device already sitting at full is marked lost
+     * without a re-solve — it changes nothing behind it — so it does not, by
+     * itself, ask for a re-settle. A device already flagged lost on an earlier
+     * pass is left alone: once lost it stays parked, so the set only ever grows,
+     * which is what makes the S4 loop below terminate. */
+    function* parkLost() {
+      var moved = false;
+      for (var pi = 0; pi < searchPairs.length; pi++) {
+        var ppair = searchPairs[pi];
+        var pr2 = ppair.result;
+        if (!pr2 || pr2.lost || !lostSetpoint(pr2.state)) continue;
+        if (ppair.act.get() < 1 - 1e-9) {
+          ppair.act.set(1);
+          cur = yield* evaluate();
+          pr2.x = 1;
+          pr2.error = errorOf(cur, ppair);
+          moved = true;
+        }
+        pr2.lost = true;
+      }
+      return moved;
+    }
+
     /* A `for` LOOP, NOT `forEach` — a callback cannot yield, and every `seek`
      * in here is now a `yield*`. That is the only reason this shape changed;
      * the body below is the same body. */
@@ -2271,25 +2323,7 @@
       for (var si2 = 0; si2 < searchPairs.length; si2++) {
         var pair = searchPairs[si2];
         curDevice = pair.act.pipe.tag || pair.act.pipe.id;
-        var r = yield* seek(pair);
-        /* FALL BACK. "LWT first, then ΔT" is a priority, not a blend: if the
-         * first setpoint cannot be reached — the actuator on a stop, or backing
-         * off making it worse — chase the next one instead of sitting on a
-         * result nobody asked for. Only once per sweep, so a device cannot
-         * cycle through its options forever. */
-        while (failed(r.state) && pair.optIndex + 1 < pair.options.length) {
-          pair.optIndex++;
-          var nx = pair.options[pair.optIndex];
-          pair.target = nx.value; pair.mode = nx.mode;
-          pair.label = nx.label; pair.key = nx.key;
-          pair.floorErr = 0;
-          pair.fellBack = true;
-          /* Each setpoint is chased from FULL TRAVEL. The previous one may
-           * have left the actuator on its stop, and starting the next search
-           * there hides half the range from it. */
-          if (pair.act.get() < 1 - 1e-9) { pair.act.set(1); cur = yield* evaluate(); }
-          r = yield* seek(pair);
-        }
+        var r = yield* settleOnce(pair);
 
         pair.result = r;
         if (r.moved) { moving = true; acted = true; }
@@ -2329,19 +2363,82 @@
      * `debug/20260805-4.json` it left a valve at 100% that had been perfectly
      * capable of holding its branch. Judged once, at the end, on the state the
      * device actually finished in. */
-    /* `for`, not `forEach` — this one re-solves after parking, so it yields. */
-    for (var pi = 0; pi < searchPairs.length; pi++) {
-      var ppair = searchPairs[pi];
-      var pr2 = ppair.result;
-      if (!pr2 || !lostSetpoint(pr2.state)) continue;
-      if (ppair.act.get() < 1 - 1e-9) {
-        ppair.act.set(1);
-        cur = yield* evaluate();
-        pr2.x = 1;
-        pr2.error = errorOf(cur, ppair);
+    /* `parkLost` re-solves after parking, so it yields; `for`, not `forEach`. */
+    yield* parkLost();
+
+    /* S4 — RE-SETTLE THE SURVIVORS BEHIND THE PARKING PASS.
+     * (Recorded while migrating the `20260805-4` tests, v0.16.4; fixed here.)
+     *
+     * Parking a lost device at full MOVES THE PLANT. Every survivor settled
+     * during the sweeps did so against the plant BEFORE that move — so once a
+     * device is parked, the others are holding positions they chose against a
+     * plant that no longer exists, and the final positions no longer describe
+     * the final answer. On `economizer-trim` with ACCH-1 given a capacity it
+     * cannot meet, the coil valves park at full and PMP-01 is left 51 kPa off
+     * the differential it was holding, because the parking opened four branches
+     * out from under it. Michael, WORKLIST S4.
+     *
+     * So settle the SURVIVORS again against the plant the parked devices now
+     * produce. The parked devices are PINNED: they are lost, they belong at
+     * full, and re-searching one would only walk it back down and undo the
+     * parking. A survivor may itself be driven off setpoint for good by the
+     * move — so re-park whatever now finishes lost and go round again, the rest
+     * settling behind IT. The lost set only grows (a parked device is never
+     * un-parked), so this terminates; `parkRound` bounds it hard for the same
+     * reason the sweeps are bounded.
+     *
+     * PARKING STILL HAPPENS ONLY BETWEEN CONVERGED SWEEP-SETS, never mid-sweep
+     * — the invariant the 2026-08-05 move out of the loop established. Each
+     * round settles the survivors to rest FIRST, then judges parking on the
+     * state they actually finished in.
+     *
+     * ENTERED WHENEVER ANYTHING IS LOST, not only when the parking pass moved
+     * an actuator. A lost valve that finished at-max is already at full, so
+     * parking it moves nothing — but the survivors may still have settled on an
+     * earlier sweep, before it reached full, and are stale against the plant it
+     * now holds. One more survivor sweep makes the answer describe itself. */
+    var anyLost = searchPairs.some(function (pr) {
+      return pr.result && pr.result.lost;
+    });
+    var parkRound = 0;
+    while (anyLost && parkRound < 4 && solves < MAX_SOLVES) {
+      parkRound++;
+      var reMoving = true, reSweep = 0, reAbandoned = false;
+      while (reMoving && reSweep < 6 && solves < MAX_SOLVES) {
+        reMoving = false; reSweep++;
+        for (var ri = 0; ri < searchPairs.length; ri++) {
+          var rpair = searchPairs[ri];
+          if (rpair.result && rpair.result.lost) continue;   // pinned at full
+          curDevice = rpair.act.pipe.tag || rpair.act.pipe.id;
+          var rr = yield* settleOnce(rpair);
+          rpair.result = rr;
+          if (rr.moved) { reMoving = true; acted = true; }
+          doneUnits++;
+          if (onProgress) {
+            var reKeep = onProgress({
+              done: doneUnits, total: totalUnits,
+              fraction: Math.min(1, doneUnits / totalUnits),
+              sweep: sweep, solves: solves,
+              device: curDevice
+            });
+            if (reKeep === false) { reAbandoned = true; reMoving = false; }
+          }
+          if (reAbandoned) break;
+        }
+        if (reAbandoned) break;
       }
-      pr2.lost = true;
+      curDevice = null;
+      /* The survivors would not come to rest either — the sweep never settling
+       * is the hunting condition, wherever it happens. */
+      if (reMoving) moving = true;
+      if (reAbandoned) break;
+      /* Park whatever the re-settle pushed over the edge, and go round again so
+       * the rest settle behind it. Nothing new lost means the survivors are now
+       * consistent with the final lost set — the fixed point, so stop. */
+      var newlyParked = yield* parkLost();
+      if (!newlyParked) break;
     }
+
     var ranOut = pairs.some(function (pr) {
       return pr.result && pr.result.state === 'budget';
     });
