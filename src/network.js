@@ -1731,17 +1731,28 @@
      * every device takes at least its first probe before the check can bite.
      * With five controllers the floor is about ten solves whatever is asked
      * for. It bounds the work; it does not hit a number exactly. */
+    /* HOW MANY SWEEPS the outer loop may take. Six by default — enough for the
+     * parallel branches on every model of Michael's that converges to settle
+     * against each other. A rough first pass may be happy with fewer and a final
+     * answer may want more, so it is a setting (`control.sweeps`), clamped to a
+     * sane range. It bounds the OUTER loop; the solve budget below is scaled to
+     * match, so asking for more sweeps actually buys them rather than running
+     * into a ceiling meant for six. */
+    var cfgSweeps = Number((m.settings.control || {}).sweeps);
+    var MAX_SWEEPS = (isFinite(cfgSweeps) && cfgSweeps >= 1)
+      ? Math.min(100, Math.round(cfgSweeps)) : 6;
+
     var cfgSolves = Number((m.settings.control || {}).maxSolves);
     var MAX_SOLVES = (isFinite(cfgSolves) && cfgSolves > 0)
       ? cfgSolves
       /* SCALES WITH THE WORK. The old cap of 400 was chosen when a big model
        * had three controllers; Michael's data centre has five, each needing a
-       * probe, a descent and a bisection every sweep, over six sweeps. It ran
-       * out on the last sweep — and before the fix above, running out left every
-       * device on its floor. 120 per controller is roughly what one full
-       * search costs, so the budget now buys every controller its sweeps
-       * instead of buying the first few all of them. */
-      : Math.max(400, 120 * pairs.length);
+       * probe, a descent and a bisection every sweep. 20 solves per controller
+       * per sweep is roughly what one full search costs — so at the default six
+       * sweeps this is the same 120·devices as before, and raising the sweep
+       * count raises the budget with it instead of capping the extra sweeps out.
+       * An explicit `control.maxSolves` still overrides the lot. */
+      : Math.max(400, 20 * pairs.length * MAX_SWEEPS);
     var solves = 0;
     /* WHERE THE LOOP HAS GOT TO. Declared up here because `evaluate` reports
      * it on every yield, and a `var` hoisted from two hundred lines below reads
@@ -1752,7 +1763,7 @@
      * loop, because `evaluate` divides by it on the very first yield — and a
      * hoisted `var` read before its assignment is `undefined`, which would have
      * made every fraction NaN. */
-    var totalUnits = Math.max(1, searchPairs.length * 6);
+    var totalUnits = Math.max(1, searchPairs.length * MAX_SWEEPS);
 
     /* ONE NETWORK SOLVE, AND THE ONLY PLACE THIS LOOP YIELDS.
      *
@@ -1778,7 +1789,7 @@
        * backwards or lies. `sweep` is yielded beside it so the caller can say
        * "sweep 2 of 6" and let the reader draw the right conclusion. */
       yield {
-        solves: solves, sweep: sweep, sweeps: 6, device: curDevice,
+        solves: solves, sweep: sweep, sweeps: MAX_SWEEPS, device: curDevice,
         done: doneUnits, total: totalUnits,
         fraction: Math.min(1, doneUnits / Math.max(1, totalUnits))
       };
@@ -2317,7 +2328,7 @@
     /* A `for` LOOP, NOT `forEach` — a callback cannot yield, and every `seek`
      * in here is now a `yield*`. That is the only reason this shape changed;
      * the body below is the same body. */
-    while (moving && sweep < 6 && solves < MAX_SOLVES) {
+    while (moving && sweep < MAX_SWEEPS && solves < MAX_SOLVES) {
       moving = false; sweep++;
       var abandoned = false;
       for (var si2 = 0; si2 < searchPairs.length; si2++) {
@@ -2404,7 +2415,7 @@
     while (anyLost && parkRound < 4 && solves < MAX_SOLVES) {
       parkRound++;
       var reMoving = true, reSweep = 0, reAbandoned = false;
-      while (reMoving && reSweep < 6 && solves < MAX_SOLVES) {
+      while (reMoving && reSweep < MAX_SWEEPS && solves < MAX_SOLVES) {
         reMoving = false; reSweep++;
         for (var ri = 0; ri < searchPairs.length; ri++) {
           var rpair = searchPairs[ri];

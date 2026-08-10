@@ -3026,6 +3026,62 @@ section('S4: survivors re-settle behind a device parked at full');
 }
 
 /* =====================================================================
+ * THE NUMBER OF SETTLING SWEEPS IS THE USER'S TO SET (v0.16.18).
+ *
+ * Michael, 2026-08-10: a first pass is happy with the six sweeps the loop has
+ * always done, but a final answer may want ten or more and can afford to wait.
+ * `control.sweeps` bounds the outer loop, and the solve budget scales with it so
+ * the extra sweeps are actually taken rather than capped out by a ceiling meant
+ * for six.
+ *
+ * Exercised on a HUNTING model — ACCH-1 undersized so the loop never settles —
+ * because only there does the sweep count bite: a model that converges stops
+ * early whatever the ceiling, which is the other half of the contract.
+ * ===================================================================== */
+section('Settling sweeps are configurable');
+{
+  const raw = fs.readFileSync(
+    path.join(__dirname, 'fixtures', 'economizer-trim.pnet.json'), 'utf8');
+  function runSweeps(sweeps) {
+    const m = M.fromJSON(JSON.parse(raw));
+    m.settings.calcMode = 'simulation';
+    m.pipes.filter(p => p.tag === 'ACCH-1')[0].equip.qMax = -140000;  // hunts
+    if (sweeps !== undefined) {
+      m.settings.control = m.settings.control || {};
+      m.settings.control.sweeps = sweeps;
+    }
+    return NET.solveModel(m).controls;
+  }
+
+  const def = runSweeps(undefined);
+  ok('The default is six sweeps', def.sweeps === 6, String(def.sweeps));
+
+  const few = runSweeps(2);
+  ok('A lower setting stops the loop sooner', few.sweeps === 2, String(few.sweeps));
+  ok('...and costs fewer solves for it', few.solves < def.solves,
+     `${few.solves} vs ${def.solves}`);
+
+  const many = runSweeps(12);
+  ok('A higher setting runs every sweep asked for', many.sweeps === 12,
+     String(many.sweeps));
+  /* THE BUDGET SCALED WITH IT. If the solve ceiling had stayed at its six-sweep
+   * value the loop would have run out long before the twelfth sweep; that it
+   * reaches twelve is the scaling doing its job. */
+  ok('...which the solve budget grew to allow', many.solves > def.solves,
+     `${many.solves} vs ${def.solves}`);
+
+  /* A CONVERGING MODEL IS NOT DRAGGED OUT TO THE CEILING. Raise the limit high
+   * and the untouched economizer, which settles in a couple of sweeps, still
+   * stops early — the setting is a ceiling, not a quota. */
+  const m2 = M.fromJSON(JSON.parse(raw));
+  m2.settings.calcMode = 'simulation';
+  m2.settings.control = { sweeps: 50 };
+  const conv = NET.solveModel(m2).controls;
+  ok('A model that settles early ignores a high ceiling', conv.sweeps < 50,
+     `${conv.sweeps} sweeps`);
+}
+
+/* =====================================================================
  * A MIXING CIRCUIT'S RESPONSE IS NOT MONOTONIC, AND THE SEARCH ASSUMED IT WAS.
  *
  * Michael's economizer in miniature — two sources, a bypass, a check valve and

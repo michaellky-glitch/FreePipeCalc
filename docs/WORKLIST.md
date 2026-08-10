@@ -42,6 +42,13 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.18** — the number of settling sweeps is now the user's to set
+  (`control.sweeps`, a field in Thermal ▸ Setpoint control, default 6). A first
+  pass keeps the six it always did; a final answer can ask for 10+ and wait. The
+  auto solve budget scales with the sweep count so the extra sweeps are actually
+  taken, not capped out by a ceiling meant for six; an explicit Max control
+  solves still overrides. Default behaviour is unchanged (6 sweeps, identical
+  solves). New `thermal.test.js` section.
 * **v0.16.17** — the network solve is now cross-checked against an INDEPENDENT
   algorithm (`test/crosscheck.test.js`, a ninth suite). Hardy Cross — loop-flow
   corrections, no shared code with the GGA below the pipe law — re-solves looped
