@@ -42,6 +42,16 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.24** — two UI items (Michael, 2026-08-10). (1) The CALCULATION sheet
+  now REMEMBERS which sections you collapsed: it was rebuilt on every switch to
+  the tab, resetting every section, so collapsing All Pipes to read Critical
+  Path only lasted until you looked away. `app.calcCollapsed` keeps the
+  open/closed state by section title for the session; Thermal and the Appendix
+  still start collapsed until you change them. (2) The tool INSTRUCTION under the
+  ribbon now always sits on its own line below the buttons — it used to trail to
+  the right when short and wrap below when long, so the same prompt appeared in
+  two places. New wording for the two equipment prompts, per Michael. Verified
+  live.
 * **v0.16.23** — coil part-load sync discoverability (Michael reported TR.5 as
   "no option to sync coil part loads"). Could not reproduce a real fault: on
   `20260809-DC.json` a coil's Control section shows **Sync part load % with**

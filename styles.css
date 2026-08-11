@@ -266,7 +266,12 @@ table.sheet td.dim  { color: var(--text-mute); }
 .btn.icon { padding: 5px 9px; font-size: 14px; line-height: 1; }
 .btn.tiny { padding: 1px 7px; font-size: 13px; line-height: 1.4; }
 
-.hint-inline { font-size: 11.5px; color: var(--text-mute); }
+/* The tool instruction always sits on its OWN line below the buttons, rather
+ * than trailing to the right when it is short and wrapping below when it is long
+ * — that made the same prompt appear in two places depending on its length
+ * (Michael, 2026-08-10). `flex-basis:100%` forces a new row in the wrapping
+ * ribbon so every variant's instruction lands in the same spot. */
+.hint-inline { font-size: 11.5px; color: var(--text-mute); flex-basis: 100%; }
 
 .inline-select {
   background: var(--bg-raised);

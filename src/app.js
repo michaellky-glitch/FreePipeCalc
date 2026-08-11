@@ -735,7 +735,15 @@
     function calcSection(title, opts) {
       opts = opts || {};
       var det = el('details', 'calc-section' + (opts.cls ? ' ' + opts.cls : ''));
-      if (opts.open !== false) det.open = true;
+      /* REMEMBER WHAT THE ENGINEER COLLAPSED (Michael, 2026-08-10). The sheet is
+       * rebuilt on every switch to this tab, which reset every section to its
+       * default — so collapsing All Pipes to look at Critical Path only lasted
+       * until you looked away. `app.calcCollapsed` keeps the open/closed state by
+       * section title for the session; a section with no remembered state falls
+       * back to its default (Thermal and the Appendix start collapsed). */
+      var mem = app.calcCollapsed || (app.calcCollapsed = {});
+      det.open = (title in mem) ? mem[title] : (opts.open !== false);
+      det.addEventListener('toggle', function () { mem[title] = det.open; });
       var sum = el('summary', '', title);
       if (opts.note) sum.appendChild(el('span', 'sec-note', opts.note));
       det.appendChild(sum);
@@ -6657,8 +6665,8 @@
     /* A variant makes the hint say WHICH, since the ribbon button is no longer
      * on screen once you have moved the mouse to the drawing. */
     var VARIANT_HINTS = {
-      'equip:source':      'Click a pipe to insert a heat source or sink \u00b7 it holds a leaving temperature',
-      'equip:exchanger':   'Click a pipe to insert a heat exchanger \u00b7 it states a load',
+      'equip:source':      'Place heat source/sink on pipe (e.g. Chiller/Cooling Tower). Holds LWT.',
+      'equip:exchanger':   'Place heat exchanger on pipe (e.g. AHU/FCU). Holds \u0394T up to Temperature Limit.',
       'equip:adiabatic':   'Click a pipe to insert a strainer, filter or meter \u00b7 pressure drop only',
       'valve:globe':       'Click a pipe to insert a control valve',
       'valve:gate':        'Click a pipe to insert an isolation valve',
