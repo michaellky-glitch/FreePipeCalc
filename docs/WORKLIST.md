@@ -42,6 +42,14 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.23** — coil part-load sync discoverability (Michael reported TR.5 as
+  "no option to sync coil part loads"). Could not reproduce a real fault: on
+  `20260809-DC.json` a coil's Control section shows **Sync part load % with**
+  offering the 13 other AHUs, in DESIGN and SIMULATION alike (verified live).
+  The field only vanished when a coil was the ONLY heat exchanger in the model —
+  nothing to sync to. That case now shows the row DISABLED with "Place a second
+  heat exchanger to sync this one to it", so the option is no longer invisible.
+  (If it persists with two or more coils it is a stale cache — hard-refresh.)
 * **v0.16.22** — the riser notation box is draggable in Annotation (Michael,
   2026-08-10). Grabbing the callout box in the MOVE tool moves it; the leader is
   redrawn from the circle on the pipework to the box every frame, so it stays

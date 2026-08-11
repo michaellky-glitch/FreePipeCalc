@@ -3551,6 +3551,19 @@
           var lead = M.pipe(m, syncId);
           sec.ro('Monitoring', lead ? (lead.tag || lead.id) : syncId);
         }
+      } else {
+        /* NO OTHER COIL TO SYNC TO. Show the option DISABLED with the reason,
+         * rather than nothing — otherwise "Sync part load" reads as missing when
+         * it is only waiting for a second heat exchanger to exist (Michael,
+         * 2026-08-10: "no option to sync coil part loads"). Sync is coil-to-coil:
+         * a percentage of duty and a percentage of travel are not the same
+         * quantity, so a pump or valve is never a target. */
+        var dead = el('select'); dead.disabled = true;
+        dead.appendChild(el('option', '', 'None'));
+        field(sec.box, 'Sync part load % with', dead);
+        sec.box.appendChild(el('p', 'hint',
+          'Place a second heat exchanger to sync this one to it — sync is ' +
+          'coil to coil.'));
       }
     }
 
