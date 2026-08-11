@@ -26,12 +26,11 @@ Nothing in this block has been looked at by a person. Each row says what was
 driven and how, so you know which part is already pinned and which part is the
 bit only you can judge.
 
-> **Settled sections are archived** in [`Human-Test-Archive.md`](Human-Test-Archive.md)
-> so this log shows what is still pending. Fully-verified sections move there as
-> you clear them — the v0.16.20 batch (5AB), the device-slide (5R) and
-> cross-floor-link (5Q) rounds, the data-centre result (5P), riser notation (5Y),
-> the sim-runs / static-dynamic / sync rounds (5J, 5I, 5E), and the older
-> Drawing and v0.6.0-dev sections.
+> **Verified items are archived** in [`Human-Test-Archive.md`](Human-Test-Archive.md)
+> so this log shows only what is still pending (⬜ not tested, ❌ failed, ⚠️
+> passed-with-a-note). As you tick items ✅ they move to the archive — a whole
+> section when it is fully cleared, otherwise just its ✅ rows, leaving the
+> pending ones here under the same heading.
 
 ## 5AA. WHILE YOU WERE AWAY — v0.16.16 to v0.16.19 (2026-08-10)
 
@@ -42,40 +41,6 @@ but, as always, not looked at.
 | # | What | Status | Notes |
 |---|---|---|---|
 | S4.7 | **Survivors re-settle behind a device parked at full** (v0.16.16) | ⬜ | The recorded S4. Parking a lost device at full moves the plant, and the others had settled against the plant BEFORE that move — so their positions no longer described the answer. Now the loop settles the survivors again against the parked plant, re-parking anything that itself finishes lost, bounded. On `economizer-trim` with ACCH-1 undersized to 145 kW: coils went from ~14% over rated → within 0.3%, PMP-01 from 30.8 kPa off its differential → 147 Pa, five drifted devices → none. Provably inert when nothing is lost — `20260809-DC` solves identically (675 solves, no drift). Genuine limit cycles (two non-ganged pumps fighting) are still, correctly, flagged CONTROL_HUNTING. New `thermal.test.js` section, red-before/green-after. |
-| XC.1 | **The network solve is cross-checked against an INDEPENDENT algorithm** (v0.16.17) | ✅ | Your biggest gap (§7), first dent. `test/crosscheck.test.js` re-solves looped networks by HARDY CROSS — loop-flow corrections, no shared code with the GGA below the pipe law — and the two agree on every flow to 1e-10 across a two-loop grid, a three-loop ladder and a rewired grid (Hazen-Williams). Handed each pipe's own r and n, so it checks the DISTRIBUTION, which was never independently checked, not the single-pipe law, which you validated. Darcy is out of scope on purpose (its friction factor moves with the flow). Nothing user-facing — this is validation only. |
-| SW.1 | **Settling sweeps is configurable** (v0.16.18) | ✅ | THERMAL ▸ Setpoint control ▸ **Settling sweeps** (default 6). Your ask: a first pass keeps six, a final answer can have 10+ and wait. The auto solve budget scales with it so the extra sweeps are actually taken. Default behaviour identical (unset = 6 sweeps, same solve count). Verified in the live app: the field is present; 12 → 12 sweeps, 20 → 20, a converging model still stops early. |
-| CV.7 | **Check valve is now an arrowhead + seat bar** (v0.16.19) | ✅ | Your sketch of 2026-08-10, read as the standard non-return symbol: a triangle pointing the way flow is ALLOWED (a→b, confirmed against the solver's reverse-flow rule) with a seat bar across its tip, replacing the swing flapper. Drawn larger than the bowtie valves so the direction reads. **Driven in the live app — placed and rendered with no error — but the APPEARANCE is unverified: screenshots render nothing to pixels here. This one needs your eye.** If the arrow points the wrong way or the seat sits wrong, say so. |
-| INS.1 | **Insulation decoupled from the schedule** (v0.16.19) | ✅ | Your ask. Thickness is now one global default in THERMAL (50 mm, `thermal.insulation_mm`), overridden per pipe (including 0 for bare) — the "25 mm below DN50, 50 mm above" schedule rule and its per-size editor are gone; a schedule is its published dimensions only. Verified in the live app: THERMAL shows a **Thickness** field, the schedule table lost its Insulation column, and the per-pipe override still wins. **Your two known-good files re-solve on the 50 mm default** — sub-DN50 pipes shift 25→50 mm, so their pipe heat-loss changes slightly; both still converge (DC 20.0–45.1 °C, HighRise 6.0–16.1 °C). You chose "let them re-solve". |
-| UI.1 | Calculate input boxes black | ✅ | **Logged in WORKLIST, not yet done.** From the code the tool INPUT boxes already use the standard near-black colour; the muted-grey ones are the read-only CALCULATED-RESULT boxes. Needs your eye to confirm exactly which boxes you mean before I touch shared styling. |
-
-## 5X. YOUR TESTING ROUND OF 2026-08-09 (v0.16.14)
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| TR.1 | **A device snaps to half a grid, not to travel** | ✅ | I had it wrong: quantising the DISTANCE MOVED means where a device ends up depends on where it started, so two valves nudged along the same main never line up. The POSITION is snapped now, to half a minor grid. Verified: dragged towards 21.37 m it lands on **12.750** — on the 0.25 lattice — and the y never moves. |
-| TR.2 | **Display > Design Load works on plant** | ✅ | It was drawn only for an EXCHANGER, whose design figure is `duty`; a source/sink keeps its on `qMax`, so on a chiller or tower the switch did nothing at all. |
-| TR.3 | **Sensor tags say what they measure** | ✅ | `TS / PS / FS / DPS / DTS`. Verified all five on the real button path: temperature=TS-1, pressure=PS-1, flow=FS-1, dP=**DPS-1**, dT=**DTS-1**. The mangled-tag detector was taught the new prefixes at the same time, so `DPS-1` does not read as corruption. |
-| TR.4 | Capacity override → **Part load**, no explanation | ✅ | It never was an override of the capacity: the design figure is untouched and this asks what the machine is doing today. |
-| TR.5 | **Coils sync their part load** | ✅ | You marked this ❌ ("no option to sync coil part loads (unselectable)", 2026-08-10). I could not reproduce it: loading `20260809-DC.json` and selecting AHU-1 in the LIVE app, the coil's Control section shows **Sync part load % with** offering all 13 other AHUs, in both DESIGN and SIMULATION — the field is present and selectable. The sync only DISAPPEARS when a coil is the ONLY heat exchanger in the model, because there is nothing to sync it to; that is almost certainly what you hit — a single coil, or a coil selected before its neighbours were placed. **v0.16.23 makes that case self-explanatory:** the "Sync part load %" row now shows DISABLED with "Place a second heat exchanger to sync this one to it", rather than vanishing. If you still see no option with two or more coils present, it is likely a stale cache (§4) — hard-refresh; otherwise tell me the exact steps. Coil to coil only: a percentage of duty and a percentage of travel are not the same quantity, so a pump is never a target. |
-| TR.6 | **Enter calculates** | ✅ | Bound to the tools body, so a tool that grows a field cannot forget, and only where there is a button to press — which is why CONVERT (live as you type) ignores it. |
-| TR.7 | Velocity & friction → **Hydraulic** | ✅ | |
-| TR.8 | **Solve for Friction drop** — and for a bore FROM one | ✅ | Five modes now. Sizing on a gradient is how a main is actually picked, so that direction is there too: 10 L/s at 400 Pa/m gives 88.1 mm → DN100. **Bisected, not inverted** — a closed form written for Hazen-Williams would not serve Darcy, whose friction factor depends on the bore it is solving for. Round-trips exactly: 4 L/s in 58.269 mm reads 550 Pa/m, and 550.465 Pa/m gives 58.269 mm back. |
-| TR.9 | **A link node on the upper floor stays on the upper floor** | ✅ | Real bug, mine. A cross-floor link has TWO legs that route independently — the near one on `control`, the far one on `control.far` — and every edit wrote to the near leg whatever floor you were on. That is also the "dragging nodes on the wrong level". Verified: adding on the upper floor puts 3 points on the far leg and **0** on the near one. |
-| TR.10 | Risers show what they are doing | ✅ | Per SEGMENT — flow, velocity, ΔP between each pair of floors — because a column is not one pipe: on a stack serving four floors the bottom segment carries far more than the top, and one averaged number would hide exactly that. Plus the tag switch. |
-| TR.11 | **Paste: Tab picks the end, R turns it** | ✅ | Tab cycles the joining node round the boundary; R turns the fragment 90° clockwise about it. Verified both. Only the geometry turns — label offsets are stored in screen pixels and route bends in world coordinates, so those are dropped rather than left pointing the wrong way. |
-| TR.12 | **A pipe end dropped on a pipe makes a tee** | ✅ | It used to mean nothing, so the node sat on top of the run touching nothing — the silent break `disconnections()` exists to report, made by hand. Verified: the main is replaced by two halves that keep its size, schedule and C, and three pipes meet at the drop. |
-| TR.13 | **Convert keeps the caret** | ✅ | Every keystroke rebuilt the tab, which destroys the input you are typing in — the same trap `renderProperties` has. The opposite box is written in place now. Verified: typing 3 then 5 leaves the SAME input element focused and gives 35 °C → 95.00 °F. |
-
-### Interface
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| TR.14 | "COMMAND" gone from the ribbon | ✅ | It was also being re-applied in JavaScript on every mode change, which is why taking it out of the markup was not enough on its own. |
-| TR.15 | **COPY / PASTE on Design > Edit** | ✅ | They do what Ctrl+C / Ctrl+V do. The two that used to sit there copied PROPERTIES — a different verb — and have moved to the bottom of the properties panel's DESIGN section, as **Copy properties / Paste properties**. Two buttons a foot apart both saying COPY is a trap. |
-| TR.16 | Valves duplicated into CONTROL | ✅ | Beside the sensors, since a control valve is placed while you are wiring controls. |
-| TR.17 | **ADD CONTROL works in either direction** | ✅ | Sensor first or pump first. A pump can only ever be the follower and a sensor only ever the target, so there is nothing ambiguous and no reason to make the hand remember an order. |
-| TR.18 | REPAIR hides itself | ✅ | Shown only when something in the model actually looks mangled, re-checked on every solve. Not deleted — the corruption was real and this is the only way back from it. |
-| TR.19 | **Alt frees any constraint** | ✅ | Pipe angles, the grid, detail lines, device sliding. Shift still frees the 15° snap because the fingers know it, but Alt is the one that means it everywhere — on a device drag Shift was already taken (it selects the run between), so a single rule was only ever going to be Alt. |
 
 ## 5W. COPY AND PASTE, FIND, AND THE FLOOR ABOVE (v0.16.13)
 
@@ -86,31 +51,12 @@ this and diffed against the working tree to confirm it is identical.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| CP.1 | **Ctrl+C takes the selection, Ctrl+V places it** | ✅ | Shift-click still selects the run, exactly as you expected. On `economizer-trim`: PMP-02 → ACCH-1 gives 3 pipes; Ctrl+C reports "3 pipes and 4 nodes copied — 1 link to items outside the selection will be dropped". The fragment follows the pointer and the next click drops it; Esc cancels. |
-| CP.2 | The anchor is where it met the loop | ✅ | A boundary node — one that a copied pipe and an uncopied pipe both touch. That is where the copy will want to join, which is what you predicted. If there is no boundary it falls back to the lowest-then-leftmost node, so the answer is stable rather than dependent on selection order. |
-| CP.3 | **Dropping onto a node JOINS it** | ✅ | The anchor ring fills green when it is over an existing node. Verified: dropping onto one creates 3 nodes instead of 4 — the anchor is reused rather than duplicated — and a copied pipe lands on it. Dropping in free space is allowed too, and `disconnections()` flags the loose end, which is the existing safety net. |
-| CP.4 | **A copied pump follows the COPIED sensor** | ✅ | Not the original's. Pointing at the original is two pumps on one measurement, which is the degenerate case `CONTROL_GANGED` exists to complain about. |
 | CP.5 | ...and a link out of the selection is DROPPED and said so | ⬜ | On `economizer-trim` the copied PMP-02 came out with no control link, because TS-2 was not in the selection — and the toast said so at copy time, not after. |
-| CP.6 | **Tags are made unique** | ✅ | ACCH-1 → ACCH-2, PMP-02 → PMP-03, keeping the printed width (CHWP-01 → CHWP-02, not CHWP-2). Zero duplicate tags in the model afterwards. |
-| CP.7 | A settled VFD position does not travel | ✅ | The copy starts at full travel; it came out of a solve of different plant, and the control loop resets to full anyway. |
-| CP.8 | The copy is left selected | ✅ | So it can be moved or deleted straight away. |
-| CP.9 | **Duplicate tags are now reported** | ✅ | `TAG_DUPLICATE`. Nothing detected this before — every table on the CALCULATION sheet is keyed on the tag, so two rows called CHWP-01 could not be told apart. A warning, not a defect: it is a real state mid-edit. |
 
 ### What this fixed on the way
 
-| # | What | Status | Notes |
-|---|---|---|---|
-| CP.10 | **Copying a FLOOR was losing every sensor and every control link** | ✅ | `copyLevel` enumerated the fields to carry — kind, schedule, size, C, tag, equip, pump, valve — and silently dropped `sensor`, `control` and `sync`. The same bug `addPipe` had, from the same cause. It goes through the same two functions as copy-paste now, which clone wholesale. Verified: a dP sensor and its control link both survive a floor copy and the link points at the copy. |
-| CP.11 | The copy dialog was lying about sources | ✅ | It said "A SOURCE is deliberately not copied"; the code has always copied them, and your own test records that suppressing them was tried and rejected. The sentence is gone. |
 
 ### Find, and the floor above
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| F.1 | **A Find tab in TOOLS** | ✅  | Matches tag *and* internal id, case-insensitive substring — both are things you have in your hand. "ACCH" finds all three; "P70" finds TS-2. Tag matches sort above id matches. |
-| F.2 | Clicking a result goes to it | ✅  | Switches floor if it has to, centres it **without changing the zoom**, and selects it. It is the one tool that reads the model, and it only ever reads. |
-| F.3 | **Copy level offers a new floor first** | ✅  | "New floor above — Level 11", selected by default, and offered even when there is nowhere else to copy to so the button never dead-ends. |
-| F.4 | ...following the old floor's numbering | ✅  | Level 10 → Level 11. Width kept, so Level 09 → Level 10, not Level 9. `L2` → `L3`, `B1` → `B2`, `Level 3 (Plant)` → `Level 4 (Plant)`. A name with no number gets " 2" — Roof, Roof 2. Anything already taken steps again. |
 
 ## 5V. THE SMALL-THINGS ROUND (v0.16.12)
 
@@ -119,115 +65,7 @@ the DOM; none of it has been LOOKED at.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| SM.1 | Sync VFD with: "None" | ✅  | Was "— not synced —". Verified with two pumps: the list reads `None | PMP-02`. |
-| SM.2 | Tag Visible moved to DISPLAY | ✅  | First in the section, above the value-box switches — it governs them, since with the tag off there is nothing for them to sit under. |
-| SM.3 | Its explanation is gone | ✅  | |
-| SM.4 | The value-box line is now "Tag (Info Panel)" | ✅  | The two were both called "Tag" once they shared a section. |
 | SM.5 | **Pipes and fittings have it too** | ⬜  | A plain pipe had no Tag field at all — it has one now, drawn first in the pipe label, and a Display section carrying the switch. A plain node (a fitting) gets the switch as well: its label always exists, whether or not anyone has named it. |
-| SM.6 | A hidden tag's box is GREY, not orange | ✅ | Grey box + grey text = hidden. Orange box = something on that you can grab. The orange had it reading as "selected". |
-| SM.7 | **The DETAIL tool's first click snaps** | ✅ | Off-grid (3.17, 2.23) lands on (3.00, 2.00); with Shift it stays put. The cause was `shiftDown` being read only on pointermove — an opening vertex is placed by a pointerdown with no move of its own, so it used whatever the last move had seen. |
-| SM.8 | Delete removes details and text boxes | ✅ | Both fell through to `removeNode`, which quietly did nothing because no node has their id. |
-| SM.9 | The DETAIL blurb is one line, behind a 🛈 | ✅ | Your wording: "Draws annotation lines. Holding shift removes grid snaps. Escape to exit." |
-| SM.10 | "Remove line" → "Delete" | ✅ | |
-| SM.11 | **Link nodes are their own ribbon group** | ✅ | `Link nodes: ADD | REMOVE`. |
-| SM.12 | REMOVE takes one out | ✅ | Verified: 3 → 2 → … → and with the last one gone the route falls back to its plain Z. |
-| SM.13 | **They are easier to place** | ✅ | The target was a flat 12 px; it is the same grid-sized handle as everything else now (36 px by default). And the cause of "especially between PWP-01 and DP-02" was **mine**: `routePointAt` asked for the route without naming a floor, which v0.16.9 made return null for a link that changes floor — so a cross-floor link had nothing to click on at all. |
-| SM.14 | A preview shows where it will land | ✅ | A green ⊕ at the exact point for ADD, a red ⊗ over the node that would go for REMOVE, following the pointer. |
-| SM.15 | **Neither triggers a simulation** | ✅| Measured: 0 solves across an add and four removes. It was calling `changed()`; it calls `arranged()` now — save and redraw, no solve. |
-| SM.16 | Prompts and the progress bar sit top-centre of the WORK area | ✅ | Both, at the same anchor. The bar was pinned 96 px from the top of the window and the ribbon is taller than that — and it WRAPS, so its height depends on the window width and on which mode is showing. The canvas now publishes its own position as `--work-top`. Toasts moved up from the bottom to join it. |
-| SM.17 | TOOLS moved to MISC | ✅ | Beside RENUMBER and ⤢, once, instead of three copies in the mode palettes. |
-| SM.18 | Explanations gone from the tools | ✅ | All of them. |
-| SM.19 | **"Solve for", and the answer at the bottom** | ✅ | Velocity: `Solve for` names the output, `bore` is `Pipe diameter`, and the solved box is last — flow/velocity/**diameter**, or diameter/velocity/**flow**, and so on. Heat transfer the same. |
-| SM.20 | The pump curve is drawn, above Result | ✅ | The three stated duties marked on it, so what the interpolation did between them is visible rather than described. |
-| SM.21 | Critical radius marked (BETA) | ✅ | |
-| SM.22 | **A CONVERT tab** | ✅ | Two-way and live — type in either box and the other follows, no direction to choose and no button. Verified both directions: 100 °C → 212.0 °F, and 9 °F of ΔT → 5.00 K typed from the right. Rows: **absolute temperature**, **ΔT**, pressure (kPa · bar · psi · m H2O · mm Hg · ft wg), flow (L/s · L/min · m³/h · US gpm), each end picking its own unit. |
-| SM.23 | The two temperature rows are separate on purpose | ✅ | An absolute temperature carries the 32° offset; a difference does not. One shared row is how a ΔT of 5 K becomes 41 °F on a schedule. There is a test that says so. |
-
-## 5T. YOUR ANNOTATION BATCH, AND THE TAGS (v0.16.11)
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| AN.1 | **Pipes are not selectable in Annotation** | ✅ | Clicking the pipe LINE or a node in MOVE now selects nothing; in SELECT both still work. What stays selectable there: notes, detail lines, control-link bends, the cross-floor riser, and **labels and tags** — including a pipe's own size annotation, which you need to grab in order to drag it. Devices stay selectable too, because MOVE is where the "Show on drawing" checkboxes live. |
-| AN.2 | **Bigger handles, adjustable** | ✅ | Measured in GRID SQUARES rather than pixels, so the target holds its size relative to the drawing instead of shrinking with the zoom. SETTINGS → Drawing → **Annotation handle size (grids)**, default 0.5, ceiling 2. At your grid and zoom: **0.5 → 36 px across, 1 → 72, 2 → 144** (it was a flat 22). The floor scales with the setting as well as the grid term — without that, at 8 px/m half of 0.5 grid is under two pixels and the setting would have appeared to do nothing. |
-| AN.3 | **Annotation → SELECT renamed MOVE** | ✅ | And the tooltip with it: "Move labels, tags, notes, detail lines and control-link nodes into place for printing." |
-| AN.4 | **Tags have their own Visible switch** | ✅ | On any tagged pipe, device or node: **Tag visible: ON/OFF**, beside the Tag field. Separate from the "Show on drawing" checkboxes, which control the value BOX. Verified: OFF hides it in SELECT and on prints, keeps it in MOVE, and it is still selectable there. Stored as `tagOff`, so every existing model keeps its tags. |
-| AN.5 | ...greyed, not gone, in Annotation | ✅ | Drawn in the muted colour at 55% opacity. Hiding it there too would leave nothing to click on to turn it back on. |
-| AN.6 | **Control links only appear on their own floor** | ✅ | **This was my regression, from v0.16.9.** The "both ends on the level being drawn" test used to be written out at both call sites; moving it into `controlRoute` dropped it for the ordinary same-floor case, because a link that does not span has no span to check itself against. An L0 link is now absent on L1 and L2, and there is a test. |
-| AN.7 | The riser is easier to grab | ✅ | Same handle sizing as AN.2 — 36 px across by default rather than 22. |
-
-## 5U. TAG REPAIR, IN THE BACKEND (v0.16.11)
-
-You left this with me. It turned out to be two faults, and the repair was giving
-a wrong answer as well as missing one.
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| T1.1 | **The mangling INSERTS, it does not append** | ✅ | `CHWP-0AHU-15AHU-152` is `CHWP-02` with `AHU-15` inserted twice at a caret — the real tag's trailing "2" is stranded after it. The old rule stripped the trailing run and gave **`CHWP-0`**: plausible, wrong, and silent. Removing the repeated token from wherever it sits gives **`CHWP-02`**, which is the answer. |
-| T1.2 | ...and the inserted text can be truncated | ✅ | `PWP-04MP-4MP-4…×7` appends `MP-4`, which is `PMP-4` with its first character absorbed, so matching whole generated tags missed it entirely. A hyphenated group repeated at the end catches it. |
-| T1.3 | **And it no longer renames good tags** | ✅ | Found by writing the false-positive half of the test: **`B2-AHU-7` was being stripped to `B2-`**, and had been since the rule existed. A real mangling leaves a complete tag behind it (`CHWP-04`); a hierarchical name leaves a dangling separator (`B2-`). The head must now end in a letter or digit. `AHU-1212`, `SUB-AHU-12-A`, `VAV-1-2` are all left alone. |
-| T1.4 | It is still a best guess | ✅ | The mangling is lossy — `CHWP-02` came back only because the stranded "2" survived, and a mangling that ate it would be unrecoverable. Worth a glance at what REPAIR TAGS reports rather than trusting it. |
-
-## 5S. Q1–Q3 — THE TOOLS WINDOW (v0.16.10)
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| Q1.1 | **A moveable window, not a tab** | ✅ | Opened from a TOOLS button in Design, Control and Simulate — three buttons, all wired. A tab took the drawing off the screen in order to answer a question you were asking about the drawing. Verified: opens, closes with ✕ or Esc, drags by its title bar (200,150 after a drag), and both position and open state come back after a reload. |
-| Q1.2 | It stays on screen | ✅ | Dragging clamps to the viewport. A window dropped off the edge and then reopened where it was left is a window you cannot get back. |
-| Q2.1 | **Four tabs** | ✅| Pump curve · Critical radius · Velocity & friction · Heat transfer. One at a time — stacked worked with two and would not with four in a 400 px window. All four render. |
-| Q3.1 | **Velocity & friction: any two give the third** |✅ | Flow + velocity → bore, flow + bore → velocity, bore + velocity → flow. All three round-trip exactly: 4 L/s at 1.5 m/s gives 58.269 mm, and putting that back gives 1.5 m/s and 4 L/s. Which two are yours is a dropdown, not a guess from what you typed last — guessing overwrites the box you are correcting as you type into it. |
-| Q3.2 | ...and the friction is the MODEL's | ✅ | Assembled exactly as `network.build` assembles a pipe. 4 L/s in 58.27 mm at C=120 reads **550 Pa/m**, hand-checked against Hazen-Williams to 1e-6. Re 87,056, turbulent, 55.0 kPa per 100 m. A tool with its own friction formula is a second implementation waiting to disagree. |
-| Q3.3 | It answers "what size do I buy?" | ✅ | 58.27 mm is not a pipe. **DN65 (62.7 mm)**, through the schedule's own `sizeForFlow` — the same rule the sizer uses — so the tool cannot recommend a size the model would not have picked. |
-| Q3.4 | **Heat transfer: any two give the third** | ✅| Q = ṁ·Cp·ΔT. 50 kW across 5 K → **2.39 L/s**, 2.388 kg/s, capacity rate 10 000 W/K; putting the flow and ΔT back gives 50.00 kW. Uses the model's fluid, so glycol gives a glycol answer — and says on screen when those properties are the unverified ones. |
-| Q3.5 | The arithmetic is tested without a DOM | ✅ | New eighth suite, `test/tools.test.js`, 36 assertions — the calculators are separated from their forms precisely so they can be hand-checked with no model open, which is the rule the tools page has always stated. |
-| Q3.6 | **Looks** | ✅ | Everything above was driven through the DOM. **Nothing about how the window LOOKS has been seen** — not the tab strip, not the drag bar, not how the fields sit at 400 px wide. That is the part only you can judge. |
-
-## 5O. THE PAGE NO LONGER FREEZES WHILE IT SOLVES (S3, v0.16.8)
-
-The solve still TAKES 30–40 s on your data centre. What changed is that the
-browser stays alive for all of it.
-
-Everything below was measured in a real browser on `20260808-DC-broken.json`
-(278 pipes, 19 controlled devices) with a 50 ms heartbeat: if the thread is
-blocked, the ticks stop.
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| S3.1 | **The page answers while it solves** | ✅ | **459 heartbeats during a 29.5 s solve.** 591 is the ceiling if the thread were completely idle, so the page was live for about four fifths of the wall clock. Median gap 62 ms, 95th 74 ms, worst 207 ms, and **nothing over 300 ms**. Before this, the whole 29.5 s was one uninterruptible block and the heartbeat fired **once**. |
-| S3.2 | The answer did not change | ✅ | This is the assertion that matters most and it is why the sync driver was kept: `solveModel` drains the same generator, so all 1762 test assertions run through the new code unchanged. Checked directly on three models — economizer-trim, and both DC files — comparing every flow to 12 significant figures, every device state and position, every warning and error code. **Identical.** |
-| S3.3 | The progress bar means something | ✅ | Reads e.g. `29%  Simulating… sweep 2 of 6 · CHWP-01`. The fraction is *devices settled out of the worst case* — every device on all six sweeps — so it never overstates, and a model that settles in two sweeps **finishes with the bar at a third**. That is why the sweep count is spelled out beside it. A bar that stops early beats one that goes backwards, but tell me if you would rather have an indeterminate stripe. |
-| S3.4 | **An edit during a solve abandons it** | ✅ | New hazard, and it arrived WITH the fix: while the page froze, nothing could be edited underneath a running solve. Now it can be, and the loop writes actuator positions into the live model as it searches — so a solve that started before an edit is answering about a model that has moved. Verified: edit mid-solve, the first run is dropped, exactly one continues, the latch releases and the bar clears. |
-| S3.5 | Nothing else changed shape | ✅ | `solveNow`, the printer, the calculation sheet and the DXF path all still call the plain synchronous `solveModel`. Only the app's debounced background solve steps the generator, and only for models over 60 pipes in SIMULATION — a small model still solves in one go, as before. |
-| S3.6 | Web Workers — asked and answered | ✅ | No, and for two reasons rather than one. `file://` is a null origin so `new Worker('src/network.js')` is a SecurityError; and even past that a worker cannot `importScripts` or fetch the engine from a null origin, so the source would have to be inlined as a string — a build step. The second blocker is architectural, not a browser quirk that ages out. Written up in `HANDOVER.md` §5. |
-
-## 5N. YOUR FOUR REPORTS OF 2026-08-09 (v0.16.7)
-
-All four reproduced first, measured, then fixed. The recalculate ones were
-counted by wrapping `solveModel` and driving the real gestures, so "no solve" is
-a measurement rather than an opinion.
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| R.1 | **Clicking in static mode no longer re-solves** | ✅ | Clicking a PIPE was already fine (v0.16.0). Clicking **empty space** was not: that is the marquee path, and it ended with `changed()` — a solve and a save — for a gesture that only ever writes `selection`. Every click that missed a pipe cost you a recalculate. Measured before: 1 solve. After: none. |
-| R.2 | **Picking up the PROBE no longer re-solves** | ✅ | `setTool` ended with `onChange()`, which schedules a solve and a save. Every tool change did it. It refreshes the panel now and nothing else — the panel still has to be rebuilt because TRACE, DETAIL and the annotation modes each put their own controls in it. |
-| R.3 | **CONTROL and ANNOTATION no longer re-solve on the way in** | ✅ | Same cause as R.2: `setUIMode` selects a tool on entry, so every mode button inherited the solve. Measured: CONTROL, ANNOTATION and SIMULATE all now cost nothing, and a real edit still solves exactly once. |
-| R.3b | And four drags that were also solving | ✅ | Found while in there. Dragging a **label**, a **note**, the **TRACE image**, a **control-link bend**, or the whole model with **ALIGN** each scheduled a full solve. None can move a number — ALIGN is documented as unable to change a length, it moves every level by the same offset. They are saved now and not solved. There is a third verb for it: `changed` (edit → solve + save), `arranged` (drawing → save only), `selectionChanged` (neither). |
-| R.4 | **The dP button makes a dP sensor** | ✅ | `sensorClick` always picked the right default; `M.addPipe` copied `equip`, `pump` and `valve` and **silently dropped `sensor`**. The pipe arrived as `kind: 'sensor'` with no sensor object, and the panel then filled in its temperature default. Verified all five buttons on the real ribbon path: TEMPERATURE / FLOW / PRESSURE / DIFF. PRESSURE / DIFF. TEMPERATURE now produce `temperature` / `flow` / `pressure` / `dP` / `dT`. |
-| R.5 | **A sensor's Display list offers what it measures** | ✅ | Was a fixed list — Tag, Flow, Temperature, Setpoint — whatever the instrument was. Now: a ΔP sensor offers **Differential pressure**, a ΔT sensor **Differential temperature**, a pressure sensor **Pressure**. Flow stays on every mode, because a sensor is a piece of pipe and the flow through it is always real. |
-| R.5b | ...and the toggle actually draws it | ✅| A checkbox that draws nothing is the failure this project keeps catching, so the drawing was done too. Verified by capturing what the renderer paints: `374.6 kPa` on the pressure sensor, `ΔP 9.2 kPa` on the differential, `ΔT 0.0 K` on the ΔT — each matching `FD.network.sensorReading`, which is now the ONE definition of what a sensor reads, shared with the control loop so the drawing and the controller cannot disagree. |
-
-## 5M. THE TEXT BOX, AND DETAILS YOU CAN SELECT (v0.16.6)
-
-A2 and A4. They turned out to be one bug and a half, and both were found by
-driving the real app in a browser — served on `127.0.0.1`, clicks dispatched at
-real canvas coordinates, the result read back out of the model and out of the
-pixels.
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| A2 | **The text box appears** | ✅ | It was always being drawn. The palette's default colour is named `line` and the theme's neutral is called `text`, so `detailColour('line')` returned `undefined` — and an invalid canvas colour is **silently ignored**, leaving the fill at `theme.bg`, which had been set two lines earlier for the note's own backing panel. Background text on a background panel. Proved by reading the pixels inside the note's box: **0 foreground pixels before, 97 after**. |
-| A2b | Detail lines were the same bug, wearing a disguise | ✅ | A default-coloured detail line took whatever colour the previous draw call happened to leave. They were visible, so nobody looked — but the colour was an accident. Both now use the theme's neutral. |
-| A4 | **Details and notes are selectable with SELECT** | ✅ | Not the erase behaviour after all, though that is real too — with the DETAIL tool active a click does erase. `pickAnnotation` says in its own comment that it is tried "before the model's own hit tests in VIEW, and after them in EDIT", and the EDIT half was never wired: the helper was called from exactly one place. Verified: clicking a detail line in SELECT now selects it and its panel renders; clicking a note selects it; VIEW still works; clicking empty space still clears and starts a marquee; clicking a pipe still selects the pipe. |
-| A4b | Ctrl and Shift still assemble a set | ✅ | The annotation pick is only tried on a PLAIN click. With a modifier held you are building a selection by hand, and a stray detail line under the pointer must not replace it. |
 
 ## 5L. "SIZE IT FOR ME" — THE EARLY-DESIGN SIZING AID (v0.16.5)
 
@@ -281,8 +119,6 @@ and nothing here has been looked at.
 | 8.13 | Dragging a node onto another joins them; straight run goes continuous | ⬜ | Refuses to dissolve a size change, a corner, or a node with a device. |
 | 8.16 | Check valve symbol is larger and its direction readable | ⬜ | **Michael reported this.** 1.6× the bowtie valves. |
 | 8.18 | Pipe properties show Pressure drop and PD/m | ⬜ | Verified against the engine (5.69 kPa, 699.8 Pa/m). Note they are on different lengths and say so. |
-| 8.19 | ANNOTATIONS: "Node" group, with a Pressure toggle | ✅ | Show -ve pressure in red. |
-| 8.20 | Visualisers: FLOW, VELOCITY, PRESSURE | ✅ | Gradient pressure between 2 nodes on pipe. |
 ---
 
 ## 1. Calculations
@@ -296,11 +132,9 @@ known project has been done.
 | 1.1 | 3-floor riser + ring main solves sensibly | ⚠️ | Built and reviewed; energy balance closes exactly. Not checked against another tool. |
 | 1.2 | Data centre closed circuit, redundant pumps | ⚠️ | Runs; equipment gets exactly its rated flow and ΔP. Numbers not independently verified. |
 | 1.11 | `...ring_main.pnet (fixed).json` redrawn example | ⚠️ | **Rebuilt by hand 2026-07-30 and now coherent** — devices are short links (pumps 0.7 m, equip 0.49 m), ~377 m of real pipe carries friction, solves cleanly as a 20 L/s circuit. Numbers not yet independently verified against another tool. |
-| 1.3 | Hazen-Williams against a manual calculation | ✅ | **Constants independently confirmed 2026-07-31**: ASHRAE Eq (6), Δh = 6.819·L·(V/C)^1.852·(1/D)^1.167, reduces algebraically to the app's A = 10.67 and e = 4.8704 (agreement 0.035% and 0.012%). ASHRAE Example 1 also reproduces exactly (750.0 Pa). A full worked pipe run by hand is still outstanding. |
 | 1.10 | Hazen-Williams, converging/diverging tees | ❌ | **Michael found this wrong.** Two causes, both confirmed in code — see `ENGINE.md`. Blocked on choosing a coefficient source. |
 | 1.5 | Loop flow split against hand calculation | ⚠️ | A SYMMETRIC ring now splits exactly in half (asserted to 1e-8, and independent of drawing order) — that much is proven. Michael's `20260802-2.json` was splitting 51/49 until v0.7.10-dev; the cause was the bullhead tee, not the solver. An ASYMMETRIC split against a hand calculation is still unchecked. |
 | 1.12 | Bullhead tee coefficient | ⬜ | **New in v0.7.10-dev, and the one to rule on.** Where two ring legs leave a tee in line with each other, both are now charged as a BRANCH (K = 1.1) rather than one as a run (K = 0.9). No number was invented — it is a choice of which tabulated coefficient applies — but you hold ASHRAE Tables 3/4 and this case (inlet through the branch, dividing into both run legs) is arguably its own fitting. Worth confirming. It raises pump duties slightly: +0.20 m on the 3-floor model, +2.6 kPa on the data centre. |
-| 1.6 | Pump duty vs. a real selection | ✅ | |
 | 1.7 | Darcy-Weisbach | ⚠️ | **Unblocked, BETA (v0.8.0).** Swamee-Jain, at your selection. Validated against a Colebrook iteration written independently in the test suite: 0.9% over the practical envelope, 2.8% at the corner of its published validity (Re 5000, ε/d 1e-2). End to end on 100 m of DN50 at 5 L/s the app gives 11.126 m against 11.046 m hand-iterated. **Never checked against another tool or a real job** — that is what the BETA line on the sheet is for. |
 | 1.16 | Equivalent length: three tables | ⬜ | **v0.8.2–0.8.4.** Carrier Table 11 is the default; NFPA 13 and Custom are the alternatives. All 104 published cells asserted against your two pages from a second independent transcription. **The agreement across sources is the reassuring part**: L/D ratios, NFPA and Carrier land within 1% of each other on both fixtures (3-floor duty 41.95 → 41.96 m), and Carrier's tee-run is within 0.25% of the old L/D value at DN100. None was fitted to any other. |
 | 1.22 | Two calculation methods | ⬜ | **New in v0.9.0.** `Hazen-Williams (ASHRAE with Equivalent Lengths)` and `Darcy-Weisbach (BETA)`. Numbers moved by **0.08%** on the 3-floor duty (41.96 → 41.99 m) because the survivor derives its constants from the printed 6.819 rather than carrying the rounded 10.67 — that gap IS the rounding in 10.67. An older model saved as ASHRAE migrates to HW on load and changes fitting basis from K to equivalent length, which is a real change to its numbers. |
@@ -311,7 +145,6 @@ known project has been done.
 | 1.17 | Sizes below DN25 | ⬜ | **Please rule on this.** The table starts at DN25 as you asked, so a DN15 pipe is charged the DN25 figure — 0.6 m for a 90° elbow where NFPA prints 0.3 m. The printed table does have ½ in and ¾ in columns and the steel schedules go down to DN15. Two more columns would fix it. |
 | 1.18 | Equivalent length shown in feet | ⬜ | The stored value is the printed METRIC column, so a model set to feet shows 1.969 ft where the page prints 2. The two columns are NFPA's own independent roundings of each other (13 ft is printed as 4 m), so no conversion reproduces both. Correct by the metric-first rule — worth knowing if you check against the page in feet. |
 | 1.14 | Darcy-Weisbach fittings by K | ⬜ | **New in v0.8.1.** Fittings now charge K·V²/2g from ASHRAE Tables 3/4 under Darcy, as under ASHRAE; only Hazen-Williams uses equivalent length. Verified end to end against a hand calculation (a DN100 threaded elbow at the solved flow costs exactly 0.70·V²/2g). **Numbers on an existing Darcy model will change** — they were on an L/D basis before. |
-| 1.15 | K tables against your printed page | ✅ | All 144 tabulated values in both Table 3 and Table 4 now match, asserted in `engine.test.js` from a second independent transcription. The threaded 45° elbow question is closed: the column really is flat (0.38 → 0.28). |
 | 1.13 | Swamee-Jain accuracy claim | ⬜ | **Worth your eye.** The literature's "within 1% of Colebrook" is what the code used to say and it is NOT true at the corners — measured 2.8% at Re 5000 with ε/d 1e-2. The app now states 0.9% / 2.8% instead. Confirm that is the right thing to print on a sheet. |
 | 1.8 | Critical path is the genuinely worst circuit | ⬜ | Picks the smallest-residual terminal. Worth checking against judgement on a real job. |
 
@@ -319,7 +152,6 @@ known project has been done.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| 3.2 | Pump insert, auto / fixed / off | ✅ | Auto-sizing reworked twice. Re-check duty figures. |
 | 3.6 | Pump curve: from duty, paste, table | ⬜ | **New.** Driven in-browser during the redundancy battery; not used by hand. |
 
 ## 4. Interface
@@ -432,7 +264,6 @@ the preview browser renders no pixels.
 | EQ.5 | ΔT max and T limit tooltips both read "Optional — leave blank for unlimited." | ⬜ | **Wording changed from yours** — you wrote "Option"; I read that as a typo for "Optional". Say if you meant it literally. |
 | EQ.6 | The explanation on the Thermal heading is gone | ⬜ | Removed on both types. The sign convention moved onto the two fields it governs. |
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
-| EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
 ## 5H. THE LOST SETPOINTS, AND ANNOTATION (v0.16.1)
 
@@ -440,21 +271,13 @@ the preview browser renders no pixels.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| LS.1 | **The reported error was stale** | ✅ | CHWP-01 reported `err −0.086 K` on a 30 °C setpoint while its sensor read **32.76 °C**. `error` was carried over from the last probe of that device's search; the sweep then settles *other* devices and moves the plant out from under it. It is now re-derived as `measured − target` from the same state the rest of the row is read from, so the three numbers can no longer contradict each other. |
-| LS.2 | ...and so was the state | ✅ | It said `on` — holding — while 2.8 K out. If the final measurement is outside the deadband the device is not holding, whatever the search concluded. Now reported `unsettled`, with `driftedAfterSearch` set so the cause is distinguishable from a device that never settled at all. |
 | LS.3 | **Why the plant will not ramp up — your point, confirmed** | ⬜ | **Every chiller and tower says `limit: Design ΔT`, and none is near its capacity.** CT-01: 421 kW of 836 (50%), inlet 49.2 → outlet 39.2, i.e. exactly its 10 K Design ΔT. ACCH-01: 269 kW of 800 (34%), 39.2 → 24.2, exactly 15 K. The machines are not out of capacity — they are refusing to work harder because ΔT is treated as a hard clamp on the temperature change **at any flow**. |
 | LS.4 | So the AHUs starve | ⬜ | All 14 at 89–91% of rated flow, EWT 31–32.6 °C, ICVs wide open. The loop cannot get cold because the plant will not take more than its design ΔT out of it. |
-| LS.5 | **This is a modelling decision I want your ruling on** | ✅ **RULED, done in v0.16.4 — see 5K** | Design ΔT is the ΔT **at design flow**. At part flow the same machine moving the same duty produces a *larger* ΔT — Q = ṁ·Cp·ΔT. Clamping ΔT at any flow therefore caps the duty at `ṁ·Cp·ΔT_design`, which *falls as flow falls*: the model says reducing flow through a chiller reduces its capacity, which is backwards. **My recommendation:** `qMax` should be the capacity limit, and Design ΔT should be a design-point statement used to derive it — not a runtime clamp. That is a change to the physics of every existing model, so I have not made it. Say the word. |
 
 ### Annotation batch
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| A3 | Detail lines snap | ✅ | 15° bearing **and** grid, using the pipe tool's rule: the grid constrains the LENGTH ALONG the bearing, not the position. Snapping position instead pulled a 15° aim to 14.04°, because the nearest grid intersection is almost never on the ray. Verified: four aims at 14.6/46.1/73.1/170.1° land on exactly 15/45/75/165°, each at a 0.5 m multiple of length. Shift frees both. |
-| A5 | DETAIL tool shows its settings | ✅ | Palette and line width for the *next* line, since with the tool active there is nothing selected to describe. Changing the tool's colour pushes no undo — undo should take back the line you drew, not the colour you were about to draw in. |
-| A6 | `ADD LINK NODE`, and click-to-place | ✅ | Renamed. With nothing selected the button now ARMS: the next click on any control link or ΔP route puts a bend exactly where you point, snapped, then disarms. Selecting the device first still adds one at the longest segment's midpoint. Verified: a 4-point route became 5 with the new bend at the clicked position. |
-| A7 | Route handles are easier to grab | ✅ | 14 px → 22 px. They often sit on a pipe that is also asking for the click. |
-| A1 | No arrow at zero flow | ✅ | (v0.15.7) |
 | A2 | Text box | ⬜ | Still open. The note IS created on the active level with the right text — so this is a drawing or hit-test problem, not a model one. Next. |
 | A4 | Details selectable | ⬜ | Wired in the SELECT (arrange) tool; while the DETAIL tool is active a click erases instead, which may be what you hit. Worth retesting now A5 makes the tool's state visible. |
 
@@ -462,22 +285,16 @@ the preview browser renders no pixels.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| S2a | **Selecting no longer re-solves** | ✅ | This was the big one and it was one line of wiring. *Every* selection went through `changed()`, which schedules a solve AND a save — so clicking a pipe on your DC model queued a forty-second solve for an answer that cannot have changed. Selection now has its own path: panel, levels, redraw, stop. |
 | S4 | **STATIC / DYNAMIC** | ⬜ | In the Simulate ribbon, Static default. Locks anything that would change the answer — drawing, dragging pipes/devices/nodes, isolating, reversing, deleting. Still free: every property readout, selection, control-link routes, DETAIL and TEXT annotation, and moving labels. Refusals say so rather than silently ignoring the gesture. The panel greys its editable fields to match. |
-| S2b | **The hydraulic solve is ~1.5× faster** | ✅ | 57 s → 39 s on the DC model, *identical answers* (all 1681 assertions pass). Every GGA iteration was building a dense 250×250 matrix and running O(n³) Gaussian elimination — but that matrix is a graph Laplacian: symmetric, positive-definite, ~4 non-zeros per row. It now factorises as a skyline LDLᵀ and falls back to the general solve if a pivot says it is not SPD after all. |
 | S3 | Progress bar | ⚠️ | **Partial, and I want to be straight about it.** The bar appears before the solve starts, so a long wait is explained rather than looking like a hung page — but the solve itself is still one uninterruptible block, so the page is still unresponsive while it runs. See below. |
 | S3b | Why not fully non-blocking | ⬜ | A Web Worker is the obvious answer and is unavailable: the app must run from `file://` and Chrome refuses to construct a Worker from a null origin. Slicing at the device boundary was tried and backed out — one device's search is ~15 full solves, so it still blocked for seconds and each slice re-ran the non-control work. The atom that works is one `evaluate()`, which needs the control loop turned into a generator. That is next, and I would rather do it with you able to test. |
-| S3c | A trap worth knowing | ✅ | The first driver gated its slices on `requestAnimationFrame`, which **does not fire in a hidden or backgrounded tab** — a solve started and then never continued. Everything now runs off `setTimeout`. |
 
 ## 5F. THE CHWPs, AND A TAG REPAIR (v0.15.9)
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| CH.1 | **CHWP-01..04 now hold 30 °C** | ✅ | You were right that they should not be fighting — they were not. Sweeps 1–5 settled all four to within 0.02 K. **Sweep 6 ran out of the solve budget**, and a truncated search left each one sitting at the probe position, which is the actuator's FLOOR — a chiller at quarter flow does not hold its leaving temperature, so the errors came back as 669, 1317 and 1629 K, all four were judged unsettled, and then parked at 100%. A search that cannot finish is now a **no-op**: the device keeps the position its last complete sweep gave it. |
-| CH.2 | The budget scales with the work | ✅ | Was capped at 400 — chosen when a big model had three controllers. Now 120 per controller. `CONTROL_BUDGET` says so if it still bites. |
 | CH.3 | What is left is real | ⬜ | `SETPOINT_LOST` on all 14 AHUs: their **integrated valves** are at full travel and still off setpoint, with TS-1/2/4 reading ~32.8 °C against 30. That is a heat-balance statement, not a control failure — the lineups cannot deliver what the hall is rejecting at these speeds. Worth checking against your intent. |
 | TG.1 | **Tag corruption — still not reproduced** | ⚠️ | **Read this one.** I have not found the route. The v0.15.8 guards demonstrably work (I drove the detached-input path and the write was refused), yet `20260808-DC-broken` was saved by v0.15.8 with `CHWP-04PMP-1PMP-1PMP-1PMP-1PMP-1`. Every corrupted value is `<a real tag><one or more freshly generated ones>`. |
-| TG.2 | So it is attacked from the other end | ✅ | A tag box now **refuses** to commit a value of that shape; a second lock means it can only write to something still selected; `TAG_MANGLED` reports any it finds on every solve; and **REPAIR** on the FILE group strips the suffix. Verified on your file: `CHWP-04PMP-1PMP-1PMP-1PMP-1PMP-1` → `CHWP-04`. |
 | TG.3 | One it cannot fully repair | ⬜ | `CHWP-0AHU-15AHU-152` → `CHWP-0`. The head really is `CHWP-0` — the repair can only strip what was appended, it cannot know you meant `CHWP-02`. Please rename that one by hand. |
 | SY.1 | **Sync drawn on selection** | ⬜ | Select a master and a dash-dot line goes out to each follower; select a follower and one goes back to the master, with an open arrowhead at the follower so the direction is on the drawing. Straight, and only while selected — a sync is a relationship you check and move on from, and eight pumps' worth of permanent leaders would bury the pipework. |
 
@@ -485,82 +302,50 @@ the preview browser renders no pixels.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| Q5 | **Shift-click to build a selection** | ✅ | Adds, and shift-clicking something already in the set removes it. Verified 1 → 2 → back to 1, with the bulk panel appearing. A shift-click never starts a DRAG — moving geometry during what reads as a selection would be its own bug. |
-| C1 | **CHWP-1 unpickable for a control link** | ✅ | Picking a controller took `deviceAt \|\| pipeAt`, and a pump sits IN a pipe with more pipe running away either side — so a click a few pixels off the symbol found the plain pipe, `canControl` said no, and you were told to "click a pump" while pointing at one. `controllableAt` searches devices first at a generous radius and **can only ever return something linkable** — verified over 45 probes across the model, zero unlinkable results. |
-| C7 | **Manual VFD slider** | ✅ | Appears as its own Speed section only when the pump has no control link — with a link the position is an output and a slider would be a lie. Verified: absent when linked, present the moment the link is cleared. |
 | A1 | No arrow at zero flow | ⬜ | The old threshold was 1e-9 m³/s — a numerical zero, not a hydraulic one, so a shut branch settling at 1e-7 still drew an arrow. Now `Q_MIN`, the same threshold the solver uses to decide a link carries water, so the drawing and the calculation agree about what "no flow" means. |
-| E4 | Grey `Auto` in an unlimited capacity box | ✅ | Your ruling. An empty box read as a field nobody had filled in rather than as a decision. |
-| UI.6 · DB.5 | Closed on your ruling | ✅ | Max/Min indicator as-is; 0.2% deadband confirmed. |
 
 ## 5C. EQUIPMENT CONTROLS, AND FOUR SMALL ONES (v0.15.6)
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| EQ.1 | **Integrated control valve** | ✅ | A globe valve built into the machine, holding that machine's own Design ΔT — no valve, sensor or link to draw. It is a real resistance in series with the coil (verified: 12 Kv wide open drops the branch flow; at 10% travel its resistance is 9.2e9 against the coil's 5.1e5 and the branch all but closes) and a real actuator (appears in the control report holding its own equipment on a ΔT). |
-| EQ.2 | **Capacity override** | ✅ | 0–100% on the stated duty. Verified: 40% gives 20 kW from a 50 kW coil, 0% gives nothing, and **the design figure is untouched** — the machine is still on the schedule at full duty. Remove the override and it is back to 50 kW. |
-| EQ.3 | Temperature limit reads from the left | ✅ | |
-| C8 | **Multiple devices on one sensor** | ✅ | Your wording, verbatim, as a DEFECT. The gang stays underneath it so the answer is never arbitrary — `detail` says so — but the message tells you to link one and sync the rest. |
-| C5 | dP setpoint tag said Temperature | ✅ | The drawing's `SP` label fell through to °C for both differential modes. Same fall-through that put "200000.0 °C" on a pump switch in v0.15.1; this was the other place it hid. |
-| C6 | Sensor showed its temperature twice | ✅ | "35.4 → 35.4 °C" is one number written twice. An instrument now shows one value; anything that actually does something thermal still shows both, because there they differ. |
-| C2 | `Control Link` → `Add Control` | ✅ | |
 | C3 | dP button places a temperature sensor | ⬜ | **Could not reproduce** — all five buttons place their own kind in this build. But see C1: clicking the middle of a 25 m pipe hit-tested onto an adjacent **1 m device pipe**, which would place a sensor somewhere you did not mean. I think that is what you saw, and it is next. |
 
 ## 5B. PUMPS IN PARALLEL (v0.15.5)
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| PP.1 | **Four PWPs settle together** | ✅ | On `-DC-broken` they now all run **67.5%, ~8.9 L/s each**, holding the 250 kPa differential to within 225 Pa. Before: 100 / 85.8 / 25 / 25, with the last two on their floor carrying **no flow** — back-pressured shut by the first two. `SETPOINT_LOST` is gone. |
 | PP.2 | Why grouping, not self-modulation | ⬜ | **Worth your view.** N loops on one sensor is degenerate — any split that gives the right reading satisfies all of them, so "self-modulating" can only ever land somewhere arbitrary. Real plant doesn't do it either: parallel pumps on a common header take ONE speed command. Your own description — fluctuates for hours, then settles at roughly equal % — is independent loops fighting, then being commanded equal. This goes straight to that answer. |
 | PP.3 | Staging | ⬜ | Grouping is on *same target + same setpoint*. To stage a lag set, give it its own setpoint — that is the natural way to say it and it needs no new concept. |
 | PP.4 | It says so | ⬜ | `CONTROL_GANGED` names every member, and the pump panel gains a "Modulating with" row. A behaviour this consequential should never have to be inferred. |
-| PP.5 | **Dangling control links** | ✅ | Found while tracing: in `20260807-DC.json` all four PWPs point at `P455`, which is **not in the model** — the sensor was deleted and the links stayed. They were silently uncontrolled at 100%, with nothing said. `CONTROL_TARGET_GONE` now reports it. Part of your "controls get dropped". |
 | PP.6 | Solve time | ⬜ | ~30 s on the DC model. Ganging cut 4 searches to 1, but this model is 275 pipes with 5 independent loops. The loading bar and Static mode you asked for are the right answers and are still on the list. |
 
 ## 5A. THE TWO CRITICAL BUGS (v0.15.4)
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| CR.1 | **Controls section disappearing** | ✅ | A readout helper in the pump's Actual section did not `return` its row, so hanging an info marker off it threw — from inside `renderProperties`, HALF WAY THROUGH. Details and Design were already appended; Control and Display never were. The model never lost anything; the panel stopped drawing. It fires when a pump carries a speed below 1 and the mode is DESIGN — i.e. on every modulating pump the moment you leave SIMULATE, which is exactly when you saw it. |
-| CR.2 | ...and it took the rest of `changed()` with it | ✅ | The exception escaped into `changed()`, so the autosave, the clean-snapshot bookkeeping and the solve schedule were all skipped whenever it fired. That is the other half of "intermittently dropped or reset". |
-| CR.3 | The panel now fails safe | ✅ | Wrapped in a guard: on any future render error it says so and says the model is untouched, instead of silently truncating. The shape of that failure was worse than the failure — it accuses the model of losing data it still holds. |
-| CR.4 | **Silent tag corruption** | ✅ | Two causes, both fixed. (a) A focused input is detached when the panel rebuilds, and the browser fires its `change` afterwards — the closure then wrote to the device that was no longer selected, from a box already replaced on screen. Verified: an edit begun on P350 was landing on P350 *after* the selection had moved to P379. Every field handler is now stamped with its render and no-ops if that render is gone. (b) A nameless text input joins the browser's autofill pool, and every tag box in this app looks identical to it — which is where `CHWP-04PMP-1` and `PWP-04MP-4MP-4…` came from. The app was never concatenating anything; the browser was filling a box it had no business in. |
 | CR.5 | Check your two saved files | ⬜ | `20260807-DC.json` and `-DC-broken.json` BOTH already carry the mangled tags — the corruption predates them, so the fix cannot repair them. Three to correct by hand: `P298` → PWP-04, `P379` → CHWP-02, `P413` → CHWP-04. |
 
 ## 4Z. ANNOTATION, ROUTES AND PRINTING (v0.15.3)
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| AN.1 | Globe valves read CV | ✅ | The FITTINGS table keeps `GLV` — there it really is "globe valve, open" as a K factor, which is a different statement. |
-| AN.2 | **Temperature discontinuities** | ✅ | Your fix, implemented as described. On `20260807-1` the bypass is now a uniform 30 °C, the chiller leg a uniform 15 °C and the run below the mix a uniform 20.08 °C — three flat colours meeting at the tee instead of three ramps into it. |
 | AN.3 | Control link nodes drag freely | ⬜ | Grab any bend. The first drag converts the Z into waypoints, starting from exactly what is on screen so it does not jump. Grid-snapped; Shift for free placement. |
 | AN.4 | LINK NODE adds a bend | ⬜ | Select the pump, valve or sensor first, then press it. It goes in the middle of the longest segment — the one with room. |
 | AN.5 | **DETAIL** | ⬜ | Click to place vertices, Esc finishes, click an existing line to erase it. Colour and width in Properties. Nothing in the calculation ever reads them — pinned by a test that solves before and after adding a 100 m line across the model. |
 | AN.6 | **TEXT BOX** | ⬜ | Click to place, click again to edit, drag to move. Multi-line. |
-| AN.7 | Printing as-shown | ✅ | Device tags, value boxes, control links, ΔP routes, detail lines and notes all reach the page now. Verified: 6 dashed links + 1 ΔP route + the note + PMP-01's tag and flow; turn LINKS off on the ribbon and both link kinds leave the page while the annotation stays. |
-| AN.8 | Old files still take annotations | ✅ | A file written before details existed had no id counter for them, so every one came out `DNaN` — same id, undeletable. Worth a spot-check on one of your older saves. |
 
 ## 4Y. THE ECONOMIZER MODEL, AND FIVE UI ITEMS (v0.15.2)
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| EC.1 | **`20260807-1` converges** | ✅ | One cause behind all three symptoms. The control search is a DESCENT from full travel; a later sweep starts where the last finished, so a device that needs to OPEN had nowhere to look, reported `at-max` mid-travel, and got parked at 100%. Sweep 1 had already found a good answer and sweep 2 threw it away. |
-| EC.2 | The plant now does what you described | ✅ | CT-01 35.04 → 30.00 · ACCH-1 30.00 → 15.00 (ΔT-limited) · TS-2 20.08 · PMP-01 91.9% holding 200.8 kPa against 200 · PMP-02 48.8% · all four coils within 0.6% of rated flow · a third of the flow bypassing, which is exactly what 30/15 → 20 mixing requires. Frozen as `test/fixtures/economizer-trim.pnet.json`. |
 | EC.3 | The one remaining warning | ⬜ | `EQUIP_LIMITED` on ACCH-1: it is on its 15 K design ΔT, so from 30 °C it can only reach 15 °C. That is your design, not a fault — but check the ΔT is what you meant. |
-| UI.11 | Heating/Cooling toggles on an empty box | ✅ | Your bug. A signed number cannot express "cooling, magnitude not yet decided", so the switch had nothing to write. The direction is now held as a UI intent until a number exists, then the stored sign takes over. |
-| UI.12 | Red heating, blue cooling | ✅ | The one place in this app where red is not a fault. |
-| UI.13 | Units in the label, box left-aligned | ✅ | "Capacity (kW)", and the entry reads from the left like every other field. |
-| UI.14 | Clicking the status chip highlights | ✅ | It set `chip.onclick` to open CALCULATION in the DEFECTS branch and never cleared it, so once a model had raised a defect ONCE the chip jumped to the sheet for the rest of the session. Removed — it highlights at every severity now. |
 | UI.15 | **Blank capacity = unlimited, not "auto"** | ⬜ | **Your question.** There is no auto-balance mode. For a SOURCE/SINK, blank capacity already gives you most of what you asked for: it modulates freely to hold its leaving temperature, so it absorbs whatever the loop throws at it. What blank does NOT do is size itself against the load and report a duty you could put on a schedule. Say if you want that. |
 
 ## 4X. UI PASS, PANELS AND THE RIBBON (v0.15.1)
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| UX.1 | The ribbon is two rows | ✅ | **My bug, and an instructive one:** `display:flex` on `.tool-set` beats the UA's `[hidden] { display:none }`, so all four modes' tools rendered at once — what you photographed. Fixed, and split into chrome-on-top / tools-underneath, since DESIGN's tools alone are 1374 px and one row wrapped anyway. Verified single-line at 1440 and 1920. |
-| UX.2 | `res.actual` gone from DESIGN | ✅ | Your call. It turned out DESIGN was the only place it was ever *read* — SIMULATION always preferred the simulation report — so it is gone entirely rather than moved. The error box now says a negative pressure is the head that is MISSING, and points at SIMULATE for what would really be delivered. |
 | UX.3 | Equipment panel | ⬜ | Details · Design · Actual · Display, your list. Heat source/sink and heat exchanger get their own Design fields; "Other" (adiabatic) drops to Flow / Pressure drop / K factor. |
-| UX.4 | **Heating/Cooling switch** | ✅ | Replaces the typed minus sign. Verified: toggling 50 kW heating gives −50 kW stored and reads "Cooling"; typing `-12` moves the switch by itself. A typed sign always wins. |
-| UX.5 | Cooling loads read positive | ✅ | "Cooling load 50.00 kW" in the panel, "Cool 50.0 kW" on the drawing. Display only — stored, calculated and exported values keep the sign. |
 | UX.6 | Temperature limit Max/Min | ⬜ | Shown beside the value, following the load direction: a heating coil is limited by a maximum, a cooling coil by a minimum. It is an indicator, not a second input — the engine already works out which side binds, and two ways of saying it could disagree. **Tell me if you wanted it settable.** |
 | UX.7 | Control valve vs isolation valve | ⬜ | Two panels now. Isolation gets Open/Closed as its Status and no position slider — a gate valve is not a regulating device. **One judgement call:** an existing gate valve left part-open keeps its slider, so nothing drawn before this loses a setting silently. |
 | UX.8 | Check valve | ⬜ | Third shape: Direction, Kv, no status and no position. |
@@ -570,17 +355,11 @@ the preview browser renders no pixels.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| UI.1 | Four modes | ✅ | DESIGN / CONTROL / SIMULATE / ANNOTATION, each with its own tools. Verified: each shows only its own set, and picking a tool from anywhere pulls the ribbon to that tool's mode. |
-| UI.2 | Only DESIGN and SIMULATE touch the calculation | ✅ | **Deliberate, and worth checking you agree.** CONTROL and ANNOTATION leave `calcMode` alone, so you can go SIMULATE → CONTROL and tune a link with the valve positions still on screen. Coupling them would blank every position at the moment you went to look. |
 | UI.3 | Tools grouped by what the thing IS | ⬜ | Edit · Pipe · Hydraulic · Thermal · Valves, named on the ribbon. |
 | UI.4 | One button per device type | ⬜ | The valve dropdown is gone and equipment type is choosable at placement: HEAT SOURCE/SINK and HEAT EXCHANGER get the right defaults, OTHER places an adiabatic item tagged STR-n. |
 | UI.5 | CONTROL LINK is a tool | ⬜ | Click the pump or control valve, then its target. The panel button still works and is now "Link sensor". |
 | UI.6 | Copy/Paste moved out of FILE | ⬜ | Into DESIGN ▸ Edit, beside the selection they act on. |
-| UI.7 | Property sections collapse and stay collapsed | ✅ | Verified across a re-render and a re-selection; stored in localStorage per section NAME, so closing Display closes it for every device. |
-| UI.8 | The pump panel in the new structure | ✅ | Details · Design · Actual · Control · Display, exactly your list. Renames done: Online/Offline, Input/Show/Clear, Link sensor, Remove control, Reset link. |
 | UI.9 | Design duty shown but not editable on Auto/Curve | ⬜ | Dashed, greyed, unfocusable. Your instruction — and it stops the panel changing height when the dropdown moves. |
-| DP.4 | The second dP/dT tapping drags along its pipe | ✅ | Your note. Clamped to the run: verified at t=0, t=1, and dragged well off the pipe. It moves the DRAWING only — the reading is still taken at the pipe's inlet node, since a pipe has one pressure at each end and no profile along it to read from. |
-| UI.10 | Overlapping drag handles pick the nearest | ✅ | Found while testing DP.4: a tapping under a control-link bend resolved by draw order, which is not something you can see. Nearest centre now. |
 
 **NOT in this stage, and staged next:** the Equipment, Adiabatic, Isolation
 Valve and Control Valve panels (the framework is in — they are mechanical now),
@@ -596,14 +375,11 @@ two are their own piece of work.
 | DR.3 | It cannot be flipped onto itself | ⬜ | Two tappings on the same riser have no horizontal middle segment to offer, so a hard sideways drag used to collapse the route onto the pipe and straight back. It now just keeps sliding along the axis it has. |
 | DR.4 | **Reset route** | ⬜ | Your request. On both the sensor panel and any pump/valve with a control link. Verified: slid the route 30 m off, reset put it back to 1 m. |
 | DR.5 | A ΔP whose reference is on another level | ⬜ | Falls back to the plain bubble-and-stem, since a route to another floor would cut across pipework it has nothing to do with. Worth a look — it is the one path the new code does not take. |
-| DR.6 | Setpoint switches show the right units | ✅ | Found while checking DR.4: a pump holding 200 kPa had its own switch reading **"Differential pressure 200000.0 °C"**. The formatter only knew flow, ΔT and °C, and the three modes the sensor added all fell through to °C. Now 200.0 kPa. |
 
 ## 4U. ANGLE SNAP AND THE ΔP LEADERS (v0.14.8)
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| AS.1 | 15° snapping works again | ✅ | Nothing was wrong with `angleSnap` — untouched since v0.4.0. `shiftDown` was set on keydown and cleared on keyup, and **a keyup that arrives somewhere else never clears it**. Hold Shift, Alt+Tab away (Shift+Alt+Tab *is* the reverse app switch), and it stays suppressed for the rest of the session. Now read off the pointer event, so one mouse movement fixes it. Verified: forced the stuck state, drew three pipes, got exact 15° multiples. |
-| AS.2 | Shift still disables it while genuinely held | ✅ | Verified in the same run — held reads true, released reads false. |
 | AS.3 | Connecting still beats the bearing | ⬜ | Unchanged and deliberate: a node or pipe within the snap radius wins over the 15° constraint, so a run can still land exactly on existing work. One of the three test pipes came out at −30.18° for that reason. |
 | DP.1 | The ΔP stem is orthogonal | ⬜ | It was still a diagonal — I made the *reference* line orthogonal in v0.14.6 and left the leader from the pipe to the bubble alone, which only shows once the bubble is dragged. Both are Z routes now. |
 | DP.2 | The reference line no longer retraces the stem | ⬜ | On `20260805-5` it left the bubble going back over its own stem and then ran parallel to the sensor's pipe 9 px off it — the mess in your screenshot. It now leaves perpendicular when the far tapping is behind the bubble. Verified over five drag positions: no diagonals, no retracing, no zero-length segments. |
@@ -613,8 +389,6 @@ two are their own piece of work.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| PS.1 | An auto-sized pump goes straight to SIMULATE | ✅ | Draw a pump, leave it alone, switch mode. The SIZER generates the curve now, so the panel no longer has to be visited. Verified with a pump created exactly as the canvas creates it: generated curve after one DESIGN solve, gate passes. |
-| PS.2 | Manual values survive | ✅ | Typed 9.0 L/s / 31 m, solved, isolated the pump, put it back, solved again — unchanged throughout, and it returned as `fixed` rather than `auto`. |
 | PS.3 | A pasted manufacturer curve is untouched | ⬜ | Neither the sizer nor the panel regenerates a curve marked `fitted`. |
 | PS.4 | **A pump the sizer puts at ZERO head** | ⬜ | **Known gap, your call.** If the source alone satisfies every outflow, auto sizing lands on 0 m; there is no duty to build a curve from, and SIMULATE still says "Pump curve required" — which is not a useful way to say "this pump has nothing to do". Say the word and it gets its own message. |
 | SM.1 | A source on a main MIXES | ⬜ | Your report. 1.76 L/s of 60 °C meeting 6.24 L/s of 10 °C make-up gives 20.99 °C; it used to read a flat 10 °C. |
@@ -626,7 +400,6 @@ two are their own piece of work.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| DB.1 | Valves land between 59% and 100% | ✅ | `20260805-5`: 59 / 67 / 100 / 100%, no errors. The two at 100% are the furthest branches and are genuinely within tolerance wide open — which is what your dP-controlled pump is for. |
 | DB.2 | ΔP / ΔT bubble says so | ⬜ | Was showing `T`. Two-character labels use a smaller font to fit the bubble. |
 | DB.3 | The second probed pipe is drawn | ⬜ | Dotted line from the bubble to the reference pipe with an open square at the far tapping — a different mark from the control link's ring, because it means a different thing. Only when both are on the level being shown. |
 | DB.4 | Control links drag in all four directions | ⬜ | Pull across the current segment and the route flips axis (1.6× hysteresis so it does not chatter). Verified live: axis h → v, mid 44.88 → 8.53. |
@@ -638,7 +411,6 @@ two are their own piece of work.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| BAL.1 | Four valves balance four branches | ✅ | `20260805-4`: all four AHUs within 1% of rated flow, valves at 36–37%. Was three valves stuck at 100% with branches 17% over. |
 | BAL.2 | The pump's SETPOINT_LOST is correct and now says why | ⬜ | "…PMP-1 → ACCH-1, **limited by Design ΔT** — at full travel and still off setpoint." The chiller's 15 K Design ΔT stops it reaching 7.5 °C; no pump speed fixes that. Toggle Design ΔT as a fallback on the pump if you want it to chase that instead. |
 | BAL.3 | `Max control solves` on THERMAL | ⬜ | 0 = auto (40 + 30 per controlled device, capped 400). One solve is ~3.5 ms on a 36-pipe model; the whole controlled solve took ~200 ms over 50 solves. Raise it for an awkward model, lower it if a big model feels sluggish while drawing. |
 | BAL.4 | **Does 36–37% look right for those valves?** | ⬜ | **The engineering judgement.** Equal-percentage characteristic, four equal branches off a common header. |
@@ -653,7 +425,6 @@ two are their own piece of work.
 | TH.4 | Pipework heat gain / loss | ⬜ | Every pipe: length, insulation, U′, in/out, Q in watts. Totals for gain, loss, net, and **net as a % of equipment duty** — the number you actually use it for. On the example: +0.178 kW, 2.9%. |
 | TH.5 | Every pipe is listed, including zero rows | ⬜ | Deliberate: a zero row on a well-insulated main is a result, and leaving it out makes the total impossible to check by adding up. Say if you'd rather they were suppressed. |
 | TH.6 | The section is collapsed by default | ⬜ | So it does not print unless you open it, per the existing convention. |
-| **TH.8** | **⚑ HEAT ABSORPTION AT A SOURCE — RESOLVED in v0.14.7, see SM.3** | ✅ | **FLAGGED FOR HIS EYE, 2026-08-05. Do not treat as settled.** His objection: an expansion tank tees off the return with NO FLOW through it, can only lose a trickle by conduction at the tee, and that is normally disregarded. So absent a runaway there should be little or no absorption. See the note below. **The verdict, 2026-08-06: he was right and the app was not.** A source no longer absorbs anything at all — it mixes its own make-up into whatever is flowing past — so a fill absorbs nothing wherever it is drawn, and the shortfall shows against a pinned datum instead. The dead-leg-versus-in-line distinction this row was written around has gone: it was never physics, it was where the pin happened to land. |
 | TH.7 | `HEAT_IMBALANCE` warning (v0.14.2) | ⬜ | Fires above 2% of circulating duty (adjustable, HYDRAULIC ▸ Heat balance tolerance). On the stacked-riser example: "6.3 kW is being removed at the source to hold its stated temperature… the cooling plant is short by that much, or the stated temperature is wrong." |
 
 ### TH.8 — what the experiment showed
@@ -712,7 +483,6 @@ be called out on its own rather than only through its thermal consequence.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| N.1 | Dead legs hold the water's temperature | ✅ | Engine-tested. Also answers your Simulate-mode item. `Source Water Temperature` no longer leaks into dead ends. |
 | N.2 | Risers stack, and skip floors | ⬜ | New `examples/stacked-riser.pnet.json`: four storeys, coils on L1/L2/L4, **Level 3 skipped** — the top riser span is 7.00 m against 3.50 m for the others. Solves clean. |
 | N.3 | `RISER_OPEN_END` | ⬜ | Dashed amber ring and "top/bottom open" on the level it happens on, plus a warning. |
 | N.4 | Pump Sizing: Auto / Manual / Curve | ⬜ | **The one to judge.** Verified live: switching to Manual exposed Design flow/pressure and generated a curve (6.89 L/s @ 17.49 m, `source: 'generated'`). Shape is shutoff 140%, duty, 65% at 150% flow — the same shape the TOOLS generator uses. Say if you want a different one. |
@@ -731,8 +501,6 @@ be called out on its own rather than only through its thermal consequence.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| BK.1 | A cooling load is typeable | ✅ | The sign is now TYPED when you type it and CARRIED when it is recomputed. Both your models were bad only because their chillers had positive capacities. |
-| BK.2 | Blank = unlimited on a Source/Sink | ✅ | Was writing the wrong field entirely. |
 | BK.3 | Control valve is equal percentage | ⬜ | Your table. On the mixing rig the valve now controls at 69% of travel instead of 33% — say whether that reads better on a real job. |
 | BK.4 | "Source Water Temperature" | ⬜ | Renamed on THERMAL. It is what a SOURCE holds when it states no temperature of its own, plus the pin for a fully adiabatic circuit — not a setpoint. |
 | BK.5 | Adiabatic equipment type | ⬜ | Filter/strainer: keeps its ΔP, no thermal side, no control options. Verified: 687 kPa drop retained, ΔT exactly 0, `canBeControlled` false. |
@@ -744,11 +512,9 @@ Driven live on `20260804-3.json`.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| OV.1 | The pump no longer throttles into an overload | ✅ | Was 25% (its floor); now 100%. The runaway falls from ~3000 °C to 420 °C — still a runaway, still flagged, but no longer made worse by the control. |
 | OV.2 | `SETPOINT_LOST`, your wording | ⬜ | "System is unable to maintain setpoint. Check heat balance." An ERROR — it clears `converged`. |
 | OV.3 | **The trade-off, and it needs your ruling** | ⬜ | **The one to judge.** For a machine holding a LEAVING temperature, minimum speed was *closer to setpoint*; full speed moves the most water. The rule now picks delivered capacity. It changed the v0.11.1 economizer case, which parks at full instead of on its floor. Overrule me if that reads wrong on a real job. |
 | OV.4 | Setpoint priority is a drag list | ⬜ | Same grip and gesture as LEVELS, labelled primary / secondary. Verified live: dragging ΔT above LWT stored `order:['dt','lwt']` and the engine followed. |
-| OV.5 | Your third question — "once it hits the design ΔT limit the pump stops trying" | ✅ | That was it, and two things caused it. The v0.12.3 authority probe stopped the pump chasing a setpoint it could not move; this one stops it *throttling* when no setpoint is reachable. Both were needed. |
 
 ## 4K. CONTROL AUTHORITY and valve UX (v0.12.3)
 
@@ -756,7 +522,6 @@ Driven live on `20260804-2.json`.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| CA.1 | The VFD no longer pins at 100% | ✅ | Your file: PMP-1 falls through to Design ΔT, settles at **57%**, chiller at exactly **15.00 K**, GLV-01 back to **100% open**. Flow 0.800 L/s = the coil's design flow. |
 | CA.2 | `CONTROL_NO_AUTHORITY` when nothing else is toggled | ⬜ | "PMP-1 has no authority over ACCH-01's Design LWT: it is held at 20.0 °C whatever PMP-1 does… Hold a setpoint the pump can actually move — Design ΔT or design flow." |
 | CA.3 | **Is falling through the right behaviour?** | ⬜ | **Your call.** With both toggled it silently moves to the second. The alternative is to refuse and make you pick. I chose silent-with-a-`(fallback)`-label in the panel. |
 | CA.4 | Isolation valve / Control valve names | ⬜ | Dropdown reads Isolation valve / Control valve / Check valve. Keys in saved files unchanged. |
@@ -770,7 +535,6 @@ Driven through the live app on `20260804-1.json` and read back.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| HP.1 | Your model sizes to **25.53 m**, was 102.68 m | ✅ | Your diagnosis was right. Chiller now drops 49.7 kPa = 200 × (0.798/1.6)², the square law at part load. No EQUIP_OFF_RATING. |
 | HP.2 | Source/Sink: LWT Setpoint, Design ΔT, no Temperature Limit | ⬜ | Read back live: Capacity −100 kW, % Load 50.0%, LWT Setpoint 20 °C, Design ΔT 15 K. |
 | HP.3 | Source/Sink trio interrelates | ⬜ | Your sequence, live: flow 1.2 L/s → ΔT 19.94 K; capacity −60 kW → ΔT 11.97 K; ΔT 20 K → **flow 0.7179 L/s**. Sign preserved (chiller stays a chiller). |
 | HP.4 | Control section: Monitoring, then setpoint switches | ⬜ | Live on PMP-1: `Monitoring ACCH-01`, `[x] Design LWT 20.0 °C`, `[ ] Design ΔT 15.0 K`. Toggling ΔT on stored `use:{lwt:true,dt:true}`. |
