@@ -34,6 +34,8 @@ The likeliest things to come back:
 
 | # | Item | Notes |
 |---|---|---|
+| SW.2 | **Finish the sweep → iteration rename (internal)** | Michael, 2026-08-12. The USER-FACING text now says "iteration" (progress bar, the Settling-iterations field, CONTROL_HUNTING / CONTROL_BUDGET messages). The INTERNALS still say sweep: the `sweep`/`MAX_SWEEPS`/`reSweep` variables in `network.js`, `report.sweeps`, and the saved setting key `control.sweeps`. Renaming `control.sweeps` needs a load-time migration so old files keep their value, so it was left for a dedicated pass. Cosmetic, no behaviour change. |
+| MSG.2 | **Trim the verbose messages** | `docs/MESSAGES.md` §7 proposes shorter forms for 8 messages; awaiting Michael's yes/no per line, then apply to source. (CONTROL_HUNTING already reworded in v0.16.26.) |
 | DX.1 | Does the DXF open in real CAD? | Untested; nothing in this environment can check it. |
 
 ---
@@ -42,6 +44,15 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.26** — three from Michael, 2026-08-12. (1) Turning info-panel / "Show
+  on drawing" tags on or off no longer re-solves — it saves and redraws like the
+  Tag-visible switch beside it (presentation, not geometry). (2) User-facing
+  "sweep" is now "iteration" (progress bar, Settling-iterations field, control
+  messages); the internal rename is logged as SW.2. (3) CONTROL_HUNTING now
+  reports a metric — "N of M controlled devices holding setpoint (X%)" — so an
+  engineer can accept, say, 90% while the design is in flux and raise Settling
+  iterations to finish it later, rather than a flat "still moving". Carries
+  `holding`/`total`/`pct` fields. Verified live.
 * **v0.16.25** — the status chip opens a MESSAGES window (Michael, 2026-08-12).
   A moveable window like TOOLS with two lists, **Active** and **Dismissed**,
   showing every error, defect, warning and notice ordered by severity. Clicking

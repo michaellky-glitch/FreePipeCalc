@@ -2458,24 +2458,13 @@
         code: 'CONTROL_BUDGET',
         message: 'The control loop ran out of solves before every device had ' +
                  'been settled, so some are holding the position the last ' +
-                 'complete sweep gave them. Raise Max solves in SETTINGS if the ' +
-                 'answer looks unfinished.'
+                 'complete iteration gave them. Raise Max solves in SETTINGS if ' +
+                 'the answer looks unfinished.'
       });
     }
-    if (moving) {
-      /* THE SWEEP never settled — a different condition from a single device
-       * coming to rest off setpoint, and the two used to share a code. One is
-       * "this device cannot get there", the other is "these devices are
-       * fighting", and the fixes are nothing alike. Split 2026-08-05. */
-      warnings.push({
-        code: 'CONTROL_HUNTING',
-        message: 'The controlled devices were still moving after ' + sweep +
-                 ' sweeps, so they are working against each other rather than ' +
-                 'settling. The last answer is reported. Check whether two of ' +
-                 'them follow the same setpoint; if so, switch one off or give ' +
-                 'it a different one to hold.'
-      });
-    }
+    /* CONTROL_HUNTING is raised AFTER the device report below, so it can say HOW
+     * FAR it got — a percentage the engineer can accept or push further, rather
+     * than a flat "still moving" (Michael, 2026-08-12). */
 
     var devices = pairs.map(function (pair) {
       /* A FOLLOWER REPORTS THE GANG'S RESULT, because it is the gang that was
@@ -2580,6 +2569,28 @@
       }
       return d;
     });
+
+    /* STILL HUNTING, WITH A METRIC. The sweep never came to rest, so instead of
+     * a flat "still moving" it reports how far it got — devices holding their
+     * setpoint out of the total, as a percentage. An engineer can then accept,
+     * say, 90% while the design is in flux and raise Settling iterations to
+     * finish it later, rather than being told only that it did not converge
+     * (Michael, 2026-08-12). "Holding" means the final measurement is inside the
+     * device's own deadband — the `state === 'on'` the report just re-judged. */
+    if (moving) {
+      var holding = devices.filter(function (x) { return x.state === 'on'; }).length;
+      var totalDev = devices.length;
+      var pct = totalDev ? Math.round(holding / totalDev * 100) : 100;
+      warnings.push({
+        code: 'CONTROL_HUNTING',
+        holding: holding, total: totalDev, pct: pct,
+        message: 'Not fully settled after ' + sweep + ' iterations — ' + holding +
+                 ' of ' + totalDev + ' controlled devices holding setpoint (' +
+                 pct + '%). The last answer is reported. Raise Settling ' +
+                 'iterations in SETTINGS to converge further, or accept it if ' +
+                 'this is close enough.'
+      });
+    }
 
     /* THE SETPOINT IS LOST — Michael's wording, 2026-08-04. An ERROR rather
      * than a warning: a system that cannot hold its setpoint anywhere in its

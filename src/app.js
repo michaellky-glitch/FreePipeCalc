@@ -362,12 +362,12 @@
       if (!r.done) {
         var p = r.value || {};
         try {
-          /* "sweep 2 of 6" beside the device, because the bar can only show
+          /* "iteration 2 of 6" beside the device, because the bar can only show
            * the WORST case and will therefore finish early on a model that
            * settles quickly. The sentence explains the bar; without it a run
            * that stops at a third looks like something went wrong. */
           showSolveProgress(p.fraction || 0,
-            'Simulating\u2026 sweep ' + (p.sweep || 1) + ' of ' + (p.sweeps || 6) +
+            'Simulating\u2026 iteration ' + (p.sweep || 1) + ' of ' + (p.sweeps || 6) +
             (p.device ? ' \u00b7 ' + p.device : ''));
         } catch (e3) { /* the bar is not worth failing the solve for */ }
         setTimeout(step, 0);
@@ -3107,7 +3107,12 @@
       switchRow(sec.box, o.label, !!M.displayFlags(obj)[o.key], function (on) {
         pushUndo();
         M.setDisplayFlag(obj, o.key, on);
-        changed(); renderProperties();
+        /* PRESENTATION, NOT GEOMETRY (Michael, 2026-08-12): showing or hiding a
+         * value box on the drawing cannot move a number, so it saves and redraws
+         * but must NOT re-solve — the same rule the Tag-visible switch follows. */
+        renderProperties();
+        scheduleSave();
+        app.view.render();
       });
     });
   }
@@ -5674,7 +5679,7 @@
         m.settings.control.maxSolves = Math.max(0, Math.round(v));
         renderThermal(); redrawAll();
       }, '(0 = auto)');
-    numField(g4, 'Settling sweeps', ctl.sweeps || 6,
+    numField(g4, 'Settling iterations', ctl.sweeps || 6,
       function (v) {
         m.settings.control.sweeps = Math.min(100, Math.max(1, Math.round(v)));
         renderThermal(); redrawAll();
@@ -5684,10 +5689,10 @@
                  'nothing for a controller to move. Max control solves is how ' +
                  'much work the loop may do: automatic is 40 + 30 per ' +
                  'controlled device, capped at 400, and one solve is a few ' +
-                 'milliseconds on a model of a few dozen pipes. Settling sweeps ' +
-                 'is how many rounds the devices get to re-settle against one ' +
-                 'another: six suits a first pass, more for a final answer that ' +
-                 'is worth the wait.');
+                 'milliseconds on a model of a few dozen pipes. Settling ' +
+                 'iterations is how many rounds the devices get to re-settle ' +
+                 'against one another: six suits a first pass, more for a final ' +
+                 'answer that is worth the wait.');
     host.appendChild(ch);
 
     var uh = el('p', 'hint', 'U′ = 1 / [ ln(r₀/rᵢ)/(2πk) + 1/(2πr₀h) ]. ');
