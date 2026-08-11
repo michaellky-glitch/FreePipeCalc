@@ -84,6 +84,7 @@
     this.dragDetail = null;          // moving a whole detail (box): {startW, items}
     this.dragDetailNode = null;      // moving a detail vertex: {verts:[{pts,index}]}
     this.dragNote = null;            // moving a note: {note, startW, ox, oy}
+    this.dragRiserNote = null;       // moving a riser callout box: {riser, level, gwx, gwy}
     /* STATIC SIMULATION: the drawing is locked against anything that would
      * change the answer. Not a permission system — a performance one, and the
      * default because that is how a finished model is READ. See `locked`. */
@@ -839,6 +840,24 @@
           c.setPointerCapture(e.pointerId);
           return;
         }
+        /* THE RISER NOTATION BOX MOVES HERE, its leader staying attached to the
+         * circle on the pipework (Michael, 2026-08-10). The box is the callout;
+         * the circle is fixed on the connection. */
+        var rbox = self.riserHandleAt(sx, sy);
+        if (rbox) {
+          self.onBeforeEdit();
+          var sc = self.toScreen(rbox.x, rbox.y);
+          var noff0 = rbox.noteOffset && rbox.noteOffset[self.getModel().activeLevel];
+          var defc = (RISER_R + RISER_GAP) * Math.SQRT1_2 + RISER_BOX / 2;
+          var cx0 = sc.x + (noff0 ? noff0.dx : defc);
+          var cy0 = sc.y + (noff0 ? noff0.dy : defc);
+          self.dragRiserNote = { riser: rbox, level: self.getModel().activeLevel,
+                                 gwx: cx0 - sx, gwy: cy0 - sy };
+          self.selection = [{ kind: 'riser', id: rbox.id }];
+          c.setPointerCapture(e.pointerId);
+          self.selectionChanged();
+          return;
+        }
         /* DETAIL LINES AND THEIR NODES MOVE HERE (Michael, 2026-08-10). A vertex
          * under the pointer moves on its own — together with any vertex exactly
          * coincident with it, so a shared corner, or the doubled first/last point
@@ -1336,6 +1355,27 @@
                                          Math.abs(pa.y - pb.y) > 1e-9))) self.render();
         return;
       }
+      if (self.dragRiserNote) {
+        /* The box follows the pointer; the leader is redrawn from the circle to
+         * it every frame, so it stays attached. Snapped to the grid in WORLD,
+         * like a label, and freed by Shift/Alt. Offset kept in screen pixels
+         * relative to the circle, so it holds through zoom. */
+        var drn = self.dragRiserNote;
+        var sc2 = self.toScreen(drn.riser.x, drn.riser.y);
+        var bcx = sx + drn.gwx, bcy = sy + drn.gwy;
+        var gR = self.getModel().settings.grid;
+        if (gR && gR.snap && !self.freeform()) {
+          var wp = self.toWorld(bcx, bcy);
+          var stepR = gR.minor || 0.5;
+          var sp = self.toScreen(Math.round(wp.x / stepR) * stepR,
+                                 Math.round(wp.y / stepR) * stepR);
+          bcx = sp.x; bcy = sp.y;
+        }
+        if (!drn.riser.noteOffset) drn.riser.noteOffset = {};
+        drn.riser.noteOffset[drn.level] = { dx: bcx - sc2.x, dy: bcy - sc2.y };
+        self.render();
+        return;
+      }
       if (self.dragDetailNode) {
         /* One vertex (and any coincident with it) follows the pointer, snapped
          * like a node. Shift/Alt frees the snap, as everywhere. */
@@ -1638,6 +1678,7 @@
        * and ALIGN (which moves every level by the same offset and is documented
        * as unable to touch a length). Saved, never re-solved. */
       if (self.dragTrace) { self.dragTrace = null; self.arranged(); return; }
+      if (self.dragRiserNote) { self.dragRiserNote = null; self.arranged(); return; }
       if (self.dragDetailNode) { self.dragDetailNode = null; self.arranged(); return; }
       if (self.dragDetail) { self.dragDetail = null; self.arranged(); return; }
       if (self.dragControlRiser) { self.dragControlRiser = null; self.arranged(); return; }
@@ -3295,22 +3336,36 @@
       ctx.beginPath(); ctx.arc(s.x, s.y, RISER_R, 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
 
-      /* ---- the leader and the box, offset down-right on a 45°, which is how
-       * it is drawn on paper and keeps the box clear of the pipework running
-       * through the node. */
+      /* ---- the leader and the box. The default is down-right on a 45°, which
+       * is how it is drawn on paper and keeps the box clear of the pipework
+       * running through the node. The user can DRAG the box anywhere in
+       * ANNOTATION and the leader follows, staying attached to the circle
+       * (Michael, 2026-08-10). The offset is per level and in SCREEN pixels, so
+       * the callout keeps its size and place through zoom, like a label. */
       var k = Math.SQRT1_2;
-      var bx = s.x + (RISER_R + RISER_GAP) * k;
-      var by = s.y + (RISER_R + RISER_GAP) * k;
+      var half = RISER_BOX / 2;
+      var defC = (RISER_R + RISER_GAP) * k + half;
+      var noff = r.noteOffset && r.noteOffset[m.activeLevel];
+      var cx = s.x + (noff ? noff.dx : defC);
+      var cy = s.y + (noff ? noff.dy : defC);
       ctx.save();
       ctx.strokeStyle = colour;
       ctx.lineWidth = here ? 2 : 1.2;
       if (!here) ctx.setLineDash([3, 3]);
-      ctx.beginPath();
-      ctx.moveTo(s.x + RISER_R * k, s.y + RISER_R * k);
-      ctx.lineTo(bx, by);
-      ctx.stroke();
-      var half = RISER_BOX / 2;
-      var cx = bx + half, cy = by + half;
+      /* Leader: circle edge in the box's direction, to where the line enters the
+       * box, so it touches the box rather than crossing into it. Skipped if the
+       * box has been dragged onto the circle — there is nothing to point. */
+      var ldx = cx - s.x, ldy = cy - s.y, llen = Math.hypot(ldx, ldy);
+      if (llen > RISER_R + 2) {
+        var ex = s.x + RISER_R * ldx / llen, ey = s.y + RISER_R * ldy / llen;
+        var tX = ldx !== 0 ? ((cx - Math.sign(ldx) * half) - s.x) / ldx : -Infinity;
+        var tY = ldy !== 0 ? ((cy - Math.sign(ldy) * half) - s.y) / ldy : -Infinity;
+        var tEnt = Math.max(0, Math.min(1, Math.max(tX, tY)));
+        ctx.beginPath();
+        ctx.moveTo(ex, ey);
+        ctx.lineTo(s.x + ldx * tEnt, s.y + ldy * tEnt);
+        ctx.stroke();
+      }
       ctx.strokeRect(cx - half, cy - half, RISER_BOX, RISER_BOX);
       ctx.restore();
 

@@ -42,6 +42,14 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.22** — the riser notation box is draggable in Annotation (Michael,
+  2026-08-10). Grabbing the callout box in the MOVE tool moves it; the leader is
+  redrawn from the circle on the pipework to the box every frame, so it stays
+  attached, and the circle itself does not move. The offset is per level (each
+  floor places its own callout clear of that floor's pipework) and in screen
+  pixels, so it holds through zoom; it snaps to the grid, frees with Shift/Alt,
+  saves without solving, and persists through save/load. Verified live by
+  dispatching pointer events. **The look is Michael's to judge.**
 * **v0.16.21** — detail lines and their nodes are moveable in Annotation
   (Michael, 2026-08-10). In the MOVE tool: grabbing a detail VERTEX moves it on
   its own — with any vertex exactly coincident, so a shared corner or a closed
