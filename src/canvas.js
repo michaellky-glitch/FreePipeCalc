@@ -81,6 +81,9 @@
     this.tool = 'edit';              // edit | pipe | riser | source | demand | equip | pump
     this.draft = null;               // in-progress run: {points:[{x,y}], fromNode}
     this.detailDraft = null;         // in-progress DETAIL line: {pts:[{x,y}]}
+    this.dragDetail = null;          // moving a whole detail (box): {startW, items}
+    this.dragDetailNode = null;      // moving a detail vertex: {verts:[{pts,index}]}
+    this.dragNote = null;            // moving a note: {note, startW, ox, oy}
     /* STATIC SIMULATION: the drawing is locked against anything that would
      * change the answer. Not a permission system — a performance one, and the
      * default because that is how a finished model is READ. See `locked`. */
@@ -836,6 +839,44 @@
           c.setPointerCapture(e.pointerId);
           return;
         }
+        /* DETAIL LINES AND THEIR NODES MOVE HERE (Michael, 2026-08-10). A vertex
+         * under the pointer moves on its own — together with any vertex exactly
+         * coincident with it, so a shared corner, or the doubled first/last point
+         * of a closed box, stays joined. A segment moves the WHOLE connected
+         * detail: every line that shares a corner with it, i.e. the whole box. */
+        var dnode = self.detailNodeAt(sx, sy, 8);
+        if (dnode) {
+          self.onBeforeEdit();
+          self.dragDetailNode = { verts: self.coincidentDetailVertices(dnode.x, dnode.y) };
+          self.selection = [{ kind: 'detail', id: dnode.detail.id }];
+          c.setPointerCapture(e.pointerId);
+          self.selectionChanged();
+          return;
+        }
+        /* A NOTE moves as a whole — it has no vertices. */
+        var nHit = self.noteAt(sx, sy);
+        if (nHit) {
+          self.onBeforeEdit();
+          self.dragNote = { note: nHit, startW: w, ox: nHit.x, oy: nHit.y };
+          self.selection = [{ kind: 'note', id: nHit.id }];
+          c.setPointerCapture(e.pointerId);
+          self.selectionChanged();
+          return;
+        }
+        var dline = self.detailAt(w.x, w.y, 8);
+        if (dline) {
+          self.onBeforeEdit();
+          self.dragDetail = {
+            startW: w,
+            items: self.connectedDetails(dline).map(function (d) {
+              return { detail: d, orig: d.pts.map(function (q) { return { x: q.x, y: q.y }; }) };
+            })
+          };
+          self.selection = [{ kind: 'detail', id: dline.id }];
+          c.setPointerCapture(e.pointerId);
+          self.selectionChanged();
+          return;
+        }
         if (pickAnnotation()) return;
         var lab = self.labelAt(sx, sy);
         if (lab) {
@@ -1295,6 +1336,50 @@
                                          Math.abs(pa.y - pb.y) > 1e-9))) self.render();
         return;
       }
+      if (self.dragDetailNode) {
+        /* One vertex (and any coincident with it) follows the pointer, snapped
+         * like a node. Shift/Alt frees the snap, as everywhere. */
+        var gpN = self.snapWorld(w);
+        self.dragDetailNode.verts.forEach(function (v) {
+          v.pts[v.index].x = gpN.x; v.pts[v.index].y = gpN.y;
+        });
+        self.render();
+        return;
+      }
+      if (self.dragDetail) {
+        /* The whole detail slides rigidly. The DELTA is snapped, not each point,
+         * so the box keeps its shape and lands on the lattice by its grabbed
+         * offset rather than distorting. */
+        var ddD = self.dragDetail;
+        var ddx = w.x - ddD.startW.x, ddy = w.y - ddD.startW.y;
+        var gD = self.getModel().settings.grid;
+        if (gD && gD.snap && !self.freeform()) {
+          var stepD = gD.minor || 0.5;
+          ddx = Math.round(ddx / stepD) * stepD;
+          ddy = Math.round(ddy / stepD) * stepD;
+        }
+        ddD.items.forEach(function (it) {
+          it.detail.pts.forEach(function (q, i) {
+            q.x = it.orig[i].x + ddx; q.y = it.orig[i].y + ddy;
+          });
+        });
+        self.render();
+        return;
+      }
+      if (self.dragNote) {
+        /* A note is one point; snap its WORLD position like a label. */
+        var dnN = self.dragNote;
+        var nx = dnN.ox + (w.x - dnN.startW.x), ny = dnN.oy + (w.y - dnN.startW.y);
+        var gN = self.getModel().settings.grid;
+        if (gN && gN.snap && !self.freeform()) {
+          var stepN = gN.minor || 0.5;
+          nx = Math.round(nx / stepN) * stepN;
+          ny = Math.round(ny / stepN) * stepN;
+        }
+        dnN.note.x = nx; dnN.note.y = ny;
+        self.render();
+        return;
+      }
       if (self.dragControlRiser) {
         /* The riser is a plain point on the plan, so it snaps like one. Both
          * halves of the link follow it, on both floors, because there is only
@@ -1553,6 +1638,8 @@
        * and ALIGN (which moves every level by the same offset and is documented
        * as unable to touch a length). Saved, never re-solved. */
       if (self.dragTrace) { self.dragTrace = null; self.arranged(); return; }
+      if (self.dragDetailNode) { self.dragDetailNode = null; self.arranged(); return; }
+      if (self.dragDetail) { self.dragDetail = null; self.arranged(); return; }
       if (self.dragControlRiser) { self.dragControlRiser = null; self.arranged(); return; }
       if (self.dragControl) { self.dragControl = null; self.arranged(); return; }
       if (self.dragNote) { self.dragNote = null; self.arranged(); return; }
@@ -4964,6 +5051,64 @@
       }
     });
     return best;
+  };
+
+  /* The detail VERTEX nearest a click, within a screen tolerance — the "node"
+   * that moves on its own. Vertices beat lines: a corner grabs before the two
+   * segments meeting at it. */
+  View.prototype.detailNodeAt = function (sx, sy, tolPx) {
+    var m = this.getModel(), self = this, tol = tolPx || 8, best = null, bd = Infinity;
+    (m.details || []).forEach(function (d) {
+      if (d.level !== m.activeLevel) return;
+      (d.pts || []).forEach(function (q, i) {
+        var s = self.toScreen(q.x, q.y);
+        var dd = Math.hypot(s.x - sx, s.y - sy);
+        if (dd <= tol && dd < bd) { bd = dd; best = { detail: d, index: i, x: q.x, y: q.y }; }
+      });
+    });
+    return best;
+  };
+
+  /* Every detail vertex EXACTLY on a given point — so dragging a shared corner
+   * (or the doubled first/last point of a closed box) moves them all at once and
+   * the box stays joined. Exact match, because a corner is drawn by snapping to
+   * the same point, not by landing near it. */
+  View.prototype.coincidentDetailVertices = function (x, y) {
+    var m = this.getModel(), eps = 1e-6, out = [];
+    (m.details || []).forEach(function (d) {
+      if (d.level !== m.activeLevel) return;
+      (d.pts || []).forEach(function (q, i) {
+        if (Math.abs(q.x - x) < eps && Math.abs(q.y - y) < eps) out.push({ pts: d.pts, index: i });
+      });
+    });
+    return out;
+  };
+
+  /* Every detail connected to `start` by a shared corner — the whole box,
+   * whether it was drawn as one closed polyline or as several lines meeting at
+   * their ends. A box moves as one because its lines share corners. */
+  View.prototype.connectedDetails = function (start) {
+    var m = this.getModel(), eps = 1e-6;
+    var pool = (m.details || []).filter(function (d) { return d.level === m.activeLevel; });
+    function shares(a, b) {
+      for (var i = 0; i < (a.pts || []).length; i++)
+        for (var j = 0; j < (b.pts || []).length; j++)
+          if (Math.abs(a.pts[i].x - b.pts[j].x) < eps &&
+              Math.abs(a.pts[i].y - b.pts[j].y) < eps) return true;
+      return false;
+    }
+    var comp = [start], seen = {}; seen[start.id] = true;
+    var changed = true;
+    while (changed) {
+      changed = false;
+      pool.forEach(function (d) {
+        if (seen[d.id]) return;
+        if (comp.some(function (c) { return shares(c, d); })) {
+          comp.push(d); seen[d.id] = true; changed = true;
+        }
+      });
+    }
+    return comp;
   };
 
   /* SYNC, DRAWN ONLY FOR THE SELECTION (Michael, 2026-08-08).

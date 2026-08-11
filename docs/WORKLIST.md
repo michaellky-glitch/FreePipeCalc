@@ -42,6 +42,17 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.21** — detail lines and their nodes are moveable in Annotation
+  (Michael, 2026-08-10). In the MOVE tool: grabbing a detail VERTEX moves it on
+  its own — with any vertex exactly coincident, so a shared corner or a closed
+  box's doubled point stays joined; grabbing a detail LINE moves the whole
+  CONNECTED detail (every line sharing a corner), so a box moves as one whether
+  drawn as one closed polyline or as separate lines meeting at their ends. Notes
+  became draggable at the same time (the `dragNote` stub was never wired). All
+  snap to the grid, free with Shift/Alt, and save without solving (`arranged`).
+  Verified live by driving real pointer events: node-drag, whole-polyline drag,
+  and a two-line L moving together, no console errors. **The on-screen feel is
+  still Michael's to judge.**
 * **v0.16.20** — Michael's second list of 2026-08-10. (1) The CONVERT tool's
   input boxes were browser-default white in the dark panel — now styled to match
   `.field input` (UI.1, his clarified item). (2) The Thermal insulation TABLE is
