@@ -1245,6 +1245,38 @@ body.sim-static #prop-body .field textarea {
 .tool-window-body h3 { margin-top: 0; }
 .tool-window-body table { width: 100%; }
 
+/* Messages window (status chip). One row per message, coloured by severity, the
+ * text a link to the pipe/node it names, and a Dismiss/Restore control. */
+.msg-section { margin-bottom: 14px; }
+.msg-section h3 { margin: 0 0 6px; font-size: 0.95em; }
+.msg-item {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 7px 8px; margin-bottom: 6px;
+  border: 1px solid var(--line); border-left-width: 3px;
+  border-radius: 5px; background: var(--bg-input);
+}
+.msg-item.msg-error   { border-left-color: var(--error); }
+.msg-item.msg-defect  { border-left-color: var(--warn); }
+.msg-item.msg-warning { border-left-color: var(--warn); }
+.msg-item.msg-notice  { border-left-color: var(--text-mute); }
+.msg-main { flex: 1 1 auto; min-width: 0; }
+.msg-main.go { cursor: pointer; }
+.msg-main.go:hover .msg-body { color: var(--accent); text-decoration: underline; }
+.msg-sev {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; margin-right: 6px;
+}
+.msg-error .msg-sev   { color: var(--error); }
+.msg-defect .msg-sev  { color: var(--warn); }
+.msg-warning .msg-sev { color: var(--warn); }
+.msg-notice .msg-sev  { color: var(--text-mute); }
+.msg-body { font-size: 12px; color: var(--text); }
+.msg-btn { flex: 0 0 auto; padding: 3px 8px; font-size: 11px; margin: 0; }
+.msg-lock {
+  flex: 0 0 auto; font-size: 10px; color: var(--text-mute);
+  text-transform: uppercase; letter-spacing: .04em; padding-top: 4px;
+}
+
 /* The CONVERT tab: two boxes and an equals sign, per row. */
 .conv-row { margin-bottom: 12px; }
 .conv-title {

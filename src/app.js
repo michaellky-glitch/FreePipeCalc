@@ -405,6 +405,7 @@
     updateSystemChip();
     updateModeChip();
     refreshPropertyReadouts();
+    if (app.messagesRefresh) app.messagesRefresh();
     return res;
   }
 
@@ -430,6 +431,7 @@
     if (res.errors && res.errors.length) {
       chip.textContent = res.errors[0].message;
       chip.className = 'chip error';
+      chip.style.cursor = 'pointer';
       return;
     }
     /* A hydraulic error is not one warning among many — the system as drawn
@@ -454,6 +456,7 @@
       : 'Hydraulic error — pump has no flow';
       chip.className = 'chip error';
       chip.title = hyd.map(function (w) { return w.message; }).join('\n\n');
+      chip.style.cursor = 'pointer';
       return;
     }
     chip.title = '';
@@ -473,7 +476,7 @@
                              (warn - defects.length > 1 ? 's' : '') : '');
       chip.className = 'chip defect';
       chip.title = defects.map(function (w) { return w.message; }).join('\n\n') +
-                   '\n\nClick to highlight the affected pipes on the drawing.';
+                   '\n\nClick for the message list.';
       chip.style.cursor = 'pointer';
       /* NO TAB JUMP. This used to set `chip.onclick` to open CALCULATION — and
        * never cleared it, so once a model had raised a defect ONCE the chip
@@ -498,7 +501,7 @@
         return '• ' + (w.message || w.code);
       });
       if (warn > PREVIEW) lines.push('… and ' + (warn - PREVIEW) + ' more');
-      lines.push('', 'Click to highlight the affected pipes on the drawing.');
+      lines.push('', 'Click for the message list.');
       chip.title = lines.join('\n');
       chip.style.cursor = 'pointer';
     } else {
@@ -510,34 +513,14 @@
     }
   }
 
-  /* Clicking the status chip highlights whatever the warnings name. A toggle,
-   * not a one-shot: the point is to keep the marks visible while the drawing is
-   * being fixed, the same reasoning as SHOW DISCONNECT. */
+  /* Clicking the status chip opens the MESSAGES window (Michael, 2026-08-12).
+   * It used to toggle a highlight of every affected pipe at once; that is
+   * deprecated — the window lists each message and clicking ONE goes to the pipe
+   * or node it names, which is what you actually want when fixing them. */
   function initStatusChip() {
     var chip = $('status-chip');
     if (!chip) return;
-    chip.addEventListener('click', function () {
-      if (app.view.warnHighlight) {
-        app.view.warnHighlight = null;
-        app.view.render();
-        toast('Warning highlight off.');
-        return;
-      }
-      var list = computeWarnings(app.results);
-      if (!list.length) { toast('No warnings to highlight.'); return; }
-      var pipes = {}, nodes = {}, nP = 0, nN = 0;
-      list.forEach(function (w) {
-        if (w.pipe && !pipes[w.pipe]) { pipes[w.pipe] = true; nP++; }
-        (w.nodes || []).forEach(function (id) { if (!nodes[id]) { nodes[id] = true; nN++; } });
-        if (w.node && !nodes[w.node]) { nodes[w.node] = true; nN++; }
-      });
-      if (!nP && !nN) { toast('These warnings do not point at a particular pipe.'); return; }
-      app.view.warnHighlight = { pipes: pipes, nodes: nodes };
-      app.view.render();
-      toast('Highlighted ' + nP + ' pipe' + (nP === 1 ? '' : 's') +
-            (nN ? ' and ' + nN + ' node' + (nN === 1 ? '' : 's') : '') +
-            '. Click the chip again to clear.');
-    });
+    chip.addEventListener('click', function () { app.messagesOpen(true); });
   }
 
   /* The property panel shows solved values (flow, velocity, pressure), so it
@@ -598,6 +581,119 @@
       }
     });
     return out;
+  }
+
+  /* ===================================================== THE MESSAGES WINDOW
+   *
+   * Michael, 2026-08-12. The status chip opens this instead of highlighting
+   * every affected pipe at once. Two lists — Active and Dismissed — and clicking
+   * a message goes to the pipe or node it names. Errors and defects cannot be
+   * dismissed: they mean the answer, or the drawing, is wrong, and hiding them
+   * would be exactly the silent-failure this project keeps stamping out.
+   *
+   * Dismissal is BY SIGNATURE (code + the thing it points at), so it survives a
+   * re-solve: dismiss "PDM on P43" and it stays dismissed while you work, rather
+   * than popping back Active every 250 ms. Session only — a fresh load starts
+   * with everything Active, deliberately: a dismissal is "I have seen this and
+   * accept it today", not a permanent edit to the model. */
+  var SEV_ORDER = { error: 0, defect: 1, warning: 2, notice: 3 };
+  var SEV_LABEL = { error: 'Error', defect: 'Defect', warning: 'Warning', notice: 'Notice' };
+
+  /* Errors (level 'error') plus everything computeWarnings carries (defect /
+   * warning / notice), as one list ordered by severity. */
+  function messageItems(res) {
+    if (!res) return [];
+    var errs = (res.errors || []).map(function (e) {
+      return { code: e.code, message: e.message, level: 'error',
+               pipe: e.pipe, node: e.node, nodes: e.nodes, equip: e.equip };
+    });
+    var all = errs.concat(computeWarnings(res));
+    all.forEach(function (it) { it.level = it.level || 'warning'; });
+    all.sort(function (a, b) { return SEV_ORDER[a.level] - SEV_ORDER[b.level]; });
+    return all;
+  }
+
+  /* Stable identity for a message, so dismissing one keeps it dismissed across
+   * re-solves. The WHERE is part of it: "PDM on P43" and "PDM on P44" are two
+   * different things to accept. */
+  function messageSig(it) {
+    return (it.code || '') + '|' +
+           (it.pipe || it.equip || it.node || (it.nodes && it.nodes[0]) || it.section || '');
+  }
+
+  /* Where a message points, with the floor it is on, so a click can switch level
+   * and centre on it — the same `findGoTo` the Find tool uses. */
+  function messageWhere(it) {
+    var m = app.model, id = null, kind = null;
+    if (it.pipe) { id = it.pipe; kind = 'pipe'; }
+    else if (it.equip) { id = it.equip; kind = 'pipe'; }
+    else if (it.node) { id = it.node; kind = 'node'; }
+    else if (it.nodes && it.nodes.length) { id = it.nodes[0]; kind = 'node'; }
+    if (!id) return null;
+    var level = null;
+    if (kind === 'pipe') { var p = M.pipe(m, id); if (p) { var n = M.node(m, p.a); level = n && n.level; } }
+    else { var nn = M.node(m, id); level = nn && nn.level; }
+    return { kind: kind, id: id, level: level };
+  }
+
+  function renderMessagesWindow() {
+    var body = $('messages-body');
+    if (!body) return;
+    body.innerHTML = '';
+    app.dismissed = app.dismissed || {};
+    var items = messageItems(app.results);
+    var active = [], dismissed = [];
+    items.forEach(function (it) {
+      if (app.dismissed[messageSig(it)]) dismissed.push(it); else active.push(it);
+    });
+
+    function itemRow(it, inDismissed) {
+      var row = el('div', 'msg-item msg-' + it.level);
+      var main = el('div', 'msg-main');
+      main.appendChild(el('span', 'msg-sev', SEV_LABEL[it.level] || 'Warning'));
+      main.appendChild(el('span', 'msg-body', it.message || it.code));
+      var where = messageWhere(it);
+      if (where) {
+        main.classList.add('go');
+        main.title = 'Go to ' + where.id;
+        main.addEventListener('click', function () { app.findGoTo(where); });
+      }
+      row.appendChild(main);
+      if (inDismissed) {
+        var rb = el('button', 'btn msg-btn', 'Restore');
+        rb.addEventListener('click', function () {
+          delete app.dismissed[messageSig(it)]; renderMessagesWindow();
+        });
+        row.appendChild(rb);
+      } else if (it.level === 'error' || it.level === 'defect') {
+        /* Cannot be dismissed — say why, in place of the button. */
+        var lock = el('span', 'msg-lock', 'must fix');
+        lock.title = SEV_LABEL[it.level] + 's cannot be dismissed.';
+        row.appendChild(lock);
+      } else {
+        var db = el('button', 'btn msg-btn', 'Dismiss');
+        db.addEventListener('click', function () {
+          app.dismissed[messageSig(it)] = true; renderMessagesWindow();
+        });
+        row.appendChild(db);
+      }
+      return row;
+    }
+
+    function sectionEl(title, list, inDismissed) {
+      var wrap = el('div', 'msg-section');
+      wrap.appendChild(el('h3', '', title + ' (' + list.length + ')'));
+      if (!list.length) {
+        wrap.appendChild(el('p', 'hint', inDismissed ? 'Nothing dismissed.'
+          : (app.results ? 'No messages — the model is clean.' : 'Nothing solved yet.')));
+      } else {
+        list.forEach(function (it) { wrap.appendChild(itemRow(it, inDismissed)); });
+      }
+      return wrap;
+    }
+
+    body.appendChild(sectionEl('Active', active, false));
+    body.appendChild(sectionEl('Dismissed', dismissed, true));
   }
 
   /* A node behind a shut valve solves to an astronomical negative pressure —
@@ -6980,6 +7076,55 @@
       });
 
       try { if (localStorage.getItem('fpc.toolsOpen') === '1') open(true); } catch (e) {}
+    })();
+
+    /* ==================================================== THE MESSAGES WINDOW
+     * Same moveable-window shell as TOOLS. Opened from the status chip; renders
+     * on open and again whenever a solve finishes while it is open. */
+    (function () {
+      var win = $('messages-window'), bar = $('messages-drag'),
+          closeBtn = $('messages-close');
+      if (!win || !bar) return;
+
+      function place(x, y) {
+        var w = win.offsetWidth || 400;
+        x = Math.max(4, Math.min(window.innerWidth - Math.min(w, 200) - 4, x));
+        y = Math.max(4, Math.min(window.innerHeight - 40, y));
+        win.style.left = x + 'px'; win.style.top = y + 'px';
+        try { localStorage.setItem('fpc.msgPos', JSON.stringify({ x: x, y: y })); } catch (e) {}
+      }
+      try {
+        var saved = JSON.parse(localStorage.getItem('fpc.msgPos') || 'null');
+        if (saved && isFinite(saved.x)) { win.style.left = saved.x + 'px'; win.style.top = saved.y + 'px'; }
+      } catch (e) {}
+
+      function open(on) {
+        win.hidden = !on;
+        if (on) renderMessagesWindow();
+      }
+      app.messagesOpen = open;
+      /* So a background solve refreshes the list without closing it. */
+      app.messagesRefresh = function () { if (!win.hidden) renderMessagesWindow(); };
+
+      if (closeBtn) closeBtn.addEventListener('click', function () { open(false); });
+
+      var drag = null;
+      bar.addEventListener('pointerdown', function (e) {
+        if (e.target === closeBtn) return;
+        var r = win.getBoundingClientRect();
+        drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+        bar.setPointerCapture(e.pointerId);
+        e.preventDefault();
+      });
+      bar.addEventListener('pointermove', function (e) {
+        if (!drag) return; place(e.clientX - drag.dx, e.clientY - drag.dy);
+      });
+      bar.addEventListener('pointerup', function () { drag = null; });
+
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !win.hidden &&
+            !/INPUT|TEXTAREA|SELECT/.test((e.target || {}).tagName || '')) open(false);
+      });
     })();
 
     /* Resizable side panel. The width is a UI preference, not model data, so it

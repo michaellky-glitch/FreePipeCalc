@@ -32,10 +32,11 @@ bit only you can judge.
 > section when it is fully cleared, otherwise just its ✅ rows, leaving the
 > pending ones here under the same heading.
 
-## 5AC. UI HOUSEKEEPING — v0.16.23–24 (2026-08-10)
+## 5AC. UI HOUSEKEEPING — v0.16.23–25 (2026-08-10 … 12)
 
 | # | What | Status | Notes |
 |---|---|---|---|
+| MSG.1 | **The status chip opens a MESSAGES window** (v0.16.25) | ⬜ | A moveable window like TOOLS, opened by clicking the chip. Two lists — Active and Dismissed — listing every error, defect, warning and notice, ordered by severity. Clicking a message goes to the pipe/node it names (switches floor, centres, selects); the old highlight-every-pipe-at-once is gone. Warnings and notices have a **Dismiss** button → Dismissed (with **Restore** there); errors and defects cannot be dismissed and read "must fix". Dismissal is keyed by code + where, so it survives a re-solve (session only). Verified live: dismiss/restore, navigation, errors locked, persistence, chip open/close. **The look and feel are yours to judge.** |
 | UX.1 | **Sync part load, one-coil case** (v0.16.23) | ⬜ | With a single heat exchanger the "Sync part load %" row now shows DISABLED with "Place a second heat exchanger to sync this one to it", instead of vanishing. With two or more coils it is a working dropdown, as before (verified on `20260809-DC.json`). |
 | UX.2 | **Calculation sheet remembers collapsed sections** (v0.16.24) | ⬜ | Collapse All Pipes to read Critical Path only and it stays collapsed when you leave the tab and come back — the sheet used to rebuild and reset every section. Thermal and the Appendix still start collapsed until you change them; then that is remembered too. Verified live: collapsed All Pipes, switched tabs, still collapsed. Session-only (not saved to the file). |
 | UX.3 | **Tool instruction always sits below the ribbon** (v0.16.24) | ⬜ | It used to trail to the right when short and wrap below when long, so Heat Source/Sink and Heat Exchanger showed their prompts in different places. Now every variant's instruction is on its own line below the buttons. New wording: source = "Place heat source/sink on pipe (e.g. Chiller/Cooling Tower). Holds LWT."; exchanger = "Place heat exchanger on pipe (e.g. AHU/FCU). Holds ΔT up to Temperature Limit." **The look is yours to judge.** |

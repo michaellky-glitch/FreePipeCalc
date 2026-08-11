@@ -42,6 +42,17 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.25** — the status chip opens a MESSAGES window (Michael, 2026-08-12).
+  A moveable window like TOOLS with two lists, **Active** and **Dismissed**,
+  showing every error, defect, warning and notice ordered by severity. Clicking
+  a message goes to the pipe/node it names (switches floor, centres, selects) —
+  the old "highlight every affected pipe at once" is deprecated. Each warning and
+  notice carries a **Dismiss** button that moves it to Dismissed; errors and
+  defects cannot be dismissed (they read "must fix"). Dismissal is by signature
+  (code + where), so it survives a re-solve; session-only. Verified live:
+  dismiss/restore, per-item navigation, errors locked, persistence across
+  re-solve, chip opens/closes it. **Still open from this round: the MESSAGES.md
+  reference reformat (Code/Message/Issue) and trimming verbose messages.**
 * **v0.16.24** — two UI items (Michael, 2026-08-10). (1) The CALCULATION sheet
   now REMEMBERS which sections you collapsed: it was rebuilt on every switch to
   the tab, resetting every section, so collapsing All Pipes to read Critical
