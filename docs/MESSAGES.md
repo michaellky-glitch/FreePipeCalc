@@ -1,166 +1,144 @@
-# Messages — every error, warning and notice
+# Messages — every code, message and issue
 
-Written 2026-08-05 (v0.13.0), as the first step of the UX pass towards 1.0.
+Every coded message the app can produce: its **code**, the **message** a user
+sees, and the **issue** it reports (with the action, where there is one). The
+codes are the contract — the wording may be tightened, the codes should not
+change without a reason.
 
-Every coded message the app can produce, what raises it, and what it means. The
-codes are the contract: the wording may be tightened during the UX pass, the
-codes should not change without a reason.
+`…` in a message stands for a value filled in at runtime (a tag, a number, a
+unit). `engine.test.js` checks this list against the source in both directions:
+every code the app can emit appears here, and nothing here has been removed from
+the app.
 
-**Read this before rewording anything.** Several of these messages exist because
-a silent version of the same condition cost real time — the notes say which.
+**Read this before rewording anything.** Several messages exist because a silent
+version of the same condition cost real time — the issue column says which.
 
 ---
 
-## 1. How severity works
-
-Four levels, and the difference is not cosmetic.
+## 1. Severity
 
 | Level | What it does | When it is right |
 |---|---|---|
-| **ERROR** | Clears `converged`, takes the status chip in red. The numbers are still reported. | Every figure downstream is describing something that cannot exist. |
-| **DEFECT** | Takes the chip ahead of any warning; grouped first on the sheet. Does NOT clear `converged`. | The MODEL is wrong. The solve is valid for what was drawn, but what was drawn is not what was meant. |
-| **WARNING** | Counted on the chip, grouped on the sheet. | The answer stands, but something about it needs an engineer's eye. |
-| **NOTICE** | Grouped last, or a toast. Nothing to do. | Stated so a number is not a puzzle — a seated check valve, a pinned datum. |
+| **ERROR** | Clears `converged`, takes the status chip red. Numbers are still reported. | Every figure downstream describes something that cannot exist. |
+| **DEFECT** | Takes the chip ahead of any warning. Does NOT clear `converged`. | The MODEL is wrong: the solve is valid for what was drawn, but what was drawn is not what was meant. |
+| **WARNING** | Counted on the chip. | The answer stands, but something needs an engineer's eye. |
+| **NOTICE** | Grouped last. | Stated so a number is not a puzzle — a seated check valve, a pinned datum. |
 
-**Why DEFECT exists** (Michael, 2026-08-05): a velocity of 2.5 m/s and two nodes
-that look joined and are not were listed identically, and they are not the same
-kind of thing. One is a judgement about the engineering; the other is a drawing
-that does not mean what it looks like. The two questions an engineer asks — *is
-my drawing right?* and *is my design right?* — should not share one list.
+`DEFECT_CODES` and `NOTICE_CODES` in `network.js` name the members; **anything
+unlisted is a warning.** Errors are whatever is pushed to `res.errors`.
 
-A defect does not clear `converged` because the arithmetic is sound, and hiding
-the numbers would leave nothing to diagnose from. `DEFECT_CODES` and
-`NOTICE_CODES` in `network.js` name the members; **anything unlisted is a
-warning**, which is the safe default — a new message is a judgement until
-someone decides otherwise.
+**The numbers are never hidden.** An implausible answer is reported beside its
+error — the answer is not wrong, it is describing a system nobody can build.
+**Detection lives in the engine, not the renderer**, so every consumer of a
+solve sees the same messages: a warning derived from a sheet row once let
+`solveModel()` report "no warnings" for a network at 12 m/s.
 
-Two conventions worth keeping:
-
-* **The numbers are never hidden.** An implausible answer is still reported
-  beside its error — the answer is not wrong, it is describing a system nobody
-  will build, and hiding it leaves nothing to diagnose from.
-* **Detection lives in the engine, not the renderer.** Warnings were once
-  derived from calculation-sheet rows, so `solveModel()` reported "no warnings"
-  for a network running at 12 m/s. Anything that reformats a message for display
-  must not be the thing that decides it exists.
+In the MESSAGES window (opened from the chip) errors and defects **cannot be
+dismissed**; warnings and notices can.
 
 ---
 
 ## 2. Errors — the answer cannot be trusted
 
-| Code | Raised when | Message |
+| Code | Message | Issue / action |
 |---|---|---|
-| `NO_CONVERGE` | The solver reaches its 100-iteration cap without meeting both tolerances (1 mm head, 0.01 L/s imbalance). | "Solver did not converge in 100 iterations…" |
-| `SINGULAR` | The head equations have no unique solution — usually a component with no datum. | Reported by the solver. |
-| `ISLAND_NO_SOURCE` | A connected group of nodes has no fixed head and no pump, so its pressure level is undefined. | Reported by the solver. |
-| `ISLAND` | The drawing is in two or more pieces that cannot exchange water. | Names the nodes in the orphaned group. |
-| `COINCIDENT_NODES` | Two nodes sit at the same point without being joined. **The drawing looks continuous and the network is not** — this is the failure the check exists for. | Names both. |
-| `NO_RETURN_PATH` | A device has no way for water to get back, so it can carry no flow. | Names the device. |
-| `SLOPED_PIPE` | A layout pipe's ends are at different elevations. A layout pipe is LEVEL by rule; only a riser changes height. | Names the pipe. |
-| `NO_PUMP_CURVE` | SIMULATION with a running pump that has no curve. A curve-less pump falls back to constant head, which answers a different question — the flow stops responding to the system, the one thing the mode exists to show. **Much rarer since 2026-08-06**: the auto-sizer now generates the curve itself, so an auto pump reaches SIMULATION ready. What is left is a MANUAL pump with no duty typed, or an auto pump the sizer put at zero head because it has nothing to do. | Points at Sizing ▸ Auto/Manual or a pasted curve. |
-| `THERMAL_LIMIT` | A solved temperature is outside `thermal.tempMin … tempMax`. The runaway guard: the solve is exact, but a correct answer can still be absurd. | Quotes the worst node and the band. |
-| `PRESSURE_IMPLAUSIBLE` | A component ΔP or pump duty exceeds `warn.maxComponentPD` (default 2000 kPa). Shut valves are excluded — `CLOSED_R` is a numerical device, not a pressure. | "…past the 2000 kPa plausibility limit. The arithmetic is right — something in the model is not." |
-| `SETPOINT_LOST` | A controlled device runs out of travel with its setpoint still unmet. The actuator is returned to FULL first. A device sitting at full travel with its setpoint already MET is deliberately NOT in this set — the setpoint is not lost, nobody is modulating for it. | "System is unable to maintain setpoint. Check heat balance." — and it names what limited the machine where the thermal pass knows it. |
-| `THERMAL_SINGULAR` | The temperature field has no unique solution AND there is nothing to pin a datum to — no equipment, no source bringing water in, no ambient coupling. **Promoted from a warning on 2026-08-05**; **narrowed on 2026-08-06**, when the datum stopped being applied on suspicion and started being applied on a singular solve, which rescues most of the cases that used to land here. | Names what to give it: a source temperature, or ambient coupling. |
+| `NO_CONVERGE` | Solver did not converge in … iterations (max head change … m, max imbalance … L/s). | The GGA hit its 100-iteration cap without meeting both tolerances (1 mm head, 0.01 L/s). |
+| `SINGULAR` | Solver matrix is singular — check for isolated or duplicated nodes. | The head equations have no unique solution, usually a component with no datum. |
+| `ISLAND_NO_SOURCE` | Disconnected section has demand but no source. | A connected group has demand but no fixed head and no pump — its pressure level is undefined. |
+| `THERMAL_SINGULAR` | The temperature field has no unique solution: nothing sets a level and nothing ties the system to ambient. | Give a source a temperature, or let the pipework exchange heat with the room. |
+| `THERMAL_LIMIT` | Temperature at … solves to … °C, outside the plausible band … to … °C. Check the equipment duty, the insulation and whether anything rejects heat. Widen the band on the THERMAL tab if it really runs this hot or cold. | A solved temperature is outside `thermal.tempMin … tempMax` — the runaway guard. The solve is exact; a correct answer can still be absurd. |
+| `SETPOINT_LOST` | System is unable to maintain setpoint. Check heat balance. (… → …, limited by … — at full travel and still off setpoint.) | A controlled device ran out of travel with its setpoint unmet; the actuator is returned to full first. Names what limited the machine where the thermal pass knows it. |
+| `PRESSURE_IMPLAUSIBLE` | … is at … kPa (… bar), past the … kPa plausibility limit. The arithmetic is right — something in the model is not. Check any equipment carrying far more than its rated flow: its pressure drop goes as the SQUARE of the ratio. | A component ΔP or pump duty exceeds `warn.maxComponentPD` (2000 kPa). Shut valves are excluded. Raise the limit on HYDRAULIC if the system really is this high. |
+
+### Disconnection errors (checked on every solve)
+
+| Code | Message | Issue |
+|---|---|---|
+| `ISLAND` | … node(s) form a separate island with no pipe connecting them to the main network (…). Draw a pipe to join it, or delete it. | The drawing is in two or more pieces that cannot exchange water. |
+| `COINCIDENT_NODES` | Nodes … and … are in exactly the same place (… mm apart) but are not joined. The drawing looks continuous; the network is not. Drag one onto the other to join them. | Two nodes at one point, unjoined — **the drawing looks continuous and the network is not**, the failure this check exists for. |
+| `NO_RETURN_PATH` | Pump/Equipment … has nowhere to discharge: from its outlet (…) there is no route back to its inlet (…), and no outflow or source to reach. | A device has no path for water to return, so it carries no flow. |
+| `SLOPED_PIPE` | Pipe … (… → …) rises … m between its ends. Pipes in the layout must be level — use a riser to change height. | A layout pipe's ends are at different elevations. A layout pipe is LEVEL by rule; only a riser changes height. |
+| `NO_PUMP_CURVE` | Pump curve is required to simulate. If no manufacturer data is available, see the TOOLS tab. | A running pump has no curve in SIMULATION; constant head answers a different question. Rare since the auto-sizer generates the curve — left is a MANUAL pump with no duty, or an auto pump the sizer put at zero head. |
 
 ### Errors from an edit, not a solve
 
-These are returned by `geometry.changeLength()` and shown as a toast. They stop
-the edit; nothing is changed.
+Returned by `geometry.changeLength()` and shown as a toast; they stop the edit.
 
-| Code | Raised when |
-|---|---|
-| `NO_PIPE` | The pipe no longer exists. |
-| `RISER` | A riser's length is set by the level altitudes, not by typing. |
-| `BAD_LENGTH` | A length of zero or less. |
-| `NO_DIRECTION` | The pipe has no horizontal direction to extend along. |
-| `LOOP` | The far end is tied back to the near end, so the length is locked by the loop. |
-| `RISER_TORN` | A riser column is anchored on both sides of the change; moving it would pull the column apart. |
-
----
-
-## 3. Warnings — the answer stands, but look at this
-
-### Flow regime and limits
-
-| Code | Raised when | Why it matters |
+| Code | Message | Issue |
 |---|---|---|
-| `VELOCITY` | Pipe velocity exceeds `warn.velocity` (2.4 m/s). | Noise, erosion, and the reason pipes get sized up. |
-| `PDM` | Friction rate exceeds `warn.pdm` (400 Pa/m). | The usual sizing criterion in building services. |
-| `LAMINAR` | Re below 2000. | **Hazen-Williams is a turbulent correlation.** In laminar flow it is not merely imprecise, it is the wrong equation — so this is a warning about the METHOD, not the velocity. |
-| `TRANSITIONAL` | Re between 2000 and 4000. | Friction here is inherently uncertain whatever the method. |
-
-### Supply and pumps
-
-| Code | Raised when |
-|---|---|
-| `NO_SOURCE` | Nothing feeds the network — no source node and no running pump. |
-| `SUPPLY_INSUFFICIENT` | The source cannot meet an outflow's required pressure. Quotes the worst node and the shortfall. |
-| `PUMP_DEAD_END` | A pump carries no flow because one side is a dead end. No head can fix that. |
-| `PUMP_NO_FLOW` | A running pump carries no flow for some other reason. |
-| `PUMP_RUNOUT` | A pump is past `warn.pumpRunout` (120%) of its design flow. Matters after losing a pump in a parallel set: the survivors ride out along their curves, and motor loading, NPSHr and efficiency all worsen to the right. |
-| `UNREACHABLE` | An outflow is isolated by a shut valve or not connected to a source. |
-| `OUTFLOW_SHORT` | An outflow is short of its required pressure, by this much. |
-
-### Valves, fittings and geometry
-
-| Code | Raised when |
-|---|---|
-| `VALVE_SHUT` | A valve is fully closed, so its branch passes nothing. |
-| `CHECK_CLOSED` | A check valve is holding against reverse flow. Normal operation, reported so the zero flow is not a puzzle. |
-| `REVERSE_BLOCKED` | Equipment is holding against reverse flow — check its direction with the ‹ › button. |
-| `VALVE_OVERSIZED` | A CONTROL valve is below `warn.valveOversized` (10%) open. "…has insufficient control authority. Consider reducing size." Named for the fault: this valve HAS the movement but spends it all near its seat. Isolation valves and shut valves are exempt. |
-| `ZERO_LENGTH` | A pipe of zero length — degenerate, and would divide by zero downstream. |
-| `ORPHAN_NODE` | A node with nothing connected to it. |
-| `RISER_OPEN_END` | A riser column's top or bottom attachment carries no other pipe, so the column ends in mid-air. Invisible on a level plan, because a column is drawn as a marker rather than a line. Ends only — a middle attachment with nothing on it is an ordinary pass-through. |
-| `FITTING_OSCILLATION` | The tee run/branch assignment did not settle in the pass limit. Flow directions are marginal somewhere. |
-
-### Equipment
-
-| Code | Raised when |
-|---|---|
-| `EQUIP_LIMITED` | A machine is limited by Capacity, Design ΔT, a T limit, or `Capacity (wrong direction)`, and is not reaching its setpoint. "CH-01 is limited by Capacity" is the sentence worth having; a leaving temperature that silently misses is not. |
-| `EQUIP_OFF_RATING` | Equipment is more than `warn.equipFlowRatio` (2×) from its rated flow. **Its ΔP goes as the SQUARE of that**, which is how a 0.8 L/s coil carrying 20 L/s produced a 1252 bar pump. A source/sink BELOW its rating is exempt: part-load plant is normal operation. |
-| `NO_CHARACTERISTIC` | An outflow has no usable design point, so its resistance cannot be derived. Needed before simulating. |
-
-### Control
-
-| Code | Raised when |
-|---|---|
-| `CONTROL_BUDGET` | The control loop ran out of solves before settling every device. The ones it did not reach keep the position the last COMPLETE sweep gave them — a truncated search is a no-op, not a random position. Before 2026-08-08 it left them wherever the last probe landed, which on a chilled-water loop is the actuator's floor and a thermal runaway. | Points at Max solves in SETTINGS. |
-| `TAG_MANGLED` | **DEFECT.** A tag with one or more automatically generated tags appended to it — `CHWP-04PMP-1PMP-1`, `CHWP-0AHU-15AHU-152`. Michael hit this twice (2026-08-07, and again on 2026-08-08 with the first fix in place) and **the route that produces it is still not identified**. Reported on every solve because a corrupted name nobody is told about is the worst version of it: you find it weeks later on a drawing you have already issued. | Points at **Repair tags**, which strips the generated suffix. |
-| `TAG_DUPLICATE` | Two or more items carry the same tag. A warning rather than a defect — duplicate tags are a real state mid-edit, when a floor has been copied and not yet renumbered — but never a silent one, because every table on the CALCULATION sheet is keyed on the tag and two rows with one name cannot be told apart afterwards. |
-| `CONTROL_TARGET_GONE` | A control link points at a pipe that is no longer in the model — the target was deleted and the link stayed. The device is not being controlled at all. Silent until 2026-08-08, which is why four primary pumps on `20260807-DC.json` sat at 100% with nothing to explain it. | Says to re-link or clear it. |
-| `CONTROL_GANGED` | **DEFECT.** Two or more devices are linked to one sensor. Michael's ruling, 2026-08-08: that is not the arrangement he wants drawn — link one device to the sensor and sync the others to it. The model still answers, because the group is modulated at a common position underneath (§17C); without that they settle on an arbitrary split, and a warning on top of a wrong answer is worse than one on top of a right answer. | Says exactly what to draw instead; `detail` explains what is happening meanwhile. |
-| `CONTROL_NO_SETPOINT` | A control link points at something that states nothing to hold. A drawn link that quietly does nothing is exactly the surprise the link was added to avoid. |
-| `CONTROL_AT_LIMIT` | The device is on a stop (minimum speed, minimum opening, or full travel) and the setpoint is still missed. |
-| `CONTROL_NO_FLOW` | The controlled machine carries no flow, so there is nothing to control to. |
-| `CONTROL_UNSETTLED` | A device came to rest off setpoint. Names whether the actuator resolution is the limit or the setpoint is out of reach. |
-| `CONTROL_HUNTING` | The sweep was still moving after four passes — the devices are working against each other rather than settling. Split from `CONTROL_UNSETTLED` on 2026-08-05: "this device cannot get there" and "these devices are fighting" have nothing alike about their fixes. |
-
-### Thermal
-
-| Code | Raised when |
-|---|---|
-| `HEAT_IMBALANCE` | More than `warn.heatBalance` (2%) of the circulating duty is being absorbed at a source or a pinned datum. **Usually a DRAWING problem**: a fill drawn IN the return line has every drop passing through it, which makes it a mains connection rather than an expansion tank. A fill on a dead-leg tee absorbs nothing, which is what an expansion connection really does. **A pinned datum holds its temperature whatever arrives — an infinite reservoir does not warm up — so a plant that cannot keep up hides there.** Silent since v0.10.0 until `sourceDuty` measured it in v0.14.1. **From 2026-08-06 a SOURCE no longer absorbs anything**: it mixes its own make-up into whatever is flowing past, so this now names the pinned datum only, and a fill absorbs nothing wherever it is drawn. |
-| `THERMAL_DATUM` | The temperature field came back with no unique solution, so one node was pinned at the system flow temperature — the outlet of the equipment moving the most heat. Raised only when the solve actually needed it (2026-08-06); before that it was applied whenever there was no source, which overrode a chiller that was already holding a setpoint. Reported, never silent. |
-| `THERMAL_LIMIT_OSCILLATION` | Which equipment limit binds kept changing over 30 passes. Check for two machines fighting for the same setpoint. |
-| `NO_THERMAL_REFERENCE` | Nothing in the model states a temperature: no source, and no equipment to pin a datum to. |
+| `NO_PIPE` | Pipe not found. | The pipe no longer exists. |
+| `RISER` | Riser length is set by the level altitudes, not here. | A riser's length comes from the floor heights. |
+| `BAD_LENGTH` | Length must be greater than zero. | A length of zero or less. |
+| `NO_DIRECTION` | This pipe has no horizontal direction to extend along. | A degenerate/vertical layout pipe. |
+| `LOOP` | Length is locked by a loop — the far end of this pipe is tied back to the near end, so it cannot simply move. | The length is constrained by a closed loop. |
+| `RISER_TORN` | A riser column is anchored on both sides of this change, so moving it would pull the column apart. | Moving the pipe would tear a riser it anchors. |
 
 ---
 
-## 4. Notices — something was done on your behalf
+## 3. Defects — the drawing is not what it looks like
 
-| Code | Raised when |
-|---|---|
-| `SOURCE_PRESSURE_MOVED` | Migration on load. A source's static pressure had been stored as the node's ELEVATION, which stretched every pipe on it in 3D — 50 m read as 54.01 m. The pressure is unchanged; the elevation is now separate. Shown in a dialog because the migration moves pipe lengths. |
+| Code | Message | Issue / action |
+|---|---|---|
+| `ZERO_LENGTH` | Pipe … has zero length, so it has no friction and cannot be sized. Drag one end apart, or delete it and join the two nodes into one. | Degenerate pipe; would divide by zero downstream. |
+| `ORPHAN_NODE` | Node … has no pipe connected to it. Draw a pipe to it, or delete it. | A node with nothing attached. |
+| `RISER_OPEN_END` | Riser … has nothing connected at its … (…). The column ends in mid-air, so water arriving there has nowhere to go. Draw a pipe from that node, or detach the floor from the column. | A riser's top or bottom attachment carries no other pipe — invisible on a level plan. Ends only; a middle pass-through is fine. |
+| `EQUIP_OFF_RATING` | … is rated for … L/s but is carrying … L/s (× its rating). Its pressure drop follows the square of that, so it is … kPa against a rated … kPa. Check its design flow, load and ΔT — they are one equation. | More than `warn.equipFlowRatio` (2×) from rated flow; **ΔP goes as the square**. A source/sink below rating is exempt (part load is normal). |
+| `NO_CHARACTERISTIC` | Outflow … has no usable design point, so its resistance cannot be derived. Give it a flow and a required pressure before simulating. | An outflow with no design point to derive resistance from. |
+| `REVERSE_BLOCKED` | Equipment … is holding against reverse flow. Check its direction — use the ‹ › button to flip it. | Equipment is seated against reverse flow; likely drawn the wrong way round. |
+| `CONTROL_NO_SETPOINT` | … is linked to …, which states no setpoint, so it has nothing to control to. | A control link points at something that states nothing to hold. |
+| `CONTROL_TARGET_GONE` | … is linked to …, which is no longer in the model, so it is not being controlled at all. Re-link it or clear the control. | The link's target pipe was deleted and the link stayed — silent until 2026-08-08. |
+| `CONTROL_GANGED` | Multiple equipment connected to a single sensor is not supported & is unstable. Instead connect 1 equipment to the sensor & connect the others to sync with it. (…) | Two or more devices on one sensor. The model still answers (ganged at a common position), but it is not the arrangement to draw. |
+| `TAG_MANGLED` | … is tagged "…", which is a tag with an automatically generated one appended to it. Use Repair tags on the FILE group to put it right. | A corrupted tag (`CHWP-0AHU-15AHU-152`). Reported every solve because the route that makes it is not yet identified. |
+| `TAG_DUPLICATE` | … items share the tag "…" (…). Every table on the CALCULATION sheet is keyed on the tag, so two rows with this name cannot be told apart. Rename all but one. | Duplicate tags — a real state mid-edit (a floor copied, not yet renumbered), never silent. |
 
 ---
 
-## 5. Settings that drive a threshold
+## 4. Warnings — the answer stands, but look at this
 
-Every tunable that turns a message on or off, and where it lives. All are
-DEFAULTS a user can change — none is transcribed data.
+| Code | Message | Issue |
+|---|---|---|
+| `VELOCITY` | Section …: velocity … m/s exceeds the … m/s limit. Go up a pipe size, or raise the limit on the HYDRAULIC tab. | Over `warn.velocity` (2.4 m/s): noise, erosion, the reason pipes get sized up. |
+| `PDM` | Section …: friction rate … Pa/m exceeds the … Pa/m limit. Go up a pipe size, or raise the limit on the HYDRAULIC tab. | Over `warn.pdm` (400 Pa/m), the usual sizing criterion. |
+| `LAMINAR` | Section … → … is in laminar flow (Re ≈ …, below …) — Hazen-Williams is a turbulent correlation and does not apply. Use Darcy-Weisbach for this section. | Re below 2000: the wrong equation, not just imprecise — a warning about the METHOD. |
+| `TRANSITIONAL` | Section … → … is in the transitional range (Re ≈ …). Friction loss here is inherently uncertain. | Re 2000–4000; uncertain whatever the method. |
+| `NO_SOURCE` | Water source is required. | Nothing feeds the network — no source node and no running pump. Shown as a hydraulic error on the chip. |
+| `SUPPLY_INSUFFICIENT` | Source is insufficient for outflow (… kPa at …, short by … kPa). … outflows cannot be met as drawn. | The source cannot meet an outflow's required pressure. |
+| `PUMP_DEAD_END` | Pump … has no flow — one side is a dead end. | A pump carries no flow because a side is dead-ended; no head fixes it. |
+| `PUMP_NO_FLOW` | Pump … has no flow. | A running pump carries no flow for some other reason. |
+| `PUMP_RUNOUT` | Pump … is running at …% of its design flow, past the …% limit. Check motor loading and NPSH available at this duty. | Over `warn.pumpRunout` (120%): matters after losing a pump in a parallel set — the survivors ride out along their curves. |
+| `UNREACHABLE` | Outflow … cannot be reached — it is isolated by a shut valve or not connected to a source. | An outflow with no live path to a source. |
+| `OUTFLOW_SHORT` | Outflow … is … short of its required pressure. | An outflow below the pressure it asked for. |
+| `VALVE_OVERSIZED` | … has insufficient control authority. Consider reducing size. (…% open, below the …% limit.) | A control valve below `warn.valveOversized` (10%) open — all its movement is near the seat. Isolation/shut valves exempt. |
+| `FITTING_OSCILLATION` | Tee run/branch assignment did not settle in … passes; the last solution is reported. Flow directions may be marginal somewhere in the network. | The tee run/branch split did not settle in the pass limit. |
+| `SLOPED_PIPE` see §2 · disconnection warnings share codes with §2 at lower severity. | | |
+| `EQUIP_LIMITED` | … is limited by … and is not reaching its setpoint. | A machine capped by Capacity, Design ΔT, a T limit, or wrong-direction capacity. "…limited by Capacity" is the sentence worth having. |
+| `CONTROL_BUDGET` | The control loop ran out of solves before every device had been settled, so some are holding the position the last complete sweep gave them. Raise Max solves in SETTINGS if the answer looks unfinished. | The loop hit `control.maxSolves`. The ones it did not reach keep their last COMPLETE sweep's position — a truncated search is a no-op, not a random spot. |
+| `CONTROL_AT_LIMIT` | … is at full/minimum … and … is … its … setpoint — backing off would not bring it closer. | A device on a stop (min speed, min opening, or full travel) with the setpoint still missed. |
+| `CONTROL_NO_FLOW` | … carries no flow, so … has nothing to control to. | The controlled machine has no flow to modulate against. |
+| `CONTROL_UNSETTLED` | … could not hold … at … — it came to rest … setpoint. Check the machine's capacity and Design ΔT, and whether the setpoint is achievable at all. | A device came to rest off setpoint: actuator resolution, or the setpoint is out of reach. |
+| `CONTROL_HUNTING` | The controlled devices were still moving after … sweeps, so they are working against each other rather than settling. The last answer is reported. Check whether two of them follow the same setpoint. | The sweep never settled — devices fighting. Split from `CONTROL_UNSETTLED`: "cannot get there" and "fighting" have unlike fixes. |
+| `HEAT_IMBALANCE` | … kW is being removed at / added at … to hold its stated temperature, and nothing in the model does that work. Either the plant is short by that much, or the stated temperature is wrong. See the heat balance on the calculation sheet. | Over `warn.heatBalance` (2%) of duty absorbed at a source or pinned datum — usually a fill drawn IN the return line, or a datum that hides a plant shortfall. |
+| `THERMAL_LIMIT_OSCILLATION` | Which equipment limit binds kept changing over … passes. The last answer is reported; check for two machines fighting for the same setpoint. | The binding limit never settled. |
+| `NO_THERMAL_REFERENCE` | Nothing sets a temperature: no source and no equipment. Temperatures are all at the system flow temperature. | Nothing states a temperature to work from. |
+
+---
+
+## 5. Notices — something was done on your behalf
+
+| Code | Message | Issue |
+|---|---|---|
+| `CHECK_CLOSED` | Check valve … is holding against reverse flow. | Normal operation, reported so the zero flow is not a puzzle. |
+| `VALVE_SHUT` | Valve … is shut (0 % open). Any demand behind it cannot be satisfied, so downstream pressures on this branch are not meaningful. | A fully-closed valve; its branch passes nothing. |
+| `THERMAL_DATUM` | Nothing sets a temperature level in this circuit. … °C has been pinned at the outlet of …, the equipment moving the most heat. Every other temperature is relative to that. | The temperature field needed a datum; one was pinned. Raised only when the solve actually needed it. |
+| `SOURCE_PRESSURE_MOVED` | Source …: its … kPa static pressure was stored as a … m elevation, which was stretching every pipe on it. The pressure is unchanged; the node is back at its drawn level. | Migration on load. A source's static pressure had been stored as the node's ELEVATION. |
+
+---
+
+## 6. Settings that drive a threshold
+
+All are DEFAULTS a user can change — none is transcribed data. Setting a
+threshold to **0 disables its check**, except the temperature band, where the
+band itself is the meaning.
 
 | Setting | Default | Drives | Tab |
 |---|---|---|---|
@@ -172,48 +150,30 @@ DEFAULTS a user can change — none is transcribed data.
 | `warn.maxComponentPD` | 2000 kPa | `PRESSURE_IMPLAUSIBLE` | HYDRAULIC |
 | `warn.valveOversized` | 10% | `VALVE_OVERSIZED` | HYDRAULIC |
 | `warn.heatBalance` | 2% | `HEAT_IMBALANCE` | HYDRAULIC |
-| `control.maxSolves` | 0 (auto) | how hard the control loop works | THERMAL |
+| `control.maxSolves` | 0 (auto) | `CONTROL_BUDGET` | THERMAL |
+| `control.sweeps` | 6 | how many settling sweeps | THERMAL |
 | `thermal.tempMin` / `tempMax` | −50 / +50 °C | `THERMAL_LIMIT` | THERMAL |
 | `control.minSpeed` | 0.25 | `CONTROL_AT_LIMIT` | THERMAL |
 | `control.minOpening` | 10% | `CONTROL_AT_LIMIT` | THERMAL |
 | `control.tol` | 0.05 K | the control deadband | THERMAL |
 
-Setting any threshold to **0 disables its check**, except the temperature band,
-where the band itself is the meaning.
-
 ---
 
-## 6. The UX pass — what was done, 2026-08-05
+## 7. Wording to tighten — proposed, awaiting your call
 
-All five observations from the first draft of this document, acted on at
-Michael's instruction.
+The messages window shows the full text of each message, so the verbose ones now
+cost screen space every time they appear. Below are the longest, with a proposed
+shorter form that keeps the action. **Nothing here is changed in the source yet**
+— confirm the wordings and I will apply them (the codes do not change).
 
-1. **The two "authority" messages no longer share a word.** VALVE_AUTHORITY
-   became **`VALVE_OVERSIZED`**, named for the fault rather than the symptom.
-   CONTROL_NO_AUTHORITY was **withdrawn entirely** on 2026-08-05: the condition
-   it described could not be told from a device that is simply, and correctly,
-   not modulating — a valve wide open on the furthest branch with its flow
-   already right. A device at full travel with its setpoint met now reports as
-   holding it, and falls through to its next setpoint if it has one.
-
-2. **`CONTROL_UNSETTLED` was split.** It stays for a device that came to rest
-   off setpoint; **`CONTROL_HUNTING`** is new, for a sweep that never settled.
-
-3. **`DEFECT` was added between warning and error** — see §1.
-
-4. **Messages name tags where they have them.** `ORPHAN_NODE`, `ISLAND`,
-   `COINCIDENT_NODES`, `ZERO_LENGTH` and `RISER_OPEN_END` all fall back to the
-   id only when there is no tag.
-
-5. **More messages say what to DO.** `VELOCITY`, `PDM`, `ZERO_LENGTH`,
-   `ORPHAN_NODE`, `ISLAND`, `COINCIDENT_NODES`, `RISER_OPEN_END` and
-   `CONTROL_UNSETTLED` now end with the action, not just the observation.
-
-### Still worth considering
-
-* **Not every message has an action yet.** The ones without are mostly results
-  (`OUTFLOW_SHORT`, `SUPPLY_INSUFFICIENT`) where the action is the whole design.
-* **`NOTICE` is under-used.** Only three codes are in it; several warnings that
-  describe normal operation could join them.
-* **No message links to the thing it is about.** The chip can point at a pipe;
-  the sheet list cannot.
+| Code | Current (essence) | Proposed |
+|---|---|---|
+| `NO_SOURCE` | "Water source is required. This water source may be a water tank, city mains … or your top up/expansion tank for closed loop systems." | "No water source. Add a source node (mains, tank, or expansion connection)." |
+| `PRESSURE_IMPLAUSIBLE` | "…past the … kPa plausibility limit. The arithmetic is right — something in the model is not. Check any equipment carrying far more than its rated flow: its pressure drop goes as the SQUARE of the ratio. Raise the limit…" | "… past the … kPa plausibility limit. Usually equipment far off its rated flow (ΔP goes as the square). Raise the limit on HYDRAULIC if intended." |
+| `EQUIP_OFF_RATING` | "… is rated for … but carrying … (× its rating). Its pressure drop follows the square of that, so it is … kPa against a rated … kPa. Check its design flow, load and ΔT — they are one equation." | "… is carrying … (× its rated …). ΔP follows the square: … kPa vs … rated. Check design flow, load and ΔT." |
+| `CONTROL_UNSETTLED` | "… could not hold … at … — it came to rest … setpoint. Either the actuator resolution is the limit, or nothing it can do reaches it: check the machine's capacity and Design ΔT, and whether the setpoint is achievable at all." | "… came to rest … off … setpoint. Check the machine's capacity, Design ΔT and whether the setpoint is reachable." |
+| `CONTROL_HUNTING` | "The controlled devices were still moving after … sweeps, so they are working against each other rather than settling. The last answer is reported. Check whether two of them follow the same setpoint; if so, switch one off or give it a different one to hold." | "Devices still moving after … sweeps — fighting each other; the last answer is reported. Check for two on the same setpoint (raise sweeps in SETTINGS to try harder)." |
+| `HEAT_IMBALANCE` | "… kW is being removed at/added at … to hold its stated temperature, and nothing in the model does that work. Either the plant is short by that much, or the stated temperature is wrong. See the heat balance on the calculation sheet." | "… kW absorbed at … with nothing to do that work — plant short, or the stated temperature is wrong. See the heat balance on the sheet." |
+| `CONTROL_GANGED` | "Multiple equipment connected to a single sensor is not supported & is unstable. Instead connect 1 equipment to the sensor & connect the others to sync with it. (…)" | "Several devices on one sensor (…). Link one to the sensor and sync the rest to it." |
+| `RISER_OPEN_END` | "Riser … has nothing connected at its … (…). The column ends in mid-air, so water arriving there has nowhere to go. Draw a pipe from that node, or detach the floor from the column." | "Riser … ends in mid-air at its … — nothing connected there. Draw a pipe from that node, or detach the floor." |
+| `NO_PUMP_CURVE` | "Pump curve is required to simulate. If no manufacturer data is available, please see the TOOLS tab." | "Pump … needs a curve to simulate. Fit one from duties in TOOLS." |
