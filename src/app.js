@@ -2882,7 +2882,7 @@
      * blank falls back to the model's global default in THERMAL. That
      * distinction matters: a deliberately uninsulated pipe must not silently
      * pick up the default. */
-    var insDefault = FD.thermal.defaultThicknessMm(m);
+    var insDefault = FD.thermal.thicknessMmForSize(m, p.size);
     var insIn = el('input'); insIn.type = 'text';
     insIn.value = (p.insulation_mm === undefined || p.insulation_mm === null ||
                    p.insulation_mm === '') ? '' : p.insulation_mm;
@@ -5578,11 +5578,13 @@
                  'insulation wraps the outside, not the bore.');
     host.appendChild(uh);
 
-    /* THICKNESS is a global default set above (decoupled from the schedule,
-     * 2026-08-10). Any pipe overrides it on the pipe itself. */
-    var th2 = el('p', 'hint', 'Thickness applies to every pipe. ');
-    infoMark(th2, 'One default for the whole model. A single pipe overrides it ' +
-                  'on HYDRAULIC ▸ Insulation, including 0 for a bare pipe.');
+    /* THICKNESS is a global default (set above), with an editable per-size
+     * table below and a per-pipe override (2026-08-10). */
+    var th2 = el('p', 'hint', 'Thickness: the default above, per size below, or per pipe. ');
+    infoMark(th2, 'The table sets thickness by nominal size — the same whatever ' +
+                  'schedule the pipe is on. Blank in a row takes the default. A ' +
+                  'single pipe overrides both on HYDRAULIC ▸ Insulation, ' +
+                  'including 0 for a bare pipe.');
     host.appendChild(th2);
 
     var hw = el('div', 'notice warn-notice');
@@ -5592,22 +5594,49 @@
     hw.appendChild(hp);
     host.appendChild(hw);
 
-    /* What the global thickness actually costs across the current schedule's
-     * bores, so the numbers above can be seen doing something — the same lagging
-     * loses more off a fat pipe than a thin one. */
+    /* PER-SIZE INSULATION, and it is EDITABLE (Michael, 2026-08-10). Each row is
+     * the thickness a pipe of that nominal size is lagged with unless it carries
+     * its own value — keyed by the nominal LABEL, so it is the same whatever
+     * schedule the pipe is on. Blank takes the global default above; the loss
+     * column shows what the result costs, since the same lagging loses more off
+     * a fat pipe than a thin one. */
     var allS = FD.schedules.all(m.customSchedules);
     var curS = allS[m.settings.schedule] || allS[Object.keys(allS)[0]];
+    if (!m.settings.thermal.insulation) m.settings.thermal.insulation = {};
+    var insTbl = m.settings.thermal.insulation;
     var gThick = FD.thermal.defaultThicknessMm(m);
-    var tbl = el('table', 'sheet');
+    var tbl = el('table', 'sheet editable');
     tbl.innerHTML = '<thead><tr><th class="txt">' + curS.name + '</th>' +
                     '<th>Insulation (mm)</th><th>Loss (W/m·K)</th></tr></thead>';
     var tb = el('tbody');
     curS.sizes.forEach(function (sz) {
-      var t = gThick;
+      var t = FD.thermal.thicknessMmForSize(m, sz.label);
       var od = (sz.od_mm || sz.id_mm) / 1000;
       var tr = el('tr');
       tr.appendChild(el('td', 'txt', sz.label));
-      tr.appendChild(el('td', '', t.toFixed(0)));
+
+      var td = el('td');
+      var stored = insTbl[sz.label];
+      var inp = el('input', 'cell-input'); inp.type = 'text';
+      inp.value = (stored === undefined || stored === null || stored === '') ? '' : stored;
+      inp.placeholder = gThick.toFixed(0);
+      if (stored !== undefined && stored !== null && stored !== '') {
+        td.className = 'edited';
+        inp.title = 'Edited. Blank takes the ' + gThick.toFixed(0) + ' mm default.';
+      }
+      inp.addEventListener('change', function () {
+        var raw = inp.value.trim();
+        if (raw === '') { delete insTbl[sz.label]; }
+        else {
+          var v = FD.units.parse(raw);
+          if (!isFinite(v) || v < 0) { renderThermal(); return; }
+          insTbl[sz.label] = v;
+        }
+        renderThermal(); redrawAll();
+      });
+      td.appendChild(inp);
+      tr.appendChild(td);
+
       tr.appendChild(el('td', 'dim', od > 0
         ? FD.thermal.lossPerMetreK(od, t / 1000, th.insulationK, th.surfaceCoeff).toFixed(3)
         : '—'));

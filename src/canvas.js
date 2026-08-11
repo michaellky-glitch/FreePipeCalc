@@ -902,12 +902,17 @@
         var frag = ps.frag, mdl = self.getModel();
         var anchorNode = null;
         frag.nodes.forEach(function (n) { if (n.id === frag.anchor) anchorNode = n; });
+        /* The follow point: the anchor node for pipework, else the annotation's
+         * own corner (`anchorPt`), so a details-and-notes fragment lands where
+         * the pointer is too. */
+        var ax = anchorNode ? anchorNode.x : (frag.anchorPt ? frag.anchorPt.x : 0);
+        var ay = anchorNode ? anchorNode.y : (frag.anchorPt ? frag.anchorPt.y : 0);
         var join = {};
-        if (ps.onto) join[frag.anchor] = ps.onto;
+        if (ps.onto && frag.anchor) join[frag.anchor] = ps.onto;
         var res = M.insertFragment(mdl, frag, {
           level: mdl.activeLevel,
-          dx: ps.at.x - (anchorNode ? anchorNode.x : 0),
-          dy: ps.at.y - (anchorNode ? anchorNode.y : 0),
+          dx: ps.at.x - ax,
+          dy: ps.at.y - ay,
           joinTo: join,
           retag: true
         });
@@ -916,13 +921,25 @@
         /* The copy becomes the selection, so it can be moved or deleted
          * immediately — a paste you cannot undo by eye is a paste you have to
          * hunt for. */
-        self.selection = res.pipes.map(function (p) { return { kind: 'pipe', id: p.id }; });
-        var bits = [res.pipes.length + ' pipe' + (res.pipes.length === 1 ? '' : 's') + ' pasted'];
-        if (res.retagged.length) bits.push(res.retagged.length + ' retagged');
-        if (res.dropped.length) bits.push(res.dropped.length + ' link' +
+        self.selection = res.pipes.map(function (p) { return { kind: 'pipe', id: p.id }; })
+          .concat((res.details || []).map(function (d) { return { kind: 'detail', id: d.id }; }))
+          .concat((res.notes || []).map(function (n) { return { kind: 'note', id: n.id }; }));
+        var bits = [];
+        if (res.pipes.length) bits.push(res.pipes.length + ' pipe' + (res.pipes.length === 1 ? '' : 's'));
+        var anno = (res.details || []).length + (res.notes || []).length;
+        if (anno) bits.push(anno + ' annotation' + (anno === 1 ? '' : 's'));
+        var msg = (bits.length ? bits.join(' · ') : 'Nothing') + ' pasted';
+        var extra = [];
+        if (res.retagged.length) extra.push(res.retagged.length + ' retagged');
+        if (res.dropped.length) extra.push(res.dropped.length + ' link' +
           (res.dropped.length === 1 ? '' : 's') + ' dropped');
-        self.onMessage(bits.join(' · ') + '.');
-        self.changed();
+        if (extra.length) msg += ' · ' + extra.join(' · ');
+        self.onMessage(msg + '.');
+        /* A pipework paste is an edit — it solves. An annotation-only paste is a
+         * drawing change and nothing more, so it saves without a solve (the
+         * three-verb rule, §4). */
+        if (res.pipes.length || res.nodes.length) self.changed();
+        else self.arranged();
         return;
       }
 
@@ -1629,8 +1646,12 @@
         e.preventDefault();
         self.clipboard = frag;
         var lost = (frag.dropped || []).length;
-        self.onMessage(frag.pipes.length + ' pipe' + (frag.pipes.length === 1 ? '' : 's') +
-          ' and ' + frag.nodes.length + ' node' + (frag.nodes.length === 1 ? '' : 's') +
+        var cbits = [];
+        if (frag.pipes.length) cbits.push(frag.pipes.length + ' pipe' + (frag.pipes.length === 1 ? '' : 's'));
+        if (frag.nodes.length) cbits.push(frag.nodes.length + ' node' + (frag.nodes.length === 1 ? '' : 's'));
+        var canno = (frag.details || []).length + (frag.notes || []).length;
+        if (canno) cbits.push(canno + ' annotation' + (canno === 1 ? '' : 's'));
+        self.onMessage((cbits.length ? cbits.join(' and ') : 'Nothing') +
           ' copied' + (lost ? ' — ' + lost + ' link' + (lost === 1 ? '' : 's') +
           ' to items outside the selection will be dropped' : '') + '.');
         return;
@@ -1643,6 +1664,7 @@
         var cands = (self.pasting.frag.boundary && self.pasting.frag.boundary.length)
           ? self.pasting.frag.boundary
           : self.pasting.frag.nodes.map(function (n) { return n.id; });
+        if (!cands.length) return;             // annotation-only: nothing to join by
         var at = cands.indexOf(self.pasting.frag.anchor);
         self.pasting.frag.anchor = cands[(at + 1) % cands.length];
         self.onMessage('Joining by ' + self.pasting.frag.anchor + '.');
@@ -1657,7 +1679,11 @@
       }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
         if (!self.clipboard) { self.onMessage('Nothing copied yet.', 'error'); return; }
-        if (self.locked()) return self.refuseLocked('Pasting');
+        /* Annotation-only paste is allowed while locked — it cannot move a
+         * number, the same reason annotation is deletable while locked. */
+        var cb = self.clipboard;
+        var annoOnly = !(cb.nodes && cb.nodes.length) && !(cb.pipes && cb.pipes.length);
+        if (self.locked() && !annoOnly) return self.refuseLocked('Pasting');
         e.preventDefault();
         self.pasting = { frag: self.clipboard, at: null };
         self.setTool('edit');
@@ -4822,8 +4848,10 @@
     if (!ps) return;
     var frag = ps.frag, anchor = null;
     frag.nodes.forEach(function (n) { if (n.id === frag.anchor) anchor = n; });
-    if (!anchor) return;
-    var ax = anchor.x, ay = anchor.y;
+    /* Rotate about the anchor node, or the annotation corner when there is no
+     * pipework. */
+    var ax = anchor ? anchor.x : (frag.anchorPt ? frag.anchorPt.x : 0);
+    var ay = anchor ? anchor.y : (frag.anchorPt ? frag.anchorPt.y : 0);
     frag.nodes.forEach(function (n) {
       var rx = n.x - ax, ry = n.y - ay;
       n.x = ax + ry; n.y = ay - rx;
@@ -4836,6 +4864,18 @@
                                   delete host.control.axis; delete host.control.far; }
       if (p.sensor && p.sensor.route) delete p.sensor.route;
     });
+    /* Detail lines turn with everything else; notes only move (text stays
+     * upright, like a pipework label offset). */
+    (frag.details || []).forEach(function (d) {
+      (d.pts || []).forEach(function (q) {
+        var rx = q.x - ax, ry = q.y - ay;
+        q.x = ax + ry; q.y = ay - rx;
+      });
+    });
+    (frag.notes || []).forEach(function (nt) {
+      var rx = nt.x - ax, ry = nt.y - ay;
+      nt.x = ax + ry; nt.y = ay - rx;
+    });
     ps.rot = ((ps.rot || 0) + 90) % 360;
     this.onMessage('Rotated ' + ps.rot + '°.');
   };
@@ -4846,8 +4886,11 @@
     var frag = ps.frag, ctx = this.ctx, self = this;
     var anchor = null;
     frag.nodes.forEach(function (n) { if (n.id === frag.anchor) anchor = n; });
-    if (!anchor) return;
-    var dx = ps.at.x - anchor.x, dy = ps.at.y - anchor.y;
+    /* The follow point is the anchor node for pipework, else the annotation's
+     * own corner — so an annotation-only paste still shows a ghost. */
+    var ax = anchor ? anchor.x : (frag.anchorPt ? frag.anchorPt.x : ps.at.x);
+    var ay = anchor ? anchor.y : (frag.anchorPt ? frag.anchorPt.y : ps.at.y);
+    var dx = ps.at.x - ax, dy = ps.at.y - ay;
     var at = {};
     frag.nodes.forEach(function (n) { at[n.id] = self.toScreen(n.x + dx, n.y + dy); });
 
@@ -4861,17 +4904,35 @@
       if (!a || !b) return;
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     });
+    /* Detail lines ghosted as their own polyline. */
+    (frag.details || []).forEach(function (d) {
+      var pts = d.pts || [];
+      if (pts.length < 2) return;
+      ctx.beginPath();
+      pts.forEach(function (q, i) {
+        var s = self.toScreen(q.x + dx, q.y + dy);
+        if (i === 0) ctx.moveTo(s.x, s.y); else ctx.lineTo(s.x, s.y);
+      });
+      ctx.stroke();
+    });
     ctx.setLineDash([]);
     ctx.fillStyle = this.theme.accent;
     frag.nodes.forEach(function (n) {
       var s = at[n.id];
       ctx.beginPath(); ctx.arc(s.x, s.y, 2.5, 0, Math.PI * 2); ctx.fill();
     });
+    /* Notes ghosted as their text, upright. */
+    ctx.textAlign = 'left';
+    (frag.notes || []).forEach(function (nt) {
+      var s = self.toScreen(nt.x + dx, nt.y + dy);
+      ctx.font = (nt.size || 13) + 'px system-ui, sans-serif';
+      ctx.fillText(nt.text || 'Note', s.x, s.y);
+    });
     ctx.restore();
 
     /* The anchor: hollow while it is loose, filled once it is over a node it
-     * would join. */
-    var s0 = at[frag.anchor];
+     * would join (pipework only — annotation has nothing to snap onto). */
+    var s0 = self.toScreen(ax + dx, ay + dy);
     ctx.save();
     ctx.lineWidth = 2.5;
     ctx.strokeStyle = ps.onto ? this.theme.ok : this.theme.accent;

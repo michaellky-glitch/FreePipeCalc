@@ -2857,6 +2857,46 @@ section('Copy: a fragment carries everything, and points at nothing outside');
     ok('An empty selection extracts nothing', M.extractFragment(t.m, []) === null);
     ok('...and inserting nothing is refused', M.insertFragment(t.m, null) === null);
   }
+
+  /* ---- ANNOTATION ON ITS OWN copies and pastes (Michael, 2026-08-10). Detail
+   * lines and notes carry no pipework, so the fragment has no anchor NODE; it
+   * follows by its own lowest-leftmost corner. */
+  {
+    const t = rig();
+    const d = M.addDetail(t.m, t.lv, [{ x: 1, y: 1 }, { x: 3, y: 1 }, { x: 3, y: 2 }],
+                          { colour: 'note', width: 2 });
+    const nt = M.addNote(t.m, t.lv, 5, 4, 'Plant room', { colour: 'note', size: 15 });
+
+    const f = M.extractFragment(t.m, [{ kind: 'detail', id: d.id }, { kind: 'note', id: nt.id }]);
+    ok('An annotation-only selection is a valid fragment',
+       !!f && f.details.length === 1 && f.notes.length === 1);
+    ok('...with no node anchor, and a corner to follow instead',
+       f.anchor === null && f.anchorPt.x === 1 && f.anchorPt.y === 1,
+       JSON.stringify({ anchor: f.anchor, pt: f.anchorPt }));
+
+    const before = t.m.details.length + t.m.notes.length;
+    const r = M.insertFragment(t.m, f, { dx: 10, dy: 0 });
+    ok('...it pastes as new detail and note', r.details.length === 1 && r.notes.length === 1);
+    ok('...offset by dx/dy', r.details[0].pts[0].x === 11 && r.notes[0].x === 15);
+    ok('...preserving colour, width, text and size',
+       r.details[0].colour === 'note' && r.details[0].width === 2 &&
+       r.notes[0].text === 'Plant room' && r.notes[0].size === 15);
+    ok('...with fresh ids', r.details[0].id !== d.id && r.notes[0].id !== nt.id);
+    ok('...added to the model', t.m.details.length + t.m.notes.length === before + 2,
+       String(t.m.details.length + t.m.notes.length - before));
+  }
+
+  /* ---- ANNOTATION RIDES ALONG with a pipework selection, on the same offset. */
+  {
+    const t = rig();
+    const nt = M.addNote(t.m, t.lv, 0, 0, 'label');
+    const f = M.extractFragment(t.m, sel([t.pump, t.eq]).concat([{ kind: 'note', id: nt.id }]));
+    ok('A mixed fragment anchors on a node and still carries the note',
+       f.anchor !== null && f.notes.length === 1);
+    const r = M.insertFragment(t.m, f, { dx: 0, dy: 10, retag: true });
+    ok('...the note pastes with the pipework', r.pipes.length >= 1 && r.notes.length === 1);
+    ok('...moved by the same dy', r.notes[0].y === nt.y + 10, String(r.notes[0].y));
+  }
 }
 
 section('Duplicate tags are reported');

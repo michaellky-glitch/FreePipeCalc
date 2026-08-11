@@ -89,13 +89,16 @@
         insulationK: 0.02,             // W/(m·K) — polyurethane
         surfaceCoeff: 8,               // W/(m²·K) — still indoor air
         /* INSULATION THICKNESS, decoupled from the schedule (2026-08-10,
-         * Michael). One editable default for the whole model; a pipe's own
-         * `insulation_mm` still overrides it, INCLUDING 0 for a bare pipe. It
-         * replaced the "25 mm below DN50, 50 mm above" rule that lived on the
-         * schedule — 50 mm is the larger of those two, his standard. Files
-         * saved before this pick it up on load and re-solve against it, so a
-         * sub-DN50 pipe that was 25 mm becomes 50 mm. */
+         * Michael). `insulation_mm` is the global default for the whole model;
+         * `insulation` is a per-SIZE table the user can fill in (keyed by
+         * nominal label, e.g. 'DN50', so it is schedule-independent), editable
+         * on the Thermal tab. A pipe's own `insulation_mm` still overrides both,
+         * INCLUDING 0 for a bare pipe. This replaced the "25 mm below DN50,
+         * 50 mm above" rule that lived on the schedule — 50 mm is the larger of
+         * those two, his standard. Files saved before this pick up the 50 mm
+         * default and re-solve against it. */
         insulation_mm: 50,             // mm — global default lagging
+        insulation: {},                // per-size overrides: { 'DN50': 40, … }
 
         /* Plausibility band for the solved temperature. Outside it, the answer
          * is reported as an ERROR rather than printed — Michael's runaway
@@ -962,10 +965,12 @@
    * copy will want to meet it again. Failing that, the lowest-then-leftmost
    * node, so the answer is stable rather than dependent on selection order. */
   function extractFragment(m, selection) {
-    var pickPipe = {}, pickNode = {};
+    var pickPipe = {}, pickNode = {}, pickDetail = {}, pickNote = {};
     (selection || []).forEach(function (s) {
       if (s.kind === 'pipe') pickPipe[s.id] = true;
       else if (s.kind === 'node') pickNode[s.id] = true;
+      else if (s.kind === 'detail') pickDetail[s.id] = true;
+      else if (s.kind === 'note') pickNote[s.id] = true;
     });
 
     var pipes = m.pipes.filter(function (p) {
@@ -976,7 +981,11 @@
     pipes.forEach(function (p) { pickNode[p.a] = true; pickNode[p.b] = true; });
 
     var nodes = m.nodes.filter(function (n) { return pickNode[n.id]; });
-    if (!nodes.length) return null;
+    var details = (m.details || []).filter(function (d) { return pickDetail[d.id]; });
+    var notes = (m.notes || []).filter(function (n) { return pickNote[n.id]; });
+    /* Annotation on its own is a valid fragment — detail lines and notes carry
+     * no pipework and still copy (Michael, 2026-08-10). */
+    if (!nodes.length && !details.length && !notes.length) return null;
 
     var inSet = {};
     pipes.forEach(function (p) { inSet[p.id] = true; });
@@ -1005,10 +1014,27 @@
       return (a.y - b.y) || (a.x - b.x) || (a.id < b.id ? -1 : 1);
     });
 
+    /* THE FOLLOW POINT. A pipework fragment follows the pointer by an anchor
+     * NODE; an annotation-only fragment has no node, so it follows by the
+     * lowest-leftmost corner of the detail lines and notes it carries. */
+    var anchorNode = anchorFrom.length ? anchorFrom[0] : null;
+    var anchorPt;
+    if (anchorNode) {
+      anchorPt = { x: anchorNode.x, y: anchorNode.y };
+    } else {
+      var xs = [], ys = [];
+      details.forEach(function (d) { (d.pts || []).forEach(function (q) { xs.push(q.x); ys.push(q.y); }); });
+      notes.forEach(function (n) { xs.push(n.x); ys.push(n.y); });
+      anchorPt = { x: xs.length ? Math.min.apply(null, xs) : 0,
+                   y: ys.length ? Math.min.apply(null, ys) : 0 };
+    }
+
     return {
       formatVersion: FORMAT_VERSION,
-      level: nodes[0].level,
-      anchor: anchorFrom[0].id,
+      level: nodes.length ? nodes[0].level
+           : (details.length ? details[0].level : notes[0].level),
+      anchor: anchorNode ? anchorNode.id : null,
+      anchorPt: anchorPt,
       boundary: boundary.map(function (n) { return n.id; }),
       nodes: nodes.map(function (n) {
         var c = cloneBut(n, FRAG_NODE_SKIP);
@@ -1020,6 +1046,8 @@
         c.id = p.id; c.a = p.a; c.b = p.b;
         return c;
       }),
+      details: details.map(function (d) { return JSON.parse(JSON.stringify(d)); }),
+      notes: notes.map(function (n) { return JSON.parse(JSON.stringify(n)); }),
       dropped: dropped
     };
   }
@@ -1035,7 +1063,13 @@
    * is exactly what dragging a node onto another already does (§ mergeDropped),
    * done up front instead of afterwards. */
   function insertFragment(m, frag, opts) {
-    if (!frag || !frag.nodes || !frag.nodes.length) return null;
+    if (!frag) return null;
+    var hasGeom = frag.nodes && frag.nodes.length;
+    var hasAnno = (frag.details && frag.details.length) ||
+                  (frag.notes && frag.notes.length);
+    if (!hasGeom && !hasAnno) return null;
+    frag.nodes = frag.nodes || [];
+    frag.pipes = frag.pipes || [];
     opts = opts || {};
     var lvl = opts.level || frag.level || m.activeLevel;
     var dx = opts.dx || 0, dy = opts.dy || 0;
@@ -1102,8 +1136,21 @@
       if (t3 !== n.tag) { retagged.push({ from: n.tag, to: t3, node: n.id }); n.tag = t3; }
     });
 
-    return { nodes: newNodes, pipes: newPipes, map: map, retagged: retagged,
-             dropped: (frag.dropped || []).slice() };
+    /* ANNOTATION rides along on the same offset (2026-08-10). New ids, so a
+     * copy is its own object; nothing in the engine reads details or notes, so
+     * there are no references to remap. */
+    var newDetails = [], newNotes = [];
+    (frag.details || []).forEach(function (d) {
+      var pts = (d.pts || []).map(function (q) { return { x: q.x + dx, y: q.y + dy }; });
+      newDetails.push(addDetail(m, lvl, pts, { colour: d.colour, width: d.width }));
+    });
+    (frag.notes || []).forEach(function (nt) {
+      newNotes.push(addNote(m, lvl, nt.x + dx, nt.y + dy, nt.text,
+                            { colour: nt.colour, size: nt.size }));
+    });
+
+    return { nodes: newNodes, pipes: newPipes, details: newDetails, notes: newNotes,
+             map: map, retagged: retagged, dropped: (frag.dropped || []).slice() };
   }
 
   /* The next free variant of a tag: CHWP-01 -> CHWP-02 -> CHWP-03.

@@ -2,7 +2,7 @@
 
 What has actually been checked by a person, and what has not.
 
-This is deliberately separate from the automated suites. Those cover 1964
+This is deliberately separate from the automated suites. Those cover 1979
 assertions of engine behaviour (all passing), but they cannot tell you whether a
 button is discoverable, whether a drawing prints legibly, or whether a result
 *looks* right to someone who sizes pipes for a living. Only Michael can sign
@@ -26,6 +26,23 @@ Nothing in this block has been looked at by a person. Each row says what was
 driven and how, so you know which part is already pinned and which part is the
 bit only you can judge.
 
+> **Settled sections are archived** in [`Human-Test-Archive.md`](Human-Test-Archive.md)
+> so this log shows what is still pending. Moved there so far: riser notation
+> (5Y), the simulation-runs / static-dynamic / sync rounds (5J, 5I, 5E), and the
+> older fully-verified Drawing and v0.6.0-dev sections.
+
+## 5AB. YOUR SECOND LIST — v0.16.20 (2026-08-10)
+
+The three from your second message, plus the archive tidy-up. All driven and
+wired in the live app with no console errors; the look is yours to sign off.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| CB.1 | **Convert input boxes match the other inputs** | ⬜ | You meant the CONVERT tab (screenshot), where the boxes were browser-default white in the dark panel. They now carry the same styling as every `.field input` — dark `--bg-input`, `--text`, `--line` border. Verified live: the computed background is `rgb(17,21,26)`, identical to a panel input. |
+| IN.2 | **The insulation table in Thermal is editable** | ⬜ | Each nominal size has its own thickness box now, keyed by LABEL so it is the same whatever schedule the pipe is on — on top of the global default and the per-pipe override. Blank in a row takes the default. Verified live: editing DN15 to 37 mm stores it and `thicknessMmForSize` returns 37; the loss column follows. Resolution order is pipe → size-table → global default → 50 mm. |
+| DP.1 | **Detail boxes are copy-pasteable** | ⬜ | Ctrl+C on a selected note or detail line (or several) takes an annotation-only fragment; Ctrl+V places it following the pointer by its own lowest-leftmost corner (no node to anchor on), Esc cancels, R rotates. It pastes as a DRAWING change — saved, not solved — and is allowed even while a simulation is locked, the same reason annotation is deletable while locked. Annotation also rides along when copied together with pipework, on the same offset. Model layer tested in `model.test.js`; the ghost/rotate/insert exercised live with no error. **The on-screen look of the ghost is unverified — screenshots render nothing here.** |
+| AR.1 | Settled sections archived | ✅ | You asked me to archive settled issues. Fully-verified sections (riser notation, sim-runs / static-dynamic / sync, and the old Drawing / v0.6.0-dev rounds) moved to `Human-Test-Archive.md`; this log now shows what is still pending, with a pointer at the top. |
+
 ## 5AA. WHILE YOU WERE AWAY — v0.16.16 to v0.16.19 (2026-08-10)
 
 Done from your list and the standing backlog while you slept. The engine
@@ -40,31 +57,6 @@ but, as always, not looked at.
 | CV.7 | **Check valve is now an arrowhead + seat bar** (v0.16.19) | ✅ | Your sketch of 2026-08-10, read as the standard non-return symbol: a triangle pointing the way flow is ALLOWED (a→b, confirmed against the solver's reverse-flow rule) with a seat bar across its tip, replacing the swing flapper. Drawn larger than the bowtie valves so the direction reads. **Driven in the live app — placed and rendered with no error — but the APPEARANCE is unverified: screenshots render nothing to pixels here. This one needs your eye.** If the arrow points the wrong way or the seat sits wrong, say so. |
 | INS.1 | **Insulation decoupled from the schedule** (v0.16.19) | ❌ | Your ask. Thickness is now one global default in THERMAL (50 mm, `thermal.insulation_mm`), overridden per pipe (including 0 for bare) — the "25 mm below DN50, 50 mm above" schedule rule and its per-size editor are gone; a schedule is its published dimensions only. Verified in the live app: THERMAL shows a **Thickness** field, the schedule table lost its Insulation column, and the per-pipe override still wins. **Your two known-good files re-solve on the 50 mm default** — sub-DN50 pipes shift 25→50 mm, so their pipe heat-loss changes slightly; both still converge (DC 20.0–45.1 °C, HighRise 6.0–16.1 °C). You chose "let them re-solve". |
 | UI.1 | Calculate input boxes black | ⬜ | **Logged in WORKLIST, not yet done.** From the code the tool INPUT boxes already use the standard near-black colour; the muted-grey ones are the read-only CALCULATED-RESULT boxes. Needs your eye to confirm exactly which boxes you mean before I touch shared styling. |
-
-## 5Y. RISER NOTATION, AS YOU DRAW IT (v0.16.15)
-
-A circle where the column meets this floor's pipework, a leader out at 45°, and
-a box carrying the notation — the arrangement from your screenshots.
-
-The symbol says **two** things at once, and the second is the one a floor plan
-otherwise cannot tell you: whether the pipe carries on past this storey.
-
-| on the drawing | means |
-|---|---|
-| `‾V` bar above, one chevron | the column starts here and drops — riser does not go up |
-| `V` `V` two chevrons, no bar | it passes straight through, going down |
-| `V_` one chevron, bar below | it ends here, fed from above — riser does not go down |
-
-and the mirror of each with `Λ` for water going up.
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| RN.1 | **The chevron is the flow direction** | ✅ | Taken from the solved flow in the segment touching this floor. A riser pipe is built a = UPPER, b = LOWER, so a positive flow runs downward — getting that backwards would draw every arrow upside down, so there is a test that says so. Verified both ways: reversing the flow flips all six symbols. |
-| RN.2 | **The bar marks where the column stops** | ✅ | Verified on a three-floor stack: top floor draws the bar ABOVE the chevron, the middle draws two chevrons and no bar, the bottom draws the bar BELOW. Checked by capturing the actual canvas geometry — the bar lands at y=142 above a box centred on 149, and at y=155 below it. |
-| RN.3 | Nothing solved states nothing | ✅ | With no answer yet only the bars are drawn — where the column terminates is geometry and is always true; a chevron is a claim about flow, and inventing "down" because nothing has been calculated would be exactly the sort of invention this project refuses. A dead column (zero flow) is treated the same way. |
-| RN.4 | **The box is the select handle now** | ✅ | The little triangle beside the circle existed only because the circle sits on the node and the node wins the click. The box is a bigger target and already clear of the pipework, so the workaround went with the thing it worked around. |
-| RN.5 | It prints | ✅ | Same notation on paper, through the same `M.riserNotation`, so the plan and the sheet cannot disagree. **Not verified — printing has still never been checked on real paper.** |
-| RN.6 | **Looks** | ✅ | The geometry is verified by capturing every canvas operation — circle, 45° leader, 26 px box, chevron apexes, bar positions — but the *appearance* at working zoom is yours to judge: whether the box is the right size against your pipework, and whether the leader wants to go down-right on every floor or should dodge. |
 
 ## 5X. YOUR TESTING ROUND OF 2026-08-09 (v0.16.14)
 
@@ -354,22 +346,6 @@ and nothing here has been looked at.
 | 8.20 | Visualisers: FLOW, VELOCITY, PRESSURE | ✅ | Gradient pressure between 2 nodes on pipe. |
 ---
 
-## Awaiting Michael's eye — new in v0.6.0-dev
-
-Built and internally verified (logic node-tested, behaviour driven through the
-live DOM), but **nothing below has been looked at by a person**. The preview
-browser in the build environment has a 0×0 viewport, so no pixels were ever
-rendered — anything about how these LOOK is unverified.
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| 7.1 | Riser select handle (triangle) + riser size/schedule/C | ⚠️ | Change the riser location marker to be from lower left (225 degrees). Arrow should point up or down to show flow direction. |
-| 7.2 | New riser runs to the View Direction level automatically | ✅ | New riser from node to pipe is not connecting. Mid-pipe to node works. |
-| 7.4 | Devices drawn as point symbols on a thin connector | ✅ | **The one to judge.** Agreed in principle only. At high zoom a 0.7 m pump link is still 0.7 m of drawing with a fixed-size symbol on it. M: Acceptable but if possible make pump 0.5m to match grids.|
-| 7.6 | Multi-select → bulk size / schedule / C | ✅ | Blank = leave alone. Verified bores follow. |
-
----
-
 ## 1. Calculations
 
 Nothing here has been signed off yet. The numbers reconcile internally and
@@ -399,14 +375,6 @@ known project has been done.
 | 1.15 | K tables against your printed page | ✅ | All 144 tabulated values in both Table 3 and Table 4 now match, asserted in `engine.test.js` from a second independent transcription. The threaded 45° elbow question is closed: the column really is flat (0.38 → 0.28). |
 | 1.13 | Swamee-Jain accuracy claim | ⬜ | **Worth your eye.** The literature's "within 1% of Colebrook" is what the code used to say and it is NOT true at the corners — measured 2.8% at Re 5000 with ε/d 1e-2. The app now states 0.9% / 2.8% instead. Confirm that is the right thing to print on a sheet. |
 | 1.8 | Critical path is the genuinely worst circuit | ⬜ | Picks the smallest-residual terminal. Worth checking against judgement on a real job. |
-
-## 2. Drawing
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| 2.4 | Snap priority node > pipe > grid | ✅ | Rewritten so the grid constrains length along the ray. Needs a human eye. |
-| 2.5 | Riser placement and cross-level connection | ✅ | Michael reported it was still being checked. Alignment logic reworked since. |
-| 2.6 | Levels: add, remove, reorder by drag, `[E]` editor | ✅ | |
 
 ## 3. Devices
 
@@ -527,26 +495,6 @@ the preview browser renders no pixels.
 | EQ.7 | Design flow / Load / ΔT interrelation | ⬜ | **The one to judge.** Your sequence, driven live: flow 20 L/s → load 50 kW (ΔT auto 0.598 K) → ΔT 15 K → **flow auto-recalculated to 0.7977 L/s**. Marker on all three fields explains it. |
 | EQ.8 | Blank capacity / ΔT max / T limit really are unlimited | ✅ | Engine-tested both directions, 9 assertions. |
 
-## 5J. THE SIMULATION ACTUALLY RUNS (v0.16.3)
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| RS.1 | **Simulation runs again** | ✅ | `showSolveProgress` had been lost in an edit — and it was called *after* `app.solving = true`. The throw left that latch ON, so every later solve hit `if (app.solving) return;` and did nothing, silently, for the rest of the session. Verified on `20260808-DC-broken`: 19 controlled devices solved, results present, no console errors. |
-| RS.2 | The latch can never strand again | ✅ | It is released on every path now, including a failure inside the progress bar — which falls back to solving without one. **A latch that only clears on the happy path is a bug waiting for its first exception**, and this was its second outing: the same class of region-replacement edit also ate the Static/Dynamic wiring in v0.16.2. |
-| RS.3 | RUN SIMULATION works repeatedly | ✅ | Ran it a second time from a cleared result: latch set, bar shown, 19 devices, latch released, bar hidden. |
-| RS.4 | Tick removed | ✅ | Highlight only, as asked. |
-
-## 5I. STATIC / DYNAMIC ACTUALLY WIRED UP (v0.16.2)
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| SM.1 | **Static/Dynamic now do something** | ✅ | My fault, and a bad one: the wiring was **lost between v0.16.0 and v0.16.1** — one of my edits replaced a region that contained it. The buttons shipped with no JavaScript behind them, so neither lit up and clicking DYNAMIC did nothing at all. Restored and verified switching both ways. |
-| SM.2 | The active mode is obvious | ✅ | Filled accent, white text, and a ✓. The ordinary button tint is fine for a tool whose effect you can see on the drawing; STATIC vs DYNAMIC decides whether the model responds to you at all, and being unsure which is on is the difference between "locked" and "broken". |
-| SM.3 | **RUN SIMULATION** | ✅ | In the Simulate ribbon. Verified end to end: doubled a coil's duty in STATIC, confirmed the answer did **not** move on its own, pressed RUN, and the pump flow moved 3.198 → 3.194 L/s. Goes straight to the solve rather than through the 250 ms debounce — waiting after a deliberate click reads as the button not having worked. |
-| SM.4 | It is disabled where it means nothing | ✅ | Greyed in DYNAMIC (every edit already re-solves) and in DESIGN, with the tooltip saying why. |
-| SM.5 | Leaving STATIC re-solves | ✅ | Whatever you changed while locked has not been solved for, so switching to DYNAMIC takes a fresh answer. |
-| SM.6 | Locked gestures still explain themselves | ✅ | *"Drawing is locked in STATIC simulation. Switch to DYNAMIC on the ribbon to edit while simulating."* |
-
 ## 5H. THE LOST SETPOINTS, AND ANNOTATION (v0.16.1)
 
 ### The lost setpoints — you were right, and there were two separate things
@@ -593,21 +541,6 @@ the preview browser renders no pixels.
 | TG.2 | So it is attacked from the other end | ✅ | A tag box now **refuses** to commit a value of that shape; a second lock means it can only write to something still selected; `TAG_MANGLED` reports any it finds on every solve; and **REPAIR** on the FILE group strips the suffix. Verified on your file: `CHWP-04PMP-1PMP-1PMP-1PMP-1PMP-1` → `CHWP-04`. |
 | TG.3 | One it cannot fully repair | ⬜ | `CHWP-0AHU-15AHU-152` → `CHWP-0`. The head really is `CHWP-0` — the repair can only strip what was appended, it cannot know you meant `CHWP-02`. Please rename that one by hand. |
 | SY.1 | **Sync drawn on selection** | ⬜ | Select a master and a dash-dot line goes out to each follower; select a follower and one goes back to the master, with an open arrowhead at the follower so the direction is on the drawing. Straight, and only while selected — a sync is a relationship you check and move on from, and eight pumps' worth of permanent leaders would bury the pipework. |
-
-## 5E. SYNC, AND SELECTING A RUN (v0.15.8)
-
-| # | What | Status | Notes |
-|---|---|---|---|
-| Q5 | **Ctrl-click** adds to the selection | ✅ | Corrected from Shift. Ctrl-clicking something already in the set removes it. Cmd counts as Ctrl. Verified add → add → remove. |
-| Q6 | **Shift-click selects the run between** | ✅ | Shortest path by pipe count, both ends included. Verified across your DC model: two pumps eleven pipes apart, and it reports "11 pipes along that run." |
-| Q6b | ...and it is a **connectivity test** | ✅ | If the two are not actually joined it selects nothing and says "No pipework connects those two — they are on separate systems." On a drawing where a tee *looks* made and is not, that is the fastest check there is. Risers count as connections, so it will climb between floors. |
-| C4 | **Sync** — follow another device's position | ✅ | The answer to C8. Link ONE pump to the sensor and sync the rest to it. Verified: three pumps, one linked, all three end at the same speed and share the flow, and only the leader is searched — no gang warning. |
-| C4b | Sync is not a control | ✅ | Setting a sync clears any control link, so two things can never write one actuator. Chains collapse to their head, and a device cannot sync itself. |
-| C4c | Only like to like | ✅ | Pump↔pump speed, globe↔globe opening. A percentage of travel and a percentage of speed are not the same quantity. |
-
-**Where to look:** the pump/valve Control section gains a "Sync … with" dropdown
-above the control link. Pick a leader and the section collapses to Monitoring /
-Now holding — a synced device has no setpoint of its own.
 
 ## 5D. SELECTION, PICKING AND TWO SLIDERS (v0.15.7)
 

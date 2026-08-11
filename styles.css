@@ -1248,7 +1248,20 @@ body.sim-static #prop-body .field textarea {
 }
 .conv-line { display: flex; align-items: center; gap: 6px; }
 .conv-cell { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
-.conv-cell select, .conv-cell input { width: 100%; box-sizing: border-box; }
+/* Match `.field input` so the Convert boxes are not browser-default white in a
+ * dark panel (Michael, 2026-08-10). They are built outside a `.field`, so they
+ * miss that rule and need it restating here. */
+.conv-cell select, .conv-cell input {
+  width: 100%; box-sizing: border-box;
+  background: var(--bg-input);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 5px 7px;
+  font: inherit;
+  font-size: 12.5px;
+}
+.conv-cell select:focus, .conv-cell input:focus { outline: none; border-color: var(--accent); }
 .conv-unit { font-size: 11px; color: var(--text-mute); padding: 3px 0; }
 .conv-eq { color: var(--text-mute); padding-top: 18px; }
 

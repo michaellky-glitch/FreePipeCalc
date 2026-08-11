@@ -489,6 +489,24 @@ section('Insulation is a global default, overridden per pipe');
   near('An absent setting falls back to 50 mm',
        TH.defaultThicknessMm(bare), 50, 1e-12);
 
+  /* THE PER-SIZE TABLE, editable in Thermal and keyed by nominal label so it is
+   * schedule-independent. It overrides the global default, and a blank row
+   * takes it. */
+  const m3 = M.create();                       // global default 50
+  m3.settings.thermal.insulation = { DN50: 30 };
+  near('A per-size entry overrides the global default',
+       TH.thicknessMmForSize(m3, 'DN50'), 30, 1e-12);
+  near('...only for the size it names', TH.thicknessMmForSize(m3, 'DN100'), 50, 1e-12);
+  const lv3 = m3.levels[0].id;
+  const a3 = M.addNode(m3, lv3, 0, 0), b3 = M.addNode(m3, lv3, 1, 0);
+  const p50 = M.addPipe(m3, a3.id, b3.id, { size: 'DN50', schedule: 'sch40' });
+  const p50b = M.addPipe(m3, a3.id, b3.id, { size: 'DN50', schedule: 'sch10' });
+  near('A blank pipe takes its size entry', TH.thicknessOf(m3, p50), 0.030, 1e-12);
+  near('...the SAME on a different schedule (decoupled)',
+       TH.thicknessOf(m3, p50b), 0.030, 1e-12);
+  p50.insulation_mm = 12;
+  near('...but the pipe’s own value still wins', TH.thicknessOf(m3, p50), 0.012, 1e-12);
+
   /* Custom schedules can now carry an OUTSIDE diameter, which is what the
    * insulation geometry needs. Without one it falls back to the bore, which
    * understates the surface and so understates the loss. */

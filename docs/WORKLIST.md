@@ -34,7 +34,6 @@ The likeliest things to come back:
 
 | # | Item | Notes |
 |---|---|---|
-| UI.1 | **Calculate input boxes should be black, to match the other input boxes** | Michael, 2026-08-10. In the TOOLS window the *input* boxes already use the standard near-black `--text`; the boxes that render muted grey are the read-only CALCULATED-RESULT boxes (they share the panel's `.field input[readonly]` styling — grey, dashed). Likely he wants the answer shown in black like the inputs, but it is a visual call — confirm exactly which boxes before changing, and scope any change to the tools so the auto-sized-pump read-only fields keep their "not yours to type in" grey. Not yet done. |
 | DX.1 | Does the DXF open in real CAD? | Untested; nothing in this environment can check it. |
 
 ---
@@ -43,6 +42,17 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.20** — Michael's second list of 2026-08-10. (1) The CONVERT tool's
+  input boxes were browser-default white in the dark panel — now styled to match
+  `.field input` (UI.1, his clarified item). (2) The Thermal insulation TABLE is
+  now EDITABLE per nominal size (`thermal.insulation`, keyed by size so it is
+  schedule-independent), on top of the global default and the per-pipe override.
+  (3) DETAIL boxes (notes and detail lines) are now copy-pasteable — Ctrl+C/V
+  carries an annotation-only fragment that follows the pointer by its own corner
+  and pastes as a drawing change (no solve). Verified live: Convert boxes dark,
+  table edits persist, annotation copy/paste extracts-renders-rotates-inserts
+  with no error. New model.test.js and thermal.test.js coverage. Human-Test
+  settled sections archived to `Human-Test-Archive.md`.
 * **v0.16.19** — two from Michael's list of 2026-08-10. (1) The CHECK VALVE is
   now an arrowhead pointing the way flow is allowed with a seat bar across its
   tip — the standard non-return symbol, replacing the swing flapper. (2)

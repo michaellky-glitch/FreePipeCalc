@@ -136,22 +136,30 @@
    * a fixed property of a pipe size. `DEFAULT_INSULATION_MM` is the fallback for
    * a model whose settings predate the field. */
   var DEFAULT_INSULATION_MM = 50;
+  function valid(v) {
+    return v !== undefined && v !== null && v !== '' && isFinite(Number(v));
+  }
   function thicknessOf(m, p) {
-    if (p.insulation_mm !== undefined && p.insulation_mm !== null &&
-        p.insulation_mm !== '') {
-      return Math.max(0, Number(p.insulation_mm)) / 1000;
-    }
-    return defaultThicknessMm(m) / 1000;
+    if (valid(p.insulation_mm)) return Math.max(0, Number(p.insulation_mm)) / 1000;
+    return thicknessMmForSize(m, p.size) / 1000;
   }
 
-  /* The model's global default thickness in mm — what a pipe with no value of
-   * its own is lagged with. Shown in the panel as the placeholder default. */
+  /* The model's global default thickness in mm — the fallback for a size with
+   * no entry of its own, and what an old file re-solves against. */
   function defaultThicknessMm(m) {
     var g = m && m.settings && m.settings.thermal && m.settings.thermal.insulation_mm;
-    if (g !== undefined && g !== null && g !== '' && isFinite(Number(g))) {
-      return Math.max(0, Number(g));
-    }
-    return DEFAULT_INSULATION_MM;
+    return valid(g) ? Math.max(0, Number(g)) : DEFAULT_INSULATION_MM;
+  }
+
+  /* The thickness in mm a pipe of this SIZE is lagged with when it carries no
+   * value of its own: the per-size entry from the Thermal table if the engineer
+   * has filled one in, else the global default. Keyed by nominal label, so it is
+   * independent of the schedule — the whole point of the decoupling. */
+  function thicknessMmForSize(m, sizeLabel) {
+    var tbl = m && m.settings && m.settings.thermal && m.settings.thermal.insulation;
+    var v = tbl && tbl[sizeLabel];
+    if (valid(v)) return Math.max(0, Number(v));
+    return defaultThicknessMm(m);
   }
 
   function pipeOD(m, p) {
@@ -1053,6 +1061,7 @@
     params: params,
     thicknessOf: thicknessOf,
     defaultThicknessMm: defaultThicknessMm,
+    thicknessMmForSize: thicknessMmForSize,
     pipeOD: pipeOD
   };
 })(window.FD = window.FD || {});
