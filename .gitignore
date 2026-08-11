@@ -23,3 +23,4 @@ Previous Version/
 # and a copy of anything that produces a fix is frozen into `test/fixtures/`
 # instead — which is what the tests read.
 debug/
+*.kate-swp
