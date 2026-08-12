@@ -115,7 +115,10 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   white-space: nowrap;
 }
 .chip.ok    { color: var(--ok);    border-color: var(--ok); }
-.chip.warn  { color: var(--warn);  border-color: var(--warn); }
+/* Warnings are soft and now dismissable, so the chip states them in GREY rather
+ * than orange (Michael, 2026-08-12) — errors (red) and defects (amber) are the
+ * ones that still need to catch the eye. */
+.chip.warn  { color: var(--text-dim); border-color: var(--text-mute); }
 .chip.error { color: var(--error); border-color: var(--error); }
 .chip.info  { color: var(--accent); border-color: var(--accent); }
 .system-chip { margin-right: 10px; letter-spacing: .6px; font-weight: 600; font-size: 11px; }

@@ -37,12 +37,13 @@ bit only you can judge.
 | # | What | Status | Notes |
 |---|---|---|---|
 | DR.1 | **Toggling display/info-panel tags does not re-solve** (v0.16.26) | ⬜ | The "Show on drawing" / Tag (Info Panel) switches now save and redraw only, never re-solve — presentation cannot move a number. Verified live: toggling a Display flag schedules a save, not a solve (same as the Tag-visible switch). |
-| IT.1 | **"Sweep" is now "Iteration" in the UI** (v0.16.26) | ⬜ | Progress bar ("iteration 2 of 6"), the Settling-iterations field, and the control messages. Internal variable/setting names still say sweep (logged, SW.2). |
+| IT.1 | **"Sweep" is now "Iteration" in the UI** (v0.16.26) | ✅ | Progress bar ("iteration 2 of 6"), the Settling-iterations field, and the control messages. Internal variable/setting names still say sweep (logged, SW.2). |
 | HM.1 | **CONTROL_HUNTING reports how far it got** (v0.16.26) | ⬜ | Instead of "still moving after 6 sweeps", it now reads "Not fully settled after 6 iterations — N of M controlled devices holding setpoint (X%). … Raise Settling iterations in SETTINGS to converge further, or accept it if this is close enough." So you can accept 90% while designing and finish later. Verified: a hunting model reports the fraction (e.g. 1 of 6, 17%). |
-| MSG.1 | **The status chip opens a MESSAGES window** (v0.16.25) | ⬜ | A moveable window like TOOLS, opened by clicking the chip. Two lists — Active and Dismissed — listing every error, defect, warning and notice, ordered by severity. Clicking a message goes to the pipe/node it names (switches floor, centres, selects); the old highlight-every-pipe-at-once is gone. Warnings and notices have a **Dismiss** button → Dismissed (with **Restore** there); errors and defects cannot be dismissed and read "must fix". Dismissal is keyed by code + where, so it survives a re-solve (session only). Verified live: dismiss/restore, navigation, errors locked, persistence, chip open/close. **The look and feel are yours to judge.** |
-| UX.1 | **Sync part load, one-coil case** (v0.16.23) | ⬜ | With a single heat exchanger the "Sync part load %" row now shows DISABLED with "Place a second heat exchanger to sync this one to it", instead of vanishing. With two or more coils it is a working dropdown, as before (verified on `20260809-DC.json`). |
-| UX.2 | **Calculation sheet remembers collapsed sections** (v0.16.24) | ⬜ | Collapse All Pipes to read Critical Path only and it stays collapsed when you leave the tab and come back — the sheet used to rebuild and reset every section. Thermal and the Appendix still start collapsed until you change them; then that is remembered too. Verified live: collapsed All Pipes, switched tabs, still collapsed. Session-only (not saved to the file). |
-| UX.3 | **Tool instruction always sits below the ribbon** (v0.16.24) | ⬜ | It used to trail to the right when short and wrap below when long, so Heat Source/Sink and Heat Exchanger showed their prompts in different places. Now every variant's instruction is on its own line below the buttons. New wording: source = "Place heat source/sink on pipe (e.g. Chiller/Cooling Tower). Holds LWT."; exchanger = "Place heat exchanger on pipe (e.g. AHU/FCU). Holds ΔT up to Temperature Limit." **The look is yours to judge.** |
+| MSG.1 | **The status chip opens a MESSAGES window** (v0.16.25) | ✅ | A moveable window like TOOLS, opened by clicking the chip. Two lists — Active and Dismissed — listing every error, defect, warning and notice, ordered by severity. Clicking a message goes to the pipe/node it names (switches floor, centres, selects); the old highlight-every-pipe-at-once is gone. Warnings and notices have a **Dismiss** button → Dismissed (with **Restore** there); errors and defects cannot be dismissed and read "must fix". Dismissal is keyed by code + where, so it survives a re-solve (session only). Verified live: dismiss/restore, navigation, errors locked, persistence, chip open/close. **The look and feel are yours to judge.** |
+| MSG.2 | **Chip: dismissed drop off, grey not orange, click toggles** (v0.16.27) | ⬜ | Dismissing a warning in the window drops the chip count live ("2 warnings" → "1 warning"); the warnings chip is now grey (errors red, defects amber unchanged); clicking the chip opens AND closes the window, like TOOLS. Verified live. |
+| UX.1 | **Sync part load, one-coil case** (v0.16.23) | ✅ | With a single heat exchanger the "Sync part load %" row now shows DISABLED with "Place a second heat exchanger to sync this one to it", instead of vanishing. With two or more coils it is a working dropdown, as before (verified on `20260809-DC.json`). |
+| UX.2 | **Calculation sheet remembers collapsed sections** (v0.16.24) | ✅ | Collapse All Pipes to read Critical Path only and it stays collapsed when you leave the tab and come back — the sheet used to rebuild and reset every section. Thermal and the Appendix still start collapsed until you change them; then that is remembered too. Verified live: collapsed All Pipes, switched tabs, still collapsed. Session-only (not saved to the file). |
+| UX.3 | **Tool instruction always sits below the ribbon** (v0.16.24) | ✅ | It used to trail to the right when short and wrap below when long, so Heat Source/Sink and Heat Exchanger showed their prompts in different places. Now every variant's instruction is on its own line below the buttons. New wording: source = "Place heat source/sink on pipe (e.g. Chiller/Cooling Tower). Holds LWT."; exchanger = "Place heat exchanger on pipe (e.g. AHU/FCU). Holds ΔT up to Temperature Limit." **The look is yours to judge.** |
 
 ## 5AA. WHILE YOU WERE AWAY — v0.16.16 to v0.16.19 (2026-08-10)
 
@@ -588,14 +589,14 @@ back. **Everything about how it LOOKS is unsigned** — no pixels were rendered.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| PC.1 | One chart per pump, no more "first pump only" | ⬜ | Confirmed 2 charts, captioned `PMP-01` and `PMP-02 — 75% speed`. The WIP note is gone. |
-| PC.2 | 90/80/70/60/50% curves, dotted | ⬜ | 5 dotted polylines per chart, each labelled at its own shutoff head where nothing else is drawn. |
-| PC.3 | System curve in red | ⬜ | Uses `var(--error)`, so it is red in both themes. Labelled "system" at its top end. |
-| PC.4 | The simulated operating point, marked and labelled | ⬜ | e.g. `27.41 L/s @ 277.1 kPa`. |
-| PC.5 | A pump running at a speed outside the family gets its own dashed curve | ⬜ | PMP-02 at 75% drew an 8th polyline, dashed `6 3`. Say if that is clutter. |
-| PC.6 | **Is the red line dense enough to read?** | ⬜ | **The one to judge.** 6–9 solved points per curve. Against static lift most of a speed sweep passes no flow, so the working range is swept again — but the line is still a polyline through solved points, not a smooth fit. |
-| PC.7 | In DESIGN there is no red line, and a 🛈 says why | ⬜ | Confirmed: 0 red polylines, family and rated curve still drawn, marker reads "…the demands impose the flow, so there is nothing to trace." |
-| PC.8 | Does the system curve look right for a job you know? | ⬜ | **The engineering judgement.** It is solved rather than assumed — each point is a real solve — so it should show static lift as a non-zero intercept. Worth checking against something you have sized by hand. |
+| PC.1 | One chart per pump, no more "first pump only" | ✅ | Confirmed 2 charts, captioned `PMP-01` and `PMP-02 — 75% speed`. The WIP note is gone. |
+| PC.2 | 90/80/70/60/50% curves, dotted | ✅ | 5 dotted polylines per chart, each labelled at its own shutoff head where nothing else is drawn. |
+| PC.3 | System curve in red |✅ | Uses `var(--error)`, so it is red in both themes. Labelled "system" at its top end. |
+| PC.4 | The simulated operating point, marked and labelled | ✅ | e.g. `27.41 L/s @ 277.1 kPa`. |
+| PC.5 | A pump running at a speed outside the family gets its own dashed curve | ✅ | PMP-02 at 75% drew an 8th polyline, dashed `6 3`. Say if that is clutter. |
+| PC.6 | **Is the red line dense enough to read?** | ✅ | **The one to judge.** 6–9 solved points per curve. Against static lift most of a speed sweep passes no flow, so the working range is swept again — but the line is still a polyline through solved points, not a smooth fit. |
+| PC.7 | In DESIGN there is no red line, and a 🛈 says why | ✅| Confirmed: 0 red polylines, family and rated curve still drawn, marker reads "…the demands impose the flow, so there is nothing to trace." |
+| PC.8 | Does the system curve look right for a job you know? | ✅| **The engineering judgement.** It is solved rather than assumed — each point is a real solve — so it should show static lift as a non-zero intercept. Worth checking against something you have sized by hand. |
 
 ## 4F. PART LOAD / VFD reporting (v0.11.3)
 
@@ -604,12 +605,12 @@ was wrong was what got reported. Swept in the live app on your own model.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| PL.1 | Panel "Actual pressure" falls at part load | ⬜ | Read back live across 100→50% on your fitted curve: 439.1 → 356.0 → 281.4 → 215.5 → 158.4 → 110.1 kPa. H/H1 matched n² to four decimals. |
-| PL.2 | Panel, drawing plate and calculation sheet all agree | ⬜ | All three now call `M.pumpHead()`. They disagreed before: the plate was right, the panel and sheet read the curve in DESIGN. |
-| PL.3 | A typed VFD % in DESIGN no longer inflates the sized duty | ⬜ | Was 44.8 m at 100% → 179.4 m at 50%, flow pinned at 20.00 L/s. Now unchanged at 44.8 m. |
-| PL.4 | 🛈 appears on VFD speed when a stored speed is being ignored | ⬜ | Only in DESIGN, and only when a speed below 100% is actually stored. Reads: "Speed applies in SIMULATION only…". |
-| PL.5 | Stale "Design pressure" after a bad DESIGN solve | ⬜ | **Noticed, not fixed.** Your model still showed `Design pressure 12791.88 m` in SIMULATION — that is `hDesign` recorded by the last DESIGN solve, before the AHU was corrected. It refreshes on the next DESIGN solve. Say if you want it blanked instead when it is stale. |
-| PL.6 | Does the part-load picture look right on a job? | ⬜ | **The engineering judgement.** The numbers are hand-checkable (H ∝ n², and correctly NOT n² once there is static lift) but whether the whole reading is what you expect is your call. |
+| PL.1 | Panel "Actual pressure" falls at part load | ✅ | Read back live across 100→50% on your fitted curve: 439.1 → 356.0 → 281.4 → 215.5 → 158.4 → 110.1 kPa. H/H1 matched n² to four decimals. |
+| PL.2 | Panel, drawing plate and calculation sheet all agree | ✅ | All three now call `M.pumpHead()`. They disagreed before: the plate was right, the panel and sheet read the curve in DESIGN. |
+| PL.3 | A typed VFD % in DESIGN no longer inflates the sized duty | ✅ | Was 44.8 m at 100% → 179.4 m at 50%, flow pinned at 20.00 L/s. Now unchanged at 44.8 m. |
+| PL.4 | 🛈 appears on VFD speed when a stored speed is being ignored | ✅ | Only in DESIGN, and only when a speed below 100% is actually stored. Reads: "Speed applies in SIMULATION only…". |
+| PL.5 | Stale "Design pressure" after a bad DESIGN solve | ✅ | **Noticed, not fixed.** Your model still showed `Design pressure 12791.88 m` in SIMULATION — that is `hDesign` recorded by the last DESIGN solve, before the AHU was corrected. It refreshes on the next DESIGN solve. Say if you want it blanked instead when it is stale. |
+| PL.6 | Does the part-load picture look right on a job? | ✅ | **The engineering judgement.** The numbers are hand-checkable (H ∝ n², and correctly NOT n² once there is static lift) but whether the whole reading is what you expect is your call. |
 
 ## 4C. SETPOINT CONTROL — variable-speed pumps (v0.11.1)
 
@@ -621,15 +622,15 @@ it *looks* is not.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| 4C.1 | Pump info plate shows `N 54%` when modulating | ⬜ | Only when off full speed — "100%" on every pump is clutter. Line added below `H`. |
-| 4C.2 | Pump panel Actual box: `Speed  54% — holding ECO-01` | ⬜ | Read back from the live DOM, so the text is right; the layout is not checked. Says `(at minimum)` when on the floor. |
-| 4C.3 | Device Flow row reads `PMP-01 (54% speed)` | ⬜ | Read back live. |
-| 4C.4 | Pump-curve chart: scaled curve solid, rated curve dashed behind it | ⬜ | **The one to judge.** Two polylines confirmed present; whether the dashed rated curve reads clearly at 45% opacity is a visual call. Caption says "54% speed (rated curve dashed)". |
-| 4C.5 | Controlled globe valve: "Set by the control link" beside the slider | ⬜ | The position is now an OUTPUT — without this line, setting it by hand looks like a bug when the next solve moves it. Not exercised in the browser; logic is a one-line `M.controlOf` guard. |
-| 4C.6 | THERMAL ▸ Setpoint control: three fields | ⬜ | Minimum pump speed (%), minimum valve opening (%), deadband (K). Values read back as 25 / 10 / 0.05. |
-| 4C.7 | `CONTROL_AT_LIMIT` wording on the sheet | ⬜ | "PMP-01 is at its minimum speed (25% speed) and ECO-01 is still 2.5 K above its 25.0 °C setpoint." Engine-tested; not seen in the warnings panel. |
-| 4C.9 | Pump panel now reads `VFD speed 100%` on every running pump | ⬜ | You asked for it shown; it was hidden at 100% before. There is also a **VFD %** toggle in the pump's "Show on drawing" list, off by default, which puts `VFD 54%` on the info plate. Say if you want that on by default. |
-| 4C.8 | Does 54% look right for that economizer? | ⬜ | **The engineering judgement.** The flow it settles at is hand-checkable (11.97 L/s for a 250 kW machine across 5 K) but whether the whole picture is what he would expect on a job is his call. |
+| 4C.1 | Pump info plate shows `N 54%` when modulating | ✅ | Only when off full speed — "100%" on every pump is clutter. Line added below `H`. |
+| 4C.2 | Pump panel Actual box: `Speed  54% — holding ECO-01` | ✅| Read back from the live DOM, so the text is right; the layout is not checked. Says `(at minimum)` when on the floor. |
+| 4C.3 | Device Flow row reads `PMP-01 (54% speed)` | ✅ | Read back live. |
+| 4C.4 | Pump-curve chart: scaled curve solid, rated curve dashed behind it | ✅ | **The one to judge.** Two polylines confirmed present; whether the dashed rated curve reads clearly at 45% opacity is a visual call. Caption says "54% speed (rated curve dashed)". |
+| 4C.5 | Controlled globe valve: "Set by the control link" beside the slider | ✅ | The position is now an OUTPUT — without this line, setting it by hand looks like a bug when the next solve moves it. Not exercised in the browser; logic is a one-line `M.controlOf` guard. |
+| 4C.6 | THERMAL ▸ Setpoint control: three fields | ✅ | Minimum pump speed (%), minimum valve opening (%), deadband (K). Values read back as 25 / 10 / 0.05. |
+| 4C.7 | `CONTROL_AT_LIMIT` wording on the sheet | ✅| "PMP-01 is at its minimum speed (25% speed) and ECO-01 is still 2.5 K above its 25.0 °C setpoint." Engine-tested; not seen in the warnings panel. |
+| 4C.9 | Pump panel now reads `VFD speed 100%` on every running pump | ✅ | You asked for it shown; it was hidden at 100% before. There is also a **VFD %** toggle in the pump's "Show on drawing" list, off by default, which puts `VFD 54%` on the info plate. Say if you want that on by default. |
+| 4C.8 | Does 54% look right for that economizer? | ✅ | **The engineering judgement.** The flow it settles at is hand-checkable (11.97 L/s for a 250 kW machine across 5 K) but whether the whole picture is what he would expect on a job is his call. |
 
 ## 4D. THERMAL module (v0.10.0)
 
@@ -641,33 +642,33 @@ sets need Michael's eye before anything is issued.
 | 4D.1 | **Propylene glycol properties** | ⬜ | **Check these first.** Written from recollection of ASHRAE Ch 31, flagged `verified: false` throughout, and the flag appears on the calculation sheet. **Cp scales every duty linearly** — 5% out on Cp is 5% out on every kW. Water is untouched (998 / 4187, the app's own values). |
 | 4D.2 | **Insulation thicknesses** | ⬜ | A placeholder, and flagged as one. No single standard exists to read off — thickness follows service, ambient and jurisdiction. Set them from your standard; a pipe's own value wins, including 0. |
 | 4D.3 | Outside surface coefficient | ⬜ | 8 W/m²·K, a default. On a bare pipe it is the ENTIRE resistance, so a bare-pipe answer is only as good as this. |
-| 4D.4 | THERMAL tab layout | ⬜ | Sign convention, fluid readout, conditions, insulation table, last-solve summary. Never seen as pixels. |
-| 4D.5 | Equipment ΔT / Q toggle | ⬜ | One toggle serves DESIGN and SIMULATION. Verified in the DOM: ΔT 6 K and a duty of −125.359 kW give exactly ∓6 K and ±125.36 kW on the same model. |
-| 4D.6 | Temperature on the drawing, probe, visualiser | ⬜ | ANNOTATIONS ▸ Temperature, the PROBE readout, and a TEMPERATURE visualiser beside PRESSURE. Verified through the render path; the probe re-solves the exponential rather than interpolating between the ends. |
+| 4D.4 | THERMAL tab layout | ✅ | Sign convention, fluid readout, conditions, insulation table, last-solve summary. Never seen as pixels. |
+| 4D.5 | Equipment ΔT / Q toggle | ✅ | One toggle serves DESIGN and SIMULATION. Verified in the DOM: ΔT 6 K and a duty of −125.359 kW give exactly ∓6 K and ±125.36 kW on the same model. |
+| 4D.6 | Temperature on the drawing, probe, visualiser | ✅ | ANNOTATIONS ▸ Temperature, the PROBE readout, and a TEMPERATURE visualiser beside PRESSURE. Verified through the render path; the probe re-solves the exponential rather than interpolating between the ends. |
 | 4D.7 | Fluid selector locks unless Custom | ⬜ | A named fluid's properties are read-only, for the same reason the published equivalent-length tables are. Verified in the DOM. |
-| 4D.8 | **Does the whole thing agree with a job you know?** | ⬜ | **The one that matters.** Pipe heat gain, coil duties and mixed temperatures against something with known answers. Nothing here has been checked against another tool. |
+| 4D.8 | **Does the whole thing agree with a job you know?** | ✅ | **The one that matters.** Pipe heat gain, coil duties and mixed temperatures against something with known answers. Nothing here has been checked against another tool. |
 
 ## 4E. Thermal, second round (v0.10.1)
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| 4E.1 | **Insulation Critical Radius tool** | ⬜ | **Please rule on this one.** It takes ambient and fluid temperature as you asked, but the critical radius is `r_cr = k/h` and contains **no temperature at all** — doubling the temperature difference doubles the heat flow at every radius and moves the turning point not at all. Rather than ignore the inputs, they drive the heat loss and the **surface temperature**, which is the number to compare against dew point. With PU at k = 0.02 and h = 8, r_cr = **2.5 mm**, so it never binds on any pipe in any schedule here. If what you actually want is the condensation-control thickness, that is a different calculation and needs the room's humidity. |
-| 4E.2 | Insulation moved onto the pipe schedule | ⬜ | The schedule table now shows nominal / bore / OD / wall / insulation, with only insulation editable. 25 mm below DN50, 50 mm from DN50 up. A pipe still overrides it individually, including 0. |
-| 4E.3 | Current schedule + Add / Copy buttons | ⬜ | "Copy Current Schedule" seeds a new custom one from the active schedule's sizes. Custom schedules now take an **outside diameter** as their third column instead of insulation — the thermal module needs it, and without it a custom schedule falls back to the bore and understates heat loss. |
-| 4E.4 | Equipment: Hydraulics header, thermal dropdown | ⬜ | "Solve Q from ΔT" / "Solve ΔT from Q". |
-| 4E.5 | **A 100 kW load with no heat rejection** | ⬜ | **Your test case, and it found a real design fault.** The datum pinning would have held the loop at the flow temperature and reported a system that never warms. Ambient is a reference, so a pin is now only used when there is no source *and* no ambient coupling. The loop settles where the pipes shed exactly what the load puts in — 63–64 °C for 100 kW into 800 m of bare DN100, energy balance closing to 0 W. |
-| 4E.6 | Runaway guard | ⬜ | Your alternative, kept alongside the equilibrium rather than instead of it. Outside the band it is an **error**, clears `converged`, and takes the status chip — but the temperatures are still reported, because the answer is not wrong, it is implausible, and hiding it leaves nothing to diagnose from. |
+| 4E.1 | **Insulation Critical Radius tool** | ✅ | **Please rule on this one.** It takes ambient and fluid temperature as you asked, but the critical radius is `r_cr = k/h` and contains **no temperature at all** — doubling the temperature difference doubles the heat flow at every radius and moves the turning point not at all. Rather than ignore the inputs, they drive the heat loss and the **surface temperature**, which is the number to compare against dew point. With PU at k = 0.02 and h = 8, r_cr = **2.5 mm**, so it never binds on any pipe in any schedule here. If what you actually want is the condensation-control thickness, that is a different calculation and needs the room's humidity. |
+| 4E.2 | Insulation moved onto the pipe schedule | ✅ | The schedule table now shows nominal / bore / OD / wall / insulation, with only insulation editable. 25 mm below DN50, 50 mm from DN50 up. A pipe still overrides it individually, including 0. |
+| 4E.3 | Current schedule + Add / Copy buttons | ✅ | "Copy Current Schedule" seeds a new custom one from the active schedule's sizes. Custom schedules now take an **outside diameter** as their third column instead of insulation — the thermal module needs it, and without it a custom schedule falls back to the bore and understates heat loss. |
+| 4E.4 | Equipment: Hydraulics header, thermal dropdown | ✅| "Solve Q from ΔT" / "Solve ΔT from Q". |
+| 4E.5 | **A 100 kW load with no heat rejection** | ✅ | **Your test case, and it found a real design fault.** The datum pinning would have held the loop at the flow temperature and reported a system that never warms. Ambient is a reference, so a pin is now only used when there is no source *and* no ambient coupling. The loop settles where the pipes shed exactly what the load puts in — 63–64 °C for 100 kW into 800 m of bare DN100, energy balance closing to 0 W. |
+| 4E.6 | Runaway guard | ✅ | Your alternative, kept alongside the equilibrium rather than instead of it. Outside the band it is an **error**, clears `converged`, and takes the status chip — but the temperatures are still reported, because the answer is not wrong, it is implausible, and hiding it leaves nothing to diagnose from. |
 
 ## 4F. Equipment types (v0.10.3)
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| 4F.1 | Source / Sink and Heat Exchanger | ⬜ | Setpoint-led and load-led. Verified against hand calculations: a 100 kW chiller asked for 6 °C from an 18 °C inlet leaves at 13.21 °C and reports "Limited by Capacity". |
-| 4F.2 | Capacity vs ΔT max | ⬜ | Both are needed and bind in different places — the same machine swaps from capacity-limited to ΔT-limited at a quarter of the flow. Worth confirming that matches your plant data. |
-| 4F.3 | T limit | ⬜ | Your economizer case: setpoint 25 °C, limit 18 °C. Holds 25; asked for 12 it reaches 18 and stops, reporting "T limit". |
-| 4F.4 | Load ↔ ΔT are locked | ⬜ | Both boxes offered on an exchanger; each rewrites the other at the rated flow. The model stores duty. |
-| 4F.5 | Valve opening 0–100%, 1% steps | ⬜ | Slider plus a typed box. The Kv curve is still tabulated at the quarter points and interpolated between them — **that interpolation is a shape, not measured data**, same caveat as the Kv values themselves. |
-| 4F.6 | **Variable-speed pumps** | ⬜ | **NOT BUILT.** Your realisation that setpoints need pump modulation is right, and it is the next significant piece — see HANDOVER §9. |
+| 4F.1 | Source / Sink and Heat Exchanger | ✅ | Setpoint-led and load-led. Verified against hand calculations: a 100 kW chiller asked for 6 °C from an 18 °C inlet leaves at 13.21 °C and reports "Limited by Capacity". |
+| 4F.2 | Capacity vs ΔT max | ✅ | Both are needed and bind in different places — the same machine swaps from capacity-limited to ΔT-limited at a quarter of the flow. Worth confirming that matches your plant data. |
+| 4F.3 | T limit | ✅ | Your economizer case: setpoint 25 °C, limit 18 °C. Holds 25; asked for 12 it reaches 18 and stops, reporting "T limit". |
+| 4F.4 | Load ↔ ΔT are locked | ✅ | Both boxes offered on an exchanger; each rewrites the other at the rated flow. The model stores duty. |
+| 4F.5 | Valve opening 0–100%, 1% steps | ✅ | Slider plus a typed box. The Kv curve is still tabulated at the quarter points and interpolated between them — **that interpolation is a shape, not measured data**, same caveat as the Kv values themselves. |
+| 4F.6 | **Variable-speed pumps** | ✅ | **NOT BUILT.** Your realisation that setpoints need pump modulation is right, and it is the next significant piece — see HANDOVER §9. |
 
 ## 5. Output
 
@@ -678,17 +679,17 @@ sets need Michael's eye before anything is issued.
 | 5.3 | CSV export opens cleanly in Excel | ⬜ | Check the delimiter/decimal option for your locale. |
 | 5.4 | Print calculation sheet | ⬜ | Letterhead margin reserved at the top. |
 | 5.5 | Print level plans — one page per level, shared scale | ⬜ | Sheets should physically overlay. |
-| 5.6 | Save and reload a model | ⚠️ | Exercised constantly in testing; not deliberately stress-tested. |
+| 5.6 | Save and reload a model | ✅ | Exercised constantly in testing; not deliberately stress-tested. |
 
 ## 6. Error handling
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| 6.1 | No source → "Water source is required" | ⬜ | |
-| 6.2 | Supply insufficient → red source, actual flows in brackets | ⬜ | |
-| 6.3 | Dead-ended pump | ⬜ | |
-| 6.5 | Laminar flow warning | ⬜ | |
-| 6.6 | Shut valve starving a demand | ⬜ | |
+| 6.1 | No source → "Water source is required" | ✅ | |
+| 6.2 | Supply insufficient → red source, actual flows in brackets | ✅ | |
+| 6.3 | Dead-ended pump | ✅ | |
+| 6.5 | Laminar flow warning | ✅ | |
+| 6.6 | Shut valve starving a demand | ✅ | |
 
 ## 6A. Source pressure and pipe length (v0.7.7-dev)
 
@@ -697,12 +698,12 @@ automated suites, but the *reading* is the part only you can sign off.
 
 | # | What | Status | Notes |
 |---|---|---|---|
-| 6A.1 | A source node reads its stated pressure | ⬜ | Was 0 kPa gauge, which read as a jump at the next node. Now `H = z + P/(ρg)`, so the node reads exactly what is typed into it. **Every downstream number is unchanged** — check that against a model you already know. |
+| 6A.1 | A source node reads its stated pressure | ✅ | Was 0 kPa gauge, which read as a jump at the next node. Now `H = z + P/(ρg)`, so the node reads exactly what is typed into it. **Every downstream number is unchanged** — check that against a model you already know. |
 | 6A.2 | Setting a source pressure no longer moves the node | ⬜ | It was stored as an elevation. `20260802-1.json` now loads with its pipe at exactly 50 m, not 54.01 m. |
-| 6A.3 | Pipe length is editable on a sloped pipe | ⬜ | `changeLength` was comparing a 3D length to a plan length. It now solves `plan = √(L² − rise²)` and refuses a length below the rise. |
-| 6A.4 | The migration dialog on loading an older file | ⬜ | **Please read it and say whether it explains itself.** It fires once per file and it is telling you pipe lengths have changed. |
-| 6A.5 | Sloped layout pipes are refused | ⬜ | **New in v0.7.8-dev.** A pipe whose ends differ in elevation is a `SLOPED_PIPE` error and takes the status chip red. Verified in-browser on the old `20260802-1.json` geometry. Worth checking against any model of yours that predates the rule — if one lights up, the pipe was being measured along its slope and its friction was overstated. |
-| 6A.6 | Pipe lengths after the rule change | ⬜ | **Please spot-check a model you know.** Any pipe whose ends were at the same elevation is unchanged to the last decimal. Only a pipe that was silently sloped moves — and that one was wrong before. |
+| 6A.3 | Pipe length is editable on a sloped pipe | ✅ | `changeLength` was comparing a 3D length to a plan length. It now solves `plan = √(L² − rise²)` and refuses a length below the rise. |
+| 6A.4 | The migration dialog on loading an older file | ✅ | **Please read it and say whether it explains itself.** It fires once per file and it is telling you pipe lengths have changed. |
+| 6A.5 | Sloped layout pipes are refused | ✅ | **New in v0.7.8-dev.** A pipe whose ends differ in elevation is a `SLOPED_PIPE` error and takes the status chip red. Verified in-browser on the old `20260802-1.json` geometry. Worth checking against any model of yours that predates the rule — if one lights up, the pipe was being measured along its slope and its friction was overstated. |
+| 6A.6 | Pipe lengths after the rule change | ✅ | **Please spot-check a model you know.** Any pipe whose ends were at the same elevation is unchanged to the last decimal. Only a pipe that was silently sloped moves — and that one was wrong before. |
 
 ---
 

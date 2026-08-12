@@ -461,7 +461,14 @@
     }
     chip.title = '';
 
-    var list = computeWarnings(res);
+    /* DISMISSED WARNINGS DO NOT COUNT (Michael, 2026-08-12). Once you have seen
+     * one and accepted it in the MESSAGES window, it should not keep colouring
+     * the chip. Errors and defects cannot be dismissed, so they are never
+     * filtered out here. */
+    app.dismissed = app.dismissed || {};
+    var list = computeWarnings(res).filter(function (w) {
+      return !app.dismissed[messageSig(w)];
+    });
     /* DEFECTS OUTRANK WARNINGS on the chip (Michael, 2026-08-05). "Your drawing
      * does not mean what it looks like" and "this pipe is a bit fast" were
      * counted together, and only one of them means the answer is about a
@@ -520,7 +527,9 @@
   function initStatusChip() {
     var chip = $('status-chip');
     if (!chip) return;
-    chip.addEventListener('click', function () { app.messagesOpen(true); });
+    chip.addEventListener('click', function () {
+      if (app.messagesToggle) app.messagesToggle();
+    });
   }
 
   /* The property panel shows solved values (flow, velocity, pressure), so it
@@ -662,7 +671,9 @@
       if (inDismissed) {
         var rb = el('button', 'btn msg-btn', 'Restore');
         rb.addEventListener('click', function () {
-          delete app.dismissed[messageSig(it)]; renderMessagesWindow();
+          delete app.dismissed[messageSig(it)];
+          renderMessagesWindow();
+          updateStatusChip(app.results);   // a restored warning counts again
         });
         row.appendChild(rb);
       } else if (it.level === 'error' || it.level === 'defect') {
@@ -673,7 +684,9 @@
       } else {
         var db = el('button', 'btn msg-btn', 'Dismiss');
         db.addEventListener('click', function () {
-          app.dismissed[messageSig(it)] = true; renderMessagesWindow();
+          app.dismissed[messageSig(it)] = true;
+          renderMessagesWindow();
+          updateStatusChip(app.results);   // stop it colouring the chip
         });
         row.appendChild(db);
       }
@@ -7108,6 +7121,9 @@
         if (on) renderMessagesWindow();
       }
       app.messagesOpen = open;
+      /* Toggle for the status chip — open if closed, close if open, the same as
+       * the TOOLS button (Michael, 2026-08-12). */
+      app.messagesToggle = function () { open(win.hidden); };
       /* So a background solve refreshes the list without closing it. */
       app.messagesRefresh = function () { if (!win.hidden) renderMessagesWindow(); };
 

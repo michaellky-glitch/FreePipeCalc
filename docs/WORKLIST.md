@@ -44,6 +44,12 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.27** — status-chip follow-ups (Michael, 2026-08-12). Dismissed
+  warnings no longer count on the chip (dismissing one updates the count live).
+  The warnings chip is now GREY rather than orange — warnings are soft and
+  dismissable; errors (red) and defects (amber) still catch the eye. Clicking
+  the chip now toggles the MESSAGES window open/closed, like the TOOLS button.
+  Verified live: 2 warnings → dismiss → 1; grey colour; toggle.
 * **v0.16.26** — three from Michael, 2026-08-12. (1) Turning info-panel / "Show
   on drawing" tags on or off no longer re-solves — it saves and redraws like the
   Tag-visible switch beside it (presentation, not geometry). (2) User-facing
