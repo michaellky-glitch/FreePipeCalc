@@ -1821,6 +1821,11 @@
         var annoOnly = !(cb.nodes && cb.nodes.length) && !(cb.pipes && cb.pipes.length);
         if (self.locked() && !annoOnly) return self.refuseLocked('Pasting');
         e.preventDefault();
+        /* CONTEXT-AWARE: a single copied device pasted with a same-kind device
+         * selected stamps its properties onto that device instead of placing a
+         * new object (Michael, 2026-08-12). onPasteProps returns true when it
+         * consumed the paste that way. */
+        if (self.onPasteProps && self.onPasteProps(self.clipboard)) return;
         self.pasting = { frag: self.clipboard, at: null };
         self.setTool('edit');
         self.onMessage('Click to place. The first node snaps onto an existing ' +

@@ -35,8 +35,6 @@ The likeliest things to come back:
 | # | Item | Notes |
 |---|---|---|
 | DW.MOD | **Domestic Water module** | Michael, 2026-08-12. Approach AGREED — see `docs/DW-MODULE.md`: lives INSIDE Design (Plumbing outflow type + DW behaviour, no new mode), plumbing networks must be a TREE (error on loops), flow = Generic demand + downstream cold-FU diversity (IPC Table E103.3, flush-tank/flushometer). Mass imbalance is expected for plumbing, an error otherwise. Build in three phases (data+UI, solver, pressure). Multi-session — allocate usage deliberately. |
-| CP.CTX | **Context-aware copy/paste for equipment** | Copying a single equipment and pasting onto an existing equipment stamps its PROPERTIES (not name); pasting with nothing selected drops a new object; otherwise add explicit PROP COPY / PROP PASTE. (Panel already has Copy/Paste properties from v0.16.9 — needs the context-aware Ctrl+V behaviour or the ribbon buttons.) Deferred from 2026-08-12. |
-| SO.PANEL | **Source / Outflow panel like pumps & equipment** | Restructure the source/outflow properties into Details / Design / Actual / Display sections, and show actual flow as a display tag. Deferred from 2026-08-12. |
 | SW.2 | **Finish the sweep → iteration rename (internal)** | Michael, 2026-08-12. The USER-FACING text now says "iteration" (progress bar, the Settling-iterations field, CONTROL_HUNTING / CONTROL_BUDGET messages). The INTERNALS still say sweep: the `sweep`/`MAX_SWEEPS`/`reSweep` variables in `network.js`, `report.sweeps`, and the saved setting key `control.sweeps`. Renaming `control.sweeps` needs a load-time migration so old files keep their value, so it was left for a dedicated pass. Cosmetic, no behaviour change. |
 | MSG.2 | **Trim the verbose messages** | `docs/MESSAGES.md` §7 proposes shorter forms for 8 messages; awaiting Michael's yes/no per line, then apply to source. (CONTROL_HUNTING already reworded in v0.16.26.) |
 | DX.1 | Does the DXF open in real CAD? | Untested; nothing in this environment can check it. |
@@ -47,6 +45,14 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.30** — context-aware paste for devices (CP.CTX). Ctrl+V of a single
+  copied device, with a device of the SAME kind selected, stamps its properties
+  onto that device (never its tag); nothing selected — or a different-kind
+  target, or the copied device itself — places a new object as before. Verified
+  live.
+* **v0.16.29** — Source/Outflow panel presented like a pump or exchanger
+  (SO.PANEL): Details / Design / Actual / Display sections, and a new "Actual
+  flow" display tag (Qa) on the node. Verified live.
 * **v0.16.28** — a batch of contained UI items (Michael, 2026-08-12). The TOOLS
   and MESSAGES windows are now RESIZABLE (drag the corner) and RECOVER when
   off-screen: shrinking the browser used to strand them past the edge with no

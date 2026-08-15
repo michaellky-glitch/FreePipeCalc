@@ -4896,6 +4896,39 @@
     toast('Pasted onto ' + n + ' item' + (n === 1 ? '' : 's') + '.');
   }
 
+  /* CONTEXT-AWARE PASTE (Michael, 2026-08-12). Ctrl+V of a single copied device,
+   * with a device of the SAME KIND selected, stamps its PROPERTIES onto that
+   * device (never its tag). With nothing selected — or a different-kind target,
+   * or the copied device itself — Ctrl+V falls through and PLACES a new object,
+   * exactly as before. Returns true only when it consumed the paste as a
+   * property stamp. Wired to the view as `onPasteProps`. */
+  app.pasteFragmentProps = function (frag) {
+    if (!frag || !frag.pipes || frag.pipes.length !== 1) return false;
+    var src = frag.pipes[0];
+    if (src.kind !== 'equip' && src.kind !== 'pump' &&
+        src.kind !== 'valve' && src.kind !== 'sensor') return false;
+    var sel = (app.view.selection || []).filter(function (x) { return x.kind === 'pipe'; });
+    if (sel.length !== 1) return false;
+    var target = M.pipe(app.model, sel[0].id);
+    if (!target || target.kind !== src.kind || target.id === src.id) return false;
+    pushUndo();
+    PROP_KEYS.pipe.forEach(function (k) {
+      if (src[k] !== undefined) target[k] = JSON.parse(JSON.stringify(src[k]));
+    });
+    (PROP_KEYS[src.kind] || []).forEach(function (k) {
+      if (src[k] === undefined) return;
+      var copy = JSON.parse(JSON.stringify(src[k]));
+      /* A control LINK is a relationship, not a property — never carry the
+       * source's, keep the target's own. */
+      if (copy && copy.control) delete copy.control;
+      if (target[k] && target[k].control) copy.control = target[k].control;
+      target[k] = copy;
+    });
+    renderProperties(); changed();
+    toast('Pasted properties onto ' + (target.tag || target.id) + '.');
+    return true;
+  };
+
   /* Rebuild every generated curve after the shape changes. A PASTED curve is
    * left alone — the setting describes what the app generates, not what a
    * manufacturer published. */
@@ -6623,6 +6656,9 @@
     // Canvas tools report back through the app's toast system rather than
     // reaching into the DOM themselves.
     app.view.onMessage = function (msg, kind) { toast(msg, kind); };
+    /* Context-aware paste: the view asks whether a device paste should land as a
+     * property stamp on the selection instead of a new object. */
+    app.view.onPasteProps = app.pasteFragmentProps;
     /* Lets a canvas gesture snapshot the model for undo without the canvas
      * knowing the undo stack exists. */
     app.view.onBeforeEdit = function () { pushUndo(); };
