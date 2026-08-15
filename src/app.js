@@ -2324,38 +2324,18 @@
 
     if (!lv.trace) {
       host.appendChild(el('p', 'hint',
-        'Copy a screen snip of the drawing (Ctrl+V), or drag an image file onto the ' +
-        'canvas. One drawing per level.'));
-      host.appendChild(el('p', 'hint',
-        'Then set the scale from a known distance, lock it, and trace over it in ' +
-        'DRAW PIPE.'));
+        'Paste (Ctrl+V) or drop an image onto the canvas. One per level.'));
       return;
     }
     var t = lv.trace;
 
     // --- scale ---
-    var cal = el('button', 'btn primary', 'Set scale from a known distance');
+    var cal = el('button', 'btn primary', 'Set Scale');
     cal.addEventListener('click', function () {
       app.view.startCalibration();
-      toast('Click two points a known distance apart on the drawing. Esc cancels.');
+      toast('Click two points a known distance apart. Esc cancels.');
     });
     host.appendChild(cal);
-    host.appendChild(el('p', 'hint',
-      'Click two points whose real separation you know — a gridline spacing, a ' +
-      'dimensioned run, a column grid — then type that distance. Without this the ' +
-      'scale is guesswork and every traced length has to be retyped.'));
-
-    var wIn = el('input'); wIn.type = 'text';
-    wIn.value = FD.units.fmtLength(t.width, m.settings.display.length);
-    field(host, 'Drawing width (' + m.settings.display.length + ')', wIn)
-      .addEventListener('change', function () {
-        var v = FD.units.parse(wIn.value);
-        if (isFinite(v) && v > 0) {
-          pushUndo();
-          t.width = FD.units.toSILength(v, m.settings.display.length);
-          changed();
-        } else { wIn.value = FD.units.fmtLength(t.width, m.settings.display.length); }
-      });
 
     // --- appearance ---
     var op = el('input'); op.type = 'range';
@@ -2373,14 +2353,9 @@
       });
       if (note) host.appendChild(el('p', 'hint', note));
     }
-    toggle('Hide grid while this trace is shown', 'hideGrid',
-      'The grid is drawn over the trace and obscures a good deal of it at working ' +
-      'zoom. While tracing, the drawing is the reference.');
-    toggle('Invert colours', 'invert',
-      'A PDF screenshot is black on white. Inverted, the paper goes dark and the ' +
-      'linework goes light, so pipes stay readable on the dark theme.');
-    toggle('Lock position', 'locked',
-      'Locked once the scale is right, so drawing over it cannot nudge it.');
+    toggle('Hide grid while this trace is shown', 'hideGrid');
+    toggle('Invert colours', 'invert');
+    toggle('Lock position', 'locked');
 
     // --- readout ---
     var info = el('div', 'readout');
@@ -7058,9 +7033,22 @@
         if (saved && isFinite(saved.x)) { win.style.left = saved.x + 'px'; win.style.top = saved.y + 'px'; }
       } catch (e) {}
 
+      /* RECOVER AN OFF-SCREEN WINDOW (Michael, 2026-08-12). Shrinking the browser
+       * can leave the fixed-position window past the edge; on reopen, if its bar
+       * is no longer reachable, drop it on the right side rather than at a saved
+       * spot that is now off-screen. */
+      function ensureOnScreen() {
+        var r = win.getBoundingClientRect(), w = win.offsetWidth || 400;
+        if (r.left > window.innerWidth - 60 || r.top > window.innerHeight - 30 ||
+            r.right < 60 || r.top < -2) {
+          place(window.innerWidth - w - 12, 76);
+        }
+      }
+
       function open(on) {
         win.hidden = !on;
         if (on && FD.tools) FD.tools.render(app);
+        if (on) ensureOnScreen();
         [].slice.call(document.querySelectorAll('[data-tools-open]')).forEach(function (b) {
           b.classList.toggle('active', !!on);
         });
@@ -7116,9 +7104,19 @@
         if (saved && isFinite(saved.x)) { win.style.left = saved.x + 'px'; win.style.top = saved.y + 'px'; }
       } catch (e) {}
 
+      /* Same off-screen recovery as TOOLS — drop it on the right if its last
+       * spot is now past the edge. */
+      function ensureOnScreen() {
+        var r = win.getBoundingClientRect(), w = win.offsetWidth || 400;
+        if (r.left > window.innerWidth - 60 || r.top > window.innerHeight - 30 ||
+            r.right < 60 || r.top < -2) {
+          place(window.innerWidth - w - 12, 76);
+        }
+      }
+
       function open(on) {
         win.hidden = !on;
-        if (on) renderMessagesWindow();
+        if (on) { renderMessagesWindow(); ensureOnScreen(); }
       }
       app.messagesOpen = open;
       /* Toggle for the status chip — open if closed, close if open, the same as
@@ -7348,6 +7346,23 @@
       M.addLevel(m, { name: 'Level ' + m.levels.length, altitude: top.altitude + m.settings.floorToFloor });
       renderLevels(); scheduleSave();
     });
+    /* COLLAPSE THE LEVELS LIST (Michael, 2026-08-12). A UI preference, so it
+     * lives in localStorage. Adding a level auto-expands, so a new floor is not
+     * hidden. */
+    (function () {
+      var tog = $('levels-toggle'), list = $('level-list');
+      if (!tog || !list) return;
+      function set(collapsed) {
+        list.classList.toggle('collapsed', collapsed);
+        tog.classList.toggle('collapsed', collapsed);
+        try { localStorage.setItem('fpc.levelsCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+      }
+      tog.addEventListener('click', function () {
+        set(!list.classList.contains('collapsed'));
+      });
+      $('btn-add-level').addEventListener('click', function () { set(false); });
+      try { if (localStorage.getItem('fpc.levelsCollapsed') === '1') set(true); } catch (e) {}
+    })();
     $('btn-del-level').addEventListener('click', function () {
       var m = app.model;
       if (m.levels.length <= 1) { toast('The last level cannot be removed.', 'error'); return; }

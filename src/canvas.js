@@ -714,7 +714,15 @@
         /* Calibration takes precedence: while it is armed, clicks are
          * measurement points, not manipulation. */
         if (self.calibrating) {
-          self.calibrating.points.push({ x: w.x, y: w.y });
+          var cpt = { x: w.x, y: w.y };
+          /* The SECOND point snaps to 15° from the first, so a scale set along a
+           * known horizontal, vertical or diagonal run lands true. Shift or Alt
+           * frees the snap, the same as drawing a pipe. */
+          if (self.calibrating.points.length === 1) {
+            var a0 = self.calibrating.points[0];
+            cpt = self.angleSnap(a0.x, a0.y, w.x, w.y);
+          }
+          self.calibrating.points.push(cpt);
           if (self.calibrating.points.length === 2) {
             var pts = self.calibrating.points;
             self.calibrating = null;
@@ -4557,12 +4565,14 @@
       ctx.beginPath(); ctx.arc(s2.x, s2.y, 5, 0, Math.PI * 2); ctx.fill();
     });
     if (pts.length === 1 && this.cursor) {
+      /* Preview the SNAPPED point so the 15° constraint is visible as you aim. */
+      var cur = this.angleSnap(pts[0].x, pts[0].y, this.cursor.x, this.cursor.y);
       var a = this.toScreen(pts[0].x, pts[0].y);
-      var b = this.toScreen(this.cursor.x, this.cursor.y);
+      var b = this.toScreen(cur.x, cur.y);
       ctx.setLineDash([6, 4]);
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
       ctx.restore();
-      var span = Math.hypot(this.cursor.x - pts[0].x, this.cursor.y - pts[0].y);
+      var span = Math.hypot(cur.x - pts[0].x, cur.y - pts[0].y);
       this.badge(b.x + 14, b.y - 14,
         'pick the 2nd point  ·  currently ' + span.toFixed(2) + ' m');
       return;

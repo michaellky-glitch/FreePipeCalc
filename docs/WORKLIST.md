@@ -34,6 +34,9 @@ The likeliest things to come back:
 
 | # | Item | Notes |
 |---|---|---|
+| DW.MOD | **Domestic Water module** | Michael, 2026-08-12: build a DW module. Plumbing outflows carry a Fixture Unit (FU) per IPC; pipe flow = Generic demand + downstream FUs converted to L/s via IPC Table E103.3 (flush tank / flushometer). Mass imbalance (outflows ≠ source) is EXPECTED for DW but an error for closed-loop/Generic. **Approach still to be agreed — new mode vs inside Design — see the discussion posted 2026-08-12.** Fixtures + cold FU from Table E103.3(2). |
+| CP.CTX | **Context-aware copy/paste for equipment** | Copying a single equipment and pasting onto an existing equipment stamps its PROPERTIES (not name); pasting with nothing selected drops a new object; otherwise add explicit PROP COPY / PROP PASTE. (Panel already has Copy/Paste properties from v0.16.9 — needs the context-aware Ctrl+V behaviour or the ribbon buttons.) Deferred from 2026-08-12. |
+| SO.PANEL | **Source / Outflow panel like pumps & equipment** | Restructure the source/outflow properties into Details / Design / Actual / Display sections, and show actual flow as a display tag. Deferred from 2026-08-12. |
 | SW.2 | **Finish the sweep → iteration rename (internal)** | Michael, 2026-08-12. The USER-FACING text now says "iteration" (progress bar, the Settling-iterations field, CONTROL_HUNTING / CONTROL_BUDGET messages). The INTERNALS still say sweep: the `sweep`/`MAX_SWEEPS`/`reSweep` variables in `network.js`, `report.sweeps`, and the saved setting key `control.sweeps`. Renaming `control.sweeps` needs a load-time migration so old files keep their value, so it was left for a dedicated pass. Cosmetic, no behaviour change. |
 | MSG.2 | **Trim the verbose messages** | `docs/MESSAGES.md` §7 proposes shorter forms for 8 messages; awaiting Michael's yes/no per line, then apply to source. (CONTROL_HUNTING already reworded in v0.16.26.) |
 | DX.1 | Does the DXF open in real CAD? | Untested; nothing in this environment can check it. |
@@ -44,6 +47,17 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.28** — a batch of contained UI items (Michael, 2026-08-12). The TOOLS
+  and MESSAGES windows are now RESIZABLE (drag the corner) and RECOVER when
+  off-screen: shrinking the browser used to strand them past the edge with no
+  way back; now reopening drops the window on the right side if its last spot is
+  off-screen. LEVELS is collapsible (click the header; state kept in
+  localStorage; adding a level re-expands). TRACE cleanup: "Set scale from a
+  known distance" → "Set Scale", the Drawing-width box and all the explanatory
+  hints removed, and Set-Scale's second point now snaps to 15° (Shift/Alt frees,
+  with a live preview). Verified live. Deferred to the week: context-aware
+  copy/paste (CP.CTX), the Source/Outflow panel rework (SO.PANEL), and the DW
+  module (DW.MOD, approach under discussion).
 * **v0.16.27** — status-chip follow-ups (Michael, 2026-08-12). Dismissed
   warnings no longer count on the chip (dismissing one updates the count live).
   The warnings chip is now GREY rather than orange — warnings are soft and

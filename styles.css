@@ -521,6 +521,18 @@ table.sheet td span.bad { color: var(--error); font-weight: 600; }
 
 /* second panel header when LEVELS and PROPERTIES stack in one column */
 .panel-head-2 { margin-top: 6px; border-top: 1px solid var(--line); }
+
+/* Collapsible section header (LEVELS). Looks like the header text, toggles the
+ * list below (Michael, 2026-08-12). */
+.panel-collapse {
+  appearance: none; background: none; border: 0; padding: 0; margin: 0;
+  color: inherit; font: inherit; letter-spacing: inherit; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.panel-collapse:hover { color: var(--text); }
+.panel-collapse .caret { font-size: 9px; transition: transform .12s ease; }
+.panel-collapse.collapsed .caret { transform: rotate(-90deg); }
+#level-list.collapsed { display: none; }
 #prop-body h3.sub, #settings-body h3.sub {
   font-size: 12px; font-weight: 600; color: var(--text-dim);
   margin: 14px 0 6px; letter-spacing: .3px;
@@ -1191,11 +1203,13 @@ body.sim-static #prop-body .field textarea {
  * and above the solve bar so it is never buried by one. */
 .tool-window {
   position: fixed; left: 120px; top: 130px; z-index: 60;
-  width: 400px; max-width: calc(100vw - 24px);
-  max-height: calc(100vh - 160px);
+  width: 400px; min-width: 260px; max-width: calc(100vw - 24px);
+  height: auto; min-height: 140px; max-height: calc(100vh - 40px);
   display: flex; flex-direction: column;
   background: var(--bg-panel); border: 1px solid var(--line);
   border-radius: 8px; box-shadow: 0 10px 34px rgba(0,0,0,.45);
+  /* Draggable by the bar, resizable from the corner (Michael, 2026-08-12). */
+  resize: both; overflow: hidden;
 }
 .tool-window[hidden] { display: none; }
 
