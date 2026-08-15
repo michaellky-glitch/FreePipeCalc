@@ -44,6 +44,10 @@
        * the other fitting basis; it is migrated to 'HW' on load. */
       frictionMethod: 'HW',         // 'HW' | 'DW'
       systemType: 'open',           // 'open' | 'closed' (spec §3.4)
+      /* DOMESTIC WATER: which IPC E103.3 demand curve a plumbing branch uses,
+       * chosen on the HYDRAULIC tab. Only relevant once a Plumbing outflow
+       * exists; harmless otherwise. */
+      plumbing: { system: 'flushTank' },   // 'flushTank' | 'flushometer'
 
       /* Hazen-Williams coefficients, user-editable. Jurisdictions differ on
        * these, so rather than shipping a menu of codes the app ships the
@@ -1300,12 +1304,28 @@
     if (n) {
       n.device = {
         kind: 'demand',
+        demandType: 'generic',         // 'generic' | 'plumbing' (Domestic Water)
         flow: flow || 0,               // m³/s
         reqPressure: reqPressure || 0, // Pa
         include: true                  // spec §8.2
       };
     }
     return n;
+  }
+
+  /* The cold-water FIXTURE UNITS a Plumbing outflow contributes: its per-fixture
+   * FU (from IPC E103.3(2), the flush-tank or flushometer value per the HYDRAULIC
+   * setting, or a Custom value) times how many of it. A generic outflow, or a
+   * missing device, contributes nothing. This is what the DW solver (Phase 2)
+   * will accumulate downstream; here it drives the panel and the display tag. */
+  function outflowFU(m, dev) {
+    if (!dev || dev.kind !== 'demand' || dev.demandType !== 'plumbing') return 0;
+    var system = (m.settings.plumbing && m.settings.plumbing.system) || 'flushTank';
+    var count = dev.count > 0 ? dev.count : 1;
+    var per = (dev.fixture === 'custom' || !dev.fixture)
+      ? (Number(dev.fu) || 0)
+      : (FD.plumbing.fixtureFU(dev.fixture, system) || 0);
+    return count * per;
   }
 
   /* Apply a named fluid's published properties onto the model.
@@ -2758,7 +2778,8 @@
     clearLabelOffsets: clearLabelOffsets,
     displayFlags: displayFlags, setDisplayFlag: setDisplayFlag,
 
-    setSource: setSource, setDemand: setDemand, clearDevice: clearDevice,
+    setSource: setSource, setDemand: setDemand, outflowFU: outflowFU,
+    clearDevice: clearDevice,
     applyFluidPreset: applyFluidPreset,
     controlOf: controlOf, canControl: canControl, setControl: setControl,
     sensorSetpoint: sensorSetpoint,

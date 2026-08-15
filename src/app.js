@@ -5127,15 +5127,66 @@
       // ---- DESIGN. Editable in SIMULATION too: it is the input the terminal's
       // characteristic K = Q_d/√ΔP_d is derived from, not a result.
       var des = section(host, 'Design');
-      var fIn = el('input'); fIn.type = 'text';
-      fIn.value = FD.units.fmtFlow(dev.flow, fu);
-      field(des.box, 'Design flow (' + fu + ')', fIn)
-        .addEventListener('change', function () {
-          var v = FD.units.parse(fIn.value);
-          if (isFinite(v) && v >= 0) {
-            pushUndo(); dev.flow = FD.units.toSIFlow(v, fu); changed();
-          } else { fIn.value = FD.units.fmtFlow(dev.flow, fu); }
+
+      /* GENERIC vs PLUMBING (Domestic Water, Michael 2026-08-12). A generic
+       * outflow states a flow demand; a plumbing outflow states a fixture and
+       * its cold fixture units, and the flow is sized from the FU diversity. */
+      var typeSel = el('select');
+      [['generic', 'Generic'], ['plumbing', 'Plumbing (fixture units)']].forEach(function (kv) {
+        var o = el('option', '', kv[1]); o.value = kv[0];
+        if ((dev.demandType || 'generic') === kv[0]) o.selected = true;
+        typeSel.appendChild(o);
+      });
+      field(des.box, 'Outflow type', typeSel).addEventListener('change', function () {
+        pushUndo();
+        dev.demandType = typeSel.value;
+        if (dev.demandType === 'plumbing' && !dev.fixture) { dev.fixture = 'waterCloset'; dev.count = 1; }
+        renderProperties(); changed();
+      });
+
+      if (dev.demandType === 'plumbing') {
+        var system = (m.settings.plumbing && m.settings.plumbing.system) || 'flushTank';
+        var fxSel = el('select');
+        FD.plumbing.fixtures.forEach(function (f) {
+          var o = el('option', '', f.name); o.value = f.id;
+          if ((dev.fixture || 'waterCloset') === f.id) o.selected = true;
+          fxSel.appendChild(o);
         });
+        field(des.box, 'Fixture', fxSel).addEventListener('change', function () {
+          pushUndo(); dev.fixture = fxSel.value; renderProperties(); changed();
+        });
+        var cIn = el('input'); cIn.type = 'text'; cIn.value = String(dev.count || 1);
+        field(des.box, 'Count', cIn).addEventListener('change', function () {
+          var v = parseInt(cIn.value, 10);
+          if (isFinite(v) && v >= 1) { pushUndo(); dev.count = v; changed(); renderProperties(); }
+          else { cIn.value = String(dev.count || 1); }
+        });
+        if (dev.fixture === 'custom') {
+          var fuIn = el('input'); fuIn.type = 'text'; fuIn.value = String(dev.fu || 0);
+          field(des.box, 'Fixture units (each)', fuIn).addEventListener('change', function () {
+            var v = parseFloat(fuIn.value);
+            if (isFinite(v) && v >= 0) { pushUndo(); dev.fu = v; changed(); renderProperties(); }
+            else { fuIn.value = String(dev.fu || 0); }
+          });
+        }
+        var per = (dev.fixture === 'custom') ? (Number(dev.fu) || 0)
+                : (FD.plumbing.fixtureFU(dev.fixture, system) || 0);
+        des.ro('Cold fixture units', M.outflowFU(m, dev).toFixed(2) +
+          ((dev.count || 1) > 1 ? ' (' + dev.count + ' × ' + per + ')' : ''));
+        des.box.appendChild(el('p', 'hint',
+          'Flow is sized from downstream fixture units — a ' + system.replace('flushometer', 'flushometer-valve').replace('flushTank', 'flush-tank') +
+          ' system (set on HYDRAULIC). Plumbing branches must be a tree.'));
+      } else {
+        var fIn = el('input'); fIn.type = 'text';
+        fIn.value = FD.units.fmtFlow(dev.flow, fu);
+        field(des.box, 'Design flow (' + fu + ')', fIn)
+          .addEventListener('change', function () {
+            var v = FD.units.parse(fIn.value);
+            if (isFinite(v) && v >= 0) {
+              pushUndo(); dev.flow = FD.units.toSIFlow(v, fu); changed();
+            } else { fIn.value = FD.units.fmtFlow(dev.flow, fu); }
+          });
+      }
 
       var pIn = el('input'); pIn.type = 'text';
       pIn.value = FD.units.fmtPressure(dev.reqPressure, pu);
@@ -5160,7 +5211,9 @@
           }
           pushUndo(); dev.reqPressure = pa; changed();
         });
-      designKRow(des, dev.flow, dev.reqPressure);
+      /* K = Q/√ΔP is the GENERIC terminal characteristic; a plumbing fixture is
+       * sized from FU instead, so it is not shown there. */
+      if (dev.demandType !== 'plumbing') designKRow(des, dev.flow, dev.reqPressure);
       switchRow(des.box, 'Include in calculation', dev.include !== false, function (on) {
         pushUndo(); dev.include = on; changed(); renderProperties();
       });
@@ -5954,6 +6007,15 @@
         .map(function (k2) { return [k2, FD.hydraulics.methods[k2].name]; }),
       m.settings.frictionMethod, function (v) {
         pushUndo(); m.settings.frictionMethod = v; renderHydraulic(); redrawAll();
+      });
+
+    /* DOMESTIC WATER: which IPC E103.3 demand curve a plumbing branch is sized
+     * on. Only bites once a Plumbing outflow exists; harmless otherwise. */
+    if (!m.settings.plumbing) m.settings.plumbing = { system: 'flushTank' };
+    selField(mg, 'Plumbing supply',
+      FD.plumbing.systems.map(function (s) { return [s.id, s.name]; }),
+      m.settings.plumbing.system, function (v) {
+        pushUndo(); m.settings.plumbing.system = v; renderHydraulic(); redrawAll();
       });
 
     // ---- the formula, with the coefficients editable in place ----

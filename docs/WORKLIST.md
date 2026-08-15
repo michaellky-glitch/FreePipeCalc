@@ -45,6 +45,17 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.31** — Domestic Water module, Phase 1 (data + model + UI; no solver
+  yet). A Plumbing outflow type sits inside the outflow DESIGN panel: choose a
+  fixture (10 from IPC 2018 Table E103.3(2), cold column) and a count, or Custom
+  with a typed FU, and the panel reads back the cold fixture units. A "Plumbing
+  supply" selector on the HYDRAULIC tab picks the demand curve (flush tank /
+  flushometer valve, Table E103.3(3)). New `data/plumbing.js` carries the
+  transcribed tables **`verified: false`** (glycol treatment) pending Michael's
+  sign-off — the FU→demand diversity curve, sub-additive, is why a DW branch
+  legitimately does not balance. New `model.outflowFU()` and `plumbing.test.js`
+  (39 assertions). The tree accumulation + diversity SOLVER is Phase 2. Verified
+  live. See `docs/DW-MODULE.md`.
 * **v0.16.30** — context-aware paste for devices (CP.CTX). Ctrl+V of a single
   copied device, with a device of the SAME kind selected, stamps its properties
   onto that device (never its tag); nothing selected — or a different-kind
