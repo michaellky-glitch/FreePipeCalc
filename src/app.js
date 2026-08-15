@@ -5045,21 +5045,28 @@
     if (!n) return;
     var m = app.model;
     host.appendChild(el('h3', '', 'Node ' + n.id));
-    if (n.device) {
+    var dev = n.device;
+    var res = app.results;
+    var simulating = (m.settings.calcMode === 'simulation');
+    var fu = m.settings.display.flow, pu = m.settings.display.pressure;
+
+    /* PRESENTED LIKE A PUMP OR EXCHANGER (Michael, 2026-08-12): Details, then the
+     * Design point, then what it Actually does, then Display. */
+    // ---------------------------------------------------------- DETAILS
+    var det = section(host, 'Details');
+    if (dev) {
       var tIn = el('input'); tIn.type = 'text'; tIn.value = n.tag || '';
       tIn.placeholder = 'e.g. AHU-01';
-      field(host, 'Tag', tIn).addEventListener('change', function () {
+      field(det.box, 'Tag', tIn).addEventListener('change', function () {
         pushUndo();
         var v = tIn.value.trim();
         if (v) n.tag = v; else delete n.tag;
         changed();
       });
     }
-
-    var dev = n.device;
-    /* The Type selector is for turning a PLAIN node into a device. Once it is
-     * already an outflow the row only offers ways to destroy it by accident,
-     * and Delete does that deliberately when it is meant. */
+    /* The Type selector turns a PLAIN node into a device. Once it is already an
+     * outflow the row only offers ways to destroy it by accident, so it is
+     * hidden — Delete does that deliberately when it is meant. */
     if (!(dev && dev.kind === 'demand')) {
       var kindSel = el('select');
       [['', 'Junction'], ['source', 'Source (reservoir)'], ['demand', 'Outflow']]
@@ -5068,7 +5075,7 @@
           if ((dev ? dev.kind : '') === kv[0]) o.selected = true;
           kindSel.appendChild(o);
         });
-      field(host, 'Type', kindSel).addEventListener('change', function () {
+      field(det.box, 'Type', kindSel).addEventListener('change', function () {
         pushUndo();
         if (kindSel.value === 'source') M.setSource(m, n.id);
         else if (kindSel.value === 'demand') M.setDemand(m, n.id, 0.001, 100000);
@@ -5076,159 +5083,126 @@
         renderProperties(); changed();
       });
     }
+    det.ro('Internal id', n.id);
 
+    var elev = function () {
+      return FD.units.fmtLength(M.elevation(m, n), m.settings.display.length, true);
+    };
+
+    // ============================================================== OUTFLOW
     if (dev && dev.kind === 'demand') {
-      var simulating = (m.settings.calcMode === 'simulation');
-
-      /* Presented like EQUIPMENT: the design point in one group, what the
-       * terminal actually does in another.
-       *
-       * The design point stays EDITABLE in SIMULATION, which is the change
-       * here. It is not a result there — it is the input the terminal's
-       * characteristic is derived from, K = Q_d/sqrt(ΔP_d) — so disabling it
-       * hid the one number driving the simulated flow, and showed the actual
-       * flow in a box labelled as the design flow. */
+      // ---- DESIGN. Editable in SIMULATION too: it is the input the terminal's
+      // characteristic K = Q_d/√ΔP_d is derived from, not a result.
+      var des = section(host, 'Design');
       var fIn = el('input'); fIn.type = 'text';
-      fIn.value = FD.units.fmtFlow(dev.flow, m.settings.display.flow);
-      field(host, 'Design flow (' + m.settings.display.flow + ')', fIn)
+      fIn.value = FD.units.fmtFlow(dev.flow, fu);
+      field(des.box, 'Design flow (' + fu + ')', fIn)
         .addEventListener('change', function () {
           var v = FD.units.parse(fIn.value);
           if (isFinite(v) && v >= 0) {
-            pushUndo();
-            dev.flow = FD.units.toSIFlow(v, m.settings.display.flow);
-            changed();
-          } else { fIn.value = FD.units.fmtFlow(dev.flow, m.settings.display.flow); }
+            pushUndo(); dev.flow = FD.units.toSIFlow(v, fu); changed();
+          } else { fIn.value = FD.units.fmtFlow(dev.flow, fu); }
         });
 
       var pIn = el('input'); pIn.type = 'text';
-      pIn.value = FD.units.fmtPressure(dev.reqPressure, m.settings.display.pressure);
-      field(host, 'Design pressure (' + m.settings.display.pressure + ')', pIn)
+      pIn.value = FD.units.fmtPressure(dev.reqPressure, pu);
+      field(des.box, 'Design pressure (' + pu + ')', pIn)
         .addEventListener('change', function () {
           var v = FD.units.parse(pIn.value);
-          if (!isFinite(v)) {
-            pIn.value = FD.units.fmtPressure(dev.reqPressure, m.settings.display.pressure);
-            return;
-          }
-          var pa = FD.units.toSIPressure(v, m.settings.display.pressure);
-          /* Zero is not a low number here, it is a physical impossibility:
-           * water does not leave a pipe against nothing. It also leaves the
-           * terminal characteristic K = Q/sqrt(dP) undefined, which SIMULATION
-           * is built on. */
+          if (!isFinite(v)) { pIn.value = FD.units.fmtPressure(dev.reqPressure, pu); return; }
+          var pa = FD.units.toSIPressure(v, pu);
+          /* Zero is a physical impossibility — water does not leave a pipe
+           * against nothing — and leaves K = Q/√ΔP undefined, which SIMULATION
+           * runs on. */
           if (pa < M.MIN_OUTFLOW_PRESSURE) {
-            var minTxt = FD.units.fmtPressure(M.MIN_OUTFLOW_PRESSURE,
-                                              m.settings.display.pressure, true);
+            var minTxt = FD.units.fmtPressure(M.MIN_OUTFLOW_PRESSURE, pu, true);
             FD.dialog.alert({
               title: 'Outflow pressure cannot be zero',
               message: 'Outflow ' + (n.tag || n.id) + ' is set to ' +
-                       FD.units.fmtPressure(pa, m.settings.display.pressure, true) + '. ' +
-                       'If no pressure is required, set it to a minimum of ' + minTxt + '.'
+                       FD.units.fmtPressure(pa, pu, true) + '. If no pressure is ' +
+                       'required, set it to a minimum of ' + minTxt + '.'
             });
-            pIn.value = FD.units.fmtPressure(dev.reqPressure, m.settings.display.pressure);
+            pIn.value = FD.units.fmtPressure(dev.reqPressure, pu);
             return;
           }
-          pushUndo();
-          dev.reqPressure = pa;
-          changed();
+          pushUndo(); dev.reqPressure = pa; changed();
         });
-
-      /* The terminal characteristic the design point above defines. This is the
-       * number SIMULATION actually runs on, so it belongs beside the two inputs
-       * it comes from rather than only inside the engine. */
-      designKRow(readoutBox(host, null), dev.flow, dev.reqPressure);
-
-      switchRow(host, 'Include in calculation', dev.include !== false, function (on) {
+      designKRow(des, dev.flow, dev.reqPressure);
+      switchRow(des.box, 'Include in calculation', dev.include !== false, function (on) {
         pushUndo(); dev.include = on; changed(); renderProperties();
       });
-      /* In SIMULATION the terminal is a resistance derived from the design
-       * point above, so its flow is an OUTPUT: Q = Q_d·sqrt(P_node/ΔP_d),
-       * with P_node set by the pump curve through the solve. Reported in its
-       * own box, exactly as equipment reports its actual duty. */
+
+      // ---- ACTUAL
+      var act = section(host, 'Actual');
       if (simulating) {
-        var sim = app.results && app.results.simulation;
-        var act = sim && sim.terminals.filter(function (t2) {
-          return t2.node === n.id; })[0];
-        var ab = readoutBox(host, 'Actual');
-        ab.ro('Actual flow', act ? FD.units.fmtFlow(act.actualFlow, m.settings.display.flow, true)
-                                 : '—');
-        ab.ro('Actual pressure',
-              act && act.actualPressure !== undefined && act.actualPressure !== null
-                ? FD.units.fmtPressure(act.actualPressure, m.settings.display.pressure, true)
-                : '—');
-        /* No "% of design" and no balancing Kv here (Michael, 2026-08-02).
-         * Both are comparisons across the whole system rather than properties
-         * of this terminal, and both are already on the calculation sheet,
-         * which is where a set of them can be read against each other. */
+        /* In SIMULATION the terminal is a resistance and its flow is an OUTPUT:
+         * Q = Q_d·√(P_node/ΔP_d), P_node from the solve. */
+        var sim = res && res.simulation;
+        var a = sim && sim.terminals.filter(function (t2) { return t2.node === n.id; })[0];
+        act.ro('Actual flow', a ? FD.units.fmtFlow(a.actualFlow, fu, true) : '—');
+        act.ro('Actual pressure',
+               a && a.actualPressure !== undefined && a.actualPressure !== null
+                 ? FD.units.fmtPressure(a.actualPressure, pu, true) : '—');
         if (dev.include === false) {
-          ab.box.appendChild(el('p', 'hint',
-            'Excluded from the calculation, so it draws nothing.'));
+          act.box.appendChild(el('p', 'hint', 'Excluded from the calculation, so it draws nothing.'));
         }
+      } else if (res && res.pressure[n.id] !== undefined) {
+        /* In DESIGN the demand IS the flow; the node pressure is what the supply
+         * delivers there. */
+        act.ro('Flow', FD.units.fmtFlow(dev.flow, fu, true));
+        act.ro('Pressure', FD.units.fmtPressure(res.pressure[n.id], pu, true));
       }
-    }
+      act.ro('Elevation', elev());
 
-    /* Only a SOURCE states a static pressure. On an outflow the same field
-     * read as if it set the terminal's own pressure, which it does not — the
-     * outflow's number is its DESIGN pressure, edited above. */
-    if (n.device && n.device.kind === 'source') {
-      /* Stated as a PRESSURE and stored as one, on the DEVICE.
-       *
-       * It used to be stored as the node's `dz` — a height — because a tank
-       * raised 20 m does provide 200 kPa. Downstream that was right, but `dz`
-       * is a real elevation, so entering a pressure physically lifted the node
-       * and stretched every pipe on it in 3D: a 50 m run became 54.01 m and
-       * could not be typed back (Michael, 2026-08-02). Pressure and elevation
-       * are separate properties and are now stored separately. */
-      var spUnit = m.settings.display.pressure;
-      var spIn = el('input'); spIn.type = 'text';
-      var readSp = function () {
-        return FD.units.fmtPressure(n.device.pressure || 0, spUnit);
-      };
-      spIn.value = readSp();
-      field(host, 'Static pressure (' + spUnit + ')', spIn)
-        .addEventListener('change', function () {
-          var v = FD.units.parse(spIn.value);
-          if (isFinite(v)) {
-            pushUndo();
-            n.device.pressure = FD.units.toSIPressure(v, spUnit);
-            changed();
-          } else { spIn.value = readSp(); }
-        });
-    }
-
-    var res = app.results;
-    if (res && res.pressure[n.id] !== undefined) {
-      var info = el('div', 'readout');
-      var r1 = el('div', 'kv');
-      r1.appendChild(el('span', 'k', 'Elevation'));
-      r1.appendChild(el('span', 'v', FD.units.fmtLength(M.elevation(m, n), m.settings.display.length, true)));
-      info.appendChild(r1);
-      /* Not repeated when the Actual box above has already stated it — the same
-       * number twice in one panel reads as two different numbers that happen to
-       * agree. Elevation still belongs to every node. */
-      if (!(dev && dev.kind === 'demand' && m.settings.calcMode === 'simulation')) {
-        var r2 = el('div', 'kv');
-        r2.appendChild(el('span', 'k', 'Pressure'));
-        r2.appendChild(el('span', 'v', FD.units.fmtPressure(res.pressure[n.id], m.settings.display.pressure, true)));
-        info.appendChild(r2);
-      }
-      host.appendChild(info);
-    }
-
-    if (dev && dev.kind === 'demand') {
+      // ---- DISPLAY
       displayChecks(host, n, [
-        { key: 'flow', label: 'Flow' },
+        { key: 'flow', label: 'Design flow' },
+        { key: 'actualFlow', label: 'Actual flow' },
         { key: 'required', label: 'Required pressure' },
         { key: 'available', label: 'Available pressure' },
         { key: 'temperature', label: 'Temperature' }
       ]);
+
+    // =============================================================== SOURCE
     } else if (dev && dev.kind === 'source') {
+      // ---- DESIGN
+      var sdes = section(host, 'Design');
+      /* Stated and stored as a PRESSURE on the device — not the node's `dz`,
+       * which is a real elevation and would stretch every pipe on it in 3D. */
+      var spIn = el('input'); spIn.type = 'text';
+      var readSp = function () { return FD.units.fmtPressure(n.device.pressure || 0, pu); };
+      spIn.value = readSp();
+      field(sdes.box, 'Static pressure (' + pu + ')', spIn)
+        .addEventListener('change', function () {
+          var v = FD.units.parse(spIn.value);
+          if (isFinite(v)) {
+            pushUndo(); n.device.pressure = FD.units.toSIPressure(v, pu); changed();
+          } else { spIn.value = readSp(); }
+        });
+
+      // ---- ACTUAL
+      var sact = section(host, 'Actual');
+      sact.ro('Elevation', elev());
+      if (res && res.pressure[n.id] !== undefined) {
+        sact.ro('Pressure', FD.units.fmtPressure(res.pressure[n.id], pu, true));
+      }
+
+      // ---- DISPLAY
       displayChecks(host, n, [
         { key: 'elevation', label: 'Elevation' },
         { key: 'available', label: 'Pressure' },
         { key: 'temperature', label: 'Temperature' }
       ]);
-    }
 
-    if (!dev) displayChecks(host, n, []);
+    // =========================================================== PLAIN NODE
+    } else {
+      var jact = section(host, 'Actual');
+      jact.ro('Elevation', elev());
+      if (res && res.pressure[n.id] !== undefined) {
+        jact.ro('Pressure', FD.units.fmtPressure(res.pressure[n.id], pu, true));
+      }
+      displayChecks(host, n, []);
+    }
 
     var del = el('button', 'btn danger', 'Delete node');
     del.addEventListener('click', function () {

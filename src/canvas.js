@@ -4151,6 +4151,17 @@
 
     if (dev && dev.kind === 'demand') {
       if (flags.flow) lines.push('Q ' + FD.units.fmtFlow(dev.flow, d.flow, true));
+      if (flags.actualFlow) {
+        /* What the terminal actually draws: the solved terminal flow in
+         * SIMULATION, the design demand in DESIGN (where it is imposed). */
+        var sim = res && res.simulation;
+        var term = sim && sim.terminals.filter(function (t) { return t.node === obj.id; })[0];
+        var qa = term ? term.actualFlow
+               : (m.settings.calcMode !== 'simulation' ? dev.flow : null);
+        if (qa !== null && qa !== undefined && isFinite(qa)) {
+          lines.push('Qa ' + FD.units.fmtFlow(qa, d.flow, true));
+        }
+      }
       if (flags.required) lines.push('Req ' + FD.units.fmtPressure(dev.reqPressure, d.pressure, true));
       if (flags.available && res && res.pressure[obj.id] !== undefined) {
         lines.push('Avail ' + FD.units.fmtPressure(res.pressure[obj.id], d.pressure, true));
