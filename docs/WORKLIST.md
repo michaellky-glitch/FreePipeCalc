@@ -3,10 +3,12 @@
 Everything Michael has asked for that is not yet done. Closed items move to
 `Human-Test.md` with a verification note.
 
-**Every item he has raised so far is done.** What is left is his testing of it,
-and one thing found in passing (DX.1).
+One feature is IN FLIGHT — the Domestic Water module (DW.MOD), Phase 1 shipped
+in v0.16.31, Phase 2 (solver) is next. Everything else he has raised is done;
+what is left of the rest is his testing of it, and one thing found in passing
+(DX.1).
 
-Updated 2026-08-10, after v0.16.17.
+Updated 2026-08-16, after v0.16.31.
 
 ---
 
@@ -34,7 +36,7 @@ The likeliest things to come back:
 
 | # | Item | Notes |
 |---|---|---|
-| DW.MOD | **Domestic Water module** | Michael, 2026-08-12. Approach AGREED — see `docs/DW-MODULE.md`: lives INSIDE Design (Plumbing outflow type + DW behaviour, no new mode), plumbing networks must be a TREE (error on loops), flow = Generic demand + downstream cold-FU diversity (IPC Table E103.3, flush-tank/flushometer). Mass imbalance is expected for plumbing, an error otherwise. Build in three phases (data+UI, solver, pressure). Multi-session — allocate usage deliberately. |
+| DW.MOD | **Domestic Water module — Phase 2 (solver) next** | Michael, 2026-08-12. Approach AGREED — see `docs/DW-MODULE.md`. **Phase 1 DONE (v0.16.31):** data (`data/plumbing.js`, IPC 2018 App. E, `verified:false`), model (`M.outflowFU`, `settings.plumbing.system`, `demandType`), UI (Plumbing outflow type + fixture/count/Custom-FU/readback, HYDRAULIC supply selector). **Phase 2 (next):** the solver — pipe flow = downstream Generic sum + `FD.plumbing.fuToFlow(downstream cold-FU sum, system)`; require a TREE (error on loops); system-aware imbalance (expected for DW, an error for closed-loop/Generic). **Phase 3:** forward head-loss pass → residual pressure at each fixture + sheet reporting. **Blocking on Michael before promote:** confirm the `verified:false` IPC transcription and the per-fixture occupancy/control assumptions in `data/plumbing.js`, then set `FD.plumbing.verified = true`. Multi-session — allocate usage deliberately. |
 | SW.2 | **Finish the sweep → iteration rename (internal)** | Michael, 2026-08-12. The USER-FACING text now says "iteration" (progress bar, the Settling-iterations field, CONTROL_HUNTING / CONTROL_BUDGET messages). The INTERNALS still say sweep: the `sweep`/`MAX_SWEEPS`/`reSweep` variables in `network.js`, `report.sweeps`, and the saved setting key `control.sweeps`. Renaming `control.sweeps` needs a load-time migration so old files keep their value, so it was left for a dedicated pass. Cosmetic, no behaviour change. |
 | MSG.2 | **Trim the verbose messages** | `docs/MESSAGES.md` §7 proposes shorter forms for 8 messages; awaiting Michael's yes/no per line, then apply to source. (CONTROL_HUNTING already reworded in v0.16.26.) |
 | DX.1 | Does the DXF open in real CAD? | Untested; nothing in this environment can check it. |

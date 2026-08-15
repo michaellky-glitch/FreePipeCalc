@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.30, 2026-08-12.** Nine test suites, **1979 assertions**, all
+State: **v0.16.31, 2026-08-16.** Ten test suites, **2018 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -22,7 +22,8 @@ model is wrong, and that has held up every time it has been tested.
 
 **Layers**, load order fixed in `index.html`:
 
-    data/*.js      tables — schedules, fittings, valves, pumps, fluids
+    data/*.js      tables — schedules, fittings, valves, pumps, fluids,
+                   plumbing (IPC fixture units + demand curves, verified:false)
     src/units.js   SI internally, conversion at the edges only
     src/hydraulics.js  friction methods (Hazen-Williams, Darcy/Swamee-Jain)
     src/solver.js  the GGA loop and the linear algebra
@@ -38,9 +39,23 @@ model is wrong, and that has held up every time it has been tested.
 
 ## 2. Where things stand
 
-**The engine is in good shape and the backlog is empty.** Hydraulics, thermal,
+**The engine is in good shape and the backlog is short.** Hydraulics, thermal,
 pump sizing, control loops, sync, copy-paste, the tools and the DXF/print paths
-all work and are covered. Every item Michael has raised is done.
+all work and are covered.
+
+**The one feature in flight is the Domestic Water (DW) module.** Approach was
+agreed with Michael (`docs/DW-MODULE.md`), and **Phase 1 shipped in v0.16.31**:
+the data (`data/plumbing.js`, IPC 2018 Appendix E, `verified: false`), the model
+(`M.outflowFU`, `settings.plumbing.system`, `demandType` on the demand device),
+and the UI (a Generic/Plumbing outflow type in the outflow DESIGN panel with a
+fixture + count + Custom-FU + cold-FU readback, and a "Plumbing supply" selector
+on the HYDRAULIC tab). **Phase 2 is the solver** — tree accumulation of
+downstream Generic flow plus `fuToFlow(downstream FU sum)`, a tree requirement
+with a loop error, and system-aware "imbalance is expected for DW, an error
+otherwise" handling. Phase 3 is the forward head-loss pass to residual pressure
+at each fixture. See `WORKLIST.md` → DW.MOD. **The IPC data is `verified: false`
+until Michael signs off the transcription and the per-fixture occupancy/control
+assumptions noted in `data/plumbing.js`.**
 
 Nine versions were built in one session on 2026-08-09 (v0.16.4 → v0.16.15), and
 the big ones were:
@@ -84,8 +99,12 @@ clipboard writes fall back to `execCommand`.
 removed because *"an invented correction is not defensible to a checking
 engineer"*. Vindicated twice: a synthesised 45° elbow column turned out 250%
 wrong against the real ASHRAE table. If a number cannot be sourced, ship it
-flagged or not at all. Exactly one exception exists and is marked
-`verified: false` — the propylene glycol properties. Do not quietly promote it.
+flagged or not at all. Two things are shipped flagged `verified: false` and must
+not be quietly promoted: the propylene glycol properties, and the IPC 2018
+plumbing tables in `data/plumbing.js` (fixture cold FU and the FU→demand
+diversity curves) — transcribed, awaiting Michael's sign-off against his own
+copy of the code, including the per-fixture occupancy/control choices noted in
+that file. When he confirms them, set `FD.plumbing.verified = true`.
 
 **Test expectations are independent hand calculations**, never numbers copied
 out of the code. About half of all test failures here turned out to be the TEST
@@ -467,3 +486,4 @@ Short index of the least obvious things, all expanded in `ARCHITECTURE.md`:
 | A control link across floors rises through a NODE | Half the link on each floor, meeting at one draggable point in plan |
 | Routes are `zRoute`, one degree of freedom | Three orthogonal segments between two fixed points have exactly one |
 | Details and notes are their own collections | Nothing in the engine reads them, so a room outline cannot become pipework |
+| A plumbing (DW) outflow is sized from FIXTURE UNITS, not continuity | Demand is a sub-additive diversity curve (IPC), so a DW branch legitimately does NOT balance — Phase 2 solver must not treat that as an error |

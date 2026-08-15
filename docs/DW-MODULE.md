@@ -62,11 +62,24 @@ A model may mix the two; a pipe's flow is the sum of both contributions.
 
 ## Phasing (multi-session; watch the weekly usage)
 
-1. **Data + model + UI.** The Plumbing outflow type, the fixture cold-FU table,
-   the FU→flow table (flush tank + flushometer) with the HYDRAULIC selector, and
-   the panel to assign a fixture / Custom FU to a plumbing outflow. No solver yet.
-2. **Solver.** Downstream-FU tree accumulation + diversity conversion → per-pipe
-   design flow (Generic + Plumbing). Tree requirement + loop error. System-aware
-   imbalance handling.
+1. **Data + model + UI. — DONE, v0.16.31.** The Plumbing outflow type, the
+   fixture cold-FU table, the FU→flow table (flush tank + flushometer) with the
+   HYDRAULIC selector, and the panel to assign a fixture / Custom FU to a
+   plumbing outflow. No solver yet. Shipped in `data/plumbing.js`
+   (`verified:false`), `M.outflowFU` / `settings.plumbing.system` /
+   `demandType`, the outflow DESIGN panel type selector, and
+   `test/plumbing.test.js` (39 assertions). Verified live in the browser.
+2. **Solver. — NEXT.** Downstream-FU tree accumulation + diversity conversion →
+   per-pipe design flow (Generic + Plumbing). Tree requirement + loop error.
+   System-aware imbalance handling. Building block in hand:
+   `FD.plumbing.fuToFlow(totalFU, system)` returns the SI design flow for a
+   summed downstream cold-FU load; walk the tree from the leaves, sum Generic
+   flow and cold FU separately down each pipe, and set pipe design flow =
+   Generic sum + `fuToFlow(cold-FU sum)`. Reject any network with a loop
+   (a plumbing outflow present + a cycle) as an error.
 3. **Pressure + reporting.** Forward head-loss pass to residual pressure at each
    fixture; sheet reporting.
+
+**Before promoting the data to `verified: true`:** Michael must confirm the IPC
+transcription and the per-fixture occupancy/control assumptions noted in
+`data/plumbing.js` against his own copy of the code.
