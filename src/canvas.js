@@ -4189,6 +4189,11 @@
     var dev = obj.device;
 
     if (dev && dev.kind === 'demand') {
+      /* Fixture units on the drawing — plumbing only (a hydronic outflow has
+       * none). The outflow's own cold FU: count × the fixture's FU. */
+      if (flags.fu && m.discipline === 'plumbing') {
+        lines.push('FU ' + M.outflowFU(m, dev).toFixed(1));
+      }
       if (flags.flow) lines.push('Q ' + FD.units.fmtFlow(dev.flow, d.flow, true));
       if (flags.actualFlow) {
         /* What the terminal actually draws: the solved terminal flow in

@@ -5550,18 +5550,21 @@
         /* UNDIVERSIFIED supply outlet (IPC 604.3) — the flow and pressure ONE
          * such fixture draws, used by SIMULATE (pushed through the GGA) and the
          * residual-pressure check. Chosen independently of the FU fixture. */
+        var effSupply = M.plumbingSupplyId(dev);   // dev.supply, or the fixture default
         var supSel = el('select');
         FD.plumbing.supplies.forEach(function (sp) {
+          var isDefault = !dev.supply && sp.id === effSupply && sp.id !== 'none';
           var o = el('option', '', sp.name +
-            (sp.id === 'none' ? '' : '  (' + sp.gpm + ' gpm, ' + sp.psi + ' psi)'));
+            (sp.id === 'none' ? '' : '  (' + sp.gpm + ' gpm, ' + sp.psi + ' psi)') +
+            (isDefault ? '  — default' : ''));
           o.value = sp.id;
-          if ((dev.supply || 'none') === sp.id) o.selected = true;
+          if (effSupply === sp.id) o.selected = true;
           supSel.appendChild(o);
         });
         field(des.box, 'Supply outlet (604.3)', supSel).addEventListener('change', function () {
           pushUndo(); dev.supply = supSel.value; renderProperties(); changed();
         });
-        if (dev.supply && dev.supply !== 'none') {
+        if (effSupply !== 'none') {
           des.ro('Undiversified flow', FD.units.fmtFlow(M.plumbingUndivFlow(m, dev), fu, true) +
             ((dev.count || 1) > 1 ? ' (' + dev.count + ' ×)' : ''));
           des.ro('Required pressure', FD.units.fmtPressure(M.plumbingReqPressure(m, dev), pu, true));
@@ -5635,13 +5638,17 @@
       act.ro('Elevation', elev());
 
       // ---- DISPLAY
-      displayChecks(host, n, [
+      var demandDisplay = [];
+      /* Fixture units — plumbing only (a hydronic outflow has none). First, as
+       * it is the load the fixture represents. */
+      if (m.discipline === 'plumbing') demandDisplay.push({ key: 'fu', label: 'Fixture units' });
+      demandDisplay.push(
         { key: 'flow', label: 'Design flow' },
         { key: 'actualFlow', label: 'Actual flow' },
         { key: 'required', label: 'Required pressure' },
         { key: 'available', label: 'Available pressure' },
-        { key: 'temperature', label: 'Temperature' }
-      ]);
+        { key: 'temperature', label: 'Temperature' });
+      displayChecks(host, n, demandDisplay);
 
     // =============================================================== SOURCE
     } else if (dev && dev.kind === 'source') {

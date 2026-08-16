@@ -174,6 +174,33 @@
     return null;
   }
 
+  /* Default 604.3 supply outlet for each E103.3(2) fixture variation. This is a
+   * convenience DEFAULT only — the outflow's own `dev.supply` overrides it — so a
+   * sized model simulates without the engineer setting a supply outlet on every
+   * fixture by hand (a plumbing file with no supply outlets had zero
+   * undiversified flow, so its pump reported no flow — Michael, 2026-08-17). The
+   * associations are the obvious ones; the ambiguous fixtures (bathroom group,
+   * tank urinal, washing machine — none of which has a single 604.3 row) default
+   * to none and are the engineer's to set. Values are 604.3; only the pairing is
+   * a default, which the user sees and can change. */
+  var SUPPLY_DEFAULT = {
+    'bathtub.priv': 'bathtubMix', 'bathtub.pub': 'bathtubMix',
+    'bidet.priv': 'bidet',
+    'drinkingFountain.pub': 'drinkingFountain',
+    'kitchenSink.priv': 'sinkResidential', 'kitchenSink.pub': 'sinkService',
+    'lavatory.priv': 'lavatoryPrivate', 'lavatory.pub': 'lavatoryPublic',
+    'serviceSink.pub': 'sinkService',
+    'shower.priv': 'shower', 'shower.pub': 'shower',
+    'urinal.pubValve': 'urinalValve',
+    'waterCloset.privTank': 'wcTankCloseCoupled',
+    'waterCloset.privValve': 'wcSiphonicValve',
+    'waterCloset.pubTank': 'wcTankCloseCoupled',
+    'waterCloset.pubValve': 'wcSiphonicValve'
+  };
+  function supplyDefault(fixtureId, variationId) {
+    return SUPPLY_DEFAULT[fixtureId + '.' + variationId] || null;
+  }
+
   function fixture(id) {
     for (var i = 0; i < FIXTURES.length; i++) if (FIXTURES[i].id === id) return FIXTURES[i];
     return null;
@@ -245,6 +272,7 @@
     supplies: FIXTURE_SUPPLY,
     fixture: fixture,
     fixtureSupply: fixtureSupply,
+    supplyDefault: supplyDefault,
     variations: variations,
     variation: variation,
     fixtureFU: fixtureFU,

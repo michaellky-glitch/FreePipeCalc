@@ -1386,22 +1386,31 @@
       psi: (o && isFinite(o.psi)) ? Number(o.psi) : base.psi
     };
   }
+  /* The 604.3 supply outlet a plumbing outflow uses: its own `dev.supply`, or the
+   * fixture's default when none is set, or 'none'. Resolving the default here is
+   * what lets a sized model simulate without a supply outlet set on every fixture
+   * by hand (see FD.plumbing.supplyDefault). */
+  function plumbingSupplyId(dev) {
+    if (!dev || dev.demandType !== 'plumbing') return 'none';
+    if (dev.supply) return dev.supply;
+    return FD.plumbing.supplyDefault(dev.fixture, dev.variation) || 'none';
+  }
   /* Undiversified flow of a plumbing outflow (SI, m³/s): supply outlet gpm ×
    * count. A generic outflow keeps its own flow; anything without a supply
-   * outlet contributes zero (nothing to push). */
+   * outlet (and no default) contributes zero (nothing to push). */
   function plumbingUndivFlow(m, dev) {
     if (!dev || dev.kind !== 'demand' || dev.include === false) return 0;
     if (dev.demandType !== 'plumbing') return dev.flow || 0;
-    if (!dev.supply || dev.supply === 'none') return 0;
+    var supplyId = plumbingSupplyId(dev);
+    if (supplyId === 'none') return 0;
     var count = dev.count > 0 ? dev.count : 1;
-    return plumbingSupplyValue(m, dev.supply).gpm * FD.plumbing.GPM_TO_M3S * count;
+    return plumbingSupplyValue(m, supplyId).gpm * FD.plumbing.GPM_TO_M3S * count;
   }
   /* Required flow pressure at the outlet (SI, Pa) from Table 604.3. */
   function plumbingReqPressure(m, dev) {
-    if (!dev || dev.demandType !== 'plumbing' || !dev.supply || dev.supply === 'none') {
-      return (dev && dev.reqPressure) || 0;
-    }
-    return plumbingSupplyValue(m, dev.supply).psi * FD.plumbing.PSI_TO_PA;
+    var supplyId = plumbingSupplyId(dev);
+    if (supplyId === 'none') return (dev && dev.reqPressure) || 0;
+    return plumbingSupplyValue(m, supplyId).psi * FD.plumbing.PSI_TO_PA;
   }
 
   /* ===================================================== DOMESTIC-WATER SIZING
@@ -3032,7 +3041,7 @@
     plumbingFixtureFU: plumbingFixtureFU, plumbingFuToFlow: plumbingFuToFlow,
     plumbingDemandCurve: plumbingDemandCurve, plumbingFUKey: plumbingFUKey,
     plumbingSupplyValue: plumbingSupplyValue, plumbingUndivFlow: plumbingUndivFlow,
-    plumbingReqPressure: plumbingReqPressure,
+    plumbingReqPressure: plumbingReqPressure, plumbingSupplyId: plumbingSupplyId,
     clearDevice: clearDevice,
     applyFluidPreset: applyFluidPreset,
     controlOf: controlOf, canControl: canControl, setControl: setControl,

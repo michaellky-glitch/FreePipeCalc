@@ -5,6 +5,7 @@
  * Run:  node test/plumbing.test.js
  */
 'use strict';
+const fs = require('fs');
 const { load, ok, near, section, report } = require('./harness');
 const FD = load(['src/model.js', 'src/geometry.js', 'src/network.js']);
 const P = FD.plumbing, M = FD.model;
@@ -322,10 +323,23 @@ section('Fixture supply — Table 604.3 (undiversified flow & pressure)');
   near('required pressure = 20 psi in Pa',
     M.plumbingReqPressure(ms, dev), 20 * P.PSI_TO_PA, 1e-6);
 
-  // No supply outlet → nothing to push.
+  // Explicit 'none' → nothing to push.
   const devNone = { kind: 'demand', demandType: 'plumbing', fixture: 'lavatory',
                     variation: 'priv', count: 2, supply: 'none', include: true };
-  near('no supply outlet → zero undiversified flow', M.plumbingUndivFlow(ms, devNone), 0, 0);
+  near('explicit none → zero undiversified flow', M.plumbingUndivFlow(ms, devNone), 0, 0);
+
+  // UNSET supply falls back to the fixture DEFAULT, so a sized model simulates
+  // without a supply set on every fixture (Michael, 2026-08-17: pump had no flow).
+  const devDef = { kind: 'demand', demandType: 'plumbing', fixture: 'waterCloset',
+                   variation: 'privTank', count: 1, include: true };   // no dev.supply
+  ok('unset supply resolves to the fixture default',
+    M.plumbingSupplyId(devDef) === 'wcTankCloseCoupled', M.plumbingSupplyId(devDef));
+  near('unset supply still yields undiversified flow (3 gpm default)',
+    M.plumbingUndivFlow(ms, devDef), 3 * GPM, 1e-12);
+  const devExplicit = { kind: 'demand', demandType: 'plumbing', fixture: 'waterCloset',
+                        variation: 'privTank', count: 1, supply: 'wcBlowoutValve', include: true };
+  ok('an explicit supply overrides the default',
+    M.plumbingSupplyId(devExplicit) === 'wcBlowoutValve');
 
   // A generic outflow keeps its own flow.
   near('generic outflow keeps its flow',
@@ -368,6 +382,46 @@ section('Plumbing SIMULATE — undiversified flows through the GGA (converted co
   ok('undiversified simulate flow exceeds the diversified design flow',
     Math.abs(res.flow[T2.ids.p1]) > design,
     Math.abs(res.flow[T2.ids.p1]) + ' vs ' + design);
+}
+
+// ---------------------------------------- regression: booster with no supply set
+section('Regression — plumbing booster simulates with no supply outlets set');
+{
+  /* Michael, 2026-08-17 (debug/20260817-PLBG.json → test/fixtures): a sized
+   * plumbing file with a booster pump reported PUMP_NO_FLOW in SIMULATE because
+   * the fixtures had no 604.3 supply outlet, so every undiversified flow was
+   * zero. The fixture DEFAULT now fills that in, so the pump has flow. */
+  const raw = JSON.parse(fs.readFileSync(__dirname + '/fixtures/plumbing-booster.pnet.json', 'utf8'));
+  const mb = M.fromJSON(raw);
+  ok('the fixture file is a plumbing simulation', mb.discipline === 'plumbing' &&
+     mb.settings.calcMode === 'simulation');
+  const noSupply = mb.nodes.every(function (n) {
+    return !(n.device && n.device.kind === 'demand') || !n.device.supply;
+  });
+  ok('...with no supply outlet set on any fixture (the trigger)', noSupply);
+
+  // Replicate app.buildPlumbingSimModel: fixtures → fixed generic demands.
+  const sim = JSON.parse(JSON.stringify(mb));
+  sim.settings.calcMode = 'design';
+  let pushed = 0;
+  sim.nodes.forEach(function (n) {
+    const d = n.device;
+    if (d && d.kind === 'demand' && d.demandType === 'plumbing') {
+      const q = M.plumbingUndivFlow(mb, d);
+      if (!(q > 0)) { d.include = false; return; }
+      d.flow = q; d.reqPressure = Math.max(M.plumbingReqPressure(mb, d), M.MIN_OUTFLOW_PRESSURE);
+      d.demandType = 'generic'; pushed++;
+    }
+  });
+  ok('every fixture now pushes a (default) undiversified flow', pushed === 6, String(pushed));
+  const res = FD.network.solveModel(sim);
+  const pump = mb.pipes.filter(function (p) { return p.kind === 'pump'; })[0];
+  ok('no PUMP_NO_FLOW warning', !(res.warnings || []).some(function (w) { return w.code === 'PUMP_NO_FLOW'; }),
+     (res.warnings || []).map(function (w) { return w.code; }).join(','));
+  ok('the pump now carries flow', Math.abs(res.flow[pump.id]) > 0,
+     String(res.flow[pump.id]));
+  near('...the sum of six default WC outlets (6 × 3 gpm)',
+     Math.abs(res.flow[pump.id]), 6 * 3 * GPM, 1e-6);
 }
 
 function findNode(mm, x, y) {

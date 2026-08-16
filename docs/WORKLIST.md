@@ -48,6 +48,19 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
 
+* **v0.17.4** — Domestic Water: outflow FU display + booster-no-flow fix (Michael,
+  2026-08-17). (1) An outflow now has a **Fixture units** option in
+  Design ▸ Properties ▸ Display (plumbing only) — a value box "FU 2.2" drawn at
+  the node, the fixture's own cold FU. (2) **Fix: a sized plumbing file reported
+  "pump has no flow" in SIMULATE** (`debug/20260817-PLBG.json`) because its
+  fixtures had no 604.3 supply outlet set, so every undiversified flow was zero.
+  A fixture now has a DEFAULT supply outlet (`FD.plumbing.supplyDefault`, e.g. WC
+  private flush-tank → "Water closet, tank, close coupled" 3 gpm/20 psi), resolved
+  by `M.plumbingSupplyId` when `dev.supply` is unset — so a sized model simulates
+  without a supply set on every fixture by hand, and the pump gets flow (verified:
+  6 WC → 1.136 L/s). The default is a convenience the user sees ("— default" in
+  the selector) and overrides. Case frozen as `test/fixtures/plumbing-booster.pnet.json`.
+  6 new assertions (suite 2105).
 * **v0.17.3** — Domestic Water: **downstream fixture units as a pipe-label
   option** (Michael, 2026-08-16). A new `annotate.pipeFU` flag draws the pipe's
   downstream cold FU on the drawing (e.g. "22.0FU/40⌀/5.00m/1.28L/s"); the toggle

@@ -1,0 +1,528 @@
+{
+  "formatVersion": 1,
+  "appVersion": "0.17.3",
+  "discipline": "plumbing",
+  "settings": {
+    "units": "metric",
+    "display": {
+      "flow": "L/s",
+      "pressure": "kPa",
+      "pdm": "Pa/m",
+      "length": "m",
+      "size": "DN",
+      "valveCoef": "Kv"
+    },
+    "calcMode": "simulation",
+    "frictionMethod": "HW",
+    "systemType": "open",
+    "plumbing": {
+      "system": "flushTank"
+    },
+    "hw": {
+      "A": 10.67,
+      "a": 1.852,
+      "b": 1.852,
+      "e": 4.8704
+    },
+    "ashrae": {
+      "K": 6.819,
+      "a": 1.852,
+      "e": 1.167
+    },
+    "dw": {
+      "frictionFactor": "swameejain",
+      "roughness_mm": 0.045,
+      "kSet": "threaded"
+    },
+    "fluid": {
+      "preset": "water",
+      "name": "Water",
+      "density": 998,
+      "kinematicViscosity": 0.000001004,
+      "temperature": 20,
+      "specificHeat": 4187
+    },
+    "thermal": {
+      "ambient": 20,
+      "supplyTemp": 6,
+      "insulationK": 0.02,
+      "surfaceCoeff": 8,
+      "insulation_mm": 50,
+      "insulation": {},
+      "tempMin": -50,
+      "tempMax": 50
+    },
+    "control": {
+      "minSpeed": 0.25,
+      "minOpening": 10,
+      "tol": 0.05,
+      "maxSolves": 0
+    },
+    "elSet": "carrier",
+    "fittingEL": {},
+    "fittingLD": {
+      "E90": 30,
+      "E45": 16,
+      "TRUN": 20,
+      "TBRANCH": 60,
+      "TRUN_DIV": 20,
+      "TBRANCH_DIV": 60,
+      "TRUN_CONV": 20,
+      "TBRANCH_CONV": 60,
+      "GATE": 8,
+      "GLOBE": 340,
+      "CHECK": 100
+    },
+    "fittingK": {},
+    "schedule": "sch40",
+    "lastSize": "DN40",
+    "C": 120,
+    "defaultC": {},
+    "pumpSafetyPct": 0,
+    "pumpCurve": {
+      "shutoffPct": 140,
+      "runoutFlowPct": 150,
+      "runoutHeadPct": 65
+    },
+    "theme": "dark",
+    "warn": {
+      "velocity": 2.4,
+      "pdm": 400,
+      "laminar": true,
+      "pumpRunout": 120,
+      "equipFlowRatio": 2,
+      "maxComponentPD": 2000000,
+      "valveOversized": 10,
+      "heatBalance": 2
+    },
+    "floorToFloor": 3.5,
+    "grid": {
+      "minor": 0.5,
+      "major": 5,
+      "snap": true
+    },
+    "annotate": {
+      "pipeDiameter": true,
+      "pipeLength": true,
+      "pipeFlow": true,
+      "pipeVelocity": false,
+      "pipeFU": true,
+      "pipePD": false,
+      "pipePDM": false,
+      "fitType": true,
+      "fitPD": false,
+      "nodePressure": false,
+      "nodeTemperature": false,
+      "nodeNumbers": true
+    },
+    "presentation": {
+      "arrowSize": 1,
+      "labelSize": 11,
+      "uiFontSize": 14
+    },
+    "csv": {
+      "delimiter": ",",
+      "decimal": "."
+    },
+    "exportImage": "svg",
+    "meta": {
+      "project": "",
+      "system": "",
+      "engineer": "",
+      "company": "",
+      "date": "",
+      "revision": ""
+    }
+  },
+  "customSchedules": {},
+  "levels": [
+    {
+      "id": "L0",
+      "name": "Level 0",
+      "altitude": 0,
+      "dx": 0,
+      "dy": 0,
+      "lookDir": "down",
+      "trace": null
+    }
+  ],
+  "nodes": [
+    {
+      "id": "N0",
+      "level": "L0",
+      "x": 5,
+      "y": 20,
+      "dz": 0,
+      "device": {
+        "kind": "source",
+        "pressure": 0
+      },
+      "tag": "SRC-1"
+    },
+    {
+      "id": "N1",
+      "level": "L0",
+      "x": 25,
+      "y": 20,
+      "dz": 0,
+      "device": null
+    },
+    {
+      "id": "N2",
+      "level": "L0",
+      "x": 25,
+      "y": 15,
+      "dz": 0,
+      "device": {
+        "kind": "demand",
+        "demandType": "plumbing",
+        "flow": 0.001,
+        "reqPressure": 100000,
+        "include": true,
+        "fixture": "waterCloset",
+        "count": 1,
+        "variation": "privTank"
+      },
+      "tag": "OF-1"
+    },
+    {
+      "id": "N3",
+      "level": "L0",
+      "x": 24,
+      "y": 20,
+      "dz": 0,
+      "device": null
+    },
+    {
+      "id": "N4",
+      "level": "L0",
+      "x": 24,
+      "y": 15,
+      "dz": 0,
+      "device": {
+        "kind": "demand",
+        "demandType": "plumbing",
+        "flow": 0.001,
+        "reqPressure": 100000,
+        "include": true,
+        "fixture": "waterCloset",
+        "count": 1,
+        "variation": "privTank"
+      },
+      "tag": "OF-2"
+    },
+    {
+      "id": "N6",
+      "level": "L0",
+      "x": 23,
+      "y": 15,
+      "dz": 0,
+      "device": {
+        "kind": "demand",
+        "demandType": "plumbing",
+        "flow": 0.001,
+        "reqPressure": 100000,
+        "include": true,
+        "fixture": "waterCloset",
+        "count": 1,
+        "variation": "privTank"
+      },
+      "tag": "OF-3"
+    },
+    {
+      "id": "N8",
+      "level": "L0",
+      "x": 22,
+      "y": 15,
+      "dz": 0,
+      "device": {
+        "kind": "demand",
+        "demandType": "plumbing",
+        "flow": 0.001,
+        "reqPressure": 100000,
+        "include": true,
+        "fixture": "waterCloset",
+        "count": 1,
+        "variation": "privTank"
+      },
+      "tag": "OF-4"
+    },
+    {
+      "id": "N9",
+      "level": "L0",
+      "x": 23,
+      "y": 20,
+      "dz": 0,
+      "device": null
+    },
+    {
+      "id": "N10",
+      "level": "L0",
+      "x": 22,
+      "y": 20,
+      "dz": 0,
+      "device": null
+    },
+    {
+      "id": "N11",
+      "level": "L0",
+      "x": 6.020677892133123,
+      "y": 20,
+      "dz": 0,
+      "device": null
+    },
+    {
+      "id": "N12",
+      "level": "L0",
+      "x": 6.520677892133123,
+      "y": 20,
+      "dz": 0,
+      "device": null
+    },
+    {
+      "id": "N13",
+      "level": "L0",
+      "x": 21.00113178362027,
+      "y": 15,
+      "dz": 0,
+      "device": {
+        "kind": "demand",
+        "demandType": "plumbing",
+        "flow": 0.001,
+        "reqPressure": 100000,
+        "include": true,
+        "fixture": "waterCloset",
+        "count": 1,
+        "variation": "privTank"
+      },
+      "tag": "OF-5"
+    },
+    {
+      "id": "N14",
+      "level": "L0",
+      "x": 21.00113178362027,
+      "y": 20,
+      "dz": 0,
+      "device": null
+    },
+    {
+      "id": "N15",
+      "level": "L0",
+      "x": 20.00478751824175,
+      "y": 15,
+      "dz": 0,
+      "device": {
+        "kind": "demand",
+        "demandType": "plumbing",
+        "flow": 0.001,
+        "reqPressure": 100000,
+        "include": true,
+        "fixture": "waterCloset",
+        "count": 1,
+        "variation": "privTank"
+      },
+      "tag": "OF-6"
+    },
+    {
+      "id": "N16",
+      "level": "L0",
+      "x": 20.00478751824175,
+      "y": 20,
+      "dz": 0,
+      "device": null
+    }
+  ],
+  "pipes": [
+    {
+      "id": "P1",
+      "a": "N1",
+      "b": "N2",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN25",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P2",
+      "a": "N3",
+      "b": "N4",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN25",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P6",
+      "a": "N3",
+      "b": "N1",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN40",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P8",
+      "a": "N9",
+      "b": "N3",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN40",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P11",
+      "a": "N10",
+      "b": "N9",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN40",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P13",
+      "a": "N6",
+      "b": "N9",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN25",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P14",
+      "a": "N8",
+      "b": "N10",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN25",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P15",
+      "a": "N0",
+      "b": "N11",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN40",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P16",
+      "a": "N11",
+      "b": "N12",
+      "kind": "pump",
+      "schedule": "sch40",
+      "size": "DN40",
+      "C": 120,
+      "riser": null,
+      "pump": {
+        "mode": "fixed",
+        "head": 20.42821626944,
+        "flow": 0,
+        "sizing": "manual",
+        "qDesign": 0.000852979455328,
+        "hDesign": 20.42821626944,
+        "curve": {
+          "H0": 28.599502482043636,
+          "a": 468143.5939441286,
+          "b": 1.55034,
+          "source": "generated",
+          "points": [
+            {
+              "q": 0,
+              "h": 28.599502777216
+            },
+            {
+              "q": 0.000852979455328,
+              "h": 20.42821626944
+            },
+            {
+              "q": 0.0012794691829920001,
+              "h": 13.278340575136001
+            }
+          ],
+          "fit": {
+            "r2": 0.9999999999999949,
+            "maxDev": 6.325121404415768e-7,
+            "rms": 4.475847990901229e-7,
+            "n": 3
+          },
+          "Qd": 0.000852979455328,
+          "Hd": 20.42821626944
+        }
+      },
+      "tag": "PMP-1"
+    },
+    {
+      "id": "P18",
+      "a": "N13",
+      "b": "N14",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN25",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P20",
+      "a": "N14",
+      "b": "N10",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN40",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P21",
+      "a": "N15",
+      "b": "N16",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN25",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P22",
+      "a": "N12",
+      "b": "N16",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN40",
+      "C": 120,
+      "riser": null
+    },
+    {
+      "id": "P23",
+      "a": "N16",
+      "b": "N14",
+      "kind": "pipe",
+      "schedule": "sch40",
+      "size": "DN40",
+      "C": 120,
+      "riser": null
+    }
+  ],
+  "risers": [],
+  "details": [],
+  "notes": [],
+  "_seq": {
+    "level": 1,
+    "node": 17,
+    "pipe": 24,
+    "riser": 0,
+    "detail": 0,
+    "note": 0
+  },
+  "activeLevel": "L0",
+  "migrations": [],
+  "savedAt": "2026-08-16T23:12:57.511Z"
+}
