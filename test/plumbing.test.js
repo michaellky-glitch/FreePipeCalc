@@ -214,6 +214,48 @@ const r0 = M.plumbingSizing(P0);
 ok('no plumbing outflow → ok, empty', r0.ok && Object.keys(r0.byPipe).length === 0,
   JSON.stringify(r0.error));
 
+// ---------------------------------------- editable tables (overrides)
+section('Editable IPC tables — per-model overrides');
+
+// data-layer: an explicit curve overrides the built-in one, same shape/unit.
+const customCurve = [[1, 4.0], [10, 20.0], [100, 60.0]];
+near('fuToFlowGpm honours an explicit curve at a point',
+  P.fuToFlowGpm(10, 'flushTank', customCurve), 20.0, 1e-9);
+near('...and interpolates on it (55 FU → 20+(45/90)(60-20)=40)',
+  P.fuToFlowGpm(55, 'flushTank', customCurve), 40.0, 1e-9);
+near('...and clamps below it', P.fuToFlowGpm(0.5, 'flushTank', customCurve), 4.0, 1e-9);
+near('fuToFlow applies SI conversion to the override',
+  P.fuToFlow(10, 'flushTank', customCurve), 20.0 * GPM, 1e-12);
+
+// model-layer: a fixture FU override changes the effective FU and the sizing.
+const mo = M.create();
+if (!mo.settings.plumbing) mo.settings.plumbing = { system: 'flushTank' };
+near('default private-tank WC FU is 2.2', M.plumbingFixtureFU(mo, 'waterCloset', 'privTank'), 2.2, 1e-9);
+mo.settings.plumbing.fu = {}; mo.settings.plumbing.fu[M.plumbingFUKey('waterCloset', 'privTank')] = 3.5;
+near('an override changes the effective fixture FU', M.plumbingFixtureFU(mo, 'waterCloset', 'privTank'), 3.5, 1e-9);
+const wcOv = { kind: 'demand', demandType: 'plumbing', fixture: 'waterCloset', variation: 'privTank', count: 4 };
+near('outflowFU uses the overridden FU (4 × 3.5 = 14)', M.outflowFU(mo, wcOv), 14.0, 1e-9);
+
+// model-layer: an edited demand curve drives plumbingFuToFlow and sizing.
+const md = M.create();
+if (!md.settings.plumbing) md.settings.plumbing = { system: 'flushTank' };
+near('default 10 FU → 14.6 gpm in SI', M.plumbingFuToFlow(md, 10), 14.6 * GPM, 1e-12);
+md.settings.plumbing.demand = { flushTank: [[1, 3.0], [10, 25.0], [5000, 593.0]] };
+near('an edited demand curve is used by plumbingFuToFlow', M.plumbingFuToFlow(md, 10), 25.0 * GPM, 1e-12);
+ok('plumbingDemandCurve returns the override', !!M.plumbingDemandCurve(md, 'flushTank'));
+ok('...and null for an unedited system', M.plumbingDemandCurve(md, 'flushometer') === null);
+
+// end to end: the edited curve flows through plumbingSizing.
+const Te = tree();
+const before = M.plumbingSizing(Te.m).byPipe[Te.ids.p1].flow;
+Te.m.settings.plumbing.demand = { flushTank: FD.plumbing.demand.flushTank.map(function (r) {
+  return [r[0], r[1] * 2]; }) };            // double every tank demand point
+const after = M.plumbingSizing(Te.m).byPipe[Te.ids.p1].flow;
+// p1 carries 22 FU of WC (diversity) + 0.002 generic. Doubling the curve doubles
+// only the diversity part, not the generic, so after < 2× before.
+near('doubling the tank curve doubles the diversity part of p1',
+  after - 0.002, 2 * (before - 0.002), 1e-9);
+
 function findNode(mm, x, y) {
   return mm.nodes.filter(function (n) { return n.x === x && n.y === y; })[0];
 }

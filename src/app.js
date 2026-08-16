@@ -826,6 +826,102 @@
     return rows;
   }
 
+  /* ===================================================== PLUMBING CALC SHEET
+   * The domestic-water sizing report. A pipe's design flow is the fixture units
+   * DOWNSTREAM of it (plus any generic demand) run through the diversity curve —
+   * computed by M.plumbingSizing, not by the GGA. Velocity is checked against
+   * the model's limit; residual pressure is Phase C. The tree-sizing errors
+   * (loop / no source / multiple sources) are shown rather than a guess. */
+  function renderPlumbingCalc(host, m) {
+    var d = m.settings.display;
+    var flowUnit = d.flow;
+    var flowLabel = ('' + FD.units.fmtFlow(0, flowUnit, true)).split(' ').slice(1).join(' ');
+    function nodeLabel(id) { var n = M.node(m, id); return (n && n.tag) || id; }
+
+    var sysDef = FD.plumbing.systems.filter(function (s) {
+      return s.id === (m.settings.plumbing && m.settings.plumbing.system);
+    })[0];
+    var sysName = sysDef ? sysDef.name : 'Flush tank';
+
+    host.appendChild(el('h2', '', 'Domestic water — fixture-unit sizing'));
+    host.appendChild(el('p', 'hint',
+      'Demand system: ' + sysName + '. Each pipe is sized on the fixture units ' +
+      'downstream of it, run through the IPC demand curve (sub-additive) — so the ' +
+      'flows do not balance at a junction, which is correct for plumbing. Edit the ' +
+      'tables on the HYDRAULIC tab. Residual pressure is a later pass.'));
+
+    if (!m.pipes.length) {
+      host.appendChild(el('p', '', 'Nothing to size yet — draw a plumbing network on the PLUMBING tab.'));
+      return;
+    }
+
+    var dw = M.plumbingSizing(m);
+    if (!dw.ok && dw.error) {
+      var errBox = el('div', 'notice error-notice');
+      errBox.appendChild(el('p', 'notice-head', 'Cannot size this plumbing network'));
+      errBox.appendChild(el('p', '', dw.error.message));
+      host.appendChild(errBox);
+      return;
+    }
+
+    var ids = Object.keys(dw.byPipe);
+    if (!ids.length) {
+      host.appendChild(el('p', '',
+        'No plumbing outflows sized yet. Place a source and fixtures (the OUTFLOW ' +
+        'tool, with a Plumbing outflow type) so each pipe has fixture units downstream.'));
+      return;
+    }
+
+    var anyGeneric = ids.some(function (id) { return dw.byPipe[id].generic > 0; });
+    var vLimit = (m.settings.warn && m.settings.warn.velocity) || 2.4;
+
+    var table = el('table', 'sheet');
+    var thead = el('thead'), hr = el('tr');
+    var cols = ['Section', 'Size', 'Bore (mm)', 'Downstream FU'];
+    if (anyGeneric) cols.push('Generic (' + flowLabel + ')');
+    cols.push('Design flow (' + flowLabel + ')', 'Velocity (m/s)');
+    cols.forEach(function (c) { hr.appendChild(el('th', '', c)); });
+    thead.appendChild(hr); table.appendChild(thead);
+
+    var tb = el('tbody');
+    ids.sort(function (a, b) { return dw.byPipe[b].flow - dw.byPipe[a].flow; });   // mains first
+    var overLimit = 0;
+    ids.forEach(function (id) {
+      var s = dw.byPipe[id];
+      var p = M.pipe(m, id);
+      var tr = el('tr');
+      var label = p
+        ? ((p.tag ? p.tag + '  ' : '') + nodeLabel(p.a) + ' → ' + nodeLabel(p.b) +
+           (p.kind === 'riser' ? '  (riser)' : ''))
+        : id;
+      tr.appendChild(el('td', 'txt', label));
+      tr.appendChild(el('td', 'txt', p ? (p.size || '—') : '—'));
+      var bore = p ? M.pipeBore(m, p) : null;
+      tr.appendChild(el('td', '', bore ? (bore * 1000).toFixed(1) : '—'));
+      tr.appendChild(el('td', '', s.fu.toFixed(1)));
+      if (anyGeneric) tr.appendChild(el('td', '', FD.units.fmtFlow(s.generic, flowUnit)));
+      tr.appendChild(el('td', '', FD.units.fmtFlow(s.flow, flowUnit)));
+      var v = bore ? FD.hydraulics.velocity(s.flow, bore) : 0;
+      var over = v > vLimit;
+      if (over) overLimit++;
+      tr.appendChild(el('td', over ? 'bad' : '', v ? v.toFixed(2) : '—'));
+      tb.appendChild(tr);
+    });
+    table.appendChild(tb); host.appendChild(table);
+
+    host.appendChild(el('p', 'hint',
+      'Total connected load: ' + dw.totalFU.toFixed(1) + ' FU → ' +
+      FD.units.fmtFlow(dw.totalFlow, flowUnit, true) + ' probable demand at the source. ' +
+      'Velocity limit ' + vLimit + ' m/s' +
+      (overLimit ? ' — ' + overLimit + ' section' + (overLimit > 1 ? 's' : '') + ' over limit (in red).' : '.')));
+
+    if (FD.plumbing.verified === false) {
+      host.appendChild(el('p', 'hint',
+        'IPC 2018 fixture-unit and demand tables are verified:false — confirm against ' +
+        'your copy of the code before issue.'));
+    }
+  }
+
   /* A render failure part-way through leaves a plausible-looking but truncated
    * calculation sheet, which is far more dangerous than an obvious error — so
    * any exception replaces the sheet outright rather than leaving a fragment. */
@@ -851,18 +947,10 @@
     host.innerHTML = '';
     var m = app.model;
     /* PLUMBING has its own sizing (fixture units → diversity flow), not the GGA
-     * calculation sheet. Phase A has no plumbing report yet — Phase B builds it
-     * from M.plumbingSizing — so the pane states that rather than rendering a
-     * hydronic sheet with no result behind it. */
+     * calculation sheet. It is computed directly from M.plumbingSizing, so it
+     * does not wait for (or use) a solve. */
     if (m.discipline === 'plumbing') {
-      var box = el('div', 'notice info-notice');
-      box.appendChild(el('p', 'notice-head', 'Plumbing calculation — under construction'));
-      box.appendChild(el('p', '',
-        'This is a Plumbing (domestic water) file. Fixture-unit sizing and the ' +
-        'residual-pressure report are being built. Draw the network on the ' +
-        'PLUMBING tab; switch the discipline back to Hydronic on the chip beside ' +
-        'the status indicator for the friction-loss sheet.'));
-      host.appendChild(box);
+      renderPlumbingCalc(host, m);
       return;
     }
     var res = app.results || solveNow();
@@ -5967,6 +6055,157 @@
     }
   }
 
+  /* The plumbing HYDRAULIC tab: the demand system, and the two editable IPC
+   * tables that drive pipe-flow sizing. Split out of renderHydraulic because it
+   * is a wholly different tab in the plumbing discipline. `helpers` are the
+   * inline h2/hint/grid/selField from renderHydraulic so the look matches. */
+  function renderPlumbingHydraulic(host, m, helpers) {
+    var h2 = helpers.h2, hint = helpers.hint, grid = helpers.grid, selField = helpers.selField;
+    if (!m.settings.plumbing) m.settings.plumbing = { system: 'flushTank' };
+    var pl = m.settings.plumbing;
+    var flowUnit = (m.settings.display && m.settings.display.flow) || 'L/s';
+    var flowLabel = ('' + FD.units.fmtFlow(0, flowUnit, true)).split(' ').slice(1).join(' ');
+    var GPM = FD.plumbing.GPM_TO_M3S;
+    function gpmToDisp(gpm) { return FD.units.fmtFlow(gpm * GPM, flowUnit); }
+    function dispToGpm(str) {
+      var v = FD.units.parse(str);
+      if (!isFinite(v)) return null;
+      return FD.units.toSIFlow(v, flowUnit) / GPM;
+    }
+
+    // ---- demand system ----
+    h2('Plumbing supply system');
+    var psg = grid();
+    selField(psg, 'Demand curve',
+      FD.plumbing.systems.map(function (s) { return [s.id, s.name]; }),
+      pl.system, function (v) {
+        pushUndo(); pl.system = v; renderHydraulic(); redrawAll();
+      });
+    hint('A pipe’s design flow is the fixture units DOWNSTREAM of it, run ' +
+         'through the demand curve chosen here (IPC Table E103.3(3)). The curve ' +
+         'is sub-additive, so a plumbing branch legitimately does not balance.');
+
+    if (FD.plumbing.verified === false) {
+      var vnote = el('div', 'notice warn-notice');
+      vnote.appendChild(el('p', '',
+        'IPC 2018 tables transcribed but NOT yet verified against the code. Check ' +
+        'before issue. Editing a value below overrides it for this model.'));
+      host.appendChild(vnote);
+    }
+
+    // ============================ FIXTURE UNITS — Table E103.3(2) ----------
+    h2('Fixture load values — Table E103.3(2)');
+    hint('Cold-water supply fixture units, by occupancy and supply control. Edit ' +
+         'a value to override it for this model; changed cells are highlighted.');
+    var fuT = el('table', 'sheet');
+    var fuThead = el('thead'), fuHr = el('tr');
+    ['Fixture', 'Occupancy / supply control', 'Fixture units'].forEach(function (t) {
+      fuHr.appendChild(el('th', '', t));
+    });
+    fuThead.appendChild(fuHr); fuT.appendChild(fuThead);
+    var fuBody = el('tbody');
+    FD.plumbing.fixtures.forEach(function (fx) {
+      if (!fx.variations || !fx.variations.length) return;   // 'custom' has no row
+      fx.variations.forEach(function (v, idx) {
+        var tr = el('tr');
+        tr.appendChild(el('td', 'txt', idx === 0 ? fx.name : ''));
+        tr.appendChild(el('td', 'txt', v.name));
+        var td = el('td');
+        var key = M.plumbingFUKey(fx.id, v.id);
+        var overridden = pl.fu && isFinite(pl.fu[key]);
+        var input = el('input');
+        input.type = 'text';
+        input.value = String(M.plumbingFixtureFU(m, fx.id, v.id));
+        input.className = 'cell-input' + (overridden ? ' edited' : '');
+        input.title = 'IPC default ' + v.fu + ' FU';
+        input.addEventListener('change', function () {
+          var nv = FD.units.parse(input.value);
+          if (!isFinite(nv) || nv < 0) { input.value = String(M.plumbingFixtureFU(m, fx.id, v.id)); return; }
+          pushUndo();
+          pl.fu = pl.fu || {};
+          if (nv === v.fu) delete pl.fu[key];      // returning to default clears the override
+          else pl.fu[key] = nv;
+          renderHydraulic(); redrawAll();
+        });
+        td.appendChild(input); tr.appendChild(td);
+        fuBody.appendChild(tr);
+      });
+    });
+    fuT.appendChild(fuBody); host.appendChild(fuT);
+    var fuActs = el('div', 'table-actions');
+    var fuReset = el('button', 'btn', 'Reset fixture units to IPC defaults');
+    fuReset.disabled = !(pl.fu && Object.keys(pl.fu).length);
+    fuReset.addEventListener('click', function () {
+      pushUndo(); delete pl.fu; renderHydraulic(); redrawAll();
+    });
+    fuActs.appendChild(fuReset); host.appendChild(fuActs);
+
+    // ============================ DEMAND — Table E103.3(3) ----------------
+    h2('Demand — Table E103.3(3)  (' + flowLabel + ')');
+    hint('Fixture units → probable simultaneous demand, one curve per system. ' +
+         'Pipe flows are interpolated between these points; values between rows are ' +
+         'linear, and beyond the ends the curve is clamped. Edit to override.');
+    function curveOf(sys) { return M.plumbingDemandCurve(m, sys) || FD.plumbing.demand[sys]; }
+    function toMap(c) { var mp = {}; c.forEach(function (r) { mp[r[0]] = r[1]; }); return mp; }
+    var ftMap = toMap(curveOf('flushTank')), foMap = toMap(curveOf('flushometer'));
+    var defFt = toMap(FD.plumbing.demand.flushTank), defFo = toMap(FD.plumbing.demand.flushometer);
+    var fuSet = {};
+    Object.keys(ftMap).forEach(function (k) { fuSet[k] = true; });
+    Object.keys(foMap).forEach(function (k) { fuSet[k] = true; });
+    var fuList = Object.keys(fuSet).map(Number).sort(function (a, b) { return a - b; });
+
+    var dmT = el('table', 'sheet');
+    var dmThead = el('thead'), dmHr = el('tr');
+    ['Load (FU)', 'Flush tank', 'Flushometer valve'].forEach(function (t) {
+      dmHr.appendChild(el('th', '', t));
+    });
+    dmThead.appendChild(dmHr); dmT.appendChild(dmThead);
+    var dmBody = el('tbody');
+
+    function demandCell(tr, sys, fu, gpm, defGpm) {
+      var td = el('td');
+      if (gpm === undefined) {          // flushometer is undefined below 5 FU
+        td.className = 'dim'; td.textContent = '—'; tr.appendChild(td); return;
+      }
+      var overridden = !!M.plumbingDemandCurve(m, sys) &&
+                       (defGpm === undefined || Math.abs(gpm - defGpm) > 1e-9);
+      var input = el('input');
+      input.type = 'text';
+      input.value = gpmToDisp(gpm);
+      input.className = 'cell-input' + (overridden ? ' edited' : '');
+      if (defGpm !== undefined) input.title = 'IPC default ' + gpmToDisp(defGpm) + ' ' + flowLabel;
+      input.addEventListener('change', function () {
+        var ngpm = dispToGpm(input.value);
+        if (ngpm === null || ngpm < 0) { input.value = gpmToDisp(gpm); return; }
+        pushUndo();
+        pl.demand = pl.demand || {};
+        if (!pl.demand[sys]) {           // materialise the whole curve on first edit
+          pl.demand[sys] = curveOf(sys).map(function (r) { return [r[0], r[1]]; });
+        }
+        var arr = pl.demand[sys];
+        for (var i = 0; i < arr.length; i++) { if (arr[i][0] === fu) { arr[i][1] = ngpm; break; } }
+        renderHydraulic(); redrawAll();
+      });
+      td.appendChild(input); tr.appendChild(td);
+    }
+
+    fuList.forEach(function (fu) {
+      var tr = el('tr');
+      tr.appendChild(el('td', '', String(fu)));
+      demandCell(tr, 'flushTank', fu, ftMap[fu], defFt[fu]);
+      demandCell(tr, 'flushometer', fu, foMap[fu], defFo[fu]);
+      dmBody.appendChild(tr);
+    });
+    dmT.appendChild(dmBody); host.appendChild(dmT);
+    var dmActs = el('div', 'table-actions');
+    var dmReset = el('button', 'btn', 'Reset demand curves to IPC defaults');
+    dmReset.disabled = !(pl.demand && Object.keys(pl.demand).length);
+    dmReset.addEventListener('click', function () {
+      pushUndo(); delete pl.demand; renderHydraulic(); redrawAll();
+    });
+    dmActs.appendChild(dmReset); host.appendChild(dmActs);
+  }
+
   function renderHydraulic() {
     var m = app.model, host = $('hydraulic-body');
     host.innerHTML = '';
@@ -6027,6 +6266,18 @@
       f.appendChild(sel);
       g.appendChild(f);
       return sel;
+    }
+
+    // ==================================== PLUMBING (domestic water) HYDRAULIC
+    /* The plumbing discipline keeps this tab but fills it with the IPC
+     * fixture-unit machinery instead of the friction method: the demand SYSTEM,
+     * the editable fixture-FU table E103.3(2), and the editable FU→flow demand
+     * table E103.3(3). Both are editable per model — the engineer's numbers
+     * override the shipped IPC transcription (verified:false). Pipe flows
+     * interpolate off the (possibly edited) demand table. */
+    if (m.discipline === 'plumbing') {
+      renderPlumbingHydraulic(host, m, { h2: h2, hint: hint, grid: grid, selField: selField });
+      return;
     }
 
     // ============================================ 1. FLUID PROPERTIES (top)
@@ -6827,27 +7078,28 @@
     chip.addEventListener('click', toggleDiscipline);
   }
 
-  /* Relabels the network tab and shows/hides the auxiliary tabs for the current
-   * discipline. Plumbing has no THERMAL and no hydronic HYDRAULIC tab (a
-   * flush-tank/flushometer system setting replaces the latter in Phase B), and
-   * the network tab reads PLUMBING rather than HYDRONIC. Called on load, on a
-   * discipline switch, and after startup. */
+  /* Relabels the network tab and shows/hides the auxiliary tabs and tools for
+   * the current discipline. Plumbing hides THERMAL (a plumbing system does
+   * almost nothing thermally) but KEEPS the HYDRAULIC tab — it is still relevant
+   * and it hosts the editable IPC fixture-unit and demand tables (Michael,
+   * 2026-08-16). The network tab reads PLUMBING rather than HYDRONIC, and the
+   * Design ribbon drops the thermal tools (heat source/sink, heat exchanger).
+   * Called on load, on a discipline switch, and after startup. */
   function applyDiscipline() {
     var plumbing = app.model.discipline === 'plumbing';
     var netTab = document.querySelector('.tab[data-pane="pane-network"]');
     if (netTab) netTab.textContent = plumbing ? 'PLUMBING' : 'HYDRONIC';
-    /* Hidden tabs in plumbing: THERMAL and HYDRAULIC are hydronic-only. */
-    ['pane-thermal', 'pane-hydraulic'].forEach(function (pane) {
-      var tab = document.querySelector('.tab[data-pane="' + pane + '"]');
-      if (tab) tab.hidden = plumbing;
-    });
+    /* THERMAL is hydronic-only; HYDRAULIC stays in both disciplines. */
+    var thermalTab = document.querySelector('.tab[data-pane="pane-thermal"]');
+    if (thermalTab) thermalTab.hidden = plumbing;
+    /* The Design ribbon's heat source/sink + heat exchanger are hydronic-only. */
+    var thermalTools = $('design-thermal-tools');
+    if (thermalTools) thermalTools.hidden = plumbing;
     /* If the discipline just hid the tab we are looking at, fall back to the
      * network — a hidden pane left active is a blank screen with no tab lit. */
     if (plumbing) {
-      ['pane-thermal', 'pane-hydraulic'].forEach(function (pane) {
-        var sec = $(pane);
-        if (sec && sec.dataset.active === 'true' && app.showTab) app.showTab('pane-network');
-      });
+      var sec = $('pane-thermal');
+      if (sec && sec.dataset.active === 'true' && app.showTab) app.showTab('pane-network');
     }
     updateSystemChip();
   }

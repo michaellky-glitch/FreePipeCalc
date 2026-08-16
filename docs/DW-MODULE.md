@@ -82,12 +82,30 @@ A. **Scaffold. — DONE, v0.16.33.** `m.discipline` (`'hydronic'` default) carri
    `M.plumbingSizing`) and the model fields (`demandType`, `fixture`, etc.) stay
    untouched. No plumbing report yet — the CALCULATION pane states it is under
    construction. 4 new model.test assertions (suite 2052).
-B. **Plumbing outflow UI + sizing report** in the plumbing discipline: the
-   fixture/Variation/count panel (reuse the v0.16.31–32 controls, now here), and
-   a plumbing results object from `plumbingSizing` feeding a per-pipe diversity
-   readout on the canvas and a plumbing calculation sheet. Make the
-   continuity/imbalance messaging plumbing-aware (or simply absent — there is no
-   GGA to imbalance).
+B. **Plumbing outflow UI + sizing report** in the plumbing discipline. **Largely
+   done, v0.17.0** (Michael's 2026-08-16 brief):
+   * **Design ribbon** drops the thermal tools (HEAT SOURCE/SINK, HEAT EXCHANGER)
+     in plumbing — `#design-thermal-tools` hidden by `applyDiscipline`.
+   * **HYDRAULIC tab STAYS** in plumbing (reversed from the Phase A plan, which
+     hid it). It now hosts, via `renderPlumbingHydraulic`: the demand-system
+     selector, the **editable fixture-FU table** (E103.3(2)) and the **editable
+     FU→flow demand table** (E103.3(3), shown/edited in the model's flow unit).
+     Only THERMAL is hidden in plumbing now.
+   * **Editable tables → per-model overrides.** Edits live sparsely on
+     `m.settings.plumbing`: `fu` = `{ "<fixture>.<variation>": FU }`, `demand` =
+     `{ flushTank:[[fu,gpm],…], flushometer:[…] }` (materialised whole on first
+     edit). Resolved by `M.plumbingFixtureFU` / `M.plumbingDemandCurve` /
+     `M.plumbingFuToFlow`, which `outflowFU` and `plumbingSizing` now use — so a
+     pipe's flow interpolates off the *edited* curve. Both round-trip through
+     save/load (deep-merged in `fromJSON`). "Reset to IPC defaults" per table.
+   * **Plumbing CALCULATION sheet** (`renderPlumbingCalc`): per-pipe Section /
+     Size / Bore / Downstream FU / (Generic) / Design flow / Velocity, mains
+     first, velocity over `warn.velocity` flagged red; totals line; the
+     tree-sizing errors (loop / no source / multi source) shown, never guessed.
+     There is no GGA to imbalance, so no continuity check.
+   * data/plumbing.js `fuToFlow(fu, system, curveOverride)` gained the optional
+     curve arg; the shipped IPC transcription already matched Michael's table.
+   **Still Phase B/C:** a per-pipe diversity-flow readout drawn on the CANVAS.
 C. **Residual pressure (was Phase 3).** Forward head-loss pass from the source
    along the tree to residual pressure at each fixture; sheet reporting.
 

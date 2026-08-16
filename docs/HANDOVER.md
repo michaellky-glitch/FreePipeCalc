@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.33, 2026-08-16.** Ten test suites, **2052 assertions**, all
+State: **v0.17.0, 2026-08-16.** Ten test suites, **2067 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -70,16 +70,24 @@ inside it. The data (`data/plumbing.js`) and the sizing core (`M.plumbingSizing`
 `M.outflowFU`) stay. Full spec and build phases A/B/C are in `docs/DW-MODULE.md`
 → **Architecture v2**.
 
-**Phase A (the discipline scaffold) is DONE, v0.16.33.** `m.discipline`
-round-trips through the model; the `#system-chip` toggle, the confirm, the
-per-discipline tab set, and the solve gate are all wired and verified live (a
-plumbing file makes **zero** GGA calls). The in-Design plumbing UI is hidden
-outside the plumbing discipline. The plumbing CALCULATION pane reads "under
-construction" — **Phase B** builds the plumbing outflow UI + sizing report,
-**Phase C** the residual-pressure pass. **The IPC data is still
-`verified: false`** until Michael signs off the transcription and the per-fixture
-occupancy/control assumptions in `data/plumbing.js` (incl. the WC
-"Ppublic"→Private typo).
+**Phase A (scaffold, v0.16.33) and most of Phase B (v0.17.0) are DONE.**
+`m.discipline` round-trips; the `#system-chip` toggle/confirm, the per-discipline
+tab set and the solve gate are wired (a plumbing file makes **zero** GGA calls).
+**v0.17.0** built the plumbing HYDRAULIC tab and the sizing sheet to Michael's
+brief: the Design ribbon drops the thermal tools; the HYDRAULIC tab STAYS in
+plumbing (only THERMAL is hidden now) and carries the **editable** IPC
+fixture-FU and FU→flow tables (per-model overrides on `m.settings.plumbing.fu` /
+`.demand`, resolved by `M.plumbingFixtureFU` / `M.plumbingDemandCurve` /
+`M.plumbingFuToFlow` and used by `plumbingSizing`); the plumbing CALCULATION
+sheet reports per-pipe downstream FU → diversity flow → velocity, mains first,
+over-limit velocity in red. All verified live (flows, velocity flags, editing an
+FU or demand cell reshapes the sizing, hydronic side unaffected). **Left to do:**
+a per-pipe diversity-flow readout on the CANVAS, and **Phase C** the
+residual-pressure forward pass. **The IPC data is still `verified: false`** until
+Michael signs off the transcription and the per-fixture occupancy/control
+assumptions in `data/plumbing.js` (incl. the WC "Ppublic"→Private typo). NB the
+editable tables let him correct any cell in-app; a correction there overrides the
+transcription for that model but does not promote the shipped default.
 
 Nine versions were built in one session on 2026-08-09 (v0.16.4 → v0.16.15), and
 the big ones were:

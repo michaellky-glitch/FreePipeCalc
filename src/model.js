@@ -1333,8 +1333,39 @@
      * only picks the FU→flow demand CURVE. Custom carries a typed FU. */
     var per = (dev.fixture === 'custom' || !dev.fixture)
       ? (Number(dev.fu) || 0)
-      : (FD.plumbing.fixtureFU(dev.fixture, dev.variation) || 0);
+      : plumbingFixtureFU(m, dev.fixture, dev.variation);
     return count * per;
+  }
+
+  /* ---- effective (override-aware) plumbing data accessors ----
+   * The plumbing HYDRAULIC tab lets the engineer edit the IPC tables per model.
+   * Edits live sparsely on `m.settings.plumbing`: `fu` overrides individual
+   * fixture-variation FU values, `demand` replaces a whole system's FU→flow
+   * curve. These helpers are the ONE place that resolves an override against the
+   * shipped default, so sizing, the panel and the sheet cannot disagree. */
+  function plumbingFUKey(fixtureId, variationId) {
+    return fixtureId + '.' + (variationId || '');
+  }
+  function plumbingFixtureFU(m, fixtureId, variationId) {
+    var ov = m.settings.plumbing && m.settings.plumbing.fu;
+    if (ov) {
+      var k = plumbingFUKey(fixtureId, variationId);
+      if (isFinite(ov[k])) return Number(ov[k]);
+    }
+    return FD.plumbing.fixtureFU(fixtureId, variationId) || 0;
+  }
+  /* The user-edited FU→flow curve for a system, or null to use the shipped IPC
+   * curve. Stored as [[fu, gpm], …], the same shape and unit as the default, so
+   * the interpolator treats an override identically. */
+  function plumbingDemandCurve(m, system) {
+    var d = m.settings.plumbing && m.settings.plumbing.demand;
+    return (d && d[system] && d[system].length) ? d[system] : null;
+  }
+  /* Total downstream FU → probable simultaneous demand (SI, m³/s), honouring an
+   * edited curve. `system` defaults to the model's plumbing system. */
+  function plumbingFuToFlow(m, fu, system) {
+    system = system || (m.settings.plumbing && m.settings.plumbing.system) || 'flushTank';
+    return FD.plumbing.fuToFlow(fu, system, plumbingDemandCurve(m, system));
   }
 
   /* ===================================================== DOMESTIC-WATER SIZING
@@ -1368,6 +1399,7 @@
     }
 
     var system = (m.settings.plumbing && m.settings.plumbing.system) || 'flushTank';
+    var demandCurve = plumbingDemandCurve(m, system);   // user-edited, or null
 
     riserPipes(m);                          // complete the topology (vertical links)
     var pipes = m.pipes;
@@ -1476,7 +1508,7 @@
         var childId = order[i];
         var pp = parentPipe[childId];
         if (pp === undefined) continue;      // the root has no parent pipe
-        var flow = subGen[childId] + FD.plumbing.fuToFlow(subFU[childId], system);
+        var flow = subGen[childId] + FD.plumbing.fuToFlow(subFU[childId], system, demandCurve);
         byPipe[pp] = { fu: subFU[childId], generic: subGen[childId], flow: flow };
         // fold the child's subtree into its parent
         var parentId = other(pipeById(pipes, pp), childId);
@@ -1484,7 +1516,7 @@
         subGen[parentId] += subGen[childId];
       }
       totalFU += subFU[root];
-      totalFlow += subGen[root] + FD.plumbing.fuToFlow(subFU[root], system);
+      totalFlow += subGen[root] + FD.plumbing.fuToFlow(subFU[root], system, demandCurve);
     });
 
     if (error) return { ok: false, error: error, byPipe: {}, roots: [], totalFU: 0, totalFlow: 0 };
@@ -2804,6 +2836,11 @@
                                        (obj.settings || {}).control || {});
     m.settings.pumpCurve = Object.assign(defaultSettings().pumpCurve,
                                          (obj.settings || {}).pumpCurve || {});
+    /* Deep-merge plumbing so a file that carries only `system` (or only an
+     * edited table) keeps the other keys' defaults, and the editable-table
+     * overrides (`fu`, `demand`) survive a round trip. */
+    m.settings.plumbing = Object.assign(defaultSettings().plumbing,
+                                        (obj.settings || {}).plumbing || {});
     /* Re-apply the named fluid, so a file cannot carry a preset of '20%
      * Propylene Glycol' with water's properties beside it — whether from a
      * hand edit or from a correction to the published values since it was
@@ -2952,6 +2989,8 @@
 
     setSource: setSource, setDemand: setDemand, outflowFU: outflowFU,
     plumbingSizing: plumbingSizing,
+    plumbingFixtureFU: plumbingFixtureFU, plumbingFuToFlow: plumbingFuToFlow,
+    plumbingDemandCurve: plumbingDemandCurve, plumbingFUKey: plumbingFUKey,
     clearDevice: clearDevice,
     applyFluidPreset: applyFluidPreset,
     controlOf: controlOf, canControl: canControl, setControl: setControl,

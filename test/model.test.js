@@ -443,6 +443,19 @@ section('Model — discipline (DW re-architecture, Phase A)');
   const junk = M.fromJSON({ formatVersion: 1, discipline: 'nonsense',
                             levels: [], nodes: [], pipes: [] });
   ok('An unknown discipline is coerced to hydronic', junk.discipline === 'hydronic');
+
+  // Editable plumbing tables (FU + demand overrides) survive save/load, and a
+  // file that carries only an override keeps the default `system`.
+  const mp = M.create();
+  mp.discipline = 'plumbing';
+  mp.settings.plumbing.fu = { 'waterCloset.privTank': 3.5 };
+  mp.settings.plumbing.demand = { flushTank: [[1, 3.0], [10, 25.0]] };
+  const rt = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(mp))));
+  ok('Plumbing FU override survives save/load', rt.settings.plumbing.fu['waterCloset.privTank'] === 3.5);
+  ok('Plumbing demand override survives save/load',
+     rt.settings.plumbing.demand.flushTank[1][1] === 25.0);
+  ok('Default plumbing system survives beside an override',
+     rt.settings.plumbing.system === 'flushTank');
 }
 
 section('Model — riser size inheritance (spec §7.2)');

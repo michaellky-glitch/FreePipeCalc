@@ -8,8 +8,8 @@ in v0.16.31, Phase 2 (solver) is next. Everything else he has raised is done;
 what is left of the rest is his testing of it, and one thing found in passing
 (DX.1).
 
-Updated 2026-08-16, after v0.16.33 (Domestic Water Phase A — the discipline
-scaffold).
+Updated 2026-08-16, after v0.17.0 (Domestic Water Phase B — the plumbing
+HYDRAULIC tab, editable IPC tables, and the fixture-unit sizing sheet).
 
 ---
 
@@ -37,7 +37,7 @@ The likeliest things to come back:
 
 | # | Item | Notes |
 |---|---|---|
-| DW.MOD | **Domestic Water module — RE-ARCHITECTED to a separate discipline (2026-08-16)** | Michael pivoted to DE-RISK the GGA (Option A, one app): **a file is one discipline**, `m.discipline` = `hydronic` (default) \| `plumbing`. In a plumbing file the GGA is NEVER invoked. The DISCIPLINE lives a layer ABOVE the tab bar via the **repurposed loop-type chip** (`#system-chip` → HYDRONIC/PLUMBING, click toggles, **confirm warning** "Changing an existing model between Hydronic and Plumbing may break it"). The network tab is relabelled per discipline (HYDRONIC — was "PIPING NETWORK" — or PLUMBING); plumbing shows its own reduced tab set (PLUMBING + plumbing CALCULATION + SETTINGS + DOCS, no THERMAL/HYDRAULIC). Canvas + drawing tools + save file are shared. Plumbing solved only by `M.plumbingSizing`. Full spec + phases A/B/C in `docs/DW-MODULE.md` → **Architecture v2**. **Built already (reusable):** `data/plumbing.js` (IPC E103.3(2) with per-fixture variations, `verified:false`), `M.outflowFU`, `M.plumbingSizing` (tree accumulation + `DW_LOOP`/`DW_NO_SOURCE`/`DW_MULTI_SOURCE`). **To do:** ~~Phase A scaffold~~ **DONE v0.16.33** (discipline flag + save/load + chip switch + per-discipline tab set + solve gate + **hide** the in-Design plumbing UI when not plumbing); Phase B plumbing outflow UI + sizing report (surface the fixture/Variation/count panel + "Plumbing supply" selector inside the plumbing discipline, feed `M.plumbingSizing` to a per-pipe canvas readout and a plumbing calculation sheet); Phase C residual-pressure pass + sheet. **Blocking on Michael before promote:** confirm the `verified:false` IPC transcription + occupancy/control assumptions (incl. the WC "Ppublic"→Private typo), then `FD.plumbing.verified = true`. |
+| DW.MOD | **Domestic Water module — RE-ARCHITECTED to a separate discipline (2026-08-16)** | Michael pivoted to DE-RISK the GGA (Option A, one app): **a file is one discipline**, `m.discipline` = `hydronic` (default) \| `plumbing`. In a plumbing file the GGA is NEVER invoked. The DISCIPLINE lives a layer ABOVE the tab bar via the **repurposed loop-type chip** (`#system-chip` → HYDRONIC/PLUMBING, click toggles, **confirm warning** "Changing an existing model between Hydronic and Plumbing may break it"). The network tab is relabelled per discipline (HYDRONIC — was "PIPING NETWORK" — or PLUMBING); plumbing shows its own reduced tab set (PLUMBING + plumbing CALCULATION + SETTINGS + DOCS, no THERMAL/HYDRAULIC). Canvas + drawing tools + save file are shared. Plumbing solved only by `M.plumbingSizing`. Full spec + phases A/B/C in `docs/DW-MODULE.md` → **Architecture v2**. **Built already (reusable):** `data/plumbing.js` (IPC E103.3(2) with per-fixture variations, `verified:false`), `M.outflowFU`, `M.plumbingSizing` (tree accumulation + `DW_LOOP`/`DW_NO_SOURCE`/`DW_MULTI_SOURCE`). **To do:** ~~Phase A scaffold~~ **DONE v0.16.33**; ~~Phase B plumbing HYDRAULIC tab + editable IPC tables + sizing sheet~~ **MOSTLY DONE v0.17.0** (Design ribbon drops thermal tools; HYDRAULIC tab kept in plumbing with editable fixture-FU + FU→flow tables, per-model overrides that feed `plumbingSizing`; plumbing CALCULATION sheet: per-pipe downstream FU → diversity flow → velocity). **Remaining:** a per-pipe diversity-flow readout on the CANVAS; Phase C residual-pressure forward pass + sheet. **Still blocking promote:** Michael to confirm the `verified:false` IPC tables (now editable in-app on the HYDRAULIC tab), then `FD.plumbing.verified = true`. **Blocking on Michael before promote:** confirm the `verified:false` IPC transcription + occupancy/control assumptions (incl. the WC "Ppublic"→Private typo), then `FD.plumbing.verified = true`. |
 | SW.2 | **Finish the sweep → iteration rename (internal)** | Michael, 2026-08-12. The USER-FACING text now says "iteration" (progress bar, the Settling-iterations field, CONTROL_HUNTING / CONTROL_BUDGET messages). The INTERNALS still say sweep: the `sweep`/`MAX_SWEEPS`/`reSweep` variables in `network.js`, `report.sweeps`, and the saved setting key `control.sweeps`. Renaming `control.sweeps` needs a load-time migration so old files keep their value, so it was left for a dedicated pass. Cosmetic, no behaviour change. |
 | MSG.2 | **Trim the verbose messages** | `docs/MESSAGES.md` §7 proposes shorter forms for 8 messages; awaiting Michael's yes/no per line, then apply to source. (CONTROL_HUNTING already reworded in v0.16.26.) |
 | DX.1 | Does the DXF open in real CAD? | Untested; nothing in this environment can check it. |
@@ -48,6 +48,25 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.17.0** — Domestic Water Phase B: the plumbing HYDRAULIC tab, editable IPC
+  tables, and the fixture-unit sizing sheet (Michael's brief, 2026-08-16). The
+  plumbing **Design ribbon drops the thermal tools** (heat source/sink, heat
+  exchanger). The **HYDRAULIC tab stays** in plumbing (only THERMAL is hidden
+  now) and hosts the demand-system selector plus two **editable** IPC tables —
+  the fixture load values E103.3(2) and the FU→flow demand curves E103.3(3),
+  shown and edited in the model's flow unit (metric). Edits are per-model
+  overrides on `m.settings.plumbing.fu` / `.demand`, resolved by
+  `M.plumbingFixtureFU` / `M.plumbingDemandCurve` / `M.plumbingFuToFlow`, which
+  the sizer now uses — so a **pipe's flow interpolates off the edited curve**;
+  both round-trip through save/load, each table has a "Reset to IPC defaults".
+  The plumbing **CALCULATION sheet** (`renderPlumbingCalc`) sizes every pipe:
+  Section / Size / Bore / Downstream FU / (Generic) / Design flow / Velocity,
+  mains first, velocity over the limit in red, with the tree-sizing errors shown
+  rather than guessed. data still `verified:false` (now correctable in-app). 15
+  new assertions (suite 2067). Verified live: flows and velocity flags correct
+  on a heavy-load tree, editing an FU or demand cell reshapes the sizing, the
+  hydronic side unaffected. Remaining: a per-pipe canvas readout, and Phase C
+  (residual pressure).
 * **v0.16.33** — Domestic Water Phase A: the discipline scaffold. A file is now
   one DISCIPLINE — `m.discipline` = `'hydronic'` (default) | `'plumbing'`,
   carried through `create`/`toJSON`/`fromJSON` (legacy/unknown → hydronic). The

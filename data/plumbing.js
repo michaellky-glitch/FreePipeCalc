@@ -153,9 +153,16 @@
 
   /* Total FU → probable demand, in gpm. Piecewise-linear between the tabulated
    * points; clamped to the ends of the curve (the code does not define beyond
-   * them). Zero FU is zero flow. */
-  function fuToFlowGpm(totalFU, system) {
-    var curve = DEMAND[system] || DEMAND.flushTank;
+   * them). Zero FU is zero flow.
+   *
+   * `curveOverride` — an optional [[fu, gpm], …] array. When the model carries a
+   * user-edited demand curve (the editable table on the plumbing HYDRAULIC tab)
+   * the caller passes it here; otherwise the built-in IPC curve for the system
+   * is used. data/ stays model-agnostic: it never reaches into settings, it is
+   * handed the curve to interpolate. */
+  function fuToFlowGpm(totalFU, system, curveOverride) {
+    var curve = curveOverride || DEMAND[system] || DEMAND.flushTank;
+    if (!curve.length) return 0;
     if (!(totalFU > 0)) return 0;
     if (totalFU <= curve[0][0]) return curve[0][1];
     var last = curve[curve.length - 1];
@@ -170,8 +177,8 @@
     return last[1];
   }
 
-  function fuToFlow(totalFU, system) {
-    return fuToFlowGpm(totalFU, system) * GPM_TO_M3S;
+  function fuToFlow(totalFU, system, curveOverride) {
+    return fuToFlowGpm(totalFU, system, curveOverride) * GPM_TO_M3S;
   }
 
   FD.plumbing = {
