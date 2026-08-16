@@ -121,6 +121,24 @@ Temperature hidden in plumbing; and — outside the module — **paste onto a pi
 tees in** (`canvas.js` paste path calls `M.splitPipeAt` on the new anchor when it
 lands on a pipe), which also fixed the same gap in hydronic.
 
+**v0.17.2 — undiversified flow, SIMULATE, most-unfavourable path (Michael's 2nd
+review list).** The two flow regimes are now both present and kept distinct:
+* **DESIGN = diversified sizing** (fixture units → demand curve → pipe design
+  flow), unchanged.
+* **SIMULATE = undiversified push.** IPC **Table 604.3** is transcribed to metric
+  (`FD.plumbing.supplies`, `verified.supply=false`) — each fixture's individual
+  outlet flow + required pressure. It is a DIFFERENT taxonomy from E103.3(2), so a
+  plumbing outflow carries a separate `dev.supply` (chosen, not mapped).
+  `app.buildPlumbingSimModel` converts each fixture to a fixed generic demand at
+  its undiversified flow and runs the UNMODIFIED GGA in fixed-demand mode — so the
+  water is pushed through the pipes and the delivered pressures/velocities come
+  out, with the GGA still never taught fixture units. `M.plumbingUndivFlow` /
+  `M.plumbingReqPressure` (override-aware via `m.settings.plumbing.supply`).
+* **Most unfavourable path** on the plumbing CALCULATION sheet: the least-margin
+  fixture (delivered residual − 604.3 required), path traced source→fixture, like
+  the hydronic critical path.
+The 604.3 table is editable on the HYDRAULIC tab alongside E103.3(2)/(3).
+
 ## The flow model — why it is not the GGA
 
 The GGA imposes demands and solves a looped network for simultaneous flows that

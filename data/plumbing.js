@@ -42,6 +42,8 @@
   /* 1 US gallon per minute in m³/s (SI, as everything else in the engine).
    * 1 US gal = 3.785411784 L, so 1 gpm = 3.785411784 / 60000 m³/s. */
   var GPM_TO_M3S = 3.785411784 / 60000;      // = 6.309019640e-5
+  /* 1 psi in Pa (IPC 604.3 footnote: 1 psi = 6.895 kPa; exact 6894.757 Pa). */
+  var PSI_TO_PA = 6894.757;
 
   /* Cold-water supply fixture units, Table E103.3(2), "FV (Cold)". Each fixture
    * lists its VARIATIONS (occupancy × supply control); a single-variation
@@ -128,6 +130,50 @@
     { id: 'flushometer', name: 'Flushometer valve' }
   ];
 
+  /* ==========================================================================
+   * FIXTURE SUPPLY OUTLETS — IPC Table 604.3 (transcribed verbatim, verified:false)
+   * ==========================================================================
+   * The UNDIVERSIFIED flow a single fixture supply outlet draws, and the flow
+   * PRESSURE it needs at the outlet. This is a DIFFERENT taxonomy from the
+   * fixture-unit table E103.3(2): sizing uses FU + diversity (E103.3), while a
+   * SIMULATION pushes each fixture's undiversified 604.3 flow through the pipes,
+   * and the residual-pressure check compares the pressure delivered against the
+   * 604.3 flow pressure. A plumbing outflow therefore carries BOTH a fixture
+   * (for FU) and a supply outlet (for undiversified flow + required pressure);
+   * they are chosen independently rather than mapped, so no correspondence is
+   * invented. `gpm`/`psi` are the source units, converted at the edge.
+   * SI footnote as printed: 1 psi = 6.895 kPa, 1 gpm = 3.785 L/m. */
+  var FIXTURE_SUPPLY = [
+    { id: 'none',              name: '(none)',                                          gpm: 0,    psi: 0  },
+    { id: 'bathtubMix',        name: 'Bathtub, mixing valve',                           gpm: 4,    psi: 20 },
+    { id: 'bidet',             name: 'Bidet, thermostatic mixing valve',                gpm: 2,    psi: 20 },
+    { id: 'combination',       name: 'Combination fixture',                             gpm: 4,    psi: 8  },
+    { id: 'dishwasher',        name: 'Dishwasher, residential',                         gpm: 2.75, psi: 8  },
+    { id: 'drinkingFountain',  name: 'Drinking fountain',                               gpm: 0.75, psi: 8  },
+    { id: 'laundryTray',       name: 'Laundry tray',                                    gpm: 4,    psi: 8  },
+    { id: 'lavatoryPrivate',   name: 'Lavatory, private',                               gpm: 0.8,  psi: 8  },
+    { id: 'lavatoryPrivMix',   name: 'Lavatory, private, mixing valve',                 gpm: 0.8,  psi: 8  },
+    { id: 'lavatoryPublic',    name: 'Lavatory, public',                                gpm: 0.4,  psi: 8  },
+    { id: 'shower',            name: 'Shower',                                          gpm: 2.5,  psi: 8  },
+    { id: 'showerMix',         name: 'Shower, mixing valve',                            gpm: 2.5,  psi: 20 },
+    { id: 'sillcock',          name: 'Sillcock, hose bibb',                             gpm: 5,    psi: 8  },
+    { id: 'sinkResidential',   name: 'Sink, residential',                               gpm: 1.75, psi: 8  },
+    { id: 'sinkService',       name: 'Sink, service',                                   gpm: 3,    psi: 8  },
+    { id: 'urinalValve',       name: 'Urinal, valve',                                   gpm: 12,   psi: 25 },
+    { id: 'wcBlowoutValve',    name: 'Water closet, blow out, flushometer valve',       gpm: 25,   psi: 45 },
+    { id: 'wcFlushometerTank', name: 'Water closet, flushometer tank',                  gpm: 1.6,  psi: 20 },
+    { id: 'wcSiphonicValve',   name: 'Water closet, siphonic, flushometer valve',       gpm: 25,   psi: 35 },
+    { id: 'wcTankCloseCoupled',name: 'Water closet, tank, close coupled',               gpm: 3,    psi: 20 },
+    { id: 'wcTankOnePiece',    name: 'Water closet, tank, one piece',                   gpm: 6,    psi: 20 }
+  ];
+
+  function fixtureSupply(id) {
+    for (var i = 0; i < FIXTURE_SUPPLY.length; i++) {
+      if (FIXTURE_SUPPLY[i].id === id) return FIXTURE_SUPPLY[i];
+    }
+    return null;
+  }
+
   function fixture(id) {
     for (var i = 0; i < FIXTURES.length; i++) if (FIXTURES[i].id === id) return FIXTURES[i];
     return null;
@@ -188,13 +234,17 @@
 
   FD.plumbing = {
     /* Per-table sign-off. Fixtures (E103.3(2)) verified by Michael 2026-08-16;
-     * the demand curves (E103.3(3)) are still transcribed-not-confirmed. */
-    verified: { fixtures: true, demand: false },
+     * the demand curves (E103.3(3)) and the supply outlets (604.3) are still
+     * transcribed-not-confirmed. */
+    verified: { fixtures: true, demand: false, supply: false },
     GPM_TO_M3S: GPM_TO_M3S,
+    PSI_TO_PA: PSI_TO_PA,
     fixtures: FIXTURES,
     systems: SYSTEMS,
     demand: DEMAND,
+    supplies: FIXTURE_SUPPLY,
     fixture: fixture,
+    fixtureSupply: fixtureSupply,
     variations: variations,
     variation: variation,
     fixtureFU: fixtureFU,

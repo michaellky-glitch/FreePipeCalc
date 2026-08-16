@@ -8,9 +8,8 @@ in v0.16.31, Phase 2 (solver) is next. Everything else he has raised is done;
 what is left of the rest is his testing of it, and one thing found in passing
 (DX.1).
 
-Updated 2026-08-16, after v0.17.1 (Domestic Water — the plumbing "solve": flow
-arrows, friction drop and residual pressure; plus Michael's review-list fixes and
-the paste-onto-pipe tee fix).
+Updated 2026-08-16, after v0.17.2 (Domestic Water — Table 604.3 undiversified
+flows, plumbing SIMULATE through the GGA, and the most-unfavourable-path calc).
 
 ---
 
@@ -49,6 +48,24 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
 
+* **v0.17.2** — Domestic Water: Table 604.3, plumbing SIMULATE, most-unfavourable
+  path (Michael's list, 2026-08-16). (1) **IPC Table 604.3** transcribed to metric
+  (`FD.plumbing.supplies`, verified:false) — the undiversified per-fixture flow +
+  required pressure. It is a different taxonomy from E103.3(2), so each plumbing
+  outflow gets a SEPARATE "Supply outlet (604.3)" selection (`dev.supply`) rather
+  than an invented mapping; editable on the HYDRAULIC tab like the other tables.
+  (2) **SIMULATE now pushes water through a plumbing file** — `buildPlumbingSimModel`
+  converts each fixture to a fixed demand at its undiversified 604.3 flow and runs
+  the unmodified GGA (fixed-demand/design mode); DESIGN stays fixture-unit sizing.
+  Flow arrows and pressures render on the canvas. (3) The plumbing CALCULATION
+  sheet gained a **Most unfavourable path** section (index run to the least-margin
+  fixture; residual vs 604.3 required pressure), like the hydronic critical path.
+  (4) `verified.fixtures` = true (E103.3(2) signed off). (5) Explanations removed
+  from the plumbing Calculation sheet. (6) SHOW ▸ Temperature hidden in plumbing.
+  22 new assertions (suite 2096). Verified live: SIMULATE pushes 30 gpm through,
+  arrows draw, most-unfavourable path shows margin, 604.3 table edits, no console
+  errors. **Simulate semantics** (undiversified fixed flow) and the 604.3
+  transcription are `Human-Test.md` §5DW for Michael's confirmation.
 * **v0.17.1** — Domestic Water: the plumbing "solve", and Michael's review list
   (2026-08-16). (1) `FD.network.plumbingReport` gives a plumbing file signed
   per-pipe FLOW (so the canvas draws direction arrows), per-pipe FRICTION drop,

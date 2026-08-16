@@ -1368,6 +1368,39 @@
     return FD.plumbing.fuToFlow(fu, system, plumbingDemandCurve(m, system));
   }
 
+  /* ---- undiversified fixture supply (IPC Table 604.3) ----
+   * The flow ONE fixture supply outlet draws, and the pressure it needs, used by
+   * a plumbing SIMULATION (each fixture imposes this flow, run through the GGA)
+   * and by the residual-pressure check. Chosen per outflow (`dev.supply`, an id
+   * into FD.plumbing.supplies), independent of the FU fixture. Per-model edits
+   * live on m.settings.plumbing.supply keyed by id, same as the other tables. */
+  function plumbingSupplyValue(m, supplyId) {
+    var base = FD.plumbing.fixtureSupply(supplyId) || { gpm: 0, psi: 0 };
+    var ov = m.settings.plumbing && m.settings.plumbing.supply;
+    var o = ov && ov[supplyId];
+    return {
+      gpm: (o && isFinite(o.gpm)) ? Number(o.gpm) : base.gpm,
+      psi: (o && isFinite(o.psi)) ? Number(o.psi) : base.psi
+    };
+  }
+  /* Undiversified flow of a plumbing outflow (SI, m³/s): supply outlet gpm ×
+   * count. A generic outflow keeps its own flow; anything without a supply
+   * outlet contributes zero (nothing to push). */
+  function plumbingUndivFlow(m, dev) {
+    if (!dev || dev.kind !== 'demand' || dev.include === false) return 0;
+    if (dev.demandType !== 'plumbing') return dev.flow || 0;
+    if (!dev.supply || dev.supply === 'none') return 0;
+    var count = dev.count > 0 ? dev.count : 1;
+    return plumbingSupplyValue(m, dev.supply).gpm * FD.plumbing.GPM_TO_M3S * count;
+  }
+  /* Required flow pressure at the outlet (SI, Pa) from Table 604.3. */
+  function plumbingReqPressure(m, dev) {
+    if (!dev || dev.demandType !== 'plumbing' || !dev.supply || dev.supply === 'none') {
+      return (dev && dev.reqPressure) || 0;
+    }
+    return plumbingSupplyValue(m, dev.supply).psi * FD.plumbing.PSI_TO_PA;
+  }
+
   /* ===================================================== DOMESTIC-WATER SIZING
    *
    * A plumbing branch is NOT sized by continuity. A pipe's design flow is the
@@ -2995,6 +3028,8 @@
     plumbingSizing: plumbingSizing,
     plumbingFixtureFU: plumbingFixtureFU, plumbingFuToFlow: plumbingFuToFlow,
     plumbingDemandCurve: plumbingDemandCurve, plumbingFUKey: plumbingFUKey,
+    plumbingSupplyValue: plumbingSupplyValue, plumbingUndivFlow: plumbingUndivFlow,
+    plumbingReqPressure: plumbingReqPressure,
     clearDevice: clearDevice,
     applyFluidPreset: applyFluidPreset,
     controlOf: controlOf, canControl: canControl, setControl: setControl,

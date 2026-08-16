@@ -304,6 +304,72 @@ const NET = FD.network;
     repL.error && repL.error.code);
 }
 
+// ---------------------------------------- fixture supply (Table 604.3)
+section('Fixture supply — Table 604.3 (undiversified flow & pressure)');
+{
+  ok('supply table is flagged unverified', P.verified.supply === false);
+  ok('the supply list is present', P.supplies.length > 5);
+  const wc = P.fixtureSupply('wcTankCloseCoupled');
+  ok('a supply row transcribes gpm/psi', wc && wc.gpm === 3 && wc.psi === 20);
+
+  const ms = M.create();
+  if (!ms.settings.plumbing) ms.settings.plumbing = { system: 'flushTank' };
+  // A plumbing outflow with a 604.3 supply outlet: undiversified flow = gpm×count.
+  const dev = { kind: 'demand', demandType: 'plumbing', fixture: 'waterCloset',
+                variation: 'privTank', count: 4, supply: 'wcTankCloseCoupled', include: true };
+  near('undiversified flow = 4 × 3 gpm in SI',
+    M.plumbingUndivFlow(ms, dev), 4 * 3 * GPM, 1e-12);
+  near('required pressure = 20 psi in Pa',
+    M.plumbingReqPressure(ms, dev), 20 * P.PSI_TO_PA, 1e-6);
+
+  // No supply outlet → nothing to push.
+  const devNone = { kind: 'demand', demandType: 'plumbing', fixture: 'lavatory',
+                    variation: 'priv', count: 2, supply: 'none', include: true };
+  near('no supply outlet → zero undiversified flow', M.plumbingUndivFlow(ms, devNone), 0, 0);
+
+  // A generic outflow keeps its own flow.
+  near('generic outflow keeps its flow',
+    M.plumbingUndivFlow(ms, { kind: 'demand', demandType: 'generic', flow: 0.002, include: true }),
+    0.002, 1e-12);
+
+  // Per-model override of a supply row.
+  ms.settings.plumbing.supply = { wcTankCloseCoupled: { gpm: 5, psi: 25 } };
+  near('an override changes the undiversified flow', M.plumbingUndivFlow(ms, dev), 4 * 5 * GPM, 1e-12);
+  near('...and the required pressure', M.plumbingReqPressure(ms, dev), 25 * P.PSI_TO_PA, 1e-6);
+}
+
+section('Plumbing SIMULATE — undiversified flows through the GGA (converted copy)');
+{
+  // Mirror app.buildPlumbingSimModel: convert plumbing fixtures to generic
+  // demands at their undiversified 604.3 flow, then solve with the real GGA.
+  const T2 = tree();                       // 2 × (5 WC private-tank), source @ 300 kPa
+  T2.m.nodes.forEach(function (n) {
+    const d = n.device;
+    if (d && d.kind === 'demand' && d.demandType === 'plumbing') {
+      d.supply = 'wcTankCloseCoupled';     // 3 gpm, 20 psi
+    }
+  });
+  const design = M.plumbingSizing(T2.m).byPipe[T2.ids.p1].flow;   // diversified
+  const sim = JSON.parse(JSON.stringify(T2.m));
+  sim.settings.calcMode = 'design';        // fixed demands — push the flow through
+  sim.nodes.forEach(function (n) {
+    const d = n.device;
+    if (d && d.kind === 'demand' && d.demandType === 'plumbing') {
+      const q = M.plumbingUndivFlow(T2.m, d);
+      d.flow = q; d.reqPressure = 20 * P.PSI_TO_PA; d.demandType = 'generic';
+    }
+  });
+  const res = NET.solveModel(sim);
+  ok('the GGA solves the converted plumbing model', !!res && !!res.flow);
+  // Fixed demands → continuity: the main carries both WC branches (2 × 5 × 3 gpm)
+  // plus the generic branch (0.002 m³/s) the tree also has.
+  near('main flow = sum of the undiversified branch flows (continuity)',
+    Math.abs(res.flow[T2.ids.p1]), 2 * 5 * 3 * GPM + 0.002, 1e-9);
+  ok('undiversified simulate flow exceeds the diversified design flow',
+    Math.abs(res.flow[T2.ids.p1]) > design,
+    Math.abs(res.flow[T2.ids.p1]) + ' vs ' + design);
+}
+
 function findNode(mm, x, y) {
   return mm.nodes.filter(function (n) { return n.x === x && n.y === y; })[0];
 }

@@ -305,8 +305,9 @@
   var STEP_BUDGET_MS = 24;
 
   function solveSliced() {
-    /* Plumbing is sized, not solved — keep the GGA off the code path entirely. */
-    if (app.model.discipline === 'plumbing') { plumbingSolve(); return; }
+    /* Plumbing: DESIGN is sized (no GGA); SIMULATE pushes undiversified flows
+     * through the GGA on a converted copy. Either way, off the main solve path. */
+    if (app.model.discipline === 'plumbing') { plumbingDispatch(); return; }
     if (app.solving) { app.solveAgain = true; return; }
     var heavy = app.model.settings.calcMode === 'simulation' &&
                 app.model.pipes.length > 60;
@@ -412,10 +413,12 @@
   }
 
   function solveNow() {
-    /* PLUMBING NEVER INVOKES THE GGA (DW re-architecture, 2026-08-16). The
-     * whole isolation is that a plumbing file is not on the solver's code path —
-     * not "left untouched", never called. */
-    if (app.model.discipline === 'plumbing') return plumbingSolve();
+    /* PLUMBING takes its own path (DW re-architecture). In DESIGN it is SIZED
+     * from fixture units (plumbingReport, no GGA). In SIMULATE it pushes each
+     * fixture's UNDIVERSIFIED flow (IPC 604.3) through the pipes — done by
+     * solving a CONVERTED COPY where the fixtures are ordinary flow demands, so
+     * the GGA itself is never taught about fixture units. */
+    if (app.model.discipline === 'plumbing') return plumbingDispatch();
     try {
       return applyResult(FD.network.solveModel(app.model));
     } catch (e) {
@@ -423,6 +426,58 @@
       updateStatusChip(null, e.message);
       return null;
     }
+  }
+
+  function plumbingDispatch() {
+    return (app.model.settings.calcMode === 'simulation')
+      ? plumbingSimSolve() : plumbingSolve();
+  }
+
+  /* SIMULATE for a plumbing file: build a copy in which every included plumbing
+   * fixture is an ordinary generic demand at its undiversified 604.3 flow and
+   * required pressure, then run the UNMODIFIED GGA on it. Node/pipe ids are
+   * unchanged, so the result maps straight back onto the drawing (flow arrows,
+   * pressures, velocities). The original model keeps its fixture-unit data. */
+  function buildPlumbingSimModel(m) {
+    var sim = JSON.parse(JSON.stringify(m));
+    /* The GGA's DESIGN mode imposes each demand as a FIXED flow — which is what
+     * "push the undiversified flow through the pipes" means. (Its SIMULATION mode
+     * would instead make the fixtures pressure-dependent K-terminals that draw
+     * more when the supply pressure is ample, which is not the check wanted.)
+     * So the fixtures become fixed generic demands at their 604.3 flow and the
+     * solver finds the delivered pressures; reqPressure drives the shortfall
+     * warning if the supply cannot hold it up. */
+    sim.settings.calcMode = 'design';
+    sim.nodes.forEach(function (n) {
+      var d = n.device;
+      if (!d || d.kind !== 'demand' || d.demandType !== 'plumbing') return;
+      var q = M.plumbingUndivFlow(m, d);
+      if (!(q > 0)) { d.include = false; return; }   // nothing to push
+      d.flow = q;
+      d.reqPressure = Math.max(M.plumbingReqPressure(m, d), M.MIN_OUTFLOW_PRESSURE);
+      d.demandType = 'generic';
+    });
+    return sim;
+  }
+
+  function plumbingSimSolve() {
+    var res;
+    try {
+      res = FD.network.solveModel(buildPlumbingSimModel(app.model));
+    } catch (e) {
+      console.error(e);
+      app.results = null;
+      if (app.view) { app.view.results = null; app.view.render(); }
+      updateStatusChip(null, e.message);
+      return null;
+    }
+    app.results = res;
+    if (app.view) { app.view.results = res; app.view.render(); }
+    hideSolveProgress();
+    updateStatusChip(res);
+    refreshPropertyReadouts();
+    if (app.messagesRefresh) app.messagesRefresh();
+    return res;
   }
 
   /* Plumbing's "solve" — NEVER the GGA. It runs FD.network.plumbingReport, which
@@ -868,13 +923,7 @@
     var presLabel = ('' + FD.units.fmtPressure(0, presUnit, true)).split(' ').slice(1).join(' ');
 
     host.appendChild(el('h2', '', 'Domestic water — fixture-unit sizing'));
-    host.appendChild(el('p', 'hint',
-      'Demand system: ' + sysName + '. Each pipe is sized on the fixture units ' +
-      'downstream of it, run through the IPC demand curve (sub-additive) — so the ' +
-      'flows do not balance at a junction, which is correct for plumbing. Friction ' +
-      'drop uses the ' + (m.settings.frictionMethod === 'DW' ? 'Darcy-Weisbach' : 'Hazen-Williams') +
-      ' method; residual pressure is the source pressure less friction and static ' +
-      'lift along the tree. Edit the IPC tables on the HYDRAULIC tab.'));
+    host.appendChild(el('p', 'meta-line', 'Demand system: ' + sysName));
 
     if (!m.pipes.length) {
       host.appendChild(el('p', '', 'Nothing to size yet — draw a plumbing network on the PLUMBING tab.'));
@@ -959,6 +1008,74 @@
               ' below zero residual pressure — the supply pressure is insufficient.'
             : ' All fixtures hold positive residual pressure.')
         : ' Set a source pressure to see residual pressure at each fixture.')));
+
+    /* ---- MOST UNFAVOURABLE PATH (the index run), similar to the hydronic
+     * critical path. The governing fixture is the one with the least margin
+     * between its delivered residual pressure and its 604.3 required pressure;
+     * the path is traced source→fixture up the tree. */
+    if (anySource) {
+      var fixtures = m.nodes.filter(function (n) {
+        return n.device && n.device.kind === 'demand' && n.device.include !== false &&
+               rep.pressure[n.id] !== undefined;
+      });
+      var parentPipeOf = {};
+      ids.forEach(function (id) { parentPipeOf[rep.byPipe[id].to] = id; });
+      function reqOf(nn) { return M.plumbingReqPressure(m, nn.device); }
+      var worst = null, worstMargin = Infinity;
+      fixtures.forEach(function (nn) {
+        var margin = rep.pressure[nn.id] - reqOf(nn);
+        if (margin < worstMargin) { worstMargin = margin; worst = nn; }
+      });
+      if (worst) {
+        var pathPipes = [], node = worst.id, guard = 0;
+        while (parentPipeOf[node] && guard++ < 100000) {
+          var pp = parentPipeOf[node]; pathPipes.unshift(pp); node = rep.byPipe[pp].from;
+        }
+        var rootId = node;
+        var req = reqOf(worst);
+        var sp = worst.device.supply && FD.plumbing.fixtureSupply(worst.device.supply);
+
+        host.appendChild(el('h2', '', 'Most unfavourable path'));
+        host.appendChild(el('p', 'meta-line',
+          nodeLabel(rootId) + ' → ' + (worst.tag || worst.id) +
+          (sp && sp.id !== 'none' ? '  (' + sp.name + ')' : '') +
+          '  ·  ' + pathPipes.length + ' section' + (pathPipes.length === 1 ? '' : 's')));
+
+        var pt = el('table', 'sheet');
+        var pth = el('thead'), phr = el('tr');
+        ['Section', 'Size', 'Design flow (' + flowLabel + ')', 'Velocity (m/s)',
+         'Friction drop (' + presLabel + ')', 'Residual (' + presLabel + ')']
+          .forEach(function (c) { phr.appendChild(el('th', '', c)); });
+        pth.appendChild(phr); pt.appendChild(pth);
+        var ptb = el('tbody');
+        pathPipes.forEach(function (id) {
+          var s = rep.byPipe[id], p = M.pipe(m, id);
+          var tr = el('tr');
+          tr.appendChild(el('td', 'txt', (p && p.tag ? p.tag + '  ' : '') +
+            nodeLabel(s.from) + ' → ' + nodeLabel(s.to)));
+          tr.appendChild(el('td', 'txt', p ? (p.size || '—') : '—'));
+          tr.appendChild(el('td', '', FD.units.fmtFlow(s.flow, flowUnit)));
+          var bore = p ? M.pipeBore(m, p) : null;
+          var vv = bore ? FD.hydraulics.velocity(s.flow, bore) : 0;
+          tr.appendChild(el('td', vv > vLimit ? 'bad' : '', vv ? vv.toFixed(2) : '—'));
+          tr.appendChild(el('td', '', FD.units.fmtPressure(rep.dpFric[id] || 0, presUnit)));
+          var pr = rep.pressure[s.to];
+          tr.appendChild(el('td', pr < 0 ? 'bad' : '',
+            pr === undefined ? '—' : FD.units.fmtPressure(pr, presUnit)));
+          ptb.appendChild(tr);
+        });
+        pt.appendChild(ptb); host.appendChild(pt);
+
+        var avail = rep.pressure[worst.id];
+        var margeBad = worstMargin < 0;
+        host.appendChild(el('p', margeBad ? 'meta-line bad' : 'meta-line',
+          'Available at fixture ' + FD.units.fmtPressure(avail, presUnit, true) +
+          '  ·  required ' + FD.units.fmtPressure(req, presUnit, true) +
+          '  ·  margin ' + FD.units.fmtPressure(worstMargin, presUnit, true) +
+          (margeBad ? '  — INSUFFICIENT' : '') +
+          (sp && sp.id === 'none' ? '  (no 604.3 supply outlet set, required taken as 0)' : '')));
+      }
+    }
 
     if (FD.plumbing.verified && !FD.plumbing.verified.demand) {
       host.appendChild(el('p', 'hint',
@@ -5426,9 +5543,26 @@
                 : (FD.plumbing.fixtureFU(dev.fixture, dev.variation) || 0);
         des.ro('Cold fixture units', M.outflowFU(m, dev).toFixed(2) +
           ((dev.count || 1) > 1 ? ' (' + dev.count + ' × ' + per + ')' : ''));
-        des.box.appendChild(el('p', 'hint',
-          'Flow is sized from downstream fixture units — a ' + system.replace('flushometer', 'flushometer-valve').replace('flushTank', 'flush-tank') +
-          ' system (set on HYDRAULIC). Plumbing branches must be a tree.'));
+
+        /* UNDIVERSIFIED supply outlet (IPC 604.3) — the flow and pressure ONE
+         * such fixture draws, used by SIMULATE (pushed through the GGA) and the
+         * residual-pressure check. Chosen independently of the FU fixture. */
+        var supSel = el('select');
+        FD.plumbing.supplies.forEach(function (sp) {
+          var o = el('option', '', sp.name +
+            (sp.id === 'none' ? '' : '  (' + sp.gpm + ' gpm, ' + sp.psi + ' psi)'));
+          o.value = sp.id;
+          if ((dev.supply || 'none') === sp.id) o.selected = true;
+          supSel.appendChild(o);
+        });
+        field(des.box, 'Supply outlet (604.3)', supSel).addEventListener('change', function () {
+          pushUndo(); dev.supply = supSel.value; renderProperties(); changed();
+        });
+        if (dev.supply && dev.supply !== 'none') {
+          des.ro('Undiversified flow', FD.units.fmtFlow(M.plumbingUndivFlow(m, dev), fu, true) +
+            ((dev.count || 1) > 1 ? ' (' + dev.count + ' ×)' : ''));
+          des.ro('Required pressure', FD.units.fmtPressure(M.plumbingReqPressure(m, dev), pu, true));
+        }
       } else {
         var fIn = el('input'); fIn.type = 'text';
         fIn.value = FD.units.fmtFlow(dev.flow, fu);
@@ -5441,8 +5575,12 @@
           });
       }
 
+      /* A plumbing fixture's required pressure comes from its 604.3 supply
+       * outlet (shown above), so the generic Design-pressure field is hidden for
+       * it — the two would contradict. */
       var pIn = el('input'); pIn.type = 'text';
       pIn.value = FD.units.fmtPressure(dev.reqPressure, pu);
+      if (!isPlumbingOutflow)
       field(des.box, 'Design pressure (' + pu + ')', pIn)
         .addEventListener('change', function () {
           var v = FD.units.parse(pIn.value);
@@ -6233,6 +6371,60 @@
       pushUndo(); delete pl.demand; renderHydraulic(); redrawAll();
     });
     dmActs.appendChild(dmReset); host.appendChild(dmActs);
+
+    // ============================ FIXTURE SUPPLY — Table 604.3 -------------
+    var presUnit = (m.settings.display && m.settings.display.pressure) || 'kPa';
+    var presLabel = ('' + FD.units.fmtPressure(0, presUnit, true)).split(' ').slice(1).join(' ');
+    var PSI = FD.plumbing.PSI_TO_PA;
+    h2('Fixture supply outlets — Table 604.3  (' + flowLabel + ' / ' + presLabel + ')');
+    var suT = el('table', 'sheet');
+    var suThead = el('thead'), suHr = el('tr');
+    ['Fixture supply outlet', 'Flow', 'Pressure'].forEach(function (t) { suHr.appendChild(el('th', '', t)); });
+    suThead.appendChild(suHr); suT.appendChild(suThead);
+    var suBody = el('tbody');
+    function supCell(tr, sp, field, dispVal, toDisp, fromDisp) {
+      var td = el('td');
+      var eff = M.plumbingSupplyValue(m, sp.id);
+      var overridden = pl.supply && pl.supply[sp.id] && isFinite(pl.supply[sp.id][field]);
+      var input = el('input');
+      input.type = 'text';
+      input.value = toDisp(eff[field]);
+      input.className = 'cell-input' + (overridden ? ' edited' : '');
+      input.title = 'IPC default ' + toDisp(sp[field]);
+      input.addEventListener('change', function () {
+        var nv = fromDisp(input.value);
+        if (nv === null || nv < 0) { input.value = toDisp(eff[field]); return; }
+        pushUndo();
+        pl.supply = pl.supply || {};
+        pl.supply[sp.id] = pl.supply[sp.id] || { gpm: sp.gpm, psi: sp.psi };
+        if (nv === sp[field]) {                 // back to default clears the whole row when both match
+          pl.supply[sp.id][field] = sp[field];
+          if (pl.supply[sp.id].gpm === sp.gpm && pl.supply[sp.id].psi === sp.psi) delete pl.supply[sp.id];
+        } else { pl.supply[sp.id][field] = nv; }
+        renderHydraulic(); redrawAll();
+      });
+      td.appendChild(input); tr.appendChild(td);
+    }
+    FD.plumbing.supplies.forEach(function (sp) {
+      if (sp.id === 'none') return;
+      var tr = el('tr');
+      tr.appendChild(el('td', 'txt', sp.name));
+      supCell(tr, sp, 'gpm', null,
+        function (gpm) { return FD.units.fmtFlow(gpm * GPM, flowUnit); },
+        function (str) { var v = FD.units.parse(str); return isFinite(v) ? FD.units.toSIFlow(v, flowUnit) / GPM : null; });
+      supCell(tr, sp, 'psi', null,
+        function (psi) { return FD.units.fmtPressure(psi * PSI, presUnit); },
+        function (str) { var v = FD.units.parse(str); return isFinite(v) ? FD.units.toSIPressure(v, presUnit) / PSI : null; });
+      suBody.appendChild(tr);
+    });
+    suT.appendChild(suBody); host.appendChild(suT);
+    var suActs = el('div', 'table-actions');
+    var suReset = el('button', 'btn', 'Reset supply outlets to IPC defaults');
+    suReset.disabled = !(pl.supply && Object.keys(pl.supply).length);
+    suReset.addEventListener('click', function () {
+      pushUndo(); delete pl.supply; renderHydraulic(); redrawAll();
+    });
+    suActs.appendChild(suReset); host.appendChild(suActs);
   }
 
   function renderHydraulic() {

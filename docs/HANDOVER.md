@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.17.1, 2026-08-16.** Ten test suites, **2084 assertions**, all
+State: **v0.17.2, 2026-08-16.** Ten test suites, **2096 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -101,6 +101,22 @@ a pipe now tees in** (`canvas.js` paste path + `M.splitPipeAt`), which also fixe
 the same gap in hydronic. Flow-arrow appearance and the paste snap-detection are
 in `Human-Test.md` §5DW (the preview canvas has no layout, so px hit-testing and
 pixels can't be checked in-session).
+
+**v0.17.2** — Michael's second review list + SIMULATE for plumbing. (a) IPC
+**Table 604.3** transcribed to metric (`FD.plumbing.supplies`, verified:false),
+the per-fixture UNDIVERSIFIED flow + required pressure — a different taxonomy from
+E103.3(2), so it is a SEPARATE per-outflow selection (`dev.supply`), not a
+mapping. (b) **SIMULATE now pushes water through plumbing**: `buildPlumbingSimModel`
+converts each fixture to a fixed generic demand at its undiversified 604.3 flow
+and runs the UNMODIFIED GGA in DESIGN mode (fixed demands) — DESIGN stays
+fixture-unit sizing, SIMULATE is the undiversified push. The GGA is still never
+taught fixture units. (c) The plumbing CALCULATION sheet gained a **most
+unfavourable path** section (index run to the least-margin fixture: residual vs
+604.3 required pressure), like the hydronic critical path. (d) `verified.fixtures`
+= true (Michael signed off E103.3(2)); demand + supply still false. (e)
+Explanations removed from the plumbing HYDRAULIC tab (last round) and the plumbing
+CALCULATION intro (this round). (f) SHOW ▸ Temperature hidden in plumbing. The
+604.3 table is editable on the HYDRAULIC tab like the other two.
 
 Nine versions were built in one session on 2026-08-09 (v0.16.4 → v0.16.15), and
 the big ones were:
