@@ -3953,6 +3953,13 @@
      * than as one more annotation on it, and switched off by the same per-item
      * rule as every other tag. */
     if (p.tag && (M.tagVisible(p) || this.tool === 'view')) parts.push(p.tag);
+    /* Downstream FIXTURE UNITS — plumbing only, from the sizing pass (res.byPipe).
+     * There are no fixture units in a hydronic model, so the option does nothing
+     * there. First after the tag: it is the load the pipe carries, the plumbing
+     * analogue of flow. */
+    if (a.pipeFU && m.discipline === 'plumbing' && res && res.byPipe && res.byPipe[p.id]) {
+      parts.push(res.byPipe[p.id].fu.toFixed(1) + 'FU');
+    }
     if (a.pipeDiameter) parts.push(FD.units.sizeLabel(p.size, d.size));
     if (a.pipeLength) parts.push(FD.units.fmtLength(M.pipeLength(m, p), d.length) +
                                  (d.length === 'm' ? 'm' : 'ft'));

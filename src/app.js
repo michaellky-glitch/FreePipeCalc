@@ -2346,6 +2346,9 @@
     host.appendChild(el('h3', 'sub', 'Pipes'));
     toggle('Lengths', 'pipeLength');
     toggle('Nom. diameter', 'pipeDiameter');
+    /* Downstream fixture units — only meaningful (and only offered) in a plumbing
+     * file, where a pipe carries FU rather than a hydronic flow demand. */
+    if (m.discipline === 'plumbing') toggle('Fixture units', 'pipeFU');
     toggle('Flow', 'pipeFlow');
     toggle('Velocity', 'pipeVelocity');
     toggle('PD', 'pipePD');

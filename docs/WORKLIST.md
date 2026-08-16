@@ -48,6 +48,13 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
 
+* **v0.17.3** — Domestic Water: **downstream fixture units as a pipe-label
+  option** (Michael, 2026-08-16). A new `annotate.pipeFU` flag draws the pipe's
+  downstream cold FU on the drawing (e.g. "22.0FU/40⌀/5.00m/1.28L/s"); the toggle
+  ("Fixture units") appears in the DISPLAY TAGS panel **only in a plumbing file**,
+  and the label reads the sizing pass (`res.byPipe`). No fixture units exist in a
+  hydronic model, so it does nothing there. Verified live (label on/off, toggle
+  plumbing-only, no console errors).
 * **v0.17.2** — Domestic Water: Table 604.3, plumbing SIMULATE, most-unfavourable
   path (Michael's list, 2026-08-16). (1) **IPC Table 604.3** transcribed to metric
   (`FD.plumbing.supplies`, verified:false) — the undiversified per-fixture flow +

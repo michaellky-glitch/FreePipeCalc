@@ -224,6 +224,9 @@
         pipeLength: true,
         pipeFlow: true,
         pipeVelocity: false,
+        /* Downstream cold FIXTURE UNITS on the pipe — a plumbing-discipline label
+         * only (there are no fixture units in a hydronic model). */
+        pipeFU: false,
         pipePD: false,
         /* Friction RATE (Pa/m) as distinct from pipePD, the whole section's
          * drop. This is the figure checked against the ~400 Pa/m rule, so it
