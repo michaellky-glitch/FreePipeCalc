@@ -104,7 +104,7 @@
     renderProperties();
     applyTheme();
     applyPresentation();
-    updateSystemChip();
+    applyDiscipline();
     updateModeChip();
     app.view.render();
     scheduleSolve();
@@ -305,6 +305,8 @@
   var STEP_BUDGET_MS = 24;
 
   function solveSliced() {
+    /* Plumbing is sized, not solved — keep the GGA off the code path entirely. */
+    if (app.model.discipline === 'plumbing') { plumbingSolve(); return; }
     if (app.solving) { app.solveAgain = true; return; }
     var heavy = app.model.settings.calcMode === 'simulation' &&
                 app.model.pipes.length > 60;
@@ -410,6 +412,10 @@
   }
 
   function solveNow() {
+    /* PLUMBING NEVER INVOKES THE GGA (DW re-architecture, 2026-08-16). The
+     * whole isolation is that a plumbing file is not on the solver's code path —
+     * not "left untouched", never called. */
+    if (app.model.discipline === 'plumbing') return plumbingSolve();
     try {
       return applyResult(FD.network.solveModel(app.model));
     } catch (e) {
@@ -417,6 +423,27 @@
       updateStatusChip(null, e.message);
       return null;
     }
+  }
+
+  /* Plumbing's stand-in for the GGA solve. Phase A has no sizing report yet
+   * (Phase B builds it from M.plumbingSizing), so this just clears any stale
+   * hydronic result and states that the pane is under construction. It exists so
+   * that every path that would have solved the GGA has somewhere else to go. */
+  function plumbingSolve() {
+    app.results = null;
+    if (app.view) app.view.results = null;
+    hideSolveProgress();
+    var chip = $('status-chip');
+    if (chip) {
+      chip.textContent = 'Plumbing — sizing under construction';
+      chip.className = 'chip';
+      chip.title = '';
+      chip.style.cursor = '';
+    }
+    if (app.view) app.view.render();
+    refreshPropertyReadouts();
+    if (app.messagesRefresh) app.messagesRefresh();
+    return null;
   }
 
   function updateStatusChip(res, errMsg) {
@@ -822,14 +849,29 @@
   function renderCalculationInner() {
     var host = $('calc-body');
     host.innerHTML = '';
-    var res = app.results || solveNow();
     var m = app.model;
+    /* PLUMBING has its own sizing (fixture units → diversity flow), not the GGA
+     * calculation sheet. Phase A has no plumbing report yet — Phase B builds it
+     * from M.plumbingSizing — so the pane states that rather than rendering a
+     * hydronic sheet with no result behind it. */
+    if (m.discipline === 'plumbing') {
+      var box = el('div', 'notice info-notice');
+      box.appendChild(el('p', 'notice-head', 'Plumbing calculation — under construction'));
+      box.appendChild(el('p', '',
+        'This is a Plumbing (domestic water) file. Fixture-unit sizing and the ' +
+        'residual-pressure report are being built. Draw the network on the ' +
+        'PLUMBING tab; switch the discipline back to Hydronic on the chip beside ' +
+        'the status indicator for the friction-loss sheet.'));
+      host.appendChild(box);
+      return;
+    }
+    var res = app.results || solveNow();
     /* Declared up here because the hydraulic-error block below needs it, and a
      * `var` further down only looks like it is in scope. */
     var d = m.settings.display;
 
     if (!m.pipes.length) {
-      host.appendChild(el('p', '', 'Nothing to calculate yet — draw a network on the PIPING NETWORK tab.'));
+      host.appendChild(el('p', '', 'Nothing to calculate yet — draw a network on the HYDRONIC tab.'));
       return;
     }
 
@@ -2994,11 +3036,12 @@
     /* ---- Domestic-water sizing (DW) ----
      * A plumbing branch is sized from the FIXTURE UNITS downstream of the pipe,
      * not by the continuity solve — so this is computed here directly and does
-     * not wait for a simulation. Only shown when the model carries plumbing
-     * outflows. If the plumbing network is not a tree (loop, no source, more
-     * than one source) the sizing is undefined and the reason is stated rather
-     * than a number invented. */
-    var dw = M.plumbingSizing(m);
+     * not wait for a simulation. Belongs to the PLUMBING DISCIPLINE (DW
+     * re-architecture, 2026-08-16): in a hydronic file it is hidden entirely, so
+     * a plumbing readout never appears beside GGA figures. If the plumbing
+     * network is not a tree (loop, no source, more than one source) the sizing
+     * is undefined and the reason is stated rather than a number invented. */
+    var dw = (m.discipline === 'plumbing') ? M.plumbingSizing(m) : { ok: true, byPipe: {} };
     if (!dw.ok && dw.error) {
       var dwErr = el('div', 'readout');
       dwErr.appendChild(el('div', 'sub', 'Domestic water'));
@@ -5164,30 +5207,41 @@
       // characteristic K = Q_d/√ΔP_d is derived from, not a result.
       var des = section(host, 'Design');
 
-      /* GENERIC vs PLUMBING (Domestic Water, Michael 2026-08-12). A generic
-       * outflow states a flow demand; a plumbing outflow states a fixture and
-       * its cold fixture units, and the flow is sized from the FU diversity. */
-      var typeSel = el('select');
-      [['generic', 'Generic'], ['plumbing', 'Plumbing (fixture units)']].forEach(function (kv) {
-        var o = el('option', '', kv[1]); o.value = kv[0];
-        if ((dev.demandType || 'generic') === kv[0]) o.selected = true;
-        typeSel.appendChild(o);
-      });
-      /* The FU of one fixture depends on its VARIATION (occupancy × supply
-       * control); switching fixture resets it to that fixture's first row. */
-      var firstVar = function (fxId) {
-        var vs = FD.plumbing.variations(fxId); return vs.length ? vs[0].id : null;
-      };
-      field(des.box, 'Outflow type', typeSel).addEventListener('change', function () {
-        pushUndo();
-        dev.demandType = typeSel.value;
-        if (dev.demandType === 'plumbing' && !dev.fixture) {
-          dev.fixture = 'waterCloset'; dev.count = 1; dev.variation = firstVar('waterCloset');
-        }
-        renderProperties(); changed();
-      });
+      /* GENERIC vs PLUMBING (Domestic Water). A generic outflow states a flow
+       * demand; a plumbing outflow states a fixture and its cold fixture units,
+       * and the flow is sized from the FU diversity.
+       *
+       * The type selector and the fixture/Variation controls belong to the
+       * PLUMBING DISCIPLINE (DW re-architecture, 2026-08-16). In a hydronic file
+       * an outflow is a flow demand, full stop — this whole block is hidden and
+       * only the generic flow input below is shown. `data/plumbing.js`,
+       * M.outflowFU and M.plumbingSizing stay; they are reused by the plumbing
+       * discipline, not by the hydronic Design panel. */
+      var isPlumbingOutflow = (m.discipline === 'plumbing') &&
+                              (dev.demandType === 'plumbing');
+      if (m.discipline === 'plumbing') {
+        var typeSel = el('select');
+        [['generic', 'Generic'], ['plumbing', 'Plumbing (fixture units)']].forEach(function (kv) {
+          var o = el('option', '', kv[1]); o.value = kv[0];
+          if ((dev.demandType || 'generic') === kv[0]) o.selected = true;
+          typeSel.appendChild(o);
+        });
+        /* The FU of one fixture depends on its VARIATION (occupancy × supply
+         * control); switching fixture resets it to that fixture's first row. */
+        var firstVar = function (fxId) {
+          var vs = FD.plumbing.variations(fxId); return vs.length ? vs[0].id : null;
+        };
+        field(des.box, 'Outflow type', typeSel).addEventListener('change', function () {
+          pushUndo();
+          dev.demandType = typeSel.value;
+          if (dev.demandType === 'plumbing' && !dev.fixture) {
+            dev.fixture = 'waterCloset'; dev.count = 1; dev.variation = firstVar('waterCloset');
+          }
+          renderProperties(); changed();
+        });
+      }
 
-      if (dev.demandType === 'plumbing') {
+      if (isPlumbingOutflow) {
         var system = (m.settings.plumbing && m.settings.plumbing.system) || 'flushTank';
         var fxSel = el('select');
         FD.plumbing.fixtures.forEach(function (f) {
@@ -5279,7 +5333,7 @@
         });
       /* K = Q/√ΔP is the GENERIC terminal characteristic; a plumbing fixture is
        * sized from FU instead, so it is not shown there. */
-      if (dev.demandType !== 'plumbing') designKRow(des, dev.flow, dev.reqPressure);
+      if (!isPlumbingOutflow) designKRow(des, dev.flow, dev.reqPressure);
       switchRow(des.box, 'Include in calculation', dev.include !== false, function (on) {
         pushUndo(); dev.include = on; changed(); renderProperties();
       });
@@ -6076,13 +6130,18 @@
       });
 
     /* DOMESTIC WATER: which IPC E103.3 demand curve a plumbing branch is sized
-     * on. Only bites once a Plumbing outflow exists; harmless otherwise. */
+     * on. Belongs to the PLUMBING DISCIPLINE (DW re-architecture, 2026-08-16):
+     * the HYDRAULIC tab is hydronic-only and hidden in plumbing, so this
+     * selector no longer sits here in a hydronic file. The setting stays on the
+     * model; Phase B gives it a home in the plumbing discipline. */
     if (!m.settings.plumbing) m.settings.plumbing = { system: 'flushTank' };
-    selField(mg, 'Plumbing supply',
-      FD.plumbing.systems.map(function (s) { return [s.id, s.name]; }),
-      m.settings.plumbing.system, function (v) {
-        pushUndo(); m.settings.plumbing.system = v; renderHydraulic(); redrawAll();
-      });
+    if (m.discipline === 'plumbing') {
+      selField(mg, 'Plumbing supply',
+        FD.plumbing.systems.map(function (s) { return [s.id, s.name]; }),
+        m.settings.plumbing.system, function (v) {
+          pushUndo(); m.settings.plumbing.system = v; renderHydraulic(); redrawAll();
+        });
+    }
 
     // ---- the formula, with the coefficients editable in place ----
     var fbox = el('div', 'formula-box');
@@ -6712,17 +6771,85 @@
     changed();
   }
 
+  /* THE DISCIPLINE CHIP (DW re-architecture, 2026-08-16). The loop-type chip
+   * was repurposed: a file is one discipline and this is the switch. It reads
+   * HYDRONIC or PLUMBING, and clicking it toggles — with a confirm on a
+   * non-empty model, because the two share geometry but not device semantics.
+   * The open/closed-loop reading it used to show is a hydronic-only concept and
+   * still appears on the calc sheet via systemTypeLabel(). */
   function updateSystemChip() {
     var chip = $('system-chip');
     if (!chip) return;
-    var d = FD.network.detectSystemType(app.model);
-    app.model.settings.systemType = (d.type === 'none') ? 'open' : d.type;
-    chip.textContent = d.type === 'open' ? 'OPEN LOOP'
-                     : d.type === 'closed' ? 'CLOSED LOOP'
-                     : 'NO SUPPLY';
-    chip.className = 'chip system-chip ' +
-      (d.type === 'open' ? 'ok' : d.type === 'closed' ? 'info' : 'warn');
-    chip.title = d.reason;
+    var plumbing = app.model.discipline === 'plumbing';
+    chip.textContent = plumbing ? 'PLUMBING' : 'HYDRONIC';
+    chip.className = 'chip system-chip ' + (plumbing ? 'info' : 'ok');
+    chip.title = 'Discipline — click to switch between Hydronic (GGA network) ' +
+                 'and Plumbing (fixture-unit domestic water).';
+    chip.style.cursor = 'pointer';
+  }
+
+  /* True when there is anything the user has drawn that a discipline switch
+   * could strand. A single empty starting level does not count. */
+  function modelHasContent() {
+    var m = app.model;
+    return (m.pipes && m.pipes.length > 0) || (m.nodes && m.nodes.length > 0) ||
+           (m.details && m.details.length > 0) || (m.notes && m.notes.length > 0);
+  }
+
+  function setDiscipline(next) {
+    if (app.model.discipline === next) return;
+    pushUndo();
+    app.model.discipline = next;
+    applyDiscipline();
+    /* A switch can strand device settings (a hydronic flow-demand outflow is
+     * not a plumbing fixture), so re-render the panel and re-solve under the new
+     * discipline. The solve gate keeps the GGA off the plumbing code path. */
+    renderProperties();
+    changed();
+  }
+
+  function toggleDiscipline() {
+    var next = app.model.discipline === 'plumbing' ? 'hydronic' : 'plumbing';
+    if (modelHasContent()) {
+      FD.dialog.confirm({
+        title: 'Change discipline?',
+        message: 'Changing an existing model between Hydronic and Plumbing may break it.',
+        ok: 'Change to ' + (next === 'plumbing' ? 'Plumbing' : 'Hydronic')
+      }).then(function (yes) { if (yes) setDiscipline(next); });
+    } else {
+      setDiscipline(next);
+    }
+  }
+
+  function initSystemChip() {
+    var chip = $('system-chip');
+    if (!chip) return;
+    chip.addEventListener('click', toggleDiscipline);
+  }
+
+  /* Relabels the network tab and shows/hides the auxiliary tabs for the current
+   * discipline. Plumbing has no THERMAL and no hydronic HYDRAULIC tab (a
+   * flush-tank/flushometer system setting replaces the latter in Phase B), and
+   * the network tab reads PLUMBING rather than HYDRONIC. Called on load, on a
+   * discipline switch, and after startup. */
+  function applyDiscipline() {
+    var plumbing = app.model.discipline === 'plumbing';
+    var netTab = document.querySelector('.tab[data-pane="pane-network"]');
+    if (netTab) netTab.textContent = plumbing ? 'PLUMBING' : 'HYDRONIC';
+    /* Hidden tabs in plumbing: THERMAL and HYDRAULIC are hydronic-only. */
+    ['pane-thermal', 'pane-hydraulic'].forEach(function (pane) {
+      var tab = document.querySelector('.tab[data-pane="' + pane + '"]');
+      if (tab) tab.hidden = plumbing;
+    });
+    /* If the discipline just hid the tab we are looking at, fall back to the
+     * network — a hidden pane left active is a blank screen with no tab lit. */
+    if (plumbing) {
+      ['pane-thermal', 'pane-hydraulic'].forEach(function (pane) {
+        var sec = $(pane);
+        if (sec && sec.dataset.active === 'true' && app.showTab) app.showTab('pane-network');
+      });
+    }
+    updateSystemChip();
   }
 
   /* The mode buttons are wired in `initToolbar`, beside the tool sets they
@@ -6758,6 +6885,7 @@
     applyPresentation();
     initModeChip();
     initStatusChip();
+    initSystemChip();
 
     app.view = new FD.View($('canvas'), function () { return app.model; }, function () {
       renderProperties();
@@ -7623,7 +7751,7 @@
 
     renderLevels();
     renderProperties();
-    updateSystemChip();
+    applyDiscipline();
     app.view.resize();
     app.view.zoomToFit();
     solveNow();

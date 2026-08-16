@@ -65,14 +65,23 @@ two are kept apart at the top level.
 
 ### Build phases (v2)
 
-A. **Scaffold.** `m.discipline` (`'hydronic'` default) carried through
-   `create`/`toJSON`/`fromJSON`. Repurpose `#system-chip` as the discipline
-   switch (label HYDRONIC/PLUMBING, click toggles, confirm warning on a non-empty
-   model). Relabel the network tab by discipline and show/hide the auxiliary tabs
-   per discipline. Gate the solve so `discipline==='plumbing'` never calls the
-   GGA. Hide the in-Design plumbing outflow UI + pipe-panel DW readout (from
-   v0.16.31–32) whenever `discipline!=='plumbing'`. No plumbing report yet — the
-   plumbing pane can state it is under construction.
+A. **Scaffold. — DONE, v0.16.33.** `m.discipline` (`'hydronic'` default) carried
+   through `create`/`toJSON`/`fromJSON` (a legacy or unknown value coerces to
+   hydronic). `#system-chip` repurposed as the discipline switch (label
+   HYDRONIC/PLUMBING, click toggles, `FD.dialog.confirm` warning on a non-empty
+   model). The network tab is relabelled by discipline (HYDRONIC / PLUMBING) and
+   THERMAL + HYDRAULIC are hidden in plumbing (with a fallback to the network tab
+   if one was active when it was hidden). The solve is gated: `solveNow` and
+   `solveSliced` short-circuit to `plumbingSolve` when
+   `discipline==='plumbing'`, so `FD.network.solveModel`/`solveModelGen` are
+   never on the plumbing code path (verified live: 0 GGA calls). The in-Design
+   plumbing UI from v0.16.31–32 is hidden whenever `discipline!=='plumbing'` —
+   the outflow-type + fixture/Variation controls in `renderNodeProps`, the
+   pipe-panel DW readout in `renderPipeProps`, and the "Plumbing supply" selector
+   on the HYDRAULIC tab; the data (`data/plumbing.js`, `M.outflowFU`,
+   `M.plumbingSizing`) and the model fields (`demandType`, `fixture`, etc.) stay
+   untouched. No plumbing report yet — the CALCULATION pane states it is under
+   construction. 4 new model.test assertions (suite 2052).
 B. **Plumbing outflow UI + sizing report** in the plumbing discipline: the
    fixture/Variation/count panel (reuse the v0.16.31–32 controls, now here), and
    a plumbing results object from `plumbingSizing` feeding a per-pipe diversity

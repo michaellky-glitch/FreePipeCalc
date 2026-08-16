@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.32, 2026-08-16.** Ten test suites, **2048 assertions**, all
+State: **v0.16.33, 2026-08-16.** Ten test suites, **2052 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -68,10 +68,18 @@ plumbing UI from v0.16.31–32 (Plumbing outflow type, Variation dropdown,
 pipe-panel DW readout) is hidden unless the discipline is plumbing, and rebuilt
 inside it. The data (`data/plumbing.js`) and the sizing core (`M.plumbingSizing`,
 `M.outflowFU`) stay. Full spec and build phases A/B/C are in `docs/DW-MODULE.md`
-→ **Architecture v2**; the plan is captured, no discipline code written yet.
-**The IPC data is `verified: false`** until Michael signs off the transcription
-and the per-fixture occupancy/control assumptions in `data/plumbing.js` (incl.
-the WC "Ppublic"→Private typo).
+→ **Architecture v2**.
+
+**Phase A (the discipline scaffold) is DONE, v0.16.33.** `m.discipline`
+round-trips through the model; the `#system-chip` toggle, the confirm, the
+per-discipline tab set, and the solve gate are all wired and verified live (a
+plumbing file makes **zero** GGA calls). The in-Design plumbing UI is hidden
+outside the plumbing discipline. The plumbing CALCULATION pane reads "under
+construction" — **Phase B** builds the plumbing outflow UI + sizing report,
+**Phase C** the residual-pressure pass. **The IPC data is still
+`verified: false`** until Michael signs off the transcription and the per-fixture
+occupancy/control assumptions in `data/plumbing.js` (incl. the WC
+"Ppublic"→Private typo).
 
 Nine versions were built in one session on 2026-08-09 (v0.16.4 → v0.16.15), and
 the big ones were:

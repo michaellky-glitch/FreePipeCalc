@@ -8,7 +8,8 @@ in v0.16.31, Phase 2 (solver) is next. Everything else he has raised is done;
 what is left of the rest is his testing of it, and one thing found in passing
 (DX.1).
 
-Updated 2026-08-16, after v0.16.32 (and the DW re-architecture to a discipline).
+Updated 2026-08-16, after v0.16.33 (Domestic Water Phase A — the discipline
+scaffold).
 
 ---
 
@@ -36,7 +37,7 @@ The likeliest things to come back:
 
 | # | Item | Notes |
 |---|---|---|
-| DW.MOD | **Domestic Water module — RE-ARCHITECTED to a separate discipline (2026-08-16)** | Michael pivoted to DE-RISK the GGA (Option A, one app): **a file is one discipline**, `m.discipline` = `hydronic` (default) \| `plumbing`. In a plumbing file the GGA is NEVER invoked. The DISCIPLINE lives a layer ABOVE the tab bar via the **repurposed loop-type chip** (`#system-chip` → HYDRONIC/PLUMBING, click toggles, **confirm warning** "Changing an existing model between Hydronic and Plumbing may break it"). The network tab is relabelled per discipline (HYDRONIC — was "PIPING NETWORK" — or PLUMBING); plumbing shows its own reduced tab set (PLUMBING + plumbing CALCULATION + SETTINGS + DOCS, no THERMAL/HYDRAULIC). Canvas + drawing tools + save file are shared. Plumbing solved only by `M.plumbingSizing`. Full spec + phases A/B/C in `docs/DW-MODULE.md` → **Architecture v2**. **Built already (reusable):** `data/plumbing.js` (IPC E103.3(2) with per-fixture variations, `verified:false`), `M.outflowFU`, `M.plumbingSizing` (tree accumulation + `DW_LOOP`/`DW_NO_SOURCE`/`DW_MULTI_SOURCE`). **To do:** Phase A scaffold (discipline flag + save/load + chip switch + per-discipline tab set + solve gate + **hide** the in-Design plumbing UI when not plumbing); Phase B plumbing outflow UI + sizing report; Phase C residual-pressure pass + sheet. **Blocking on Michael before promote:** confirm the `verified:false` IPC transcription + occupancy/control assumptions (incl. the WC "Ppublic"→Private typo), then `FD.plumbing.verified = true`. |
+| DW.MOD | **Domestic Water module — RE-ARCHITECTED to a separate discipline (2026-08-16)** | Michael pivoted to DE-RISK the GGA (Option A, one app): **a file is one discipline**, `m.discipline` = `hydronic` (default) \| `plumbing`. In a plumbing file the GGA is NEVER invoked. The DISCIPLINE lives a layer ABOVE the tab bar via the **repurposed loop-type chip** (`#system-chip` → HYDRONIC/PLUMBING, click toggles, **confirm warning** "Changing an existing model between Hydronic and Plumbing may break it"). The network tab is relabelled per discipline (HYDRONIC — was "PIPING NETWORK" — or PLUMBING); plumbing shows its own reduced tab set (PLUMBING + plumbing CALCULATION + SETTINGS + DOCS, no THERMAL/HYDRAULIC). Canvas + drawing tools + save file are shared. Plumbing solved only by `M.plumbingSizing`. Full spec + phases A/B/C in `docs/DW-MODULE.md` → **Architecture v2**. **Built already (reusable):** `data/plumbing.js` (IPC E103.3(2) with per-fixture variations, `verified:false`), `M.outflowFU`, `M.plumbingSizing` (tree accumulation + `DW_LOOP`/`DW_NO_SOURCE`/`DW_MULTI_SOURCE`). **To do:** ~~Phase A scaffold~~ **DONE v0.16.33** (discipline flag + save/load + chip switch + per-discipline tab set + solve gate + **hide** the in-Design plumbing UI when not plumbing); Phase B plumbing outflow UI + sizing report (surface the fixture/Variation/count panel + "Plumbing supply" selector inside the plumbing discipline, feed `M.plumbingSizing` to a per-pipe canvas readout and a plumbing calculation sheet); Phase C residual-pressure pass + sheet. **Blocking on Michael before promote:** confirm the `verified:false` IPC transcription + occupancy/control assumptions (incl. the WC "Ppublic"→Private typo), then `FD.plumbing.verified = true`. |
 | SW.2 | **Finish the sweep → iteration rename (internal)** | Michael, 2026-08-12. The USER-FACING text now says "iteration" (progress bar, the Settling-iterations field, CONTROL_HUNTING / CONTROL_BUDGET messages). The INTERNALS still say sweep: the `sweep`/`MAX_SWEEPS`/`reSweep` variables in `network.js`, `report.sweeps`, and the saved setting key `control.sweeps`. Renaming `control.sweeps` needs a load-time migration so old files keep their value, so it was left for a dedicated pass. Cosmetic, no behaviour change. |
 | MSG.2 | **Trim the verbose messages** | `docs/MESSAGES.md` §7 proposes shorter forms for 8 messages; awaiting Michael's yes/no per line, then apply to source. (CONTROL_HUNTING already reworded in v0.16.26.) |
 | DX.1 | Does the DXF open in real CAD? | Untested; nothing in this environment can check it. |
@@ -47,6 +48,23 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.33** — Domestic Water Phase A: the discipline scaffold. A file is now
+  one DISCIPLINE — `m.discipline` = `'hydronic'` (default) | `'plumbing'`,
+  carried through `create`/`toJSON`/`fromJSON` (legacy/unknown → hydronic). The
+  loop-type chip `#system-chip` is repurposed as the discipline switch: it reads
+  HYDRONIC / PLUMBING and clicking it toggles, with a `FD.dialog.confirm`
+  warning ("Changing an existing model between Hydronic and Plumbing may break
+  it.") on a non-empty model. The network tab is relabelled per discipline and
+  THERMAL + HYDRAULIC are hidden in plumbing. The solve is gated so a plumbing
+  file NEVER invokes the GGA (`solveModel`/`solveModelGen` off the code path,
+  verified live at 0 calls); the plumbing CALCULATION pane says "under
+  construction" for now. The in-Design plumbing UI from v0.16.31–32 (outflow
+  type + fixture/Variation in `renderNodeProps`, the pipe-panel DW readout, and
+  the HYDRAULIC "Plumbing supply" selector) is hidden unless the discipline is
+  plumbing; the data and `M.plumbingSizing` stay for Phase B. 4 new assertions
+  (suite 2052). Verified live in the browser (logic + wiring; the chip/tab
+  appearance is Michael's to eyeball). See `docs/DW-MODULE.md` → Architecture v2,
+  Phase A.
 * **v0.16.32** — Domestic Water: fixture variations + the sizing core. The
   fixture list is now the full IPC 2018 Table E103.3(2), and each outflow has a
   **Variation** dropdown below Fixture (Private / Public × flush tank / flush

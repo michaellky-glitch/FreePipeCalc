@@ -425,6 +425,26 @@ section('Model — save / load round trip');
      rebuilt.nodes.filter(n => n.id === fresh.id).length === 1, fresh.id);
 }
 
+section('Model — discipline (DW re-architecture, Phase A)');
+{
+  const m = M.create();
+  ok('A new model defaults to the hydronic discipline', m.discipline === 'hydronic');
+
+  m.discipline = 'plumbing';
+  const back = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(m))));
+  ok('Discipline survives save/load', back.discipline === 'plumbing');
+
+  // A file written before the discipline existed opens as hydronic.
+  const legacy = M.fromJSON({ formatVersion: 1, levels: [], nodes: [], pipes: [] });
+  ok('A legacy file with no discipline opens as hydronic',
+     legacy.discipline === 'hydronic');
+
+  // Anything that is not 'plumbing' is coerced to the default rather than trusted.
+  const junk = M.fromJSON({ formatVersion: 1, discipline: 'nonsense',
+                            levels: [], nodes: [], pipes: [] });
+  ok('An unknown discipline is coerced to hydronic', junk.discipline === 'hydronic');
+}
+
 section('Model — riser size inheritance (spec §7.2)');
 {
   const m = M.create();

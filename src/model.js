@@ -260,6 +260,13 @@
     var m = {
       formatVersion: FORMAT_VERSION,
       appVersion: FD.VERSION || '0.1.0-dev',
+      /* DISCIPLINE — a file is ONE discipline (DW re-architecture, 2026-08-16).
+       * 'hydronic' (default) is everything the app has always done: the GGA,
+       * thermal, controls. 'plumbing' is fixture-unit domestic water, sized by
+       * M.plumbingSizing and NEVER by the GGA. Sits a layer above the tab bar,
+       * on the repurposed loop-type chip. See docs/DW-MODULE.md → Architecture
+       * v2. The two share geometry but not device semantics. */
+      discipline: 'hydronic',      // 'hydronic' | 'plumbing'
       settings: defaultSettings(),
       customSchedules: {},
       levels: [],
@@ -2777,6 +2784,10 @@
                       obj.formatVersion + ', this build reads ' + FORMAT_VERSION + ').');
     }
     var m = create();
+    /* Discipline: default 'hydronic' so every file written before the DW
+     * re-architecture (2026-08-16) opens as what it was. Only 'plumbing' is the
+     * alternative; anything else is coerced to the default. */
+    m.discipline = (obj.discipline === 'plumbing') ? 'plumbing' : 'hydronic';
     // Merge rather than replace, so files written by older builds pick up any
     // settings added since without becoming invalid.
     m.settings = Object.assign(defaultSettings(), obj.settings || {});
