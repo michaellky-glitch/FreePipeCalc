@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.16.31, 2026-08-16.** Ten test suites, **2018 assertions**, all
+State: **v0.16.32, 2026-08-16.** Ten test suites, **2048 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -44,18 +44,24 @@ pump sizing, control loops, sync, copy-paste, the tools and the DXF/print paths
 all work and are covered.
 
 **The one feature in flight is the Domestic Water (DW) module.** Approach was
-agreed with Michael (`docs/DW-MODULE.md`), and **Phase 1 shipped in v0.16.31**:
-the data (`data/plumbing.js`, IPC 2018 Appendix E, `verified: false`), the model
-(`M.outflowFU`, `settings.plumbing.system`, `demandType` on the demand device),
-and the UI (a Generic/Plumbing outflow type in the outflow DESIGN panel with a
-fixture + count + Custom-FU + cold-FU readback, and a "Plumbing supply" selector
-on the HYDRAULIC tab). **Phase 2 is the solver** — tree accumulation of
-downstream Generic flow plus `fuToFlow(downstream FU sum)`, a tree requirement
-with a loop error, and system-aware "imbalance is expected for DW, an error
-otherwise" handling. Phase 3 is the forward head-loss pass to residual pressure
-at each fixture. See `WORKLIST.md` → DW.MOD. **The IPC data is `verified: false`
+agreed with Michael (`docs/DW-MODULE.md`). **Phase 1 (v0.16.31)** added the data
+(`data/plumbing.js`, IPC 2018 Appendix E, `verified: false`), the model
+(`M.outflowFU`, `settings.plumbing.system`, `demandType`), and the outflow UI.
+**v0.16.32** made the fixture list the full Table E103.3(2) with a per-outflow
+**Variation** dropdown, and added the **sizing core** `M.plumbingSizing(m)` — a
+pure tree walk from the source that accumulates downstream cold FU + generic
+flow per pipe and sizes `Generic + fuToFlow(FU)` (sub-additive), rejecting a
+loop / missing / multiple source (`DW_LOOP`, `DW_NO_SOURCE`, `DW_MULTI_SOURCE`)
+rather than guessing. The PIPE panel shows the diversity flow read-only.
+
+**What is left of DW:** the sizing core is not yet folded into the MAIN solve —
+`res.flow` and the CALCULATION SHEET still carry the GGA's continuity flows, so a
+DW pipe's VELOCITY/PDM warnings do not yet fire at the diversity flow. Doing that
+(and making the imbalance checks system-type-aware once DW drives the solve), plus
+the Phase 3 forward pressure pass to residual pressure at each fixture, is the
+remaining work. See `WORKLIST.md` → DW.MOD. **The IPC data is `verified: false`
 until Michael signs off the transcription and the per-fixture occupancy/control
-assumptions noted in `data/plumbing.js`.**
+assumptions noted in `data/plumbing.js` (incl. the WC "Ppublic"→Private typo).**
 
 Nine versions were built in one session on 2026-08-09 (v0.16.4 → v0.16.15), and
 the big ones were:

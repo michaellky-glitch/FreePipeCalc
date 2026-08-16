@@ -1320,12 +1320,173 @@
    * will accumulate downstream; here it drives the panel and the display tag. */
   function outflowFU(m, dev) {
     if (!dev || dev.kind !== 'demand' || dev.demandType !== 'plumbing') return 0;
-    var system = (m.settings.plumbing && m.settings.plumbing.system) || 'flushTank';
     var count = dev.count > 0 ? dev.count : 1;
+    /* The per-fixture cold FU now comes from the chosen VARIATION (occupancy ×
+     * supply control), not the model-wide system — the HYDRAULIC system setting
+     * only picks the FU→flow demand CURVE. Custom carries a typed FU. */
     var per = (dev.fixture === 'custom' || !dev.fixture)
       ? (Number(dev.fu) || 0)
-      : (FD.plumbing.fixtureFU(dev.fixture, system) || 0);
+      : (FD.plumbing.fixtureFU(dev.fixture, dev.variation) || 0);
     return count * per;
+  }
+
+  /* ===================================================== DOMESTIC-WATER SIZING
+   *
+   * A plumbing branch is NOT sized by continuity. A pipe's design flow is the
+   * GENERIC demand downstream of it (summed linearly) PLUS the diversity flow of
+   * the cold FIXTURE UNITS downstream of it — and the FU→flow curve is
+   * deliberately sub-additive (IPC Table E103.3), so a plumbing network
+   * legitimately does not balance. See docs/DW-MODULE.md.
+   *
+   * "Downstream" is only defined on a TREE rooted at the source. A plumbing
+   * component with a loop, with no source, or with more than one source cannot
+   * be sized this way and is returned as an error — never guessed.
+   *
+   * PURE. It materialises risers (as the GGA build does) and walks the graph; it
+   * writes nothing back to the model. The main solve is untouched — this runs
+   * ALONGSIDE it for models that carry plumbing outflows, and returns
+   *   { ok, error, byPipe, roots, totalFU, totalFlow }
+   * where byPipe[pipeId] = { fu, generic, flow } are the DOWNSTREAM totals and
+   * the sized flow (SI, m³/s). `error` is a {code, message, nodes?, pipes?}
+   * or null. When no plumbing outflow is present, ok:true with an empty byPipe.
+   */
+  function plumbingSizing(m) {
+    var byPipe = {};
+    var plumbingNodes = m.nodes.filter(function (n) {
+      var d = n.device;
+      return d && d.kind === 'demand' && d.include !== false && d.demandType === 'plumbing';
+    });
+    if (!plumbingNodes.length) {
+      return { ok: true, error: null, byPipe: byPipe, roots: [], totalFU: 0, totalFlow: 0 };
+    }
+
+    var system = (m.settings.plumbing && m.settings.plumbing.system) || 'flushTank';
+
+    riserPipes(m);                          // complete the topology (vertical links)
+    var pipes = m.pipes;
+
+    // Undirected adjacency, keyed by node id.
+    var adj = {};
+    m.nodes.forEach(function (n) { adj[n.id] = []; });
+    pipes.forEach(function (p) {
+      if (!adj[p.a] || !adj[p.b]) return;   // a pipe dangling off a removed node
+      adj[p.a].push({ pipe: p.id, to: p.b });
+      adj[p.b].push({ pipe: p.id, to: p.a });
+    });
+
+    // Own contribution of a node: cold FU if a plumbing outflow, else the
+    // generic demand flow if an included generic outflow.
+    function ownFU(n) {
+      var d = n.device;
+      return (d && d.kind === 'demand' && d.include !== false && d.demandType === 'plumbing')
+        ? outflowFU(m, d) : 0;
+    }
+    function ownGeneric(n) {
+      var d = n.device;
+      return (d && d.kind === 'demand' && d.include !== false && d.demandType !== 'plumbing')
+        ? (d.flow || 0) : 0;
+    }
+
+    var isSource = {};
+    m.nodes.forEach(function (n) { isSource[n.id] = !!(n.device && n.device.kind === 'source'); });
+
+    /* Which connected component each node is in (undirected flood). */
+    var comp = {}, comps = [];
+    m.nodes.forEach(function (n) {
+      if (comp[n.id] !== undefined) return;
+      var cid = comps.length, stack = [n.id], members = [];
+      comp[n.id] = cid;
+      while (stack.length) {
+        var u = stack.pop(); members.push(u);
+        adj[u].forEach(function (e) {
+          if (comp[e.to] === undefined) { comp[e.to] = cid; stack.push(e.to); }
+        });
+      }
+      comps.push(members);
+    });
+
+    var roots = [], totalFU = 0, totalFlow = 0, error = null;
+    var plumbComps = {};
+    plumbingNodes.forEach(function (n) { plumbComps[comp[n.id]] = true; });
+
+    Object.keys(plumbComps).forEach(function (cidStr) {
+      if (error) return;
+      var cid = Number(cidStr);
+      var members = comps[cid];
+      var memberSet = {};
+      members.forEach(function (id) { memberSet[id] = true; });
+
+      // exactly one source in the component
+      var srcs = members.filter(function (id) { return isSource[id]; });
+      if (srcs.length === 0) {
+        error = { code: 'DW_NO_SOURCE', message:
+          'A plumbing branch has no source feeding it. Downstream fixture units ' +
+          'are only defined from a source, so add one to the branch.',
+          nodes: members.filter(function (id) { return plumbCarrier(id); }) };
+        return;
+      }
+      if (srcs.length > 1) {
+        error = { code: 'DW_MULTI_SOURCE', message:
+          'A plumbing branch has more than one source (' + srcs.join(', ') + '). ' +
+          'Fixture-unit sizing needs a single source so each pipe has one ' +
+          'upstream path.', nodes: srcs };
+        return;
+      }
+
+      // a tree is connected with edges == nodes − 1; more means a loop
+      var pipesIn = pipes.filter(function (p) { return memberSet[p.a] && memberSet[p.b]; });
+      if (pipesIn.length !== members.length - 1) {
+        error = { code: 'DW_LOOP', message:
+          'A plumbing branch contains a loop. Fixture-unit sizing needs a tree — ' +
+          'one path from the source to every fixture — so remove the loop or make ' +
+          'the outflows generic.', pipes: pipesIn.map(function (p) { return p.id; }) };
+        return;
+      }
+
+      function plumbCarrier(id) {
+        var n = node(m, id); return n && ownFU(n) > 0;
+      }
+
+      // root at the single source; BFS parent + child order
+      var root = srcs[0];
+      roots.push(root);
+      var parentPipe = {}, order = [], seen = {};
+      var q = [root]; seen[root] = true;
+      while (q.length) {
+        var u = q.shift(); order.push(u);
+        adj[u].forEach(function (e) {
+          if (!memberSet[e.to] || seen[e.to]) return;
+          seen[e.to] = true; parentPipe[e.to] = e.pipe; q.push(e.to);
+        });
+      }
+
+      // post-order accumulation: subtree totals, leaves first
+      var subFU = {}, subGen = {};
+      members.forEach(function (id) {
+        var n = node(m, id); subFU[id] = ownFU(n); subGen[id] = ownGeneric(n);
+      });
+      for (var i = order.length - 1; i >= 0; i--) {
+        var childId = order[i];
+        var pp = parentPipe[childId];
+        if (pp === undefined) continue;      // the root has no parent pipe
+        var flow = subGen[childId] + FD.plumbing.fuToFlow(subFU[childId], system);
+        byPipe[pp] = { fu: subFU[childId], generic: subGen[childId], flow: flow };
+        // fold the child's subtree into its parent
+        var parentId = other(pipeById(pipes, pp), childId);
+        subFU[parentId] += subFU[childId];
+        subGen[parentId] += subGen[childId];
+      }
+      totalFU += subFU[root];
+      totalFlow += subGen[root] + FD.plumbing.fuToFlow(subFU[root], system);
+    });
+
+    if (error) return { ok: false, error: error, byPipe: {}, roots: [], totalFU: 0, totalFlow: 0 };
+    return { ok: true, error: null, byPipe: byPipe, roots: roots, totalFU: totalFU, totalFlow: totalFlow };
+  }
+
+  function pipeById(pipes, id) {
+    for (var i = 0; i < pipes.length; i++) if (pipes[i].id === id) return pipes[i];
+    return null;
   }
 
   /* Apply a named fluid's published properties onto the model.
@@ -2779,6 +2940,7 @@
     displayFlags: displayFlags, setDisplayFlag: setDisplayFlag,
 
     setSource: setSource, setDemand: setDemand, outflowFU: outflowFU,
+    plumbingSizing: plumbingSizing,
     clearDevice: clearDevice,
     applyFluidPreset: applyFluidPreset,
     controlOf: controlOf, canControl: canControl, setControl: setControl,

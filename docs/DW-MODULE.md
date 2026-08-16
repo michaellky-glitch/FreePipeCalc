@@ -69,14 +69,17 @@ A model may mix the two; a pipe's flow is the sum of both contributions.
    (`verified:false`), `M.outflowFU` / `settings.plumbing.system` /
    `demandType`, the outflow DESIGN panel type selector, and
    `test/plumbing.test.js` (39 assertions). Verified live in the browser.
-2. **Solver. — NEXT.** Downstream-FU tree accumulation + diversity conversion →
-   per-pipe design flow (Generic + Plumbing). Tree requirement + loop error.
-   System-aware imbalance handling. Building block in hand:
-   `FD.plumbing.fuToFlow(totalFU, system)` returns the SI design flow for a
-   summed downstream cold-FU load; walk the tree from the leaves, sum Generic
-   flow and cold FU separately down each pipe, and set pipe design flow =
-   Generic sum + `fuToFlow(cold-FU sum)`. Reject any network with a loop
-   (a plumbing outflow present + a cycle) as an error.
+2. **Solver core — DONE, v0.16.32** (integration pending). `M.plumbingSizing(m)`
+   walks the tree from the source, accumulates downstream cold FU + generic flow
+   per pipe, and sizes `Generic + FD.plumbing.fuToFlow(FU)`. It rejects a loop,
+   a missing source, or multiple sources (`DW_LOOP` / `DW_NO_SOURCE` /
+   `DW_MULTI_SOURCE`) rather than guessing. Read-only in the PIPE panel.
+   Per-outflow **Variation** (occupancy × supply control) picks the fixture's own
+   cold-FU row from Table E103.3(2). **Still to integrate:** fold the diversity
+   flow into the MAIN solve (`res.flow`) and the CALCULATION SHEET so DW pipes
+   size on it and VELOCITY/PDM fire at that flow; make the continuity/imbalance
+   checks system-type-aware (expected for DW, an error for closed-loop/Generic)
+   once DW flows drive the solve.
 3. **Pressure + reporting.** Forward head-loss pass to residual pressure at each
    fixture; sheet reporting.
 

@@ -17,29 +17,48 @@ ok('plumbing data is flagged unverified', P.verified === false,
   `verified = ${P.verified}, expected false (transcribed from IPC, not signed off)`);
 
 // --------------------------------------------------- fixture cold FU
-section('Fixture cold FU — Table E103.3(2)');
-// Single-value fixtures ignore the supply system.
-near('lavatory private = 0.5 FU', P.fixtureFU('lavPrivate', 'flushTank'), 0.5, 0);
-near('lavatory private ignores system', P.fixtureFU('lavPrivate', 'flushometer'), 0.5, 0);
-near('lavatory public = 1.5 FU', P.fixtureFU('lavPublic', 'flushTank'), 1.5, 0);
-near('shower = 1.0 FU', P.fixtureFU('shower', 'flushTank'), 1.0, 0);
-near('bathtub = 1.0 FU', P.fixtureFU('bathtub', 'flushTank'), 1.0, 0);
-near('bidet = 1.5 FU', P.fixtureFU('bidet', 'flushTank'), 1.5, 0);
-near('kitchen sink = 1.0 FU', P.fixtureFU('kitchenSink', 'flushTank'), 1.0, 0);
+section('Fixture cold FU — Table E103.3(2), by variation');
+// Single-variation fixtures resolve their one row.
+near('lavatory private = 0.5 FU', P.fixtureFU('lavatory', 'priv'), 0.5, 0);
+near('lavatory public = 1.5 FU', P.fixtureFU('lavatory', 'pub'), 1.5, 0);
+near('shower private = 1.0 FU', P.fixtureFU('shower', 'priv'), 1.0, 0);
+near('shower public = 3.0 FU', P.fixtureFU('shower', 'pub'), 3.0, 0);
+near('bathtub private = 1.0 FU', P.fixtureFU('bathtub', 'priv'), 1.0, 0);
+near('bathtub public = 3.0 FU', P.fixtureFU('bathtub', 'pub'), 3.0, 0);
+near('bidet private = 1.5 FU', P.fixtureFU('bidet', 'priv'), 1.5, 0);
+near('kitchen sink private = 1.0 FU', P.fixtureFU('kitchenSink', 'priv'), 1.0, 0);
+near('kitchen sink public = 3.0 FU', P.fixtureFU('kitchenSink', 'pub'), 3.0, 0);
+near('service sink = 2.25 FU', P.fixtureFU('serviceSink', 'pub'), 2.25, 0);
+near('drinking fountain = 0.25 FU', P.fixtureFU('drinkingFountain', 'pub'), 0.25, 0);
+near('washing machine 8 lb = 1.0 FU', P.fixtureFU('washingMachine', 'priv8'), 1.0, 0);
+near('washing machine 15 lb = 3.0 FU', P.fixtureFU('washingMachine', 'pub15'), 3.0, 0);
 
-// System-dependent fixtures switch tank vs valve.
-near('WC flush tank = 2.2 FU', P.fixtureFU('waterCloset', 'flushTank'), 2.2, 0);
-near('WC flushometer = 6.0 FU', P.fixtureFU('waterCloset', 'flushometer'), 6.0, 0);
-near('urinal flush tank = 3.0 FU', P.fixtureFU('urinal', 'flushTank'), 3.0, 0);
-near('urinal flushometer = 5.0 FU', P.fixtureFU('urinal', 'flushometer'), 5.0, 0);
-near('bathroom group tank = 2.7 FU', P.fixtureFU('bathroomGroup', 'flushTank'), 2.7, 0);
-near('bathroom group valve = 6.0 FU', P.fixtureFU('bathroomGroup', 'flushometer'), 6.0, 0);
+// Fixtures split by supply control carry a row per variation.
+near('WC private flush tank = 2.2 FU', P.fixtureFU('waterCloset', 'privTank'), 2.2, 0);
+near('WC private flush valve = 6.0 FU', P.fixtureFU('waterCloset', 'privValve'), 6.0, 0);
+near('WC public flush tank = 5.0 FU', P.fixtureFU('waterCloset', 'pubTank'), 5.0, 0);
+near('WC public flush valve = 10.0 FU', P.fixtureFU('waterCloset', 'pubValve'), 10.0, 0);
+near('urinal public flush tank = 3.0 FU', P.fixtureFU('urinal', 'pubTank'), 3.0, 0);
+near('urinal public flush valve = 10.0 FU', P.fixtureFU('urinal', 'pubValve'), 10.0, 0);
+near('bathroom group private tank = 2.7 FU', P.fixtureFU('bathroomGroup', 'privTank'), 2.7, 0);
+near('bathroom group private valve = 6.0 FU', P.fixtureFU('bathroomGroup', 'privValve'), 6.0, 0);
 
-// Custom carries no value — the caller supplies it.
-ok('custom fixture FU is null', P.fixtureFU('custom', 'flushTank') === null,
-  `got ${P.fixtureFU('custom', 'flushTank')}`);
-ok('unknown fixture FU is null', P.fixtureFU('nope', 'flushTank') === null,
-  `got ${P.fixtureFU('nope', 'flushTank')}`);
+// A missing / stale variation id falls back to the fixture's first row.
+near('unknown variation falls back to first', P.fixtureFU('waterCloset', 'nope'), 2.2, 0);
+near('undefined variation falls back to first', P.fixtureFU('lavatory', undefined), 0.5, 0);
+
+// Custom carries no variation — the caller supplies the FU.
+ok('custom fixture FU is null', P.fixtureFU('custom', 'priv') === null,
+  `got ${P.fixtureFU('custom', 'priv')}`);
+ok('custom offers no variations', P.variations('custom').length === 0,
+  `got ${P.variations('custom').length}`);
+ok('unknown fixture FU is null', P.fixtureFU('nope', 'priv') === null,
+  `got ${P.fixtureFU('nope', 'priv')}`);
+ok('WC offers four variations', P.variations('waterCloset').length === 4,
+  `got ${P.variations('waterCloset').length}`);
+// The transcription fix: private WC flush tank is Private, not "Ppublic".
+ok('WC privTank labelled Private', /private/i.test(P.variation('waterCloset', 'privTank').name),
+  `got "${P.variation('waterCloset', 'privTank').name}"`);
 
 // ------------------------------------------------ demand diversity curve
 section('FU → demand — Table E103.3(3)');
@@ -86,21 +105,117 @@ near('generic outflow contributes 0 FU', M.outflowFU(m, gen), 0, 0);
 near('source device contributes 0 FU',
   M.outflowFU(m, { kind: 'source', demandType: 'plumbing', fixture: 'shower', count: 3 }), 0, 0);
 
-// A plumbing outflow: count × per-fixture FU, following the model system.
-const wc3 = { kind: 'demand', demandType: 'plumbing', fixture: 'waterCloset', count: 3 };
-near('3 WCs on flush tank = 6.6 FU', M.outflowFU(m, wc3), 6.6, 1e-9);
+// A plumbing outflow: count × per-fixture FU for the chosen VARIATION. The
+// model-wide system no longer affects the FU (only the demand curve).
+const wcTank = { kind: 'demand', demandType: 'plumbing', fixture: 'waterCloset', variation: 'privTank', count: 3 };
+near('3 private-tank WCs = 6.6 FU', M.outflowFU(m, wcTank), 6.6, 1e-9);
+const wcValve = { kind: 'demand', demandType: 'plumbing', fixture: 'waterCloset', variation: 'pubValve', count: 3 };
+near('3 public-valve WCs = 30.0 FU', M.outflowFU(m, wcValve), 30.0, 1e-9);
 m.settings.plumbing.system = 'flushometer';
-near('3 WCs on flushometer = 18.0 FU', M.outflowFU(m, wc3), 18.0, 1e-9);
+near('FU is independent of the model system', M.outflowFU(m, wcTank), 6.6, 1e-9);
 m.settings.plumbing.system = 'flushTank';
+
+// A stale/missing variation falls back to the fixture's first row (privTank=2.2).
+const wcStale = { kind: 'demand', demandType: 'plumbing', fixture: 'waterCloset', variation: 'gone', count: 1 };
+near('stale variation falls back to first row', M.outflowFU(m, wcStale), 2.2, 1e-9);
 
 // Custom fixture uses the typed FU (dev.fu).
 const cust = { kind: 'demand', demandType: 'plumbing', fixture: 'custom', fu: 2.5, count: 4 };
 near('4 custom @ 2.5 FU = 10 FU', M.outflowFU(m, cust), 10, 1e-9);
 
 // Count guards: missing or non-positive count is treated as a single fixture.
-const one = { kind: 'demand', demandType: 'plumbing', fixture: 'shower' };
+const one = { kind: 'demand', demandType: 'plumbing', fixture: 'shower', variation: 'priv' };
 near('shower with no count = 1 fixture = 1 FU', M.outflowFU(m, one), 1.0, 1e-9);
-const zero = { kind: 'demand', demandType: 'plumbing', fixture: 'shower', count: 0 };
+const zero = { kind: 'demand', demandType: 'plumbing', fixture: 'shower', variation: 'priv', count: 0 };
 near('shower count 0 clamps to 1 fixture = 1 FU', M.outflowFU(m, zero), 1.0, 1e-9);
+
+// ---------------------------------------- DW sizing (tree accumulation)
+section('plumbingSizing — downstream-FU diversity on a tree');
+
+/* A source feeds a junction that fans out to two 5×WC (private flush tank)
+ * branches and one generic outflow:
+ *      S --p1-- J --p2-- WC1 (5 × 2.2 = 11 FU)
+ *                 \-p3-- WC2 (5 × 2.2 = 11 FU)
+ *                 \-p4-- G   (generic 0.002 m³/s)               */
+function tree() {
+  const t = M.create();
+  const lv = t.levels[0].id;
+  const S = M.addNode(t, lv, 0, 0);
+  const J = M.addNode(t, lv, 5, 0);
+  const w1 = M.addNode(t, lv, 10, -5);
+  const w2 = M.addNode(t, lv, 10, 0);
+  const g = M.addNode(t, lv, 10, 5);
+  M.setSource(t, S.id, 300000);
+  [w1, w2].forEach(function (w) {
+    M.setDemand(t, w.id, 0.001, 100000);
+    const d = M.node(t, w.id).device;
+    d.demandType = 'plumbing'; d.fixture = 'waterCloset'; d.variation = 'privTank'; d.count = 5;
+  });
+  M.setDemand(t, g.id, 0.002, 100000);           // generic
+  const p1 = M.addPipe(t, S.id, J.id, { size: 'DN50' });
+  const p2 = M.addPipe(t, J.id, w1.id, { size: 'DN25' });
+  const p3 = M.addPipe(t, J.id, w2.id, { size: 'DN25' });
+  const p4 = M.addPipe(t, J.id, g.id, { size: 'DN25' });
+  if (!t.settings.plumbing) t.settings.plumbing = { system: 'flushTank' };
+  return { m: t, ids: { p1: p1.id, p2: p2.id, p3: p3.id, p4: p4.id } };
+}
+
+const T = tree();
+const r = M.plumbingSizing(T.m);
+ok('tree sizes without error', r.ok && !r.error, r.error && r.error.code);
+
+// Branch pipes: 11 FU each, no generic.
+near('p2 downstream FU = 11', r.byPipe[T.ids.p2].fu, 11, 1e-9);
+near('p2 flow = fuToFlow(11)', r.byPipe[T.ids.p2].flow, P.fuToFlow(11, 'flushTank'), 1e-15);
+near('p3 flow = fuToFlow(11)', r.byPipe[T.ids.p3].flow, P.fuToFlow(11, 'flushTank'), 1e-15);
+// Generic branch: no FU, carries its generic flow linearly.
+near('p4 downstream FU = 0', r.byPipe[T.ids.p4].fu, 0, 1e-12);
+near('p4 flow = generic 0.002', r.byPipe[T.ids.p4].flow, 0.002, 1e-12);
+// Root main: 22 FU + 0.002 generic; diversity is sub-additive.
+near('p1 downstream FU = 22', r.byPipe[T.ids.p1].fu, 22, 1e-9);
+near('p1 generic = 0.002', r.byPipe[T.ids.p1].generic, 0.002, 1e-12);
+near('p1 flow = 0.002 + fuToFlow(22)', r.byPipe[T.ids.p1].flow, 0.002 + P.fuToFlow(22, 'flushTank'), 1e-15);
+ok('main flow is sub-additive (p1 < p2 + p3, FU part)',
+  (r.byPipe[T.ids.p1].flow - 0.002) < (r.byPipe[T.ids.p2].flow + r.byPipe[T.ids.p3].flow),
+  `p1 ${r.byPipe[T.ids.p1].flow} vs p2+p3 ${r.byPipe[T.ids.p2].flow + r.byPipe[T.ids.p3].flow}`);
+near('total flow at source = p1 flow', r.totalFlow, r.byPipe[T.ids.p1].flow, 1e-15);
+
+// The flushometer curve gives a different (larger) main flow.
+T.m.settings.plumbing.system = 'flushometer';
+const rf = M.plumbingSizing(T.m);
+near('flushometer main flow = fuToFlow(22, flushometer) + generic',
+  rf.byPipe[T.ids.p1].flow, 0.002 + P.fuToFlow(22, 'flushometer'), 1e-15);
+T.m.settings.plumbing.system = 'flushTank';
+
+section('plumbingSizing — errors that must not be guessed');
+// A loop across the two WC branches: no longer a tree.
+const L = tree();
+M.addPipe(L.m, findNode(L.m, 10, -5).id, findNode(L.m, 10, 0).id, { size: 'DN25' });
+const rl = M.plumbingSizing(L.m);
+ok('loop is rejected as DW_LOOP', !rl.ok && rl.error && rl.error.code === 'DW_LOOP',
+  rl.error && rl.error.code);
+
+// A plumbing branch with no source.
+const N = M.create();
+const nlv = N.levels[0].id;
+const a = M.addNode(N, nlv, 0, 0), b = M.addNode(N, nlv, 5, 0);
+M.setDemand(N, b.id, 0.001, 100000);
+const bd = M.node(N, b.id).device;
+bd.demandType = 'plumbing'; bd.fixture = 'lavatory'; bd.variation = 'priv'; bd.count = 2;
+M.addPipe(N, a.id, b.id, { size: 'DN25' });
+if (!N.settings.plumbing) N.settings.plumbing = { system: 'flushTank' };
+const rn = M.plumbingSizing(N);
+ok('sourceless plumbing branch is DW_NO_SOURCE', !rn.ok && rn.error && rn.error.code === 'DW_NO_SOURCE',
+  rn.error && rn.error.code);
+
+// No plumbing outflows at all → ok, nothing to size.
+const P0 = M.create();
+const r0 = M.plumbingSizing(P0);
+ok('no plumbing outflow → ok, empty', r0.ok && Object.keys(r0.byPipe).length === 0,
+  JSON.stringify(r0.error));
+
+function findNode(mm, x, y) {
+  return mm.nodes.filter(function (n) { return n.x === x && n.y === y; })[0];
+}
 
 report();

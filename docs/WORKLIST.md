@@ -36,7 +36,7 @@ The likeliest things to come back:
 
 | # | Item | Notes |
 |---|---|---|
-| DW.MOD | **Domestic Water module — Phase 2 (solver) next** | Michael, 2026-08-12. Approach AGREED — see `docs/DW-MODULE.md`. **Phase 1 DONE (v0.16.31):** data (`data/plumbing.js`, IPC 2018 App. E, `verified:false`), model (`M.outflowFU`, `settings.plumbing.system`, `demandType`), UI (Plumbing outflow type + fixture/count/Custom-FU/readback, HYDRAULIC supply selector). **Phase 2 (next):** the solver — pipe flow = downstream Generic sum + `FD.plumbing.fuToFlow(downstream cold-FU sum, system)`; require a TREE (error on loops); system-aware imbalance (expected for DW, an error for closed-loop/Generic). **Phase 3:** forward head-loss pass → residual pressure at each fixture + sheet reporting. **Blocking on Michael before promote:** confirm the `verified:false` IPC transcription and the per-fixture occupancy/control assumptions in `data/plumbing.js`, then set `FD.plumbing.verified = true`. Multi-session — allocate usage deliberately. |
+| DW.MOD | **Domestic Water module — Phase 2 core done; integration + Phase 3 next** | Michael, 2026-08-12. Approach AGREED — see `docs/DW-MODULE.md`. **Phase 1 DONE (v0.16.31)** + **variations & sizing core DONE (v0.16.32):** full IPC Table E103.3(2) with a per-outflow **Variation** dropdown (occupancy × supply control), and `M.plumbingSizing(m)` — the pure tree-accumulation sizer: per-pipe downstream cold-FU + generic sum → `Generic + fuToFlow(FU)`, with tree/loop/source detection (`DW_LOOP` / `DW_NO_SOURCE` / `DW_MULTI_SOURCE`). Shown read-only in the PIPE panel (Downstream FU, Diversity flow, velocity at design). **Still to do:** (a) fold the diversity flow into the MAIN solve results (`res.flow`) and the CALCULATION SHEET so DW pipes size on it and VELOCITY/PDM warnings fire at the diversity flow; (b) make the continuity/imbalance checks system-type-aware (expected for DW, error for closed-loop/Generic) once DW flows drive the solve; (c) **Phase 3** — forward head-loss pass → residual pressure at each fixture + sheet reporting. **Blocking on Michael before promote:** confirm the `verified:false` IPC transcription and the per-fixture occupancy/control assumptions in `data/plumbing.js` (incl. the WC "Ppublic"→Private typo fix), then set `FD.plumbing.verified = true`. |
 | SW.2 | **Finish the sweep → iteration rename (internal)** | Michael, 2026-08-12. The USER-FACING text now says "iteration" (progress bar, the Settling-iterations field, CONTROL_HUNTING / CONTROL_BUDGET messages). The INTERNALS still say sweep: the `sweep`/`MAX_SWEEPS`/`reSweep` variables in `network.js`, `report.sweeps`, and the saved setting key `control.sweeps`. Renaming `control.sweeps` needs a load-time migration so old files keep their value, so it was left for a dedicated pass. Cosmetic, no behaviour change. |
 | MSG.2 | **Trim the verbose messages** | `docs/MESSAGES.md` §7 proposes shorter forms for 8 messages; awaiting Michael's yes/no per line, then apply to source. (CONTROL_HUNTING already reworded in v0.16.26.) |
 | DX.1 | Does the DXF open in real CAD? | Untested; nothing in this environment can check it. |
@@ -47,6 +47,18 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J.
 
+* **v0.16.32** — Domestic Water: fixture variations + the sizing core. The
+  fixture list is now the full IPC 2018 Table E103.3(2), and each outflow has a
+  **Variation** dropdown below Fixture (Private / Public × flush tank / flush
+  valve etc.), each carrying its own cold FU; `M.outflowFU` reads the variation,
+  not the model-wide system. `M.plumbingSizing(m)` is the pure DW sizer: on the
+  tree rooted at the source it accumulates downstream cold FU + generic flow per
+  pipe and sizes `Generic + fuToFlow(FU)` (sub-additive), rejecting a loop / no
+  source / multiple sources (`DW_LOOP`, `DW_NO_SOURCE`, `DW_MULTI_SOURCE`) rather
+  than guessing. The PIPE panel shows Downstream FU, Diversity flow and velocity
+  at design for a DW branch, or the error. Data still `verified:false`. 15 new
+  assertions (suite 2048). Folding the diversity flow into the main solve/sheet
+  and the forward pressure pass remain — see DW.MOD. Verified live (logic).
 * **v0.16.31** — Domestic Water module, Phase 1 (data + model + UI; no solver
   yet). A Plumbing outflow type sits inside the outflow DESIGN panel: choose a
   fixture (10 from IPC 2018 Table E103.3(2), cold column) and a count, or Custom

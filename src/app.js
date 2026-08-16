@@ -2991,6 +2991,42 @@
       renderProperties(); changed();
     });
 
+    /* ---- Domestic-water sizing (DW) ----
+     * A plumbing branch is sized from the FIXTURE UNITS downstream of the pipe,
+     * not by the continuity solve — so this is computed here directly and does
+     * not wait for a simulation. Only shown when the model carries plumbing
+     * outflows. If the plumbing network is not a tree (loop, no source, more
+     * than one source) the sizing is undefined and the reason is stated rather
+     * than a number invented. */
+    var dw = M.plumbingSizing(m);
+    if (!dw.ok && dw.error) {
+      var dwErr = el('div', 'readout');
+      dwErr.appendChild(el('div', 'sub', 'Domestic water'));
+      dwErr.appendChild(el('p', 'hint warn', dw.error.message));
+      host.appendChild(dwErr);
+    } else if (dw.byPipe[p.id]) {
+      var s = dw.byPipe[p.id];
+      var dwInfo = el('div', 'readout');
+      dwInfo.appendChild(el('div', 'sub', 'Domestic water'));
+      function dwRo(k, v) {
+        var r = el('div', 'kv'); r.appendChild(el('span', 'k', k));
+        r.appendChild(el('span', 'v', v)); dwInfo.appendChild(r);
+      }
+      var sysName = ((m.settings.plumbing && m.settings.plumbing.system) || 'flushTank')
+        .replace('flushometer', 'flushometer valve').replace('flushTank', 'flush tank');
+      dwRo('Downstream FU', s.fu.toFixed(1));
+      dwRo('Diversity flow', FD.units.fmtFlow(FD.plumbing.fuToFlow(s.fu,
+        (m.settings.plumbing && m.settings.plumbing.system) || 'flushTank'),
+        m.settings.display.flow, true) + '  (' + sysName + ')');
+      if (s.generic > 0) {
+        dwRo('Generic downstream', FD.units.fmtFlow(s.generic, m.settings.display.flow, true));
+        dwRo('Design flow', FD.units.fmtFlow(s.flow, m.settings.display.flow, true));
+      }
+      var dwD = M.pipeBore(m, p);
+      dwRo('Velocity at design', FD.hydraulics.velocity(s.flow, dwD).toFixed(2) + ' m/s');
+      host.appendChild(dwInfo);
+    }
+
     // derived read-outs
     var res = app.results;
     if (res && res.network) {
@@ -5137,10 +5173,17 @@
         if ((dev.demandType || 'generic') === kv[0]) o.selected = true;
         typeSel.appendChild(o);
       });
+      /* The FU of one fixture depends on its VARIATION (occupancy × supply
+       * control); switching fixture resets it to that fixture's first row. */
+      var firstVar = function (fxId) {
+        var vs = FD.plumbing.variations(fxId); return vs.length ? vs[0].id : null;
+      };
       field(des.box, 'Outflow type', typeSel).addEventListener('change', function () {
         pushUndo();
         dev.demandType = typeSel.value;
-        if (dev.demandType === 'plumbing' && !dev.fixture) { dev.fixture = 'waterCloset'; dev.count = 1; }
+        if (dev.demandType === 'plumbing' && !dev.fixture) {
+          dev.fixture = 'waterCloset'; dev.count = 1; dev.variation = firstVar('waterCloset');
+        }
         renderProperties(); changed();
       });
 
@@ -5153,8 +5196,31 @@
           fxSel.appendChild(o);
         });
         field(des.box, 'Fixture', fxSel).addEventListener('change', function () {
-          pushUndo(); dev.fixture = fxSel.value; renderProperties(); changed();
+          pushUndo();
+          dev.fixture = fxSel.value;
+          dev.variation = firstVar(dev.fixture);   // stale variation would size wrong
+          renderProperties(); changed();
         });
+
+        /* VARIATION — occupancy × supply control, its own cold-FU row from
+         * Table E103.3(2). Shown for any fixture that offers one (custom does
+         * not); a single-variation fixture still shows it so the assumption is
+         * visible. */
+        var vars = FD.plumbing.variations(dev.fixture);
+        if (vars.length) {
+          var resolved = FD.plumbing.variation(dev.fixture, dev.variation);
+          if (resolved && resolved.id !== dev.variation) dev.variation = resolved.id; // heal stale id
+          var vSel = el('select');
+          vars.forEach(function (v) {
+            var o = el('option', '', v.name + '  (' + v.fu + ' FU)'); o.value = v.id;
+            if (dev.variation === v.id) o.selected = true;
+            vSel.appendChild(o);
+          });
+          field(des.box, 'Variation', vSel).addEventListener('change', function () {
+            pushUndo(); dev.variation = vSel.value; renderProperties(); changed();
+          });
+        }
+
         var cIn = el('input'); cIn.type = 'text'; cIn.value = String(dev.count || 1);
         field(des.box, 'Count', cIn).addEventListener('change', function () {
           var v = parseInt(cIn.value, 10);
@@ -5170,7 +5236,7 @@
           });
         }
         var per = (dev.fixture === 'custom') ? (Number(dev.fu) || 0)
-                : (FD.plumbing.fixtureFU(dev.fixture, system) || 0);
+                : (FD.plumbing.fixtureFU(dev.fixture, dev.variation) || 0);
         des.ro('Cold fixture units', M.outflowFU(m, dev).toFixed(2) +
           ((dev.count || 1) > 1 ? ' (' + dev.count + ' × ' + per + ')' : ''));
         des.box.appendChild(el('p', 'hint',

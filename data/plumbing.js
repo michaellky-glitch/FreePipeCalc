@@ -20,12 +20,16 @@
  * derived or interpolated at rest, only transcribed. `FD.plumbing.verified` is
  * false accordingly, the same treatment as the glycol properties.
  *
- * OCCUPANCY ASSUMPTIONS, to confirm. Where the table splits a fixture by
- * occupancy, one representative row was chosen for the short fixture list
- * Michael asked for; Custom covers anything else. The choices are noted per
- * fixture below. Water closet, urinal and bathroom group ALSO vary by supply
- * control (flush tank vs flushometer valve); those carry both values and the
- * one used follows the system chosen on the HYDRAULIC tab.
+ * A fixture that the table splits by occupancy and/or supply control carries one
+ * VARIATION per row (Private / Public, flush tank / flush valve), each with its
+ * own FU; the engineer picks the variation on the outflow. `Custom` carries no
+ * variation — the FU is typed. Two rows of Table E103.3(2) are NOT carried
+ * because their FV (Cold) is blank ("—"): the dishwashing machine.
+ *
+ * ONE TRANSCRIPTION FIX, flagged not silent: the supplied table labelled the
+ * private water-closet flush-tank row's Variation "Ppublic (Flush Tank)", while
+ * its Occupancy column reads Private and the value 2.2 is the private flush-tank
+ * figure. Read as a typo for "Private (Flush Tank)". Michael to confirm.
  */
 (function (FD) {
   'use strict';
@@ -34,22 +38,55 @@
    * 1 US gal = 3.785411784 L, so 1 gpm = 3.785411784 / 60000 m³/s. */
   var GPM_TO_M3S = 3.785411784 / 60000;      // = 6.309019640e-5
 
-  /* Cold-water supply fixture units, Table E103.3(2), "FV (Cold)".
-   *   fu    — a fixture with a single value.
-   *   tank / valve — a fixture whose FU depends on the supply control; the value
-   *                  used follows the HYDRAULIC system setting.
-   * `custom` carries no value: the engineer types the FU. */
+  /* Cold-water supply fixture units, Table E103.3(2), "FV (Cold)". Each fixture
+   * lists its VARIATIONS (occupancy × supply control); a single-variation
+   * fixture still lists one so the UI is uniform. `custom` has none — the
+   * engineer types the FU. Order follows the code's alphabetical table. */
   var FIXTURES = [
-    { id: 'custom',        name: 'Custom' },
-    { id: 'bathroomGroup', name: 'Bathroom group',      tank: 2.7, valve: 6.0,  occ: 'private' },
-    { id: 'waterCloset',   name: 'Water closet',        tank: 2.2, valve: 6.0,  occ: 'private' },
-    { id: 'urinal',        name: 'Urinal',              tank: 3.0, valve: 5.0,  occ: 'public, ¾″ valve' },
-    { id: 'bidet',         name: 'Bidet',               fu: 1.5,   occ: 'private' },
-    { id: 'shower',        name: 'Shower head',         fu: 1.0,   occ: 'private' },
-    { id: 'bathtub',       name: 'Bathtub',             fu: 1.0,   occ: 'private' },
-    { id: 'lavPrivate',    name: 'Lavatory (private)',  fu: 0.5 },
-    { id: 'lavPublic',     name: 'Lavatory (public)',   fu: 1.5 },
-    { id: 'kitchenSink',   name: 'Kitchen sink',        fu: 1.0,   occ: 'private' }
+    { id: 'custom', name: 'Custom' },
+    { id: 'bathroomGroup', name: 'Bathroom group', variations: [
+      { id: 'privTank',  name: 'Private (flush tank)',  fu: 2.7 },
+      { id: 'privValve', name: 'Private (flush valve)', fu: 6.0 }
+    ] },
+    { id: 'bathtub', name: 'Bathtub', variations: [
+      { id: 'priv', name: 'Private', fu: 1.0 },
+      { id: 'pub',  name: 'Public',  fu: 3.0 }
+    ] },
+    { id: 'bidet', name: 'Bidet', variations: [
+      { id: 'priv', name: 'Private', fu: 1.5 }
+    ] },
+    { id: 'drinkingFountain', name: 'Drinking fountain', variations: [
+      { id: 'pub', name: 'Public (⅜″ valve)', fu: 0.25 }
+    ] },
+    { id: 'kitchenSink', name: 'Kitchen sink', variations: [
+      { id: 'priv', name: 'Private', fu: 1.0 },
+      { id: 'pub',  name: 'Public (hotel/restaurant)', fu: 3.0 }
+    ] },
+    { id: 'lavatory', name: 'Lavatory', variations: [
+      { id: 'priv', name: 'Private', fu: 0.5 },
+      { id: 'pub',  name: 'Public',  fu: 1.5 }
+    ] },
+    { id: 'serviceSink', name: 'Service sink', variations: [
+      { id: 'pub', name: 'Public', fu: 2.25 }
+    ] },
+    { id: 'shower', name: 'Shower head', variations: [
+      { id: 'priv', name: 'Private', fu: 1.0 },
+      { id: 'pub',  name: 'Public',  fu: 3.0 }
+    ] },
+    { id: 'urinal', name: 'Urinal', variations: [
+      { id: 'pubTank',  name: 'Public (flush tank)',  fu: 3.0 },
+      { id: 'pubValve', name: 'Public (1″ flush valve)', fu: 10.0 }
+    ] },
+    { id: 'washingMachine', name: 'Washing machine', variations: [
+      { id: 'priv8',  name: 'Private (8 lb)',  fu: 1.0 },
+      { id: 'pub15',  name: 'Public (15 lb)',  fu: 3.0 }
+    ] },
+    { id: 'waterCloset', name: 'Water closet', variations: [
+      { id: 'privTank',  name: 'Private (flush tank)',  fu: 2.2 },
+      { id: 'privValve', name: 'Private (flush valve)', fu: 6.0 },
+      { id: 'pubTank',   name: 'Public (flush tank)',   fu: 5.0 },
+      { id: 'pubValve',  name: 'Public (flush valve)',  fu: 10.0 }
+    ] }
   ];
 
   /* The two demand curves — Table E103.3(3), [load FU, demand gpm]. The
@@ -91,20 +128,32 @@
     return null;
   }
 
-  /* The cold FU of ONE of this fixture, given the system (flush tank /
-   * flushometer). A single-value fixture ignores the system; a tank/valve
-   * fixture follows it. `custom` returns null — the caller supplies the FU. */
-  function fixtureFU(id, system) {
-    var f = fixture(id);
-    if (!f) return null;
-    if (f.fu !== undefined) return f.fu;
-    if (f.tank !== undefined) return (system === 'flushometer') ? f.valve : f.tank;
-    return null;                              // custom
+  /* The variations a fixture offers (empty for custom / unknown). */
+  function variations(fixtureId) {
+    var f = fixture(fixtureId);
+    return (f && f.variations) ? f.variations : [];
   }
 
-  /* Total FU → probable demand, in m³/s (SI). Piecewise-linear between the
-   * tabulated points; clamped to the ends of the curve (the code does not define
-   * beyond them). Zero FU is zero flow. */
+  /* Resolve a variation on a fixture. An unknown / missing variation id falls
+   * back to the fixture's FIRST variation, so a stale id (e.g. after switching
+   * fixture) still yields a defined value rather than nothing. */
+  function variation(fixtureId, variationId) {
+    var vs = variations(fixtureId);
+    if (!vs.length) return null;
+    for (var i = 0; i < vs.length; i++) if (vs[i].id === variationId) return vs[i];
+    return vs[0];
+  }
+
+  /* The cold FU of ONE of this fixture in the chosen variation. `custom` (no
+   * variations) returns null — the caller supplies the FU. */
+  function fixtureFU(fixtureId, variationId) {
+    var v = variation(fixtureId, variationId);
+    return v ? v.fu : null;
+  }
+
+  /* Total FU → probable demand, in gpm. Piecewise-linear between the tabulated
+   * points; clamped to the ends of the curve (the code does not define beyond
+   * them). Zero FU is zero flow. */
   function fuToFlowGpm(totalFU, system) {
     var curve = DEMAND[system] || DEMAND.flushTank;
     if (!(totalFU > 0)) return 0;
@@ -132,6 +181,8 @@
     systems: SYSTEMS,
     demand: DEMAND,
     fixture: fixture,
+    variations: variations,
+    variation: variation,
     fixtureFU: fixtureFU,
     fuToFlowGpm: fuToFlowGpm,
     fuToFlow: fuToFlow

@@ -50,6 +50,16 @@ dismissed**; warnings and notices can.
 | `SETPOINT_LOST` | System is unable to maintain setpoint. Check heat balance. (… → …, limited by … — at full travel and still off setpoint.) | A controlled device ran out of travel with its setpoint unmet; the actuator is returned to full first. Names what limited the machine where the thermal pass knows it. |
 | `PRESSURE_IMPLAUSIBLE` | … is at … kPa (… bar), past the … kPa plausibility limit. The arithmetic is right — something in the model is not. Check any equipment carrying far more than its rated flow: its pressure drop goes as the SQUARE of the ratio. | A component ΔP or pump duty exceeds `warn.maxComponentPD` (2000 kPa). Shut valves are excluded. Raise the limit on HYDRAULIC if the system really is this high. |
 
+### Domestic-water sizing (returned by `model.plumbingSizing`, shown in the pipe panel)
+
+A plumbing branch is sized from the fixture units DOWNSTREAM of each pipe, which is only defined on a TREE rooted at one source. These are returned by `plumbingSizing` (not the GGA warning path) and surfaced where the sizing would appear; the number is never guessed when the topology forbids it.
+
+| Code | Message | Issue / action |
+|---|---|---|
+| `DW_LOOP` | A plumbing branch contains a loop. Fixture-unit sizing needs a tree — one path from the source to every fixture — so remove the loop or make the outflows generic. | A plumbing component has a cycle, so "downstream" is ambiguous. Diversity sizing is defined only on a tree. |
+| `DW_NO_SOURCE` | A plumbing branch has no source feeding it. Downstream fixture units are only defined from a source, so add one to the branch. | A plumbing component has no source, so there is no root to accumulate downstream fixture units from. |
+| `DW_MULTI_SOURCE` | A plumbing branch has more than one source (…). Fixture-unit sizing needs a single source so each pipe has one upstream path. | A plumbing component has two or more sources, so a pipe's single upstream path — and thus its downstream set — is undefined. |
+
 ### Disconnection errors (checked on every solve)
 
 | Code | Message | Issue |
