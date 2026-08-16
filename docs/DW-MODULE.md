@@ -106,8 +106,20 @@ B. **Plumbing outflow UI + sizing report** in the plumbing discipline. **Largely
    * data/plumbing.js `fuToFlow(fu, system, curveOverride)` gained the optional
      curve arg; the shipped IPC transcription already matched Michael's table.
    **Still Phase B/C:** a per-pipe diversity-flow readout drawn on the CANVAS.
-C. **Residual pressure (was Phase 3).** Forward head-loss pass from the source
-   along the tree to residual pressure at each fixture; sheet reporting.
+C. **Residual pressure (was Phase 3). — DONE, v0.17.1.** `FD.network.plumbingReport`
+   runs a forward pass down the tree: signed per-pipe flow (canvas arrows), friction
+   drop per pipe from the model's friction method (`build()` for geometry, never the
+   GGA solve), and node pressure = source pressure − friction − static lift. The
+   CALCULATION sheet reports Friction-drop and Residual columns (negative residual
+   in red). Remaining polish: a per-pipe diversity/flow readout drawn on the CANVAS
+   itself (the sheet and pipe panel have the numbers).
+
+**Post-brief fixes (v0.17.1), from Michael's review:** `FD.plumbing.verified`
+split per table (`{ fixtures:true, demand:false }` — E103.3(2) signed off); the
+explanatory hints and unverified banner removed from the HYDRAULIC tab; SHOW ▸
+Temperature hidden in plumbing; and — outside the module — **paste onto a pipe now
+tees in** (`canvas.js` paste path calls `M.splitPipeAt` on the new anchor when it
+lands on a pipe), which also fixed the same gap in hydronic.
 
 ## The flow model — why it is not the GGA
 

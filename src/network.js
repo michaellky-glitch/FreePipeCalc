@@ -3641,8 +3641,88 @@
     return '';
   }
 
+  /* PLUMBING REPORT — the domestic-water "solve", kept entirely OFF the GGA.
+   *
+   * A plumbing file is never solved by solveCore (the whole point of the
+   * discipline split, HANDOVER §2). Its pipe flows come from M.plumbingSizing —
+   * downstream fixture units through the diversity curve — not from a
+   * simultaneous solve. This assembles a result the rest of the app can consume
+   * like a GGA one: signed per-pipe FLOW (so the canvas draws direction arrows),
+   * the built NETWORK (so the flow/velocity overlays and per-pipe geometry
+   * work), per-pipe FRICTION drop from the SAME friction method the hydronic
+   * side uses, and node PRESSURES from a FORWARD pass down the tree (residual
+   * pressure at each fixture). build() is used only to resolve geometry, fittings
+   * and per-link resistance — it constructs, it does not solve. */
+  function plumbingReport(m) {
+    var dw = M.plumbingSizing(m);
+    if (!dw.ok || !Object.keys(dw.byPipe).length) {
+      return { ok: dw.ok, error: dw.error, flow: {}, pressure: {},
+               byPipe: dw.byPipe || {}, network: null, plumbing: dw,
+               headloss: {}, dpFric: {}, totalFU: dw.totalFU || 0,
+               totalFlow: dw.totalFlow || 0, warnings: [],
+               errors: dw.error ? [dw.error] : [], iterations: 0 };
+    }
+
+    /* Signed flow per pipe: +ve means a→b. `from` is the source-ward end. */
+    var flow = {};
+    Object.keys(dw.byPipe).forEach(function (id) {
+      var s = dw.byPipe[id], p = M.pipe(m, id);
+      if (!p) return;
+      flow[id] = (p.a === s.from) ? s.flow : -s.flow;
+    });
+
+    var net = build(m, { flow: flow });
+    var rho = net.rho, g = 9.81;
+    var linkById = {};
+    net.links.forEach(function (l) { linkById[l.id] = l; });
+
+    /* Friction head loss (m) and pressure drop (Pa) per pipe, at the diversity
+     * flow, via the model's own friction method — the same linkLoss the hydronic
+     * sheet uses, so nothing is invented here. */
+    var headloss = {}, dpFric = {};
+    Object.keys(dw.byPipe).forEach(function (id) {
+      var l = linkById[id];
+      if (!l) return;
+      var h = Math.abs(FD.hydraulics.linkLoss(l, flow[id] || 0));
+      headloss[id] = h; dpFric[id] = rho * g * h;
+    });
+
+    /* Residual pressure: a forward pass down each tree from its source. The
+     * source states its own gauge pressure; every pipe drops it by friction and
+     * by the static head of any rise. No simultaneous solve — the tree has one
+     * path to each fixture, so the accumulation is exact. */
+    var pressure = {};
+    var fwd = {};
+    Object.keys(dw.byPipe).forEach(function (id) {
+      var s = dw.byPipe[id];
+      (fwd[s.from] = fwd[s.from] || []).push({ pipe: id, to: s.to });
+    });
+    dw.roots.forEach(function (root) {
+      var rn = M.node(m, root);
+      pressure[root] = (rn && rn.device && rn.device.pressure) || 0;
+      var q = [root], seen = {}; seen[root] = true;
+      while (q.length) {
+        var u = q.shift();
+        (fwd[u] || []).forEach(function (e) {
+          if (seen[e.to]) return;
+          seen[e.to] = true;
+          var un = M.node(m, u), cn = M.node(m, e.to);
+          var dz = (cn ? M.elevation(m, cn) : 0) - (un ? M.elevation(m, un) : 0);
+          pressure[e.to] = pressure[u] - (dpFric[e.pipe] || 0) - rho * g * dz;
+          q.push(e.to);
+        });
+      }
+    });
+
+    return { ok: true, error: null, flow: flow, pressure: pressure, network: net,
+             byPipe: dw.byPipe, plumbing: dw, headloss: headloss, dpFric: dpFric,
+             totalFU: dw.totalFU, totalFlow: dw.totalFlow,
+             warnings: [], errors: [], iterations: 0 };
+  }
+
   FD.network = {
     build: build,
+    plumbingReport: plumbingReport,
     nodeTypeCode: nodeTypeCode,
     flowRegimeWarnings: flowRegimeWarnings,
     supplyWarnings: supplyWarnings,

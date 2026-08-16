@@ -13,8 +13,10 @@ const GPM = P.GPM_TO_M3S;
 
 // ---------------------------------------------------------- provenance
 section('Provenance');
-ok('plumbing data is flagged unverified', P.verified === false,
-  `verified = ${P.verified}, expected false (transcribed from IPC, not signed off)`);
+ok('fixture table E103.3(2) is verified (Michael, 2026-08-16)', P.verified.fixtures === true,
+  `verified.fixtures = ${P.verified.fixtures}, expected true`);
+ok('demand table E103.3(3) is still unverified', P.verified.demand === false,
+  `verified.demand = ${P.verified.demand}, expected false (transcribed, not signed off)`);
 
 // --------------------------------------------------- fixture cold FU
 section('Fixture cold FU — Table E103.3(2), by variation');
@@ -255,6 +257,52 @@ const after = M.plumbingSizing(Te.m).byPipe[Te.ids.p1].flow;
 // only the diversity part, not the generic, so after < 2× before.
 near('doubling the tank curve doubles the diversity part of p1',
   after - 0.002, 2 * (before - 0.002), 1e-9);
+
+// ---------------------------------------- plumbing report (flow + friction + pressure)
+section('plumbingReport — flow direction, friction, residual pressure');
+const NET = FD.network;
+{
+  const R = tree();                 // S(0,0) source@300 kPa; p1 S→J, p2/p3 J→WC, p4 J→generic
+  const rep = NET.plumbingReport(R.m);
+  ok('report ok on a valid tree', rep.ok === true, rep.error && rep.error.code);
+
+  // Flow is signed +ve a→b; every pipe here is drawn source-outward (a = upstream).
+  ok('p1 flow is positive (a is the source-ward end)', rep.flow[R.ids.p1] > 0);
+  ok('p2 flow is positive (drawn J→WC)', rep.flow[R.ids.p2] > 0);
+  near('signed flow magnitude matches the sizing',
+    Math.abs(rep.flow[R.ids.p1]), R.m && M.plumbingSizing(R.m).byPipe[R.ids.p1].flow, 1e-12);
+
+  // Friction drop is present and positive on a carrying pipe.
+  ok('p1 has a positive head loss', rep.headloss[R.ids.p1] > 0);
+  ok('p1 has a positive friction pressure drop', rep.dpFric[R.ids.p1] > 0);
+  ok('a bigger main carries more flow than its branch',
+    rep.flow[R.ids.p1] > rep.flow[R.ids.p2]);
+
+  // Residual pressure: source states its own, and it falls downstream.
+  const S = R.m.nodes.filter(function (n) { return n.device && n.device.kind === 'source'; })[0];
+  near('source node holds its stated pressure', rep.pressure[S.id], 300000, 1e-6);
+  const J = findNode(R.m, 5, 0);
+  ok('pressure at the junction is below the source', rep.pressure[J.id] < 300000);
+  // On one flat pipe the drop is exactly the friction (no static lift here).
+  near('junction pressure = source − friction of p1',
+    rep.pressure[J.id], 300000 - rep.dpFric[R.ids.p1], 1e-6);
+
+  // Static lift: raise the junction 10 m and the residual drops by ρgh more.
+  const R2 = tree();
+  const J2 = findNode(R2.m, 5, 0);
+  J2.dz = 10;
+  const rep2 = NET.plumbingReport(R2.m);
+  const rho = (R2.m.settings.fluid && R2.m.settings.fluid.density) || 998;
+  near('a 10 m rise costs ρg·10 of residual pressure',
+    (300000 - rep2.dpFric[R2.ids.p1]) - rep2.pressure[J2.id], rho * 9.81 * 10, 1);
+
+  // An unsizeable tree passes the error straight through, no crash.
+  const Lp = tree();
+  M.addPipe(Lp.m, findNode(Lp.m, 10, -5).id, findNode(Lp.m, 10, 0).id, { size: 'DN25' });
+  const repL = NET.plumbingReport(Lp.m);
+  ok('a looped plumbing tree reports the error', !repL.ok && repL.error.code === 'DW_LOOP',
+    repL.error && repL.error.code);
+}
 
 function findNode(mm, x, y) {
   return mm.nodes.filter(function (n) { return n.x === x && n.y === y; })[0];

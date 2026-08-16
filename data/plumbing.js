@@ -9,16 +9,21 @@
  * docs/DW-MODULE.md.
  *
  * ============================================================================
- * PROVENANCE — verified: false until Michael signs it off
+ * PROVENANCE — verified per table
  * ============================================================================
  * Transcribed from the International Plumbing Code 2018, Appendix E:
  *   - fixture cold FU: Table E103.3(2), "FV (Cold)" column only;
  *   - the demand curves: Table E103.3(3), the GALLONS-PER-MINUTE columns for the
  *     two systems (predominantly flush tanks / predominantly flushometer valves).
- * The CFM column is not carried (gpm is what sizing needs). Values are the
- * engineer's to confirm against his own copy of the code — nothing here is
- * derived or interpolated at rest, only transcribed. `FD.plumbing.verified` is
- * false accordingly, the same treatment as the glycol properties.
+ * The CFM column is not carried (gpm is what sizing needs). Nothing here is
+ * derived or interpolated at rest, only transcribed.
+ *
+ * `FD.plumbing.verified` is now PER TABLE, because they are signed off
+ * separately: { fixtures, demand }.
+ *   - fixtures: TRUE — Michael verified Table E103.3(2) on 2026-08-16.
+ *   - demand:   false — Table E103.3(3) not yet confirmed against his copy.
+ * The tables are also editable per model on the HYDRAULIC tab; an in-app edit
+ * overrides a cell for that model but does not promote the shipped default.
  *
  * A fixture that the table splits by occupancy and/or supply control carries one
  * VARIATION per row (Private / Public, flush tank / flush valve), each with its
@@ -182,7 +187,9 @@
   }
 
   FD.plumbing = {
-    verified: false,                          // transcribed from IPC 2018, not yet confirmed
+    /* Per-table sign-off. Fixtures (E103.3(2)) verified by Michael 2026-08-16;
+     * the demand curves (E103.3(3)) are still transcribed-not-confirmed. */
+    verified: { fixtures: true, demand: false },
     GPM_TO_M3S: GPM_TO_M3S,
     fixtures: FIXTURES,
     systems: SYSTEMS,

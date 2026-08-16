@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.17.0, 2026-08-16.** Ten test suites, **2067 assertions**, all
+State: **v0.17.1, 2026-08-16.** Ten test suites, **2084 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -88,6 +88,19 @@ Michael signs off the transcription and the per-fixture occupancy/control
 assumptions in `data/plumbing.js` (incl. the WC "Ppublic"→Private typo). NB the
 editable tables let him correct any cell in-app; a correction there overrides the
 transcription for that model but does not promote the shipped default.
+
+**v0.17.1** added the plumbing "solve" (`FD.network.plumbingReport`) and closed
+Michael's 2026-08-16 review list: (a) `FD.plumbing.verified` is now PER TABLE —
+`{ fixtures: true, demand: false }`; he verified E103.3(2), E103.3(3) still
+pending; (b) the explanatory hints + unverified banner are off the HYDRAULIC tab;
+(c) SHOW ▸ Temperature is hidden in plumbing; (d) plumbing now produces signed
+per-pipe FLOW (canvas arrows), FRICTION drop, and a forward RESIDUAL-pressure pass
+(Phase C essentially in) — the report is built from `M.plumbingSizing` + a
+geometry-only `build()`, still never the GGA solver; (e) **pasting a fragment onto
+a pipe now tees in** (`canvas.js` paste path + `M.splitPipeAt`), which also fixes
+the same gap in hydronic. Flow-arrow appearance and the paste snap-detection are
+in `Human-Test.md` §5DW (the preview canvas has no layout, so px hit-testing and
+pixels can't be checked in-session).
 
 Nine versions were built in one session on 2026-08-09 (v0.16.4 → v0.16.15), and
 the big ones were:

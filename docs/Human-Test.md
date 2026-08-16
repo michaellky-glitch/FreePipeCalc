@@ -32,6 +32,20 @@ bit only you can judge.
 > section when it is fully cleared, otherwise just its ✅ rows, leaving the
 > pending ones here under the same heading.
 
+## 5DW. DOMESTIC WATER — v0.16.33 … v0.17.1 (2026-08-16)
+
+The plumbing discipline and its pipe-flow sizing. The numbers are pinned by
+`plumbing.test.js` / `model.test.js` (2084 assertions); these rows are the parts
+only your eye can settle.
+
+| # | What | Status | Notes |
+|---|---|---|---|
+| DW.A | **Discipline switch on the loop-type chip** (v0.16.33) | ⬜ | The chip reads HYDRONIC / PLUMBING and toggles on click, with a confirm on a non-empty model. In plumbing the network tab reads PLUMBING, THERMAL is hidden, the Design ribbon drops the thermal tools, and SHOW ▸ Temperature is hidden. Verified live (wiring, tab set, zero GGA calls). **The feel of the switch is yours to judge.** |
+| DW.B | **Editable IPC tables on the HYDRAULIC tab** (v0.17.0–1) | ⬜ | Fixture load values E103.3(2) and the FU→flow demand curves E103.3(3), editable in metric, per-model overrides that feed sizing, with "Reset to IPC defaults". Explanatory hints and the unverified banner removed at your request. Verified live: editing an FU or a demand cell reshapes every downstream flow. **Layout/readability of the two tables is yours to judge.** |
+| DW.C | **Flow arrows + friction in plumbing** (v0.17.1) | ⬜ | A plumbing file now "solves" (never the GGA): `plumbingReport` gives signed per-pipe flow so the canvas draws direction arrows, plus friction drop and a forward residual-pressure pass. Verified live that flow/pressure/dpFric are computed and arrows would draw (3/3 pipes), residual = source − friction − static. **Whether the arrows and colours LOOK right on the drawing is yours to judge** (the preview canvas renders nothing to pixels). |
+| DW.D | **Plumbing CALCULATION sheet** (v0.17.0–1) | ⬜ | Per-pipe Section / Size / Bore / Downstream FU / Design flow / Velocity / Friction drop / Residual, mains first, over-limit velocity and negative residual in red. Verified live on a heavy-load tree. **The sheet's layout is yours to judge.** |
+| DW.E | **Paste onto a pipe tees in** (v0.17.1, affects hydronic too) | ⬜ | Pasting a copied fragment whose anchor lands mid-pipe now SPLITS that pipe and joins with a tee (previously it sat on top, connected to nothing) — the same rule as dragging a node onto a run. The drop-and-split was verified live (target split, 3 pipes meet at the junction); the on-screen *snap detection* while dragging the paste could not be exercised here (the preview canvas has no layout), so **please confirm in the real app that the paste anchor turns green over a pipe and tees in on click.** |
+
 ## 5AC. UI HOUSEKEEPING — v0.16.23–25 (2026-08-10 … 12)
 
 | # | What | Status | Notes |

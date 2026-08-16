@@ -8,8 +8,9 @@ in v0.16.31, Phase 2 (solver) is next. Everything else he has raised is done;
 what is left of the rest is his testing of it, and one thing found in passing
 (DX.1).
 
-Updated 2026-08-16, after v0.17.0 (Domestic Water Phase B — the plumbing
-HYDRAULIC tab, editable IPC tables, and the fixture-unit sizing sheet).
+Updated 2026-08-16, after v0.17.1 (Domestic Water — the plumbing "solve": flow
+arrows, friction drop and residual pressure; plus Michael's review-list fixes and
+the paste-onto-pipe tee fix).
 
 ---
 
@@ -46,8 +47,23 @@ The likeliest things to come back:
 
 ## Recently closed
 
-Newest first. Detail in `Human-Test.md` §5A–5J.
+Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
 
+* **v0.17.1** — Domestic Water: the plumbing "solve", and Michael's review list
+  (2026-08-16). (1) `FD.network.plumbingReport` gives a plumbing file signed
+  per-pipe FLOW (so the canvas draws direction arrows), per-pipe FRICTION drop,
+  and a forward RESIDUAL-pressure pass down the tree — built from
+  `M.plumbingSizing` + a geometry-only `build()`, still never the GGA solver; the
+  CALCULATION sheet gains Friction-drop and Residual columns. (2)
+  `FD.plumbing.verified` is now per table `{ fixtures:true, demand:false }` —
+  Michael verified E103.3(2). (3) Explanatory hints + the unverified banner
+  removed from the plumbing HYDRAULIC tab. (4) SHOW ▸ Temperature hidden in
+  plumbing. (5) **Pasting a fragment onto a pipe now tees in** (was: sat on top,
+  connected to nothing) — fixes hydronic too. 17 new assertions (suite 2084).
+  Verified live: flow/friction/residual computed, arrows would draw, tee-on-drop
+  splits the pipe, tables edit, hydronic unaffected, no console errors. Visual
+  items (arrow appearance, paste snap) in `Human-Test.md` §5DW. **Left:** a
+  per-pipe diversity readout drawn on the canvas.
 * **v0.17.0** — Domestic Water Phase B: the plumbing HYDRAULIC tab, editable IPC
   tables, and the fixture-unit sizing sheet (Michael's brief, 2026-08-16). The
   plumbing **Design ribbon drops the thermal tools** (heat source/sink, heat

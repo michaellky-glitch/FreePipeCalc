@@ -425,25 +425,46 @@
     }
   }
 
-  /* Plumbing's stand-in for the GGA solve. Phase A has no sizing report yet
-   * (Phase B builds it from M.plumbingSizing), so this just clears any stale
-   * hydronic result and states that the pane is under construction. It exists so
-   * that every path that would have solved the GGA has somewhere else to go. */
+  /* Plumbing's "solve" — NEVER the GGA. It runs FD.network.plumbingReport, which
+   * sizes from downstream fixture units and adds a forward friction/pressure
+   * pass, and puts the result where a GGA result would go so the canvas draws
+   * flow arrows, the overlays colour, and the pipe panel and sheet read live
+   * numbers. See the note on plumbingReport in network.js. */
   function plumbingSolve() {
-    app.results = null;
-    if (app.view) app.view.results = null;
+    var res;
+    try {
+      res = FD.network.plumbingReport(app.model);
+    } catch (e) {
+      console.error(e);
+      app.results = null;
+      if (app.view) { app.view.results = null; app.view.render(); }
+      updateStatusChip(null, e.message);
+      return null;
+    }
+    app.results = res;
+    if (app.view) { app.view.results = res; app.view.render(); }
     hideSolveProgress();
     var chip = $('status-chip');
     if (chip) {
-      chip.textContent = 'Plumbing — sizing under construction';
-      chip.className = 'chip';
-      chip.title = '';
-      chip.style.cursor = '';
+      if (res.error) {
+        chip.textContent = res.error.message.split('.')[0];
+        chip.className = 'chip error';
+        chip.title = res.error.message;
+        chip.style.cursor = '';
+      } else {
+        var nP = Object.keys(res.byPipe || {}).length;
+        chip.textContent = nP
+          ? ('Sized · ' + nP + ' pipe' + (nP > 1 ? 's' : '') + ' · ' +
+             res.totalFU.toFixed(0) + ' FU')
+          : 'Plumbing — place a source and fixtures';
+        chip.className = 'chip ok';
+        chip.title = '';
+        chip.style.cursor = '';
+      }
     }
-    if (app.view) app.view.render();
     refreshPropertyReadouts();
     if (app.messagesRefresh) app.messagesRefresh();
-    return null;
+    return res;
   }
 
   function updateStatusChip(res, errMsg) {
@@ -843,28 +864,33 @@
     })[0];
     var sysName = sysDef ? sysDef.name : 'Flush tank';
 
+    var presUnit = d.pressure;
+    var presLabel = ('' + FD.units.fmtPressure(0, presUnit, true)).split(' ').slice(1).join(' ');
+
     host.appendChild(el('h2', '', 'Domestic water — fixture-unit sizing'));
     host.appendChild(el('p', 'hint',
       'Demand system: ' + sysName + '. Each pipe is sized on the fixture units ' +
       'downstream of it, run through the IPC demand curve (sub-additive) — so the ' +
-      'flows do not balance at a junction, which is correct for plumbing. Edit the ' +
-      'tables on the HYDRAULIC tab. Residual pressure is a later pass.'));
+      'flows do not balance at a junction, which is correct for plumbing. Friction ' +
+      'drop uses the ' + (m.settings.frictionMethod === 'DW' ? 'Darcy-Weisbach' : 'Hazen-Williams') +
+      ' method; residual pressure is the source pressure less friction and static ' +
+      'lift along the tree. Edit the IPC tables on the HYDRAULIC tab.'));
 
     if (!m.pipes.length) {
       host.appendChild(el('p', '', 'Nothing to size yet — draw a plumbing network on the PLUMBING tab.'));
       return;
     }
 
-    var dw = M.plumbingSizing(m);
-    if (!dw.ok && dw.error) {
+    var rep = FD.network.plumbingReport(m);
+    if (!rep.ok && rep.error) {
       var errBox = el('div', 'notice error-notice');
       errBox.appendChild(el('p', 'notice-head', 'Cannot size this plumbing network'));
-      errBox.appendChild(el('p', '', dw.error.message));
+      errBox.appendChild(el('p', '', rep.error.message));
       host.appendChild(errBox);
       return;
     }
 
-    var ids = Object.keys(dw.byPipe);
+    var ids = Object.keys(rep.byPipe);
     if (!ids.length) {
       host.appendChild(el('p', '',
         'No plumbing outflows sized yet. Place a source and fixtures (the OUTFLOW ' +
@@ -872,22 +898,27 @@
       return;
     }
 
-    var anyGeneric = ids.some(function (id) { return dw.byPipe[id].generic > 0; });
+    var anyGeneric = ids.some(function (id) { return rep.byPipe[id].generic > 0; });
     var vLimit = (m.settings.warn && m.settings.warn.velocity) || 2.4;
+    var anySource = (m.nodes || []).some(function (n) {
+      return n.device && n.device.kind === 'source' && n.device.pressure > 0;
+    });
 
     var table = el('table', 'sheet');
     var thead = el('thead'), hr = el('tr');
     var cols = ['Section', 'Size', 'Bore (mm)', 'Downstream FU'];
     if (anyGeneric) cols.push('Generic (' + flowLabel + ')');
-    cols.push('Design flow (' + flowLabel + ')', 'Velocity (m/s)');
+    cols.push('Design flow (' + flowLabel + ')', 'Velocity (m/s)',
+              'Friction drop (' + presLabel + ')');
+    if (anySource) cols.push('Residual (' + presLabel + ')');
     cols.forEach(function (c) { hr.appendChild(el('th', '', c)); });
     thead.appendChild(hr); table.appendChild(thead);
 
     var tb = el('tbody');
-    ids.sort(function (a, b) { return dw.byPipe[b].flow - dw.byPipe[a].flow; });   // mains first
-    var overLimit = 0;
+    ids.sort(function (a, b) { return rep.byPipe[b].flow - rep.byPipe[a].flow; });   // mains first
+    var overLimit = 0, negResidual = 0;
     ids.forEach(function (id) {
-      var s = dw.byPipe[id];
+      var s = rep.byPipe[id];
       var p = M.pipe(m, id);
       var tr = el('tr');
       var label = p
@@ -905,20 +936,34 @@
       var over = v > vLimit;
       if (over) overLimit++;
       tr.appendChild(el('td', over ? 'bad' : '', v ? v.toFixed(2) : '—'));
+      tr.appendChild(el('td', '', FD.units.fmtPressure(rep.dpFric[id] || 0, presUnit)));
+      if (anySource) {
+        var pr = rep.pressure[s.to];
+        var neg = pr !== undefined && pr < 0;
+        if (neg) negResidual++;
+        tr.appendChild(el('td', neg ? 'bad' : '',
+          pr === undefined ? '—' : FD.units.fmtPressure(pr, presUnit)));
+      }
       tb.appendChild(tr);
     });
     table.appendChild(tb); host.appendChild(table);
 
     host.appendChild(el('p', 'hint',
-      'Total connected load: ' + dw.totalFU.toFixed(1) + ' FU → ' +
-      FD.units.fmtFlow(dw.totalFlow, flowUnit, true) + ' probable demand at the source. ' +
+      'Total connected load: ' + rep.totalFU.toFixed(1) + ' FU → ' +
+      FD.units.fmtFlow(rep.totalFlow, flowUnit, true) + ' probable demand at the source. ' +
       'Velocity limit ' + vLimit + ' m/s' +
-      (overLimit ? ' — ' + overLimit + ' section' + (overLimit > 1 ? 's' : '') + ' over limit (in red).' : '.')));
+      (overLimit ? ' — ' + overLimit + ' section' + (overLimit > 1 ? 's' : '') + ' over limit (in red).' : '.') +
+      (anySource
+        ? (negResidual
+            ? ' ' + negResidual + ' fixture' + (negResidual > 1 ? 's' : '') +
+              ' below zero residual pressure — the supply pressure is insufficient.'
+            : ' All fixtures hold positive residual pressure.')
+        : ' Set a source pressure to see residual pressure at each fixture.')));
 
-    if (FD.plumbing.verified === false) {
+    if (FD.plumbing.verified && !FD.plumbing.verified.demand) {
       host.appendChild(el('p', 'hint',
-        'IPC 2018 fixture-unit and demand tables are verified:false — confirm against ' +
-        'your copy of the code before issue.'));
+        'IPC 2018 demand curve E103.3(3) is transcribed but not yet verified — ' +
+        'confirm against your copy of the code before issue.'));
     }
   }
 
@@ -6081,22 +6126,9 @@
       pl.system, function (v) {
         pushUndo(); pl.system = v; renderHydraulic(); redrawAll();
       });
-    hint('A pipe’s design flow is the fixture units DOWNSTREAM of it, run ' +
-         'through the demand curve chosen here (IPC Table E103.3(3)). The curve ' +
-         'is sub-additive, so a plumbing branch legitimately does not balance.');
-
-    if (FD.plumbing.verified === false) {
-      var vnote = el('div', 'notice warn-notice');
-      vnote.appendChild(el('p', '',
-        'IPC 2018 tables transcribed but NOT yet verified against the code. Check ' +
-        'before issue. Editing a value below overrides it for this model.'));
-      host.appendChild(vnote);
-    }
 
     // ============================ FIXTURE UNITS — Table E103.3(2) ----------
     h2('Fixture load values — Table E103.3(2)');
-    hint('Cold-water supply fixture units, by occupancy and supply control. Edit ' +
-         'a value to override it for this model; changed cells are highlighted.');
     var fuT = el('table', 'sheet');
     var fuThead = el('thead'), fuHr = el('tr');
     ['Fixture', 'Occupancy / supply control', 'Fixture units'].forEach(function (t) {
@@ -6142,9 +6174,6 @@
 
     // ============================ DEMAND — Table E103.3(3) ----------------
     h2('Demand — Table E103.3(3)  (' + flowLabel + ')');
-    hint('Fixture units → probable simultaneous demand, one curve per system. ' +
-         'Pipe flows are interpolated between these points; values between rows are ' +
-         'linear, and beyond the ends the curve is clamped. Edit to override.');
     function curveOf(sys) { return M.plumbingDemandCurve(m, sys) || FD.plumbing.demand[sys]; }
     function toMap(c) { var mp = {}; c.forEach(function (r) { mp[r[0]] = r[1]; }); return mp; }
     var ftMap = toMap(curveOf('flushTank')), foMap = toMap(curveOf('flushometer'));
@@ -7095,6 +7124,12 @@
     /* The Design ribbon's heat source/sink + heat exchanger are hydronic-only. */
     var thermalTools = $('design-thermal-tools');
     if (thermalTools) thermalTools.hidden = plumbing;
+    /* SHOW ▸ Temperature has no meaning in plumbing (no thermal solve), so hide
+     * that overlay button in plumbing (Michael, 2026-08-16). */
+    var tempViz = document.querySelector('[data-viz="temperature"]');
+    if (tempViz) tempViz.hidden = plumbing;
+    /* If temperature was the active overlay when switching in, drop it. */
+    if (plumbing && app.view && app.view.viz === 'temperature') app.view.viz = null;
     /* If the discipline just hid the tab we are looking at, fall back to the
      * network — a hidden pane left active is a blank screen with no tab lit. */
     if (plumbing) {

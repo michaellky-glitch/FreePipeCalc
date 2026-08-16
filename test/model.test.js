@@ -2873,6 +2873,25 @@ section('Copy: a fragment carries everything, and points at nothing outside');
        touching[0].tag === 'CHW-S-02', String(touching[0].tag));
   }
 
+  /* ---- PASTE ONTO A PIPE TEES IN. The canvas glue inserts the fragment, then
+   * splitPipeAt on the new anchor node (res.map[anchor]) when the anchor landed
+   * on a pipe. Michael, 2026-08-16: paste onto a pipe did not connect. */
+  {
+    const t = rig();
+    const f = M.extractFragment(t.m, sel([t.pump, t.eq, t.sens, t.spur]));
+    const P = M.addNode(t.m, t.lv, 60, 0), Q = M.addNode(t.m, t.lv, 60, 20);
+    const tgt = M.addPipe(t.m, P.id, Q.id, { size: 'DN50' });
+    const r = M.insertFragment(t.m, f, { dx: 0, dy: 0, retag: true });
+    const anchorNew = r.map[f.anchor];
+    ok('insertFragment maps the anchor to its new node id', !!anchorNew);
+    const an = M.node(t.m, anchorNew); an.x = 60; an.y = 10;     // on the target line
+    const tee = M.splitPipeAt(t.m, tgt.id, anchorNew);
+    ok('splitPipeAt returns the two halves', !!tee && !!tee.first && !!tee.second);
+    ok('the original target pipe is replaced', !M.pipe(t.m, tgt.id));
+    ok('the anchor node is now a tee (3+ pipes meet)',
+       M.pipesAt(t.m, anchorNew).length >= 3, String(M.pipesAt(t.m, anchorNew).length));
+  }
+
   /* ---- A LONE NODE is copyable, so a source can be duplicated on its own. */
   {
     const t = rig();

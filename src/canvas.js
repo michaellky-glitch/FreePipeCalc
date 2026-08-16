@@ -984,8 +984,17 @@
           joinTo: join,
           retag: true
         });
+        var ontoPipe = ps.ontoPipe;
         self.pasting = null;
         if (!res) { self.onMessage('Nothing pasted.', 'error'); self.render(); return; }
+        /* TEE INTO THE PIPE the anchor landed on. The anchor was placed on the
+         * pipe line above, so splitting there gives a clean junction — the same
+         * result as dragging a node onto a run. Skipped when the anchor joined an
+         * existing node instead (join), or when the fragment has no anchor. */
+        var teedInto = null;
+        if (ontoPipe && frag.anchor && res.map && res.map[frag.anchor] && M.splitPipeAt) {
+          teedInto = M.splitPipeAt(mdl, ontoPipe, res.map[frag.anchor]);
+        }
         /* The copy becomes the selection, so it can be moved or deleted
          * immediately — a paste you cannot undo by eye is a paste you have to
          * hunt for. */
@@ -998,6 +1007,7 @@
         if (anno) bits.push(anno + ' annotation' + (anno === 1 ? '' : 's'));
         var msg = (bits.length ? bits.join(' · ') : 'Nothing') + ' pasted';
         var extra = [];
+        if (teedInto) extra.push('teed into ' + ontoPipe);
         if (res.retagged.length) extra.push(res.retagged.length + ' retagged');
         if (res.dropped.length) extra.push(res.dropped.length + ' link' +
           (res.dropped.length === 1 ? '' : 's') + ' dropped');
@@ -1343,10 +1353,27 @@
         var pw = self.snapWorld(w);
         /* SNAP ONTO AN EXISTING NODE if there is one under the anchor. That is
          * how the copy joins the drawing, and it is the same endpoint radius
-         * every other join uses. */
+         * every other join uses. Failing a node, snap onto a PIPE under the
+         * anchor so the paste TEES INTO the run — the same rule as dragging a
+         * node onto a pipe (Michael, 2026-08-16: paste onto a pipe did not
+         * connect). The anchor lands on the pipe line so the tee is clean. */
         var onto = self.nodeAt(w.x, w.y, ENDPOINT_PX);
-        self.pasting.at = onto ? M.worldXY(self.getModel(), onto) : pw;
-        self.pasting.onto = onto ? onto.id : null;
+        if (onto) {
+          self.pasting.at = M.worldXY(self.getModel(), onto);
+          self.pasting.onto = onto.id;
+          self.pasting.ontoPipe = null;
+        } else {
+          var hitp = self.pipeAt(w.x, w.y, SNAP_PX);
+          if (hitp && hitp.pipe && hitp.pipe.kind === 'pipe') {
+            self.pasting.at = hitp.point;
+            self.pasting.onto = null;
+            self.pasting.ontoPipe = hitp.pipe.id;
+          } else {
+            self.pasting.at = pw;
+            self.pasting.onto = null;
+            self.pasting.ontoPipe = null;
+          }
+        }
         self.render();
         return;
       }
@@ -5099,12 +5126,14 @@
     ctx.restore();
 
     /* The anchor: hollow while it is loose, filled once it is over a node it
-     * would join (pipework only — annotation has nothing to snap onto). */
+     * would join OR a pipe it would tee into (pipework only — annotation has
+     * nothing to snap onto). */
     var s0 = self.toScreen(ax + dx, ay + dy);
+    var snapped = ps.onto || ps.ontoPipe;
     ctx.save();
     ctx.lineWidth = 2.5;
-    ctx.strokeStyle = ps.onto ? this.theme.ok : this.theme.accent;
-    ctx.fillStyle = ps.onto ? this.theme.ok : this.theme.bg;
+    ctx.strokeStyle = snapped ? this.theme.ok : this.theme.accent;
+    ctx.fillStyle = snapped ? this.theme.ok : this.theme.bg;
     ctx.beginPath(); ctx.arc(s0.x, s0.y, 7, 0, Math.PI * 2);
     ctx.fill(); ctx.stroke();
     ctx.restore();

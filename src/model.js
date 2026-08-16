@@ -1509,9 +1509,13 @@
         var pp = parentPipe[childId];
         if (pp === undefined) continue;      // the root has no parent pipe
         var flow = subGen[childId] + FD.plumbing.fuToFlow(subFU[childId], system, demandCurve);
-        byPipe[pp] = { fu: subFU[childId], generic: subGen[childId], flow: flow };
         // fold the child's subtree into its parent
         var parentId = other(pipeById(pipes, pp), childId);
+        /* `from`/`to` are the flow DIRECTION on this pipe — source-ward parent to
+         * downstream child. The report uses them to sign the flow (for arrows)
+         * and to walk the tree for the residual-pressure pass. */
+        byPipe[pp] = { fu: subFU[childId], generic: subGen[childId], flow: flow,
+                       from: parentId, to: childId };
         subFU[parentId] += subFU[childId];
         subGen[parentId] += subGen[childId];
       }
