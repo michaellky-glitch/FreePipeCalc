@@ -1,17 +1,86 @@
 # Domestic Water (DW) module — agreed design
 
-Michael's request, 2026-08-12, and the two structural decisions taken in the
-same discussion. **Not yet built** — this is the spec to build from.
+Michael's request, 2026-08-12; re-architected 2026-08-16 to isolate the
+known-good GGA (see **Architecture v2**). The DATA and the sizing CORE are built
+(v0.16.31–32); the DISCIPLINE split and the plumbing UI/report are what remain.
 
 ## Decisions
 
-1. **Lives inside DESIGN**, not a new mode. Plumbing is a new OUTFLOW TYPE plus a
-   Domestic-Water behaviour, beside the existing `settings.systemType`
-   (closed / open). DESIGN is not renamed and its toolset is not duplicated.
+> **SUPERSEDED, 2026-08-16.** Decision 1 below (DW lives inside DESIGN, sharing
+> the GGA network) was reversed by Michael to DE-RISK the known-good solver. The
+> current architecture is in "**Architecture v2**" further down; it is what the
+> next session builds. Decision 2 (a plumbing network is a TREE) still holds.
+> v0.16.31–v0.16.32 built the DATA, the model helpers and `M.plumbingSizing`
+> under the old plan; those are reusable as-is. What changes is WHERE the UI and
+> the solve live — a separate discipline, not an outflow type inside Design.
+
+1. ~~**Lives inside DESIGN**, not a new mode. Plumbing is a new OUTFLOW TYPE plus
+   a Domestic-Water behaviour, beside `settings.systemType`.~~ **Reversed** — see
+   Architecture v2.
 2. **A plumbing network must be a TREE.** "Downstream FU" is only defined when
    there is one path from the source, which is how real DW is drawn. A loop on a
-   plumbing network raises a defect/error. Generic and closed-loop outflows keep
-   the GGA and its loop handling.
+   plumbing network raises an error (`DW_LOOP`). Still holds.
+
+## Architecture v2 — a file is one DISCIPLINE (agreed 2026-08-16)
+
+The motivation is SAFETY: the mature GGA (closed-loop + generic pumped systems,
+thermal, controls) must not be reworked to carry fixture-unit diversity. So the
+two are kept apart at the top level.
+
+* **`m.discipline` = `'hydronic'` (default) | `'plumbing'`.** A saved file is one
+  or the other; the user works in one. This is the whole isolation: in a plumbing
+  file the GGA is **never invoked** — not "left untouched", not on the code path.
+* **The switch is the repurposed loop-type chip.** The `#system-chip`
+  (OPEN LOOP / CLOSED LOOP / NO SUPPLY) beside the status chip becomes the
+  DISCIPLINE switch: it reads **HYDRONIC** or **PLUMBING** and clicking it toggles
+  the discipline. Discipline sits a layer ABOVE the tab bar — a deliberate choice,
+  because most hydronic tabs do not apply to plumbing, so they are swapped, not
+  crammed in beside CALCULATION. The open/closed-loop reading it used to show is a
+  hydronic-only concept and still appears on the calc sheet via
+  `systemTypeLabel()`; in a plumbing file it is meaningless and gone.
+* **Switching warns.** Toggling the chip on a non-empty model pops a confirm —
+  *"Changing an existing model between Hydronic and Plumbing may break it."* — via
+  `FD.dialog.confirm`. The two disciplines share geometry but not device
+  semantics (a hydronic flow-demand outflow is not a plumbing fixture), so a
+  switch can strand device settings; the warning makes that the user's choice.
+* **Tab set is per discipline.** The network tab is relabelled by discipline —
+  **HYDRONIC** (was "PIPING NETWORK") or **PLUMBING**. Hydronic shows today's tabs
+  unchanged. Plumbing shows PLUMBING + a plumbing CALCULATION + SETTINGS +
+  DOCUMENTATION, and HIDES THERMAL (and the hydronic HYDRAULIC tab — a plumbing
+  system setting, flush-tank/flushometer, replaces it). The network CANVAS,
+  drawing tools and save file are SHARED — a node is a node in either — so the
+  drawing code is reused, not duplicated.
+* **HYDRONIC** = everything today, unchanged: GGA, DESIGN/SIMULATE/CONTROL/
+  ANNOTATION modes, THERMAL, HYDRAULIC, the calculation sheet.
+* **PLUMBING**: solved ONLY by `M.plumbingSizing`. No SIMULATE, no CONTROL, no
+  pumps-as-curves. THERMAL "does almost nothing" (Michael) — hide or blank it.
+  An outflow is a FIXTURE (fixture + Variation + count, from `data/plumbing.js`),
+  not a flow demand. The calc is the FU schedule → per-pipe diversity flow →
+  velocity/PDM at that flow → forward head-loss pass to residual pressure at each
+  fixture.
+* **Remove the in-Design plumbing UI** added in v0.16.31–32 (the Plumbing outflow
+  type + Variation dropdown in the hydronic Design panel, and the DW readout in
+  the hydronic pipe panel). DW belongs to the PLUMBING discipline now; `data/
+  plumbing.js` and `M.plumbingSizing` stay and move behind the plumbing tab.
+
+### Build phases (v2)
+
+A. **Scaffold.** `m.discipline` (`'hydronic'` default) carried through
+   `create`/`toJSON`/`fromJSON`. Repurpose `#system-chip` as the discipline
+   switch (label HYDRONIC/PLUMBING, click toggles, confirm warning on a non-empty
+   model). Relabel the network tab by discipline and show/hide the auxiliary tabs
+   per discipline. Gate the solve so `discipline==='plumbing'` never calls the
+   GGA. Hide the in-Design plumbing outflow UI + pipe-panel DW readout (from
+   v0.16.31–32) whenever `discipline!=='plumbing'`. No plumbing report yet — the
+   plumbing pane can state it is under construction.
+B. **Plumbing outflow UI + sizing report** in the plumbing discipline: the
+   fixture/Variation/count panel (reuse the v0.16.31–32 controls, now here), and
+   a plumbing results object from `plumbingSizing` feeding a per-pipe diversity
+   readout on the canvas and a plumbing calculation sheet. Make the
+   continuity/imbalance messaging plumbing-aware (or simply absent — there is no
+   GGA to imbalance).
+C. **Residual pressure (was Phase 3).** Forward head-loss pass from the source
+   along the tree to residual pressure at each fixture; sheet reporting.
 
 ## The flow model — why it is not the GGA
 

@@ -54,14 +54,24 @@ flow per pipe and sizes `Generic + fuToFlow(FU)` (sub-additive), rejecting a
 loop / missing / multiple source (`DW_LOOP`, `DW_NO_SOURCE`, `DW_MULTI_SOURCE`)
 rather than guessing. The PIPE panel shows the diversity flow read-only.
 
-**What is left of DW:** the sizing core is not yet folded into the MAIN solve —
-`res.flow` and the CALCULATION SHEET still carry the GGA's continuity flows, so a
-DW pipe's VELOCITY/PDM warnings do not yet fire at the diversity flow. Doing that
-(and making the imbalance checks system-type-aware once DW drives the solve), plus
-the Phase 3 forward pressure pass to residual pressure at each fixture, is the
-remaining work. See `WORKLIST.md` → DW.MOD. **The IPC data is `verified: false`
-until Michael signs off the transcription and the per-fixture occupancy/control
-assumptions noted in `data/plumbing.js` (incl. the WC "Ppublic"→Private typo).**
+**RE-ARCHITECTED 2026-08-16 to protect the GGA (Option A, one app).** Michael
+decided DW must not fold into the known-good solver at all. The new shape: **a
+file is one discipline** — `m.discipline` = `'hydronic'` (default) or
+`'plumbing'` — and in a plumbing file the GGA is NEVER invoked (not on the code
+path). Discipline sits a layer ABOVE the tab bar, on the **repurposed loop-type
+chip** (`#system-chip` becomes a HYDRONIC/PLUMBING switch; clicking it toggles,
+with a confirm — "Changing an existing model between Hydronic and Plumbing may
+break it"). The network tab is relabelled per discipline (HYDRONIC — was "PIPING
+NETWORK" — or PLUMBING) and the plumbing discipline shows a reduced tab set (no
+THERMAL/HYDRAULIC). Plumbing is solved only by `M.plumbingSizing`. The in-Design
+plumbing UI from v0.16.31–32 (Plumbing outflow type, Variation dropdown,
+pipe-panel DW readout) is hidden unless the discipline is plumbing, and rebuilt
+inside it. The data (`data/plumbing.js`) and the sizing core (`M.plumbingSizing`,
+`M.outflowFU`) stay. Full spec and build phases A/B/C are in `docs/DW-MODULE.md`
+→ **Architecture v2**; the plan is captured, no discipline code written yet.
+**The IPC data is `verified: false`** until Michael signs off the transcription
+and the per-fixture occupancy/control assumptions in `data/plumbing.js` (incl.
+the WC "Ppublic"→Private typo).
 
 Nine versions were built in one session on 2026-08-09 (v0.16.4 → v0.16.15), and
 the big ones were:
