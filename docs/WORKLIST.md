@@ -8,7 +8,7 @@ in v0.16.31, Phase 2 (solver) is next. Everything else he has raised is done;
 what is left of the rest is his testing of it, and one thing found in passing
 (DX.1).
 
-Updated 2026-08-16, after v0.16.31.
+Updated 2026-08-16, after v0.16.32 (and the DW re-architecture to a discipline).
 
 ---
 
