@@ -910,20 +910,66 @@
    * (loop / no source / multiple sources) are shown rather than a guess. */
   function renderPlumbingCalc(host, m) {
     var d = m.settings.display;
-    var flowUnit = d.flow;
+    var flowUnit = d.flow, presUnit = d.pressure;
     var flowLabel = ('' + FD.units.fmtFlow(0, flowUnit, true)).split(' ').slice(1).join(' ');
+    var presLabel = ('' + FD.units.fmtPressure(0, presUnit, true)).split(' ').slice(1).join(' ');
     function nodeLabel(id) { var n = M.node(m, id); return (n && n.tag) || id; }
-
     var sysDef = FD.plumbing.systems.filter(function (s) {
       return s.id === (m.settings.plumbing && m.settings.plumbing.system);
     })[0];
     var sysName = sysDef ? sysDef.name : 'Flush tank';
 
-    var presUnit = d.pressure;
-    var presLabel = ('' + FD.units.fmtPressure(0, presUnit, true)).split(' ').slice(1).join(' ');
+    /* Same collapsible-section machinery as the hydronic sheet (Michael,
+     * 2026-08-17: standardise the presentation), so the two disciplines read and
+     * print the same way and the collapse state is remembered per title. */
+    function calcSection(title, opts) {
+      opts = opts || {};
+      var det = el('details', 'calc-section' + (opts.cls ? ' ' + opts.cls : ''));
+      var mem = app.calcCollapsed || (app.calcCollapsed = {});
+      det.open = (title in mem) ? mem[title] : (opts.open !== false);
+      det.addEventListener('toggle', function () { mem[title] = det.open; });
+      var sum = el('summary', '', title);
+      if (opts.note) sum.appendChild(el('span', 'sec-note', opts.note));
+      det.appendChild(sum);
+      var body = el('div', 'calc-section-body');
+      det.appendChild(body);
+      host.appendChild(det);
+      return body;
+    }
 
-    host.appendChild(el('h2', '', 'Domestic water — fixture-unit sizing'));
-    host.appendChild(el('p', 'meta-line', 'Demand system: ' + sysName));
+    // ---- sheet head (project metadata + method), as on the hydronic sheet ----
+    var meta = m.settings.meta;
+    var head = el('div', 'sheet-head');
+    function metaField(label, key, placeholder) {
+      var wrap = el('div', 'kv');
+      wrap.appendChild(el('span', 'k', label));
+      var i = el('input', 'meta-input'); i.type = 'text';
+      i.value = meta[key] || ''; i.placeholder = placeholder || '';
+      i.addEventListener('change', function () {
+        pushUndo(); meta[key] = i.value.trim(); scheduleSave();
+      });
+      wrap.appendChild(i); head.appendChild(wrap);
+    }
+    function metaRead(label, value) {
+      var wrap = el('div', 'kv');
+      wrap.appendChild(el('span', 'k', label));
+      wrap.appendChild(el('span', 'v', value));
+      head.appendChild(wrap);
+    }
+    metaField('Project', 'project', 'Project name');
+    metaField('System', 'system', 'e.g. DCW');
+    metaField('Engineer', 'engineer', 'Your name');
+    metaField('Company', 'company', '');
+    metaField('Date', 'date', new Date().toISOString().slice(0, 10));
+    metaField('Revision', 'revision', '');
+    metaRead('Discipline', 'Plumbing (domestic water)');
+    metaRead('Sizing', 'IPC Appendix E — fixture units → ' + sysName + ' demand');
+    metaRead('Fluid', (m.settings.fluid && m.settings.fluid.name) || 'Water');
+    metaRead('App version', FD.VERSION);
+    if (FD.plumbing.verified && (!FD.plumbing.verified.demand || !FD.plumbing.verified.supply)) {
+      metaRead('Status', 'IPC demand/604.3 data unverified — check before issue');
+    }
+    host.appendChild(head);
 
     if (!m.pipes.length) {
       host.appendChild(el('p', '', 'Nothing to size yet — draw a plumbing network on the PLUMBING tab.'));
@@ -943,144 +989,126 @@
     if (!ids.length) {
       host.appendChild(el('p', '',
         'No plumbing outflows sized yet. Place a source and fixtures (the OUTFLOW ' +
-        'tool, with a Plumbing outflow type) so each pipe has fixture units downstream.'));
+        'tool) so each pipe has fixture units downstream.'));
       return;
     }
 
     var anyGeneric = ids.some(function (id) { return rep.byPipe[id].generic > 0; });
     var vLimit = (m.settings.warn && m.settings.warn.velocity) || 2.4;
+    /* Residual pressure (and the Critical Path) are meaningful when there is a
+     * pressure ORIGIN — a pressurised source, or a booster pump that supplies the
+     * head. The residual forward pass in plumbingReport now accounts for both. */
     var anySource = (m.nodes || []).some(function (n) {
       return n.device && n.device.kind === 'source' && n.device.pressure > 0;
+    }) || m.pipes.some(function (p) {
+      return p.kind === 'pump' && p.pump && p.pump.mode !== 'off';
     });
 
-    var table = el('table', 'sheet');
-    var thead = el('thead'), hr = el('tr');
-    var cols = ['Section', 'Size', 'Bore (mm)', 'Downstream FU'];
-    if (anyGeneric) cols.push('Generic (' + flowLabel + ')');
-    cols.push('Design flow (' + flowLabel + ')', 'Velocity (m/s)',
-              'Friction drop (' + presLabel + ')');
-    if (anySource) cols.push('Residual (' + presLabel + ')');
-    cols.forEach(function (c) { hr.appendChild(el('th', '', c)); });
-    thead.appendChild(hr); table.appendChild(thead);
-
-    var tb = el('tbody');
-    ids.sort(function (a, b) { return rep.byPipe[b].flow - rep.byPipe[a].flow; });   // mains first
-    var overLimit = 0, negResidual = 0;
-    ids.forEach(function (id) {
-      var s = rep.byPipe[id];
-      var p = M.pipe(m, id);
-      var tr = el('tr');
-      var label = p
-        ? ((p.tag ? p.tag + '  ' : '') + nodeLabel(p.a) + ' → ' + nodeLabel(p.b) +
-           (p.kind === 'riser' ? '  (riser)' : ''))
-        : id;
-      tr.appendChild(el('td', 'txt', label));
-      tr.appendChild(el('td', 'txt', p ? (p.size || '—') : '—'));
-      var bore = p ? M.pipeBore(m, p) : null;
-      tr.appendChild(el('td', '', bore ? (bore * 1000).toFixed(1) : '—'));
-      tr.appendChild(el('td', '', s.fu.toFixed(1)));
-      if (anyGeneric) tr.appendChild(el('td', '', FD.units.fmtFlow(s.generic, flowUnit)));
-      tr.appendChild(el('td', '', FD.units.fmtFlow(s.flow, flowUnit)));
-      var v = bore ? FD.hydraulics.velocity(s.flow, bore) : 0;
-      var over = v > vLimit;
-      if (over) overLimit++;
-      tr.appendChild(el('td', over ? 'bad' : '', v ? v.toFixed(2) : '—'));
-      tr.appendChild(el('td', '', FD.units.fmtPressure(rep.dpFric[id] || 0, presUnit)));
-      if (anySource) {
-        var pr = rep.pressure[s.to];
-        var neg = pr !== undefined && pr < 0;
-        if (neg) negResidual++;
-        tr.appendChild(el('td', neg ? 'bad' : '',
-          pr === undefined ? '—' : FD.units.fmtPressure(pr, presUnit)));
-      }
-      tb.appendChild(tr);
-    });
-    table.appendChild(tb); host.appendChild(table);
-
-    host.appendChild(el('p', 'hint',
-      'Total connected load: ' + rep.totalFU.toFixed(1) + ' FU → ' +
-      FD.units.fmtFlow(rep.totalFlow, flowUnit, true) + ' probable demand at the source. ' +
-      'Velocity limit ' + vLimit + ' m/s' +
-      (overLimit ? ' — ' + overLimit + ' section' + (overLimit > 1 ? 's' : '') + ' over limit (in red).' : '.') +
-      (anySource
-        ? (negResidual
-            ? ' ' + negResidual + ' fixture' + (negResidual > 1 ? 's' : '') +
-              ' below zero residual pressure — the supply pressure is insufficient.'
-            : ' All fixtures hold positive residual pressure.')
-        : ' Set a source pressure to see residual pressure at each fixture.')));
-
-    /* ---- MOST UNFAVOURABLE PATH (the index run), similar to the hydronic
-     * critical path. The governing fixture is the one with the least margin
-     * between its delivered residual pressure and its 604.3 required pressure;
-     * the path is traced source→fixture up the tree. */
+    /* Critical path (the index run) — computed FIRST so its sections can be
+     * flagged in All Pipes, exactly as the hydronic sheet flags its index rows.
+     * The governing fixture is the one with the least margin between its
+     * delivered residual and its 604.3 required pressure. */
+    var parentPipeOf = {};
+    ids.forEach(function (id) { parentPipeOf[rep.byPipe[id].to] = id; });
+    function reqOf(nn) { return M.plumbingReqPressure(m, nn.device); }
+    var worst = null, worstMargin = Infinity, pathPipes = [], rootId = null, req = 0, pathSet = {};
     if (anySource) {
-      var fixtures = m.nodes.filter(function (n) {
-        return n.device && n.device.kind === 'demand' && n.device.include !== false &&
-               rep.pressure[n.id] !== undefined;
-      });
-      var parentPipeOf = {};
-      ids.forEach(function (id) { parentPipeOf[rep.byPipe[id].to] = id; });
-      function reqOf(nn) { return M.plumbingReqPressure(m, nn.device); }
-      var worst = null, worstMargin = Infinity;
-      fixtures.forEach(function (nn) {
+      m.nodes.forEach(function (nn) {
+        if (!(nn.device && nn.device.kind === 'demand' && nn.device.include !== false)) return;
+        if (rep.pressure[nn.id] === undefined) return;
         var margin = rep.pressure[nn.id] - reqOf(nn);
         if (margin < worstMargin) { worstMargin = margin; worst = nn; }
       });
       if (worst) {
-        var pathPipes = [], node = worst.id, guard = 0;
+        var node = worst.id, guard = 0;
         while (parentPipeOf[node] && guard++ < 100000) {
-          var pp = parentPipeOf[node]; pathPipes.unshift(pp); node = rep.byPipe[pp].from;
+          var pp = parentPipeOf[node]; pathPipes.unshift(pp); pathSet[pp] = true;
+          node = rep.byPipe[pp].from;
         }
-        var rootId = node;
-        var req = reqOf(worst);
-        var sp = worst.device.supply && FD.plumbing.fixtureSupply(worst.device.supply);
-
-        host.appendChild(el('h2', '', 'Most unfavourable path'));
-        host.appendChild(el('p', 'meta-line',
-          nodeLabel(rootId) + ' → ' + (worst.tag || worst.id) +
-          (sp && sp.id !== 'none' ? '  (' + sp.name + ')' : '') +
-          '  ·  ' + pathPipes.length + ' section' + (pathPipes.length === 1 ? '' : 's')));
-
-        var pt = el('table', 'sheet');
-        var pth = el('thead'), phr = el('tr');
-        ['Section', 'Size', 'Design flow (' + flowLabel + ')', 'Velocity (m/s)',
-         'Friction drop (' + presLabel + ')', 'Residual (' + presLabel + ')']
-          .forEach(function (c) { phr.appendChild(el('th', '', c)); });
-        pth.appendChild(phr); pt.appendChild(pth);
-        var ptb = el('tbody');
-        pathPipes.forEach(function (id) {
-          var s = rep.byPipe[id], p = M.pipe(m, id);
-          var tr = el('tr');
-          tr.appendChild(el('td', 'txt', (p && p.tag ? p.tag + '  ' : '') +
-            nodeLabel(s.from) + ' → ' + nodeLabel(s.to)));
-          tr.appendChild(el('td', 'txt', p ? (p.size || '—') : '—'));
-          tr.appendChild(el('td', '', FD.units.fmtFlow(s.flow, flowUnit)));
-          var bore = p ? M.pipeBore(m, p) : null;
-          var vv = bore ? FD.hydraulics.velocity(s.flow, bore) : 0;
-          tr.appendChild(el('td', vv > vLimit ? 'bad' : '', vv ? vv.toFixed(2) : '—'));
-          tr.appendChild(el('td', '', FD.units.fmtPressure(rep.dpFric[id] || 0, presUnit)));
-          var pr = rep.pressure[s.to];
-          tr.appendChild(el('td', pr < 0 ? 'bad' : '',
-            pr === undefined ? '—' : FD.units.fmtPressure(pr, presUnit)));
-          ptb.appendChild(tr);
-        });
-        pt.appendChild(ptb); host.appendChild(pt);
-
-        var avail = rep.pressure[worst.id];
-        var margeBad = worstMargin < 0;
-        host.appendChild(el('p', margeBad ? 'meta-line bad' : 'meta-line',
-          'Available at fixture ' + FD.units.fmtPressure(avail, presUnit, true) +
-          '  ·  required ' + FD.units.fmtPressure(req, presUnit, true) +
-          '  ·  margin ' + FD.units.fmtPressure(worstMargin, presUnit, true) +
-          (margeBad ? '  — INSUFFICIENT' : '') +
-          (sp && sp.id === 'none' ? '  (no 604.3 supply outlet set, required taken as 0)' : '')));
+        rootId = node; req = reqOf(worst);
       }
     }
 
-    if (FD.plumbing.verified && !FD.plumbing.verified.demand) {
-      host.appendChild(el('p', 'hint',
-        'IPC 2018 demand curve E103.3(3) is transcribed but not yet verified — ' +
-        'confirm against your copy of the code before issue.'));
+    // Shared pipe table (All Pipes and Critical Path use the same columns).
+    var cols = ['Section', 'Size', 'Bore mm', 'Down. FU'];
+    if (anyGeneric) cols.push('Generic ' + flowLabel);
+    cols.push('Flow ' + flowLabel, 'V m/s', 'PD ' + presLabel);
+    if (anySource) cols.push('Residual ' + presLabel);
+    var overLimit = 0, negResidual = 0;
+    function plumbingTable(list) {
+      var table = el('table', 'sheet');
+      var thead = el('thead'), hr = el('tr');
+      cols.forEach(function (c) {
+        hr.appendChild(el('th', (c === 'Section' || c === 'Size') ? 'txt' : '', c));
+      });
+      thead.appendChild(hr); table.appendChild(thead);
+      var tb = el('tbody');
+      list.forEach(function (id) {
+        var s = rep.byPipe[id], p = M.pipe(m, id);
+        var tr = el('tr', pathSet[id] ? 'index-row' : '');
+        tr.appendChild(el('td', 'txt', (p && p.tag ? p.tag + '  ' : '') +
+          nodeLabel(s.from) + ' → ' + nodeLabel(s.to) +
+          (p && p.kind === 'riser' ? '  (riser)' : '')));
+        tr.appendChild(el('td', 'txt', p ? (p.size || '—') : '—'));
+        var bore = p ? M.pipeBore(m, p) : null;
+        tr.appendChild(el('td', 'dim', bore ? (bore * 1000).toFixed(1) : '—'));
+        tr.appendChild(el('td', '', s.fu.toFixed(1)));
+        if (anyGeneric) tr.appendChild(el('td', '', FD.units.fmtFlow(s.generic, flowUnit)));
+        tr.appendChild(el('td', '', FD.units.fmtFlow(s.flow, flowUnit)));
+        var v = bore ? FD.hydraulics.velocity(s.flow, bore) : 0;
+        tr.appendChild(el('td', v > vLimit ? 'bad' : '', v ? v.toFixed(2) : '—'));
+        tr.appendChild(el('td', '', FD.units.fmtPressure(rep.dpFric[id] || 0, presUnit)));
+        if (anySource) {
+          var pr = rep.pressure[s.to];
+          tr.appendChild(el('td', (pr !== undefined && pr < 0) ? 'bad' : '',
+            pr === undefined ? '—' : FD.units.fmtPressure(pr, presUnit)));
+        }
+        tb.appendChild(tr);
+      });
+      table.appendChild(tb);
+      return table;
+    }
+
+    // ============================================================ 1. ALL PIPES
+    ids.sort(function (a, b) { return rep.byPipe[b].flow - rep.byPipe[a].flow; });   // mains first
+    ids.forEach(function (id) {
+      var s = rep.byPipe[id], p = M.pipe(m, id), bore = p ? M.pipeBore(m, p) : null;
+      if (bore && FD.hydraulics.velocity(s.flow, bore) > vLimit) overLimit++;
+      if (anySource && rep.pressure[s.to] !== undefined && rep.pressure[s.to] < 0) negResidual++;
+    });
+    var secAll = calcSection('All Pipes');
+    secAll.appendChild(plumbingTable(ids));
+    secAll.appendChild(el('p', 'hint',
+      'Total connected load ' + rep.totalFU.toFixed(1) + ' FU → ' +
+      FD.units.fmtFlow(rep.totalFlow, flowUnit, true) + ' probable demand at the source · ' +
+      'velocity limit ' + vLimit + ' m/s' +
+      (overLimit ? ' — ' + overLimit + ' section' + (overLimit > 1 ? 's' : '') + ' over (red)' : '') +
+      (anySource && negResidual ? ' · ' + negResidual + ' below zero residual (red)' : '') + '.'));
+
+    // ========================================================= 2. CRITICAL PATH
+    if (anySource && worst) {
+      var secCrit = calcSection('Critical Path');
+      var sp = FD.plumbing.fixtureSupply(M.plumbingSupplyId(worst.device));
+      secCrit.appendChild(el('p', 'notice-head',
+        'Critical Path from ' + nodeLabel(rootId) + ' to ' + (worst.tag || worst.id) +
+        (sp && sp.id !== 'none' ? '  (' + sp.name + ')' : '')));
+      secCrit.appendChild(plumbingTable(pathPipes));
+
+      var totFric = pathPipes.reduce(function (a, id) { return a + (rep.dpFric[id] || 0); }, 0);
+      var grid = el('div', 'index-grid');
+      function kv(k, v, bad) {
+        var d2 = el('div', 'kv');
+        d2.appendChild(el('span', 'k', k));
+        d2.appendChild(el('span', bad ? 'v bad' : 'v', v));
+        grid.appendChild(d2);
+      }
+      kv('Sections', String(pathPipes.length));
+      kv('Total friction drop', FD.units.fmtPressure(totFric, presUnit, true));
+      kv('Available at fixture', FD.units.fmtPressure(rep.pressure[worst.id], presUnit, true));
+      kv('Required pressure', FD.units.fmtPressure(req, presUnit, true));
+      kv('Margin', FD.units.fmtPressure(worstMargin, presUnit, true) +
+         (worstMargin < 0 ? ' — INSUFFICIENT' : ''), worstMargin < 0);
+      secCrit.appendChild(grid);
     }
   }
 
@@ -3386,33 +3414,30 @@
      * a plumbing readout never appears beside GGA figures. If the plumbing
      * network is not a tree (loop, no source, more than one source) the sizing
      * is undefined and the reason is stated rather than a number invented. */
-    var dw = (m.discipline === 'plumbing') ? M.plumbingSizing(m) : { ok: true, byPipe: {} };
-    if (!dw.ok && dw.error) {
-      var dwErr = el('div', 'readout');
-      dwErr.appendChild(el('div', 'sub', 'Domestic water'));
-      dwErr.appendChild(el('p', 'hint warn', dw.error.message));
-      host.appendChild(dwErr);
-    } else if (dw.byPipe[p.id]) {
-      var s = dw.byPipe[p.id];
-      var dwInfo = el('div', 'readout');
-      dwInfo.appendChild(el('div', 'sub', 'Domestic water'));
-      function dwRo(k, v) {
-        var r = el('div', 'kv'); r.appendChild(el('span', 'k', k));
-        r.appendChild(el('span', 'v', v)); dwInfo.appendChild(r);
+    if (m.discipline === 'plumbing') {
+      var dw = M.plumbingSizing(m);
+      var du = m.settings.display;
+      if (!dw.ok && dw.error) {
+        var dwe = readoutBox(host, 'Domestic water');
+        dwe.box.appendChild(el('p', 'hint warn', dw.error.message));
+      } else if (dw.byPipe[p.id]) {
+        var s = dw.byPipe[p.id];
+        var dwb = readoutBox(host, 'Domestic water');
+        var sysName = ((m.settings.plumbing && m.settings.plumbing.system) || 'flushTank')
+          .replace('flushometer', 'flushometer valve').replace('flushTank', 'flush tank');
+        dwb.ro('Downstream FU', s.fu.toFixed(1));
+        dwb.ro('Diversity flow', FD.units.fmtFlow(M.plumbingFuToFlow(m, s.fu), du.flow, true) +
+          '  (' + sysName + ')');
+        if (s.generic > 0) {
+          dwb.ro('Generic downstream', FD.units.fmtFlow(s.generic, du.flow, true));
+          dwb.ro('Design flow', FD.units.fmtFlow(s.flow, du.flow, true));
+        }
+        var dwBore = M.pipeBore(m, p);
+        var dwV = FD.hydraulics.velocity(s.flow, dwBore);
+        dwb.ro('Velocity at design', dwV.toFixed(2) + ' m/s');
+        dwb.box.appendChild(el('p', 'hint',
+          'Sized on downstream fixture units through the ' + sysName + ' demand curve.'));
       }
-      var sysName = ((m.settings.plumbing && m.settings.plumbing.system) || 'flushTank')
-        .replace('flushometer', 'flushometer valve').replace('flushTank', 'flush tank');
-      dwRo('Downstream FU', s.fu.toFixed(1));
-      dwRo('Diversity flow', FD.units.fmtFlow(FD.plumbing.fuToFlow(s.fu,
-        (m.settings.plumbing && m.settings.plumbing.system) || 'flushTank'),
-        m.settings.display.flow, true) + '  (' + sysName + ')');
-      if (s.generic > 0) {
-        dwRo('Generic downstream', FD.units.fmtFlow(s.generic, m.settings.display.flow, true));
-        dwRo('Design flow', FD.units.fmtFlow(s.flow, m.settings.display.flow, true));
-      }
-      var dwD = M.pipeBore(m, p);
-      dwRo('Velocity at design', FD.hydraulics.velocity(s.flow, dwD).toFixed(2) + ' m/s');
-      host.appendChild(dwInfo);
     }
 
     // derived read-outs

@@ -48,6 +48,19 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
 
+* **v0.17.7** — Standardise plumbing presentation on the hydronic baseline
+  (Michael, 2026-08-17). The plumbing CALCULATION sheet is now the same shape as
+  hydronic: a project-metadata sheet-head, **collapsible sections** (`<details>`),
+  and the index run renamed **Critical Path** (was "Most unfavourable path") with
+  its sections flagged in All Pipes and an index-grid summary (Sections / total
+  friction / available / required / margin). The pipe-properties **Domestic
+  water** read-out now uses the same `readoutBox` styling as hydronic **Thermal**.
+  Also fixed on the way: the plumbing residual/Critical-Path now accounts for a
+  BOOSTER PUMP — `plumbingReport`'s forward pass adds the pump's design head (a
+  booster plumbing system has no pressurised source), so `20260817-PLBG.json`
+  shows a real +55.7 kPa margin instead of nothing. No new assertions (suite
+  2109); verified live on the booster file and a hydronic regression, no console
+  errors.
 * **v0.17.5** — Michael's 2026-08-17 batch. **General:** (1) pasting a single
   outflow onto an existing (pipe-end) node now applies the device there — the
   drop stamped a junction and dropped the device before. (2) The dedicated

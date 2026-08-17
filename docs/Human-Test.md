@@ -55,6 +55,7 @@ only your eye can settle.
 | GEN.1 | **Paste single outflow onto a node applies it** (v0.17.5) | ⬜ | Copy an outflow, paste with its anchor on an existing pipe-end node → that node becomes the outflow (was: nothing pasted). Verified live. |
 | GEN.2 | **Context-sensitive Ctrl+C/V replaces the property buttons** (v0.17.5) | ⬜ | The dedicated Copy/Paste-properties buttons are gone. Copy one object, select a same-kind target, Ctrl+V = properties only (now works for source/outflow nodes too); nothing selected = place normally. Verified live. **Confirm this is the single behaviour you wanted.** |
 | GEN.3 | **Trace Ctrl+V + Set-Scale cursor** (v0.17.5) | ⬜ | In Trace, Ctrl+V no longer places previously-copied pipe (leaves it for the image paste); Set Scale uses a crosshair while picking. Verified live (state + cursor); **the image paste itself needs a real clipboard image to confirm in the app.** |
+| DW.M | **Plumbing calc + pipe props match hydronic** (v0.17.7) | ⬜ | The plumbing CALCULATION sheet now has the hydronic layout: project-metadata head, collapsible All Pipes / Critical Path sections (renamed from "Most unfavourable path"), index rows flagged, index-grid summary. The pipe-props "Domestic water" box uses the same styling as hydronic "Thermal". Booster-pump head is now in the residual/Critical-Path pass (20260817-PLBG shows +55.7 kPa margin). Verified live. **Judge the standardised look.** |
 
 ## 5AC. UI HOUSEKEEPING — v0.16.23–25 (2026-08-10 … 12)
 

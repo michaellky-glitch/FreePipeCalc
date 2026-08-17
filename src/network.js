@@ -3678,9 +3678,18 @@
 
     /* Friction head loss (m) and pressure drop (Pa) per pipe, at the diversity
      * flow, via the model's own friction method — the same linkLoss the hydronic
-     * sheet uses, so nothing is invented here. */
-    var headloss = {}, dpFric = {};
+     * sheet uses, so nothing is invented here. A PUMP on the tree is not a loss:
+     * it ADDS its design head, carried in pumpGain and used by the forward pass
+     * below (a booster plumbing system has no pressurised source — the pump is
+     * where the head comes from). */
+    var headloss = {}, dpFric = {}, pumpGain = {};
     Object.keys(dw.byPipe).forEach(function (id) {
+      var pipeObj = M.pipe(m, id);
+      if (pipeObj && pipeObj.kind === 'pump' && pipeObj.pump && pipeObj.pump.mode !== 'off') {
+        headloss[id] = 0; dpFric[id] = 0;
+        pumpGain[id] = rho * g * (pipeObj.pump.head || 0);
+        return;
+      }
       var l = linkById[id];
       if (!l) return;
       var h = Math.abs(FD.hydraulics.linkLoss(l, flow[id] || 0));
@@ -3708,7 +3717,8 @@
           seen[e.to] = true;
           var un = M.node(m, u), cn = M.node(m, e.to);
           var dz = (cn ? M.elevation(m, cn) : 0) - (un ? M.elevation(m, un) : 0);
-          pressure[e.to] = pressure[u] - (dpFric[e.pipe] || 0) - rho * g * dz;
+          pressure[e.to] = pressure[u] + (pumpGain[e.pipe] || 0) -
+                           (dpFric[e.pipe] || 0) - rho * g * dz;
           q.push(e.to);
         });
       }
