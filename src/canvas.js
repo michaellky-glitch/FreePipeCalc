@@ -726,6 +726,7 @@
           if (self.calibrating.points.length === 2) {
             var pts = self.calibrating.points;
             self.calibrating = null;
+            if (self.tool === 'trace') self.canvas.style.cursor = 'move';   // back to the trace cursor
             if (self.onCalibrate) self.onCalibrate(pts[0], pts[1]);
           }
           self.render();
@@ -968,6 +969,24 @@
         if (!ps.at) { ps.at = self.snapWorld(w); }
         self.onBeforeEdit();
         var frag = ps.frag, mdl = self.getModel();
+        /* A SINGLE DEVICE NODE dropped onto an EXISTING node applies the device
+         * there (Michael, 2026-08-17: pasting an outflow onto a pipe-end node did
+         * nothing — insertFragment reused the node as a junction and never copied
+         * the device). Joining a node that carries a device is unambiguous: put
+         * the device here. Multi-node assemblies keep their junction behaviour. */
+        var loneDev = frag.nodes && frag.nodes.length === 1 &&
+                      (!frag.pipes || !frag.pipes.length) && frag.nodes[0].device;
+        if (loneDev && ps.onto) {
+          var tgtNode = M.node(mdl, ps.onto);
+          if (tgtNode) {
+            tgtNode.device = JSON.parse(JSON.stringify(frag.nodes[0].device));
+            self.pasting = null;
+            self.selection = [{ kind: 'node', id: tgtNode.id }];
+            self.onMessage(frag.nodes[0].device.kind + ' placed on ' + (tgtNode.tag || tgtNode.id) + '.');
+            self.changed();
+            return;
+          }
+        }
         var anchorNode = null;
         frag.nodes.forEach(function (n) { if (n.id === frag.anchor) anchorNode = n; });
         /* The follow point: the anchor node for pipework, else the annotation's
@@ -1841,6 +1860,12 @@
         return;
       }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+        /* TRACE OWNS Ctrl+V. In the Trace tool the paste is for the background
+         * IMAGE (handled by the window 'paste' event), so do not hijack it to
+         * place a previously-copied pipe fragment — that was the conflict when a
+         * user had copied pipe sections before tracing (Michael, 2026-08-17).
+         * Returning without preventDefault lets the native paste reach Trace. */
+        if (self.tool === 'trace') return;
         if (!self.clipboard) { self.onMessage('Nothing copied yet.', 'error'); return; }
         /* Annotation-only paste is allowed while locked — it cannot move a
          * number, the same reason annotation is deletable while locked. */
@@ -2196,6 +2221,20 @@
     } else {
       M.setDemand(m, node.id, 0.001, 100000);   // 1 L/s @ 100 kPa, editable
       if (!node.tag) node.tag = this.nextTag('demand');
+      /* Stamp the OUTFLOW tool's template, so a run of the same fixture can be
+       * placed without editing each one (Michael, 2026-08-17). The panel keeps
+       * the template in step with the discipline. */
+      var tpl = this.outflowTemplate, dv = node.device;
+      if (tpl && dv) {
+        dv.demandType = tpl.demandType || dv.demandType;
+        if (tpl.demandType === 'plumbing') {
+          dv.fixture = tpl.fixture; dv.variation = tpl.variation; dv.count = tpl.count || 1;
+          if (tpl.fixture === 'custom') dv.fu = tpl.fu || 0;
+        } else {
+          if (tpl.flow !== undefined) dv.flow = tpl.flow;
+          if (tpl.reqPressure !== undefined) dv.reqPressure = tpl.reqPressure;
+        }
+      }
     }
     this.selection = [{ kind: 'node', id: node.id }];
     this.changed();
@@ -4637,11 +4676,16 @@
 
   View.prototype.startCalibration = function () {
     this.calibrating = { points: [] };
+    /* Picking two exact points wants a CROSSHAIR, not the trace tool's move
+     * cursor — you are aiming at a feature, not sliding the image (Michael,
+     * 2026-08-17). Restored to 'move' when the pick ends or is cancelled. */
+    this.canvas.style.cursor = 'crosshair';
     this.render();
   };
 
   View.prototype.cancelCalibration = function () {
     this.calibrating = null;
+    if (this.tool === 'trace') this.canvas.style.cursor = 'move';
     this.render();
   };
 

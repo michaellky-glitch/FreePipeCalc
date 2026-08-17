@@ -1319,6 +1319,17 @@
         reqPressure: reqPressure || 0, // Pa
         include: true                  // spec §8.2
       };
+      /* In a PLUMBING file an outflow is a fixture, so default it to a plumbing
+       * outflow (Michael, 2026-08-17) — a water closet, the commonest, with the
+       * first variation. The user changes the fixture; they no longer have to
+       * switch the type first. */
+      if (m.discipline === 'plumbing') {
+        n.device.demandType = 'plumbing';
+        n.device.fixture = 'waterCloset';
+        var vs = FD.plumbing.variations('waterCloset');
+        n.device.variation = vs.length ? vs[0].id : null;
+        n.device.count = 1;
+      }
     }
     return n;
   }

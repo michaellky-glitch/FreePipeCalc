@@ -384,6 +384,25 @@ section('Plumbing SIMULATE — undiversified flows through the GGA (converted co
     Math.abs(res.flow[T2.ids.p1]) + ' vs ' + design);
 }
 
+// ---------------------------------------- outflow defaults to plumbing type
+section('setDemand — plumbing outflow by default in a plumbing file');
+{
+  const hy = M.create();                       // hydronic
+  const hn = M.addNode(hy, hy.levels[0].id, 0, 0);
+  M.setDemand(hy, hn.id, 0.001, 100000);
+  ok('a hydronic outflow stays generic', M.node(hy, hn.id).device.demandType === 'generic');
+
+  const pl = M.create(); pl.discipline = 'plumbing';
+  const pn = M.addNode(pl, pl.levels[0].id, 0, 0);
+  M.setDemand(pl, pn.id, 0.001, 100000);
+  const pd = M.node(pl, pn.id).device;
+  ok('a plumbing outflow defaults to a plumbing fixture', pd.demandType === 'plumbing');
+  ok('...a water closet, first variation, count 1',
+    pd.fixture === 'waterCloset' && pd.count === 1 && !!pd.variation);
+  ok('...with a baked-in supply outlet (no separate pick needed)',
+    M.plumbingSupplyId(pd) === 'wcTankCloseCoupled', M.plumbingSupplyId(pd));
+}
+
 // ---------------------------------------- regression: booster with no supply set
 section('Regression — plumbing booster simulates with no supply outlets set');
 {

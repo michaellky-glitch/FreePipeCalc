@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.17.4, 2026-08-17.** Ten test suites, **2105 assertions**, all
+State: **v0.17.5, 2026-08-17.** Ten test suites, **2109 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---

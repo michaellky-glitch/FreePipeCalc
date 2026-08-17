@@ -48,6 +48,23 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
 
+* **v0.17.5** — Michael's 2026-08-17 batch. **General:** (1) pasting a single
+  outflow onto an existing (pipe-end) node now applies the device there — the
+  drop stamped a junction and dropped the device before. (2) The dedicated
+  "Copy/Paste properties" buttons are gone; Ctrl+C/Ctrl+V is now the one
+  context-sensitive path — copy a single object, select a same-kind target, paste
+  = properties only; nothing selected = place normally. Extended to NODE devices
+  (source/outflow), not just in-line devices. **Annotation:** (3) in the Trace
+  tool Ctrl+V no longer hijacks a previously-copied pipe fragment — it is left for
+  the background-image paste. (4) Set Scale shows a crosshair cursor while
+  picking, back to the move cursor after. **Design ▸ Outflow:** (5) the 604.3
+  supply outlet is now BAKED into the fixture/variation (shown read-only), not a
+  second thing to pick; the values stay editable on HYDRAULIC. (6) in a plumbing
+  file a new outflow defaults to a Plumbing (water-closet) fixture. (7) the
+  OUTFLOW tool has a pre-placement TEMPLATE panel (fixture/variation/count) so a
+  run of the same fixture can be laid down without editing each — place 5
+  urinals, switch to lavatory, place 2, etc. 8 new assertions (suite 2109).
+  Verified live end-to-end; no console errors.
 * **v0.17.4** — Domestic Water: outflow FU display + booster-no-flow fix (Michael,
   2026-08-17). (1) An outflow now has a **Fixture units** option in
   Design ▸ Properties ▸ Display (plumbing only) — a value box "FU 2.2" drawn at

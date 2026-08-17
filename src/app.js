@@ -2196,6 +2196,10 @@
      * The same palette the per-line panel offers, so the control does not
      * change shape depending on how you got to it. */
     if (app.view.tool === 'detail') { renderDetailToolProps(host); return; }
+    /* The OUTFLOW tool's own panel — the template each placed outflow takes, so
+     * a whole run of the same fixture can be laid down without editing each one
+     * afterwards (Michael, 2026-08-17). */
+    if (app.view.tool === 'demand') { renderOutflowToolProps(host); return; }
     if (app.showAnnotations) { renderAnnotationProps(host); return; }
     if (app.view.tool === 'align') {
       host.appendChild(el('h3', '', 'Align model'));
@@ -2274,6 +2278,94 @@
       if (isFinite(n) && n > 0) v.detailWidth_ = Math.min(8, n);
       renderProperties();
     }));
+  }
+
+  /* The outflow the NEXT click will place. Kept on the view (a session setting,
+   * not a thing on the drawing) and stamped onto each placed outflow by
+   * deviceClick. Reset to match the discipline whenever it drifts. */
+  function defaultOutflowTemplate(m) {
+    if (m.discipline === 'plumbing') {
+      var vs = FD.plumbing.variations('waterCloset');
+      return { demandType: 'plumbing', fixture: 'waterCloset',
+               variation: vs.length ? vs[0].id : null, count: 1,
+               flow: 0.001, reqPressure: 100000 };
+    }
+    return { demandType: 'generic', flow: 0.001, reqPressure: 100000 };
+  }
+
+  function renderOutflowToolProps(host) {
+    var m = app.model, v = app.view;
+    var fu = m.settings.display.flow, pu = m.settings.display.pressure;
+    var wantPlumb = m.discipline === 'plumbing';
+    var tpl = v.outflowTemplate;
+    if (!tpl || (wantPlumb && tpl.demandType !== 'plumbing') ||
+        (!wantPlumb && tpl.demandType === 'plumbing')) {
+      tpl = v.outflowTemplate = defaultOutflowTemplate(m);
+    }
+    var h = el('h3', '', 'New outflow');
+    infoMark(h, 'These settings apply to each outflow you place next. Click to ' +
+      'place; pick another tool or press Esc to stop.');
+    host.appendChild(h);
+    var des = section(host, 'Design');
+
+    if (wantPlumb) {
+      var fxSel = el('select');
+      FD.plumbing.fixtures.forEach(function (f) {
+        var o = el('option', '', f.name); o.value = f.id;
+        if ((tpl.fixture || 'waterCloset') === f.id) o.selected = true;
+        fxSel.appendChild(o);
+      });
+      field(des.box, 'Fixture', fxSel).addEventListener('change', function () {
+        tpl.fixture = fxSel.value;
+        var vs = FD.plumbing.variations(tpl.fixture);
+        tpl.variation = vs.length ? vs[0].id : null;
+        renderProperties();
+      });
+      var vars = FD.plumbing.variations(tpl.fixture);
+      if (vars.length) {
+        var vSel = el('select');
+        vars.forEach(function (vv) {
+          var o = el('option', '', vv.name + '  (' + vv.fu + ' FU)'); o.value = vv.id;
+          if (tpl.variation === vv.id) o.selected = true;
+          vSel.appendChild(o);
+        });
+        field(des.box, 'Variation', vSel).addEventListener('change', function () {
+          tpl.variation = vSel.value; renderProperties();
+        });
+      }
+      if (tpl.fixture === 'custom') {
+        var cfuIn = el('input'); cfuIn.type = 'text'; cfuIn.value = String(tpl.fu || 0);
+        field(des.box, 'Fixture units (each)', cfuIn).addEventListener('change', function () {
+          var v2 = parseFloat(cfuIn.value);
+          if (isFinite(v2) && v2 >= 0) { tpl.fu = v2; renderProperties(); }
+          else cfuIn.value = String(tpl.fu || 0);
+        });
+      }
+      var cIn = el('input'); cIn.type = 'text'; cIn.value = String(tpl.count || 1);
+      field(des.box, 'Count (per outflow)', cIn).addEventListener('change', function () {
+        var n = parseInt(cIn.value, 10);
+        if (isFinite(n) && n >= 1) { tpl.count = n; renderProperties(); }
+        else cIn.value = String(tpl.count || 1);
+      });
+      var effSupply = M.plumbingSupplyId({ demandType: 'plumbing', fixture: tpl.fixture, variation: tpl.variation });
+      if (effSupply !== 'none') {
+        var sp = FD.plumbing.fixtureSupply(effSupply);
+        des.ro('Supply outlet (604.3)', sp ? sp.name : effSupply);
+      }
+    } else {
+      var flIn = el('input'); flIn.type = 'text'; flIn.value = FD.units.fmtFlow(tpl.flow, fu);
+      field(des.box, 'Design flow (' + fu + ')', flIn).addEventListener('change', function () {
+        var v2 = FD.units.parse(flIn.value);
+        if (isFinite(v2) && v2 >= 0) { tpl.flow = FD.units.toSIFlow(v2, fu); }
+        else flIn.value = FD.units.fmtFlow(tpl.flow, fu);
+      });
+      var pIn = el('input'); pIn.type = 'text'; pIn.value = FD.units.fmtPressure(tpl.reqPressure, pu);
+      field(des.box, 'Design pressure (' + pu + ')', pIn).addEventListener('change', function () {
+        var v2 = FD.units.parse(pIn.value);
+        if (isFinite(v2)) { tpl.reqPressure = Math.max(FD.units.toSIPressure(v2, pu), M.MIN_OUTFLOW_PRESSURE); }
+        else pIn.value = FD.units.fmtPressure(tpl.reqPressure, pu);
+      });
+    }
   }
 
   function renderDetailProps(host, d) {
@@ -3387,24 +3479,6 @@
     host.appendChild(del);
   }
 
-  /* PROPERTY COPY / PASTE, in the panel rather than on the ribbon — Michael,
-   * 2026-08-09. It copies the SETTINGS of the selected item, which is a
-   * different verb from the ribbon's COPY (that copies the drawing), and two
-   * buttons a foot apart both saying COPY is a trap. Bottom of DESIGN, because
-   * that is what it copies.
-   *
-   * Geometry and tag are deliberately not among them: pasting one pipe's
-   * endpoints onto another would move it, and a tag is a unique reference. */
-  function propCopyRow(sec) {
-    var row = el('div', 'btn-row');
-    var c = el('button', 'btn', 'Copy properties');
-    c.addEventListener('click', copyProps);
-    var v = el('button', 'btn', 'Paste properties');
-    v.addEventListener('click', pasteProps);
-    row.appendChild(c); row.appendChild(v);
-    sec.box.appendChild(row);
-  }
-
   /* VIEW mode: which of this entity's values are echoed on the drawing.
    * Only offered in VIEW, because that is the mode for arranging a drawing
    * for print — in EDIT they would be noise. */
@@ -3833,8 +3907,6 @@
     designKRow(des, e.qRated, e.pdRated);
 
     renderEquipThermal(des, p);
-
-    propCopyRow(des);
 
     // ----------------------------------------------------------- L2 ACTUAL
     var res = app.results;
@@ -4551,8 +4623,6 @@
       'Default Kv values are derived from typical resistance coefficients, not ' +
       'manufacturer data. Replace with published Kv for real design work.'));
 
-    propCopyRow(des);
-
     // ----------------------------------------------------------- L2 ACTUAL
     var res = app.results;
     if (res && res.flow[p.id] !== undefined) {
@@ -5085,7 +5155,6 @@
       rrow.appendChild(rbtn);
       des.box.appendChild(rrow);
     }
-    propCopyRow(des);
 
     /* The curve is the INPUT to SIMULATION, so it has to be enterable in
      * DESIGN. Gating it behind SIMULATION created a deadlock: you could not
@@ -5177,65 +5246,35 @@
     sensor: ['sensor']
   };
 
-  function selectedPipe() {
-    var sel = app.view.selection || [];
-    if (sel.length !== 1 || sel[0].kind !== 'pipe') return null;
-    return M.pipe(app.model, sel[0].id);
-  }
-
-  function copyProps() {
-    var p = selectedPipe();
-    if (!p) { toast('Select one pipe or device to copy from.', 'error'); return; }
-    var keys = PROP_KEYS.pipe.concat(PROP_KEYS[p.kind] || []);
-    var out = { kind: p.kind };
-    keys.forEach(function (k) {
-      if (p[k] !== undefined) out[k] = JSON.parse(JSON.stringify(p[k]));
-    });
-    /* A control LINK points at one specific machine, so it is not a property
-     * of the device — it is a relationship on the drawing. */
-    ['pump', 'valve'].forEach(function (k) { if (out[k]) delete out[k].control; });
-    app.propClipboard = out;
-    toast('Copied ' + (p.tag || p.id) + ' properties.');
-  }
-
-  function pasteProps() {
-    var src = app.propClipboard;
-    if (!src) { toast('Nothing copied yet.', 'error'); return; }
-    var sel = (app.view.selection || []).filter(function (x) { return x.kind === 'pipe'; });
-    if (!sel.length) { toast('Select the pipes to paste onto.', 'error'); return; }
-    pushUndo();
-    var n = 0;
-    sel.forEach(function (s2) {
-      var p = M.pipe(app.model, s2.id);
-      if (!p) return;
-      PROP_KEYS.pipe.forEach(function (k) {
-        if (src[k] !== undefined) p[k] = src[k];
-      });
-      /* Device properties only land on the same KIND of device. Pasting a
-       * pump's curve onto a valve is not a thing anyone means. */
-      if (src.kind === p.kind) {
-        (PROP_KEYS[p.kind] || []).forEach(function (k) {
-          if (src[k] !== undefined) {
-            var copy = JSON.parse(JSON.stringify(src[k]));
-            if (p[k] && p[k].control) copy.control = p[k].control;   // keep its own link
-            p[k] = copy;
-          }
-        });
-      }
-      n++;
-    });
-    renderProperties(); changed();
-    toast('Pasted onto ' + n + ' item' + (n === 1 ? '' : 's') + '.');
-  }
-
-  /* CONTEXT-AWARE PASTE (Michael, 2026-08-12). Ctrl+V of a single copied device,
-   * with a device of the SAME KIND selected, stamps its PROPERTIES onto that
-   * device (never its tag). With nothing selected — or a different-kind target,
-   * or the copied device itself — Ctrl+V falls through and PLACES a new object,
-   * exactly as before. Returns true only when it consumed the paste as a
-   * property stamp. Wired to the view as `onPasteProps`. */
+  /* CONTEXT-AWARE PASTE (Michael, 2026-08-12; extended 2026-08-17). Ctrl+V of a
+   * single copied device — an in-line device (pump/valve/coil/sensor) OR a node
+   * device (source/outflow) — with a single SAME-KIND target selected stamps its
+   * PROPERTIES onto that target (never its tag). With nothing selected it falls
+   * through and PLACES a new object as before. This replaced the dedicated
+   * "Copy/Paste properties" buttons, which used a separate clipboard and
+   * conflicted with the drawing copy/paste. Returns true only when it consumed
+   * the paste as a property stamp. Wired to the view as `onPasteProps`. */
   app.pasteFragmentProps = function (frag) {
-    if (!frag || !frag.pipes || frag.pipes.length !== 1) return false;
+    if (!frag) return false;
+    /* NODE DEVICE (source / outflow): a single copied node with a device, pasted
+     * with a single OTHER node selected, stamps the device onto it (never the tag
+     * or position). This is the node analogue of the in-line-device stamp below,
+     * and it is how you copy one outflow's fixture/flow onto another. */
+    var noPipes = !frag.pipes || !frag.pipes.length;
+    if (noPipes && frag.nodes && frag.nodes.length === 1 && frag.nodes[0].device) {
+      var srcDev = frag.nodes[0].device;
+      if (srcDev.kind !== 'demand' && srcDev.kind !== 'source') return false;
+      var selN = (app.view.selection || []).filter(function (x) { return x.kind === 'node'; });
+      if (selN.length !== 1) return false;
+      var tgtN = M.node(app.model, selN[0].id);
+      if (!tgtN || tgtN.id === frag.nodes[0].id) return false;
+      pushUndo();
+      tgtN.device = JSON.parse(JSON.stringify(srcDev));   // device only; tag & position stay
+      renderProperties(); changed();
+      toast('Pasted ' + srcDev.kind + ' properties onto ' + (tgtN.tag || tgtN.id) + '.');
+      return true;
+    }
+    if (!frag.pipes || frag.pipes.length !== 1) return false;
     var src = frag.pipes[0];
     if (src.kind !== 'equip' && src.kind !== 'pump' &&
         src.kind !== 'valve' && src.kind !== 'sensor') return false;
@@ -5548,23 +5587,14 @@
           ((dev.count || 1) > 1 ? ' (' + dev.count + ' × ' + per + ')' : ''));
 
         /* UNDIVERSIFIED supply outlet (IPC 604.3) — the flow and pressure ONE
-         * such fixture draws, used by SIMULATE (pushed through the GGA) and the
-         * residual-pressure check. Chosen independently of the FU fixture. */
-        var effSupply = M.plumbingSupplyId(dev);   // dev.supply, or the fixture default
-        var supSel = el('select');
-        FD.plumbing.supplies.forEach(function (sp) {
-          var isDefault = !dev.supply && sp.id === effSupply && sp.id !== 'none';
-          var o = el('option', '', sp.name +
-            (sp.id === 'none' ? '' : '  (' + sp.gpm + ' gpm, ' + sp.psi + ' psi)') +
-            (isDefault ? '  — default' : ''));
-          o.value = sp.id;
-          if (effSupply === sp.id) o.selected = true;
-          supSel.appendChild(o);
-        });
-        field(des.box, 'Supply outlet (604.3)', supSel).addEventListener('change', function () {
-          pushUndo(); dev.supply = supSel.value; renderProperties(); changed();
-        });
+         * such fixture draws, used by SIMULATE and the residual check. Now BAKED
+         * INTO the fixture/variation (Michael, 2026-08-17): it follows the
+         * fixture choice rather than being a second thing to pick, so it is shown
+         * read-only. The 604.3 VALUES stay editable on the HYDRAULIC tab. */
+        var effSupply = M.plumbingSupplyId(dev);
         if (effSupply !== 'none') {
+          var spDef = FD.plumbing.fixtureSupply(effSupply);
+          des.ro('Supply outlet (604.3)', spDef ? spDef.name : effSupply);
           des.ro('Undiversified flow', FD.units.fmtFlow(M.plumbingUndivFlow(m, dev), fu, true) +
             ((dev.count || 1) > 1 ? ' (' + dev.count + ' ×)' : ''));
           des.ro('Required pressure', FD.units.fmtPressure(M.plumbingReqPressure(m, dev), pu, true));
@@ -7679,7 +7709,13 @@
       $('mode-hint').textContent = hint +
         '  \u00b7  scroll = zoom, middle-drag = pan';
     }
-    app.view.onToolChange = refreshToolButtons;
+    app.view.onToolChange = function () {
+      refreshToolButtons();
+      /* Re-render the panel so a tool with its own pre-placement settings (the
+       * DETAIL line, and now the OUTFLOW template) shows them the moment it is
+       * picked. */
+      renderProperties();
+    };
     toolButtons.forEach(function (b) {
       b.addEventListener('click', refreshToolButtons);
     });
