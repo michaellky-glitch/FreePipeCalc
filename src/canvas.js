@@ -2220,10 +2220,10 @@
       if (!node.tag) node.tag = this.nextTag('source');
     } else {
       M.setDemand(m, node.id, 0.001, 100000);   // 1 L/s @ 100 kPa, editable
-      if (!node.tag) node.tag = this.nextTag('demand');
-      /* Stamp the OUTFLOW tool's template, so a run of the same fixture can be
-       * placed without editing each one (Michael, 2026-08-17). The panel keeps
-       * the template in step with the discipline. */
+      /* Stamp the OUTFLOW tool's template FIRST (so a run of the same fixture can
+       * be placed without editing each), THEN tag — the auto-tag prefix follows
+       * the fixture (WC-1, UR-1, HB-1 …), which needs the final fixture known
+       * (Michael, 2026-08-17). */
       var tpl = this.outflowTemplate, dv = node.device;
       if (tpl && dv) {
         dv.demandType = tpl.demandType || dv.demandType;
@@ -2234,6 +2234,11 @@
           if (tpl.flow !== undefined) dv.flow = tpl.flow;
           if (tpl.reqPressure !== undefined) dv.reqPressure = tpl.reqPressure;
         }
+      }
+      if (!node.tag) {
+        var pfx = (dv && dv.demandType === 'plumbing')
+          ? FD.plumbing.tagPrefix(dv.fixture) : null;
+        node.tag = this.nextTag('demand', pfx);
       }
     }
     this.selection = [{ kind: 'node', id: node.id }];
@@ -4233,14 +4238,32 @@
       if (flags.fu && m.discipline === 'plumbing') {
         lines.push('FU ' + M.outflowFU(m, dev).toFixed(1));
       }
-      if (flags.flow) lines.push('Q ' + FD.units.fmtFlow(dev.flow, d.flow, true));
+      /* A PLUMBING fixture's design flow is its UNDIVERSIFIED 604.3 flow, not the
+       * generic dev.flow (which stays at its placeholder for a fixture) — Michael,
+       * 2026-08-17. In SIMULATION the shown flow is what the K-terminal actually
+       * draws at the solved pressure, exactly like a hydronic terminal. */
+      var isPlumbFix = (m.discipline === 'plumbing' && dev.demandType === 'plumbing');
+      var simR = res && res.simulation;
+      var solvedTerm = simR && simR.terminals.filter(function (t) { return t.node === obj.id; })[0];
+      if (flags.flow) {
+        var qShow;
+        if (isPlumbFix) {
+          qShow = (m.settings.calcMode === 'simulation' && solvedTerm)
+            ? solvedTerm.actualFlow : M.plumbingUndivFlow(m, dev);
+        } else {
+          qShow = dev.flow;
+        }
+        if (qShow !== null && qShow !== undefined && isFinite(qShow)) {
+          lines.push('Q ' + FD.units.fmtFlow(qShow, d.flow, true));
+        }
+      }
       if (flags.actualFlow) {
         /* What the terminal actually draws: the solved terminal flow in
-         * SIMULATION, the design demand in DESIGN (where it is imposed). */
-        var sim = res && res.simulation;
-        var term = sim && sim.terminals.filter(function (t) { return t.node === obj.id; })[0];
-        var qa = term ? term.actualFlow
-               : (m.settings.calcMode !== 'simulation' ? dev.flow : null);
+         * SIMULATION, the design demand in DESIGN (where it is imposed). For a
+         * plumbing fixture the DESIGN demand is its undiversified flow. */
+        var qa = solvedTerm ? solvedTerm.actualFlow
+               : (m.settings.calcMode !== 'simulation'
+                    ? (isPlumbFix ? M.plumbingUndivFlow(m, dev) : dev.flow) : null);
         if (qa !== null && qa !== undefined && isFinite(qa)) {
           lines.push('Qa ' + FD.units.fmtFlow(qa, d.flow, true));
         }

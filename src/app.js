@@ -440,20 +440,20 @@
    * pressures, velocities). The original model keeps its fixture-unit data. */
   function buildPlumbingSimModel(m) {
     var sim = JSON.parse(JSON.stringify(m));
-    /* The GGA's DESIGN mode imposes each demand as a FIXED flow — which is what
-     * "push the undiversified flow through the pipes" means. (Its SIMULATION mode
-     * would instead make the fixtures pressure-dependent K-terminals that draw
-     * more when the supply pressure is ample, which is not the check wanted.)
-     * So the fixtures become fixed generic demands at their 604.3 flow and the
-     * solver finds the delivered pressures; reqPressure drives the shortfall
-     * warning if the supply cannot hold it up. */
-    sim.settings.calcMode = 'design';
+    /* SIMULATE a plumbing file exactly like a hydronic one (Michael, 2026-08-17):
+     * each fixture becomes a pressure-dependent K-TERMINAL whose design point is
+     * its UNDIVERSIFIED 604.3 flow at its 604.3 required pressure (K = Q/√ΔP).
+     * The GGA then finds the actual flow each fixture draws given the pump curve
+     * / source pressure — the fixtures draw more where pressure is ample and
+     * less where it is short, which is the point of a simulation. The GGA itself
+     * is untouched; the fixtures are handed to it as ordinary generic terminals. */
+    sim.settings.calcMode = 'simulation';
     sim.nodes.forEach(function (n) {
       var d = n.device;
       if (!d || d.kind !== 'demand' || d.demandType !== 'plumbing') return;
       var q = M.plumbingUndivFlow(m, d);
-      if (!(q > 0)) { d.include = false; return; }   // nothing to push
-      d.flow = q;
+      if (!(q > 0)) { d.include = false; return; }   // no fixture flow to draw
+      d.flow = q;                                     // design flow → sets K
       d.reqPressure = Math.max(M.plumbingReqPressure(m, d), M.MIN_OUTFLOW_PRESSURE);
       d.demandType = 'generic';
     });
@@ -2378,7 +2378,7 @@
       var effSupply = M.plumbingSupplyId({ demandType: 'plumbing', fixture: tpl.fixture, variation: tpl.variation });
       if (effSupply !== 'none') {
         var sp = FD.plumbing.fixtureSupply(effSupply);
-        des.ro('Supply outlet (604.3)', sp ? sp.name : effSupply);
+        des.ro('Type', sp ? sp.name : effSupply);
       }
     } else {
       var flIn = el('input'); flIn.type = 'text'; flIn.value = FD.units.fmtFlow(tpl.flow, fu);
@@ -5470,6 +5470,26 @@
     });
   }
 
+  /* An auto-generated plumbing outflow tag (WC-1, UR-3, OF-2 …) as opposed to
+   * one the engineer typed. Used to decide whether a tag may follow a fixture
+   * change; a hand-named outflow is never overwritten. */
+  function isAutoPlumbingTag(tag) {
+    if (!tag) return true;
+    var prefixes = FD.plumbing.fixtures.map(function (f) { return f.tag; })
+      .filter(Boolean).concat(['OF', 'demand']);
+    return new RegExp('^(' + prefixes.join('|') + ')-\\d+$').test(tag);
+  }
+  /* Re-tag an outflow to follow its current fixture / outflow type, but only if
+   * its tag is still an auto-default (Michael, 2026-08-17: default tags follow
+   * the fixture). */
+  function retagOutflow(n) {
+    var dev = n && n.device;
+    if (!dev || dev.kind !== 'demand') return;
+    if (!isAutoPlumbingTag(n.tag)) return;
+    var pfx = (dev.demandType === 'plumbing') ? FD.plumbing.tagPrefix(dev.fixture) : 'OF';
+    n.tag = app.view.nextTag('demand', pfx);
+  }
+
   function renderNodeProps(host, n) {
     if (!n) return;
     var m = app.model;
@@ -5554,6 +5574,7 @@
           if (dev.demandType === 'plumbing' && !dev.fixture) {
             dev.fixture = 'waterCloset'; dev.count = 1; dev.variation = firstVar('waterCloset');
           }
+          retagOutflow(n);                          // default tag follows the outflow type
           renderProperties(); changed();
         });
       }
@@ -5570,6 +5591,7 @@
           pushUndo();
           dev.fixture = fxSel.value;
           dev.variation = firstVar(dev.fixture);   // stale variation would size wrong
+          retagOutflow(n);                          // default tag follows the fixture
           renderProperties(); changed();
         });
 
@@ -5608,21 +5630,21 @@
         }
         var per = (dev.fixture === 'custom') ? (Number(dev.fu) || 0)
                 : (FD.plumbing.fixtureFU(dev.fixture, dev.variation) || 0);
-        des.ro('Cold fixture units', M.outflowFU(m, dev).toFixed(2) +
+        des.ro('Fixture Units (Cold)', M.outflowFU(m, dev).toFixed(2) +
           ((dev.count || 1) > 1 ? ' (' + dev.count + ' × ' + per + ')' : ''));
 
-        /* UNDIVERSIFIED supply outlet (IPC 604.3) — the flow and pressure ONE
-         * such fixture draws, used by SIMULATE and the residual check. Now BAKED
-         * INTO the fixture/variation (Michael, 2026-08-17): it follows the
-         * fixture choice rather than being a second thing to pick, so it is shown
-         * read-only. The 604.3 VALUES stay editable on the HYDRAULIC tab. */
+        /* The undiversified supply outlet (IPC 604.3) — the flow and pressure ONE
+         * such fixture draws, used by SIMULATE and the residual check. Baked into
+         * the fixture/variation (Michael, 2026-08-17), so it is read-only; the
+         * 604.3 VALUES stay editable on the HYDRAULIC tab. Labelled Type / Design
+         * Flow / Design Pressure (Michael, 2026-08-17). */
         var effSupply = M.plumbingSupplyId(dev);
         if (effSupply !== 'none') {
           var spDef = FD.plumbing.fixtureSupply(effSupply);
-          des.ro('Supply outlet (604.3)', spDef ? spDef.name : effSupply);
-          des.ro('Undiversified flow', FD.units.fmtFlow(M.plumbingUndivFlow(m, dev), fu, true) +
+          des.ro('Type', spDef ? spDef.name : effSupply);
+          des.ro('Design Flow', FD.units.fmtFlow(M.plumbingUndivFlow(m, dev), fu, true) +
             ((dev.count || 1) > 1 ? ' (' + dev.count + ' ×)' : ''));
-          des.ro('Required pressure', FD.units.fmtPressure(M.plumbingReqPressure(m, dev), pu, true));
+          des.ro('Design Pressure', FD.units.fmtPressure(M.plumbingReqPressure(m, dev), pu, true));
         }
       } else {
         var fIn = el('input'); fIn.type = 'text';

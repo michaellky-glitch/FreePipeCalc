@@ -365,7 +365,7 @@ section('Plumbing SIMULATE — undiversified flows through the GGA (converted co
   });
   const design = M.plumbingSizing(T2.m).byPipe[T2.ids.p1].flow;   // diversified
   const sim = JSON.parse(JSON.stringify(T2.m));
-  sim.settings.calcMode = 'design';        // fixed demands — push the flow through
+  sim.settings.calcMode = 'simulation';    // K-terminals, like a hydronic sim
   sim.nodes.forEach(function (n) {
     const d = n.device;
     if (d && d.kind === 'demand' && d.demandType === 'plumbing') {
@@ -375,13 +375,29 @@ section('Plumbing SIMULATE — undiversified flows through the GGA (converted co
   });
   const res = NET.solveModel(sim);
   ok('the GGA solves the converted plumbing model', !!res && !!res.flow);
-  // Fixed demands → continuity: the main carries both WC branches (2 × 5 × 3 gpm)
-  // plus the generic branch (0.002 m³/s) the tree also has.
-  near('main flow = sum of the undiversified branch flows (continuity)',
-    Math.abs(res.flow[T2.ids.p1]), 2 * 5 * 3 * GPM + 0.002, 1e-9);
-  ok('undiversified simulate flow exceeds the diversified design flow',
+  // Continuity at the junction holds whatever the terminals draw.
+  const cont = Math.abs(res.flow[T2.ids.p2]) + Math.abs(res.flow[T2.ids.p3]) +
+               Math.abs(res.flow[T2.ids.p4]);
+  near('main = sum of the branch flows (continuity)', Math.abs(res.flow[T2.ids.p1]), cont, 1e-9);
+  ok('fixtures draw a pressure-dependent flow (K-terminals)',
+    Math.abs(res.flow[T2.ids.p2]) > 0);
+  ok('simulate flow exceeds the diversified design flow (ample supply)',
     Math.abs(res.flow[T2.ids.p1]) > design,
     Math.abs(res.flow[T2.ids.p1]) + ' vs ' + design);
+}
+
+// ---------------------------------------- fixture auto-tag prefixes
+section('Fixture auto-tag prefixes (Michael, 2026-08-17)');
+{
+  const want = { custom: 'OF', bathroomGroup: 'BG', bathtub: 'BA', bidet: 'BT',
+    drinkingFountain: 'DF', kitchenSink: 'KS', lavatory: 'HB', serviceSink: 'SS',
+    shower: 'SH', urinal: 'UR', washingMachine: 'WM', waterCloset: 'WC' };
+  Object.keys(want).forEach(function (fx) {
+    ok(fx + ' → ' + want[fx], P.tagPrefix(fx) === want[fx], P.tagPrefix(fx));
+  });
+  ok('an unknown fixture falls back to OF', P.tagPrefix('nope') === 'OF');
+  ok('Lavatory is renamed to Lavatory/Hand Basin',
+    P.fixture('lavatory').name === 'Lavatory/Hand Basin', P.fixture('lavatory').name);
 }
 
 // ---------------------------------------- outflow defaults to plumbing type
@@ -419,9 +435,10 @@ section('Regression — plumbing booster simulates with no supply outlets set');
   });
   ok('...with no supply outlet set on any fixture (the trigger)', noSupply);
 
-  // Replicate app.buildPlumbingSimModel: fixtures → fixed generic demands.
+  // Replicate app.buildPlumbingSimModel: fixtures → K-terminals at their
+  // undiversified 604.3 design point, solved by the real GGA (simulation mode).
   const sim = JSON.parse(JSON.stringify(mb));
-  sim.settings.calcMode = 'design';
+  sim.settings.calcMode = 'simulation';
   let pushed = 0;
   sim.nodes.forEach(function (n) {
     const d = n.device;
@@ -432,15 +449,13 @@ section('Regression — plumbing booster simulates with no supply outlets set');
       d.demandType = 'generic'; pushed++;
     }
   });
-  ok('every fixture now pushes a (default) undiversified flow', pushed === 6, String(pushed));
+  ok('every fixture gets a (default) undiversified design point', pushed === 6, String(pushed));
   const res = FD.network.solveModel(sim);
   const pump = mb.pipes.filter(function (p) { return p.kind === 'pump'; })[0];
   ok('no PUMP_NO_FLOW warning', !(res.warnings || []).some(function (w) { return w.code === 'PUMP_NO_FLOW'; }),
      (res.warnings || []).map(function (w) { return w.code; }).join(','));
-  ok('the pump now carries flow', Math.abs(res.flow[pump.id]) > 0,
+  ok('the pump now carries flow (was the bug: zero)', Math.abs(res.flow[pump.id]) > 0,
      String(res.flow[pump.id]));
-  near('...the sum of six default WC outlets (6 × 3 gpm)',
-     Math.abs(res.flow[pump.id]), 6 * 3 * GPM, 1e-6);
 }
 
 function findNode(mm, x, y) {

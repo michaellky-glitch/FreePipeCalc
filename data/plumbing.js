@@ -48,47 +48,49 @@
   /* Cold-water supply fixture units, Table E103.3(2), "FV (Cold)". Each fixture
    * lists its VARIATIONS (occupancy × supply control); a single-variation
    * fixture still lists one so the UI is uniform. `custom` has none — the
-   * engineer types the FU. Order follows the code's alphabetical table. */
+   * engineer types the FU. `tag` is the auto-tag prefix a placed outflow of this
+   * fixture takes (Michael, 2026-08-17), e.g. WC-1, UR-1. Order follows the
+   * code's alphabetical table. */
   var FIXTURES = [
-    { id: 'custom', name: 'Custom' },
-    { id: 'bathroomGroup', name: 'Bathroom group', variations: [
+    { id: 'custom', name: 'Custom', tag: 'OF' },
+    { id: 'bathroomGroup', name: 'Bathroom group', tag: 'BG', variations: [
       { id: 'privTank',  name: 'Private (flush tank)',  fu: 2.7 },
       { id: 'privValve', name: 'Private (flush valve)', fu: 6.0 }
     ] },
-    { id: 'bathtub', name: 'Bathtub', variations: [
+    { id: 'bathtub', name: 'Bathtub', tag: 'BA', variations: [
       { id: 'priv', name: 'Private', fu: 1.0 },
       { id: 'pub',  name: 'Public',  fu: 3.0 }
     ] },
-    { id: 'bidet', name: 'Bidet', variations: [
+    { id: 'bidet', name: 'Bidet', tag: 'BT', variations: [
       { id: 'priv', name: 'Private', fu: 1.5 }
     ] },
-    { id: 'drinkingFountain', name: 'Drinking fountain', variations: [
+    { id: 'drinkingFountain', name: 'Drinking fountain', tag: 'DF', variations: [
       { id: 'pub', name: 'Public (⅜″ valve)', fu: 0.25 }
     ] },
-    { id: 'kitchenSink', name: 'Kitchen sink', variations: [
+    { id: 'kitchenSink', name: 'Kitchen sink', tag: 'KS', variations: [
       { id: 'priv', name: 'Private', fu: 1.0 },
       { id: 'pub',  name: 'Public (hotel/restaurant)', fu: 3.0 }
     ] },
-    { id: 'lavatory', name: 'Lavatory', variations: [
+    { id: 'lavatory', name: 'Lavatory/Hand Basin', tag: 'HB', variations: [
       { id: 'priv', name: 'Private', fu: 0.5 },
       { id: 'pub',  name: 'Public',  fu: 1.5 }
     ] },
-    { id: 'serviceSink', name: 'Service sink', variations: [
+    { id: 'serviceSink', name: 'Service sink', tag: 'SS', variations: [
       { id: 'pub', name: 'Public', fu: 2.25 }
     ] },
-    { id: 'shower', name: 'Shower head', variations: [
+    { id: 'shower', name: 'Shower head', tag: 'SH', variations: [
       { id: 'priv', name: 'Private', fu: 1.0 },
       { id: 'pub',  name: 'Public',  fu: 3.0 }
     ] },
-    { id: 'urinal', name: 'Urinal', variations: [
+    { id: 'urinal', name: 'Urinal', tag: 'UR', variations: [
       { id: 'pubTank',  name: 'Public (flush tank)',  fu: 3.0 },
       { id: 'pubValve', name: 'Public (1″ flush valve)', fu: 10.0 }
     ] },
-    { id: 'washingMachine', name: 'Washing machine', variations: [
+    { id: 'washingMachine', name: 'Washing machine', tag: 'WM', variations: [
       { id: 'priv8',  name: 'Private (8 lb)',  fu: 1.0 },
       { id: 'pub15',  name: 'Public (15 lb)',  fu: 3.0 }
     ] },
-    { id: 'waterCloset', name: 'Water closet', variations: [
+    { id: 'waterCloset', name: 'Water closet', tag: 'WC', variations: [
       { id: 'privTank',  name: 'Private (flush tank)',  fu: 2.2 },
       { id: 'privValve', name: 'Private (flush valve)', fu: 6.0 },
       { id: 'pubTank',   name: 'Public (flush tank)',   fu: 5.0 },
@@ -206,6 +208,13 @@
     return null;
   }
 
+  /* The auto-tag prefix for an outflow of this fixture (WC, UR, HB, …), falling
+   * back to the generic outflow prefix. */
+  function tagPrefix(fixtureId) {
+    var f = fixture(fixtureId);
+    return (f && f.tag) || 'OF';
+  }
+
   /* The variations a fixture offers (empty for custom / unknown). */
   function variations(fixtureId) {
     var f = fixture(fixtureId);
@@ -273,6 +282,7 @@
     fixture: fixture,
     fixtureSupply: fixtureSupply,
     supplyDefault: supplyDefault,
+    tagPrefix: tagPrefix,
     variations: variations,
     variation: variation,
     fixtureFU: fixtureFU,

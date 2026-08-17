@@ -48,6 +48,21 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
 
+* **v0.17.8** — Plumbing outflow flow, panel labels, fixture tags (Michael,
+  2026-08-17). (1) The outflow's **design flow** on the drawing was stuck at the
+  1.00 L/s placeholder — it now shows the **undiversified 604.3 flow** in DESIGN,
+  and the **K-terminal solved flow** in SIMULATE. (2) SIMULATE now models each
+  fixture as a pressure-dependent **K-terminal** (design point = undiversified
+  604.3 flow @ 604.3 pressure), exactly like a hydronic terminal, instead of a
+  fixed demand — so fixtures draw more where pressure is ample and less where it
+  is short. (3) Properties ▸ Design renamed: Cold fixture units → **Fixture Units
+  (Cold)**, Supply outlet (604.3) → **Type**, Undiversified flow → **Design
+  Flow**, Required pressure → **Design Pressure**. (4) A placed plumbing outflow's
+  **auto-tag follows the fixture** — WC-1, UR-1, HB-1, BG/BA/BT/DF/KS/SS/SH/WM,
+  Custom→OF; changing the fixture/type re-tags an auto-default (never a hand-named
+  one). Lavatory renamed **Lavatory/Hand Basin**. 14 new assertions (suite 2123).
+  Verified live on the booster file (design 0.76 L/s urinal, simulate 0.194 vs
+  0.189 K-solved, tags UR-1/WC-1/HB-1), no console errors.
 * **v0.17.7** — Standardise plumbing presentation on the hydronic baseline
   (Michael, 2026-08-17). The plumbing CALCULATION sheet is now the same shape as
   hydronic: a project-metadata sheet-head, **collapsible sections** (`<details>`),
