@@ -48,6 +48,17 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
 
+* **v0.17.11** — Merge the 604.3 mapping into ONE table (Michael, 2026-08-18:
+  "map it to 604.3 … merge into a single table"). The plumbing HYDRAULIC tab now
+  has a single per-fixture table — Fixture / Occupancy / **Fixture units** /
+  **Type (604.3)** / **Design flow** / **Design pressure** — all editable per
+  fixture-variation; the separate raw-604.3 outlets table and the standalone
+  mapping table are gone. Design flow/pressure default from the 604.3 mapping and
+  a per-fixture edit (`m.settings.plumbing.design`) overrides it; ESTIMATED rows
+  (not in 604.3) show in **red** with the footnote. `M.plumbingSpecDefault`
+  exposes the pre-override mapped value. 3 new assertions (suite 2148). Verified
+  live: one merged table, WC/urinal/estimate values correct, red inputs render,
+  editing design flow persists, no console errors.
 * **v0.17.9** — Remap plumbing default flow & pressure per Michael's 604.3
   spreadsheet (2026-08-17). Each fixture/variation's default design flow &
   pressure now follows an explicit **604.3 mapping** (`FD.plumbing.defaultSpec`,

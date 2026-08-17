@@ -1407,11 +1407,31 @@
   function plumbingFixtureDefault(m, dev) {
     if (!dev || dev.demandType !== 'plumbing') return { gpm: 0, psi: 0, estimated: false, label: '—' };
     if (dev.supply === 'none') return { gpm: 0, psi: 0, estimated: false, label: '(none)' };
+
+    var res;
     if (dev.supply) {
       var sv0 = plumbingSupplyValue(m, dev.supply);
       var s0 = FD.plumbing.fixtureSupply(dev.supply);
-      return { gpm: sv0.gpm, psi: sv0.psi, estimated: false, label: s0 ? s0.name : dev.supply };
+      res = { gpm: sv0.gpm, psi: sv0.psi, estimated: false, label: s0 ? s0.name : dev.supply };
+    } else {
+      res = specDefault(m, dev);
     }
+    /* PER-FIXTURE override from the merged table on the HYDRAULIC tab
+     * (m.settings.plumbing.design keyed by fixture.variation). Edited values win
+     * over the 604.3 mapping; the `estimated` flag (whether the row was in 604.3)
+     * is unchanged, so an edited estimate stays flagged. */
+    var ov = m.settings.plumbing && m.settings.plumbing.design;
+    var o = ov && ov[dev.fixture + '.' + dev.variation];
+    if (o) {
+      if (isFinite(o.gpm)) res.gpm = Number(o.gpm);
+      if (isFinite(o.psi)) res.psi = Number(o.psi);
+    }
+    return res;
+  }
+
+  /* The 604.3-mapped default before any per-fixture override: a direct outlet or
+   * a computed estimate (see FD.plumbing.defaultSpec). */
+  function specDefault(m, dev) {
     var spec = FD.plumbing.defaultSpec(dev.fixture, dev.variation);
     if (!spec) return { gpm: 0, psi: 0, estimated: false, label: '—' };
     if (spec.id) {
@@ -3082,6 +3102,7 @@
     plumbingDemandCurve: plumbingDemandCurve, plumbingFUKey: plumbingFUKey,
     plumbingSupplyValue: plumbingSupplyValue, plumbingUndivFlow: plumbingUndivFlow,
     plumbingReqPressure: plumbingReqPressure, plumbingFixtureDefault: plumbingFixtureDefault,
+    plumbingSpecDefault: specDefault,
     clearDevice: clearDevice,
     applyFluidPreset: applyFluidPreset,
     controlOf: controlOf, canControl: canControl, setControl: setControl,

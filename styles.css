@@ -218,8 +218,10 @@ table.sheet input.cell-input.edited {
   font-weight: 600;
 }
 .table-actions { margin: 8px 0 14px; }
-/* Estimated (not-in-604.3) fixture defaults, flagged in red with a footnote. */
-table.sheet td.est { color: var(--error); }
+/* Estimated (not-in-604.3) fixture defaults, flagged in red with a footnote —
+ * both the read-only Type cell and the editable flow/pressure inputs. */
+table.sheet td.est,
+table.sheet input.cell-input.est { color: var(--error); }
 .est-note { font-size: 12px; color: var(--error); margin: 6px 0 14px; }
 
 /* ---------------------------------------------------------- checklist */

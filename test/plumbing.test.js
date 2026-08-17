@@ -395,6 +395,18 @@ section('Fixture default flow & pressure — 604.3 mapping (Michael, 2026-08-17)
   mm.settings.plumbing.supply = { sinkResidential: { gpm: 2.0, psi: 8 } };
   near('kitchen sink public follows an edited residential (3 × 2.0 = 6.0)',
     def('kitchenSink', 'pub').gpm, 6.0, 1e-9);
+
+  // A per-fixture design override (the merged HYDRAULIC table) wins over the map.
+  const mo2 = M.create();
+  mo2.settings.plumbing = mo2.settings.plumbing || { system: 'flushTank' };
+  mo2.settings.plumbing.design = { 'bathtub.priv': { gpm: 6, psi: 30 } };
+  const bt = M.plumbingFixtureDefault(mo2, { demandType: 'plumbing', fixture: 'bathtub', variation: 'priv' });
+  near('a per-fixture design override sets the flow', bt.gpm, 6, 1e-9);
+  near('...and the pressure', bt.psi, 30, 1e-9);
+  // Overriding an estimated row keeps its estimated (red) flag.
+  mo2.settings.plumbing.design['shower.pub'] = { gpm: 9 };
+  const sp2 = M.plumbingFixtureDefault(mo2, { demandType: 'plumbing', fixture: 'shower', variation: 'pub' });
+  ok('an overridden estimate is still flagged estimated', sp2.estimated === true && sp2.gpm === 9);
 }
 
 section('Plumbing SIMULATE — undiversified flows through the GGA (converted copy)');

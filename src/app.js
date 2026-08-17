@@ -6349,48 +6349,102 @@
         pushUndo(); pl.system = v; renderHydraulic(); redrawAll();
       });
 
-    // ============================ FIXTURE UNITS — Table E103.3(2) ----------
-    h2('Fixture load values — Table E103.3(2)');
+    // ==== FIXTURES — E103.3(2) fixture units + 604.3 design flow & pressure ====
+    /* ONE table per fixture/variation (Michael, 2026-08-17: merge the 604.3 map
+     * into a single table): the cold FIXTURE UNITS (E103.3(2)) and the mapped
+     * DESIGN FLOW & PRESSURE (Table 604.3). All three are editable per fixture;
+     * design flow/pressure default from the 604.3 mapping and are shown in RED
+     * where they are an ESTIMATE (not listed in 604.3), with the footnote. */
+    var presUnit = (m.settings.display && m.settings.display.pressure) || 'kPa';
+    var presLabel = ('' + FD.units.fmtPressure(0, presUnit, true)).split(' ').slice(1).join(' ');
+    var PSI = FD.plumbing.PSI_TO_PA;
+    h2('Fixtures — units (E103.3(2)) and design flow & pressure (604.3)');
     var fuT = el('table', 'sheet');
     var fuThead = el('thead'), fuHr = el('tr');
-    ['Fixture', 'Occupancy / supply control', 'Fixture units'].forEach(function (t) {
-      fuHr.appendChild(el('th', '', t));
-    });
+    ['Fixture', 'Occupancy / supply control', 'Fixture units', 'Type (604.3)',
+     'Design flow (' + flowLabel + ')', 'Design pressure (' + presLabel + ')']
+      .forEach(function (t) { fuHr.appendChild(el('th', '', t)); });
     fuThead.appendChild(fuHr); fuT.appendChild(fuThead);
     var fuBody = el('tbody');
+    var anyEstimated = false;
     FD.plumbing.fixtures.forEach(function (fx) {
       if (!fx.variations || !fx.variations.length) return;   // 'custom' has no row
       fx.variations.forEach(function (v, idx) {
+        var synthetic = { demandType: 'plumbing', fixture: fx.id, variation: v.id };
+        var base = M.plumbingSpecDefault(m, synthetic);   // 604.3 mapping, pre-override
+        var eff = M.plumbingFixtureDefault(m, synthetic); // with per-fixture override
+        if (base.estimated) anyEstimated = true;
+        var estCls = base.estimated ? ' est' : '';
         var tr = el('tr');
         tr.appendChild(el('td', 'txt', idx === 0 ? fx.name : ''));
         tr.appendChild(el('td', 'txt', v.name));
-        var td = el('td');
-        var key = M.plumbingFUKey(fx.id, v.id);
-        var overridden = pl.fu && isFinite(pl.fu[key]);
-        var input = el('input');
-        input.type = 'text';
-        input.value = String(M.plumbingFixtureFU(m, fx.id, v.id));
-        input.className = 'cell-input' + (overridden ? ' edited' : '');
-        input.title = 'IPC default ' + v.fu + ' FU';
-        input.addEventListener('change', function () {
-          var nv = FD.units.parse(input.value);
-          if (!isFinite(nv) || nv < 0) { input.value = String(M.plumbingFixtureFU(m, fx.id, v.id)); return; }
+
+        // ---- fixture units (editable) ----
+        var fuKey = M.plumbingFUKey(fx.id, v.id);
+        var fuTd = el('td');
+        var fuIn = el('input'); fuIn.type = 'text';
+        fuIn.value = String(M.plumbingFixtureFU(m, fx.id, v.id));
+        fuIn.className = 'cell-input' + ((pl.fu && isFinite(pl.fu[fuKey])) ? ' edited' : '');
+        fuIn.title = 'IPC default ' + v.fu + ' FU';
+        fuIn.addEventListener('change', function () {
+          var nv = FD.units.parse(fuIn.value);
+          if (!isFinite(nv) || nv < 0) { fuIn.value = String(M.plumbingFixtureFU(m, fx.id, v.id)); return; }
           pushUndo();
           pl.fu = pl.fu || {};
-          if (nv === v.fu) delete pl.fu[key];      // returning to default clears the override
-          else pl.fu[key] = nv;
+          if (nv === v.fu) delete pl.fu[fuKey]; else pl.fu[fuKey] = nv;
           renderHydraulic(); redrawAll();
         });
-        td.appendChild(input); tr.appendChild(td);
+        fuTd.appendChild(fuIn); tr.appendChild(fuTd);
+
+        // ---- type / 604.3 outlet (read-only label) ----
+        tr.appendChild(el('td', 'txt' + estCls, base.label));
+
+        // ---- design flow & pressure (editable, from the 604.3 mapping) ----
+        var dKey = fx.id + '.' + v.id;
+        function designCell(field, toDisp, fromDisp, baseVal) {
+          var td = el('td');
+          var ov = pl.design && pl.design[dKey] && isFinite(pl.design[dKey][field]);
+          var input = el('input'); input.type = 'text';
+          input.value = toDisp(field === 'gpm' ? eff.gpm : eff.psi);
+          input.className = 'cell-input' + estCls + (ov ? ' edited' : '');
+          input.title = 'Mapped ' + toDisp(baseVal);
+          input.addEventListener('change', function () {
+            var nv = fromDisp(input.value);
+            if (nv === null || nv < 0) { input.value = toDisp(field === 'gpm' ? eff.gpm : eff.psi); return; }
+            pushUndo();
+            pl.design = pl.design || {};
+            var row = pl.design[dKey] = pl.design[dKey] || {};
+            if (Math.abs(nv - baseVal) < 1e-9) {            // back to the mapped value clears it
+              delete row[field];
+              if (!Object.keys(row).length) delete pl.design[dKey];
+            } else { row[field] = nv; }
+            renderHydraulic(); redrawAll();
+          });
+          td.appendChild(input); tr.appendChild(td);
+        }
+        designCell('gpm',
+          function (gpm) { return FD.units.fmtFlow(gpm * GPM, flowUnit); },
+          function (s) { var x = FD.units.parse(s); return isFinite(x) ? FD.units.toSIFlow(x, flowUnit) / GPM : null; },
+          base.gpm);
+        designCell('psi',
+          function (psi) { return FD.units.fmtPressure(psi * PSI, presUnit); },
+          function (s) { var x = FD.units.parse(s); return isFinite(x) ? FD.units.toSIPressure(x, presUnit) / PSI : null; },
+          base.psi);
+
         fuBody.appendChild(tr);
       });
     });
     fuT.appendChild(fuBody); host.appendChild(fuT);
+    if (anyEstimated) {
+      host.appendChild(el('p', 'est-note',
+        'Items in red were not in IPC Table 604.3, and are estimated based on ' +
+        'similar plumbing fixtures.'));
+    }
     var fuActs = el('div', 'table-actions');
-    var fuReset = el('button', 'btn', 'Reset fixture units to IPC defaults');
-    fuReset.disabled = !(pl.fu && Object.keys(pl.fu).length);
+    var fuReset = el('button', 'btn', 'Reset fixtures to IPC defaults');
+    fuReset.disabled = !((pl.fu && Object.keys(pl.fu).length) || (pl.design && Object.keys(pl.design).length));
     fuReset.addEventListener('click', function () {
-      pushUndo(); delete pl.fu; renderHydraulic(); redrawAll();
+      pushUndo(); delete pl.fu; delete pl.design; renderHydraulic(); redrawAll();
     });
     fuActs.appendChild(fuReset); host.appendChild(fuActs);
 
@@ -6455,96 +6509,6 @@
       pushUndo(); delete pl.demand; renderHydraulic(); redrawAll();
     });
     dmActs.appendChild(dmReset); host.appendChild(dmActs);
-
-    // ============================ FIXTURE SUPPLY — Table 604.3 -------------
-    var presUnit = (m.settings.display && m.settings.display.pressure) || 'kPa';
-    var presLabel = ('' + FD.units.fmtPressure(0, presUnit, true)).split(' ').slice(1).join(' ');
-    var PSI = FD.plumbing.PSI_TO_PA;
-    h2('Fixture supply outlets — Table 604.3  (' + flowLabel + ' / ' + presLabel + ')');
-    var suT = el('table', 'sheet');
-    var suThead = el('thead'), suHr = el('tr');
-    ['Fixture supply outlet', 'Flow', 'Pressure'].forEach(function (t) { suHr.appendChild(el('th', '', t)); });
-    suThead.appendChild(suHr); suT.appendChild(suThead);
-    var suBody = el('tbody');
-    function supCell(tr, sp, field, dispVal, toDisp, fromDisp) {
-      var td = el('td');
-      var eff = M.plumbingSupplyValue(m, sp.id);
-      var overridden = pl.supply && pl.supply[sp.id] && isFinite(pl.supply[sp.id][field]);
-      var input = el('input');
-      input.type = 'text';
-      input.value = toDisp(eff[field]);
-      input.className = 'cell-input' + (overridden ? ' edited' : '');
-      input.title = 'IPC default ' + toDisp(sp[field]);
-      input.addEventListener('change', function () {
-        var nv = fromDisp(input.value);
-        if (nv === null || nv < 0) { input.value = toDisp(eff[field]); return; }
-        pushUndo();
-        pl.supply = pl.supply || {};
-        pl.supply[sp.id] = pl.supply[sp.id] || { gpm: sp.gpm, psi: sp.psi };
-        if (nv === sp[field]) {                 // back to default clears the whole row when both match
-          pl.supply[sp.id][field] = sp[field];
-          if (pl.supply[sp.id].gpm === sp.gpm && pl.supply[sp.id].psi === sp.psi) delete pl.supply[sp.id];
-        } else { pl.supply[sp.id][field] = nv; }
-        renderHydraulic(); redrawAll();
-      });
-      td.appendChild(input); tr.appendChild(td);
-    }
-    FD.plumbing.supplies.forEach(function (sp) {
-      if (sp.id === 'none') return;
-      var tr = el('tr');
-      tr.appendChild(el('td', 'txt', sp.name));
-      supCell(tr, sp, 'gpm', null,
-        function (gpm) { return FD.units.fmtFlow(gpm * GPM, flowUnit); },
-        function (str) { var v = FD.units.parse(str); return isFinite(v) ? FD.units.toSIFlow(v, flowUnit) / GPM : null; });
-      supCell(tr, sp, 'psi', null,
-        function (psi) { return FD.units.fmtPressure(psi * PSI, presUnit); },
-        function (str) { var v = FD.units.parse(str); return isFinite(v) ? FD.units.toSIPressure(v, presUnit) / PSI : null; });
-      suBody.appendChild(tr);
-    });
-    suT.appendChild(suBody); host.appendChild(suT);
-    var suActs = el('div', 'table-actions');
-    var suReset = el('button', 'btn', 'Reset supply outlets to IPC defaults');
-    suReset.disabled = !(pl.supply && Object.keys(pl.supply).length);
-    suReset.addEventListener('click', function () {
-      pushUndo(); delete pl.supply; renderHydraulic(); redrawAll();
-    });
-    suActs.appendChild(suReset); host.appendChild(suActs);
-
-    // ============================ FIXTURE DESIGN FLOW & PRESSURE (604.3 map) --
-    /* Per-fixture default design flow & pressure, mapped to Table 604.3 (Michael's
-     * spreadsheet, 2026-08-17). Read-only — it resolves the fixture/variation to
-     * a 604.3 outlet (or an estimate for the ones 604.3 does not list, shown in
-     * RED with the footnote). Values follow edits to the outlets table above. */
-    h2('Fixture design flow & pressure — mapped to Table 604.3');
-    var fdT = el('table', 'sheet');
-    var fdThead = el('thead'), fdHr = el('tr');
-    ['Fixture', 'Variation', 'Type (604.3)',
-     'Design flow (' + flowLabel + ')', 'Design pressure (' + presLabel + ')']
-      .forEach(function (t) { fdHr.appendChild(el('th', '', t)); });
-    fdThead.appendChild(fdHr); fdT.appendChild(fdThead);
-    var fdBody = el('tbody');
-    var anyEstimated = false;
-    FD.plumbing.fixtures.forEach(function (fx) {
-      if (!fx.variations || !fx.variations.length) return;
-      fx.variations.forEach(function (v, idx) {
-        var def = M.plumbingFixtureDefault(m, { demandType: 'plumbing', fixture: fx.id, variation: v.id });
-        if (def.estimated) anyEstimated = true;
-        var cls = def.estimated ? 'est' : '';
-        var tr = el('tr');
-        tr.appendChild(el('td', 'txt' + (idx === 0 ? '' : ' dim'), idx === 0 ? fx.name : ''));
-        tr.appendChild(el('td', 'txt ' + cls, v.name));
-        tr.appendChild(el('td', 'txt ' + cls, def.label));
-        tr.appendChild(el('td', cls, FD.units.fmtFlow(def.gpm * FD.plumbing.GPM_TO_M3S, flowUnit)));
-        tr.appendChild(el('td', cls, FD.units.fmtPressure(def.psi * FD.plumbing.PSI_TO_PA, presUnit)));
-        fdBody.appendChild(tr);
-      });
-    });
-    fdT.appendChild(fdBody); host.appendChild(fdT);
-    if (anyEstimated) {
-      host.appendChild(el('p', 'est-note',
-        'Items in red were not in IPC Table 604.3, and are estimated based on ' +
-        'similar plumbing fixtures.'));
-    }
   }
 
   function renderHydraulic() {
