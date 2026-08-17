@@ -48,6 +48,22 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
 
+* **v0.17.9** — Remap plumbing default flow & pressure per Michael's 604.3
+  spreadsheet (2026-08-17). Each fixture/variation's default design flow &
+  pressure now follows an explicit **604.3 mapping** (`FD.plumbing.defaultSpec`,
+  resolved by `M.plumbingFixtureDefault`): direct outlet maps for most, and
+  computed ESTIMATES for the ones 604.3 does not list — bathroom group (largest 2
+  of lavatory+shower+WC), kitchen sink & shower public (FU-ratio × the private
+  outlet), washing machine (lavatory / service-sink flow @ 100 kPa). WC remapped
+  (priv-tank→flushometer tank, priv/pub-valve→blow-out, pub-tank→close-coupled);
+  urinal (both)→urinal valve; **Dishwashing machine added** (→ dishwasher
+  residential, 2.75 gpm, no cold FU). Estimates resolve LIVE against the editable
+  604.3 values. A new **"Fixture design flow & pressure"** table on the HYDRAULIC
+  tab lists every mapping, estimated rows in **red** with the footnote *"Items in
+  red were not in IPC Table 604.3, and are estimated based on similar plumbing
+  fixtures."* 22 new assertions (suite 2145). Verified live (all 22 rows match
+  the spreadsheet, estimates red, booster still solves), no console errors.
+  **Confirm the estimates and the WC/urinal outlet choices.**
 * **v0.17.8** — Plumbing outflow flow, panel labels, fixture tags (Michael,
   2026-08-17). (1) The outflow's **design flow** on the drawing was stuck at the
   1.00 L/s placeholder — it now shows the **undiversified 604.3 flow** in DESIGN,

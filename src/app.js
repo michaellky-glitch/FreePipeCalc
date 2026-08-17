@@ -1088,10 +1088,10 @@
     // ========================================================= 2. CRITICAL PATH
     if (anySource && worst) {
       var secCrit = calcSection('Critical Path');
-      var sp = FD.plumbing.fixtureSupply(M.plumbingSupplyId(worst.device));
+      var wdef = M.plumbingFixtureDefault(m, worst.device);
       secCrit.appendChild(el('p', 'notice-head',
         'Critical Path from ' + nodeLabel(rootId) + ' to ' + (worst.tag || worst.id) +
-        (sp && sp.id !== 'none' ? '  (' + sp.name + ')' : '')));
+        (wdef.gpm > 0 || wdef.psi > 0 ? '  (' + wdef.label + ')' : '')));
       secCrit.appendChild(plumbingTable(pathPipes));
 
       var totFric = pathPipes.reduce(function (a, id) { return a + (rep.dpFric[id] || 0); }, 0);
@@ -2375,10 +2375,9 @@
         if (isFinite(n) && n >= 1) { tpl.count = n; renderProperties(); }
         else cIn.value = String(tpl.count || 1);
       });
-      var effSupply = M.plumbingSupplyId({ demandType: 'plumbing', fixture: tpl.fixture, variation: tpl.variation });
-      if (effSupply !== 'none') {
-        var sp = FD.plumbing.fixtureSupply(effSupply);
-        des.ro('Type', sp ? sp.name : effSupply);
+      var tdef = M.plumbingFixtureDefault(m, { demandType: 'plumbing', fixture: tpl.fixture, variation: tpl.variation });
+      if (tdef.gpm > 0 || tdef.psi > 0) {
+        des.ro('Type', tdef.label + (tdef.estimated ? '  (estimated)' : ''));
       }
     } else {
       var flIn = el('input'); flIn.type = 'text'; flIn.value = FD.units.fmtFlow(tpl.flow, fu);
@@ -5633,15 +5632,13 @@
         des.ro('Fixture Units (Cold)', M.outflowFU(m, dev).toFixed(2) +
           ((dev.count || 1) > 1 ? ' (' + dev.count + ' × ' + per + ')' : ''));
 
-        /* The undiversified supply outlet (IPC 604.3) — the flow and pressure ONE
-         * such fixture draws, used by SIMULATE and the residual check. Baked into
-         * the fixture/variation (Michael, 2026-08-17), so it is read-only; the
-         * 604.3 VALUES stay editable on the HYDRAULIC tab. Labelled Type / Design
-         * Flow / Design Pressure (Michael, 2026-08-17). */
-        var effSupply = M.plumbingSupplyId(dev);
-        if (effSupply !== 'none') {
-          var spDef = FD.plumbing.fixtureSupply(effSupply);
-          des.ro('Type', spDef ? spDef.name : effSupply);
+        /* The undiversified design flow & pressure (IPC 604.3), mapped from the
+         * fixture/variation (Michael, 2026-08-17) so it is read-only; the 604.3
+         * VALUES stay editable on the HYDRAULIC tab. An ESTIMATED default (not in
+         * 604.3) is flagged. */
+        var def = M.plumbingFixtureDefault(m, dev);
+        if (def.gpm > 0 || def.psi > 0) {
+          des.ro('Type', def.label + (def.estimated ? '  (estimated)' : ''));
           des.ro('Design Flow', FD.units.fmtFlow(M.plumbingUndivFlow(m, dev), fu, true) +
             ((dev.count || 1) > 1 ? ' (' + dev.count + ' ×)' : ''));
           des.ro('Design Pressure', FD.units.fmtPressure(M.plumbingReqPressure(m, dev), pu, true));
@@ -6512,6 +6509,42 @@
       pushUndo(); delete pl.supply; renderHydraulic(); redrawAll();
     });
     suActs.appendChild(suReset); host.appendChild(suActs);
+
+    // ============================ FIXTURE DESIGN FLOW & PRESSURE (604.3 map) --
+    /* Per-fixture default design flow & pressure, mapped to Table 604.3 (Michael's
+     * spreadsheet, 2026-08-17). Read-only — it resolves the fixture/variation to
+     * a 604.3 outlet (or an estimate for the ones 604.3 does not list, shown in
+     * RED with the footnote). Values follow edits to the outlets table above. */
+    h2('Fixture design flow & pressure — mapped to Table 604.3');
+    var fdT = el('table', 'sheet');
+    var fdThead = el('thead'), fdHr = el('tr');
+    ['Fixture', 'Variation', 'Type (604.3)',
+     'Design flow (' + flowLabel + ')', 'Design pressure (' + presLabel + ')']
+      .forEach(function (t) { fdHr.appendChild(el('th', '', t)); });
+    fdThead.appendChild(fdHr); fdT.appendChild(fdThead);
+    var fdBody = el('tbody');
+    var anyEstimated = false;
+    FD.plumbing.fixtures.forEach(function (fx) {
+      if (!fx.variations || !fx.variations.length) return;
+      fx.variations.forEach(function (v, idx) {
+        var def = M.plumbingFixtureDefault(m, { demandType: 'plumbing', fixture: fx.id, variation: v.id });
+        if (def.estimated) anyEstimated = true;
+        var cls = def.estimated ? 'est' : '';
+        var tr = el('tr');
+        tr.appendChild(el('td', 'txt' + (idx === 0 ? '' : ' dim'), idx === 0 ? fx.name : ''));
+        tr.appendChild(el('td', 'txt ' + cls, v.name));
+        tr.appendChild(el('td', 'txt ' + cls, def.label));
+        tr.appendChild(el('td', cls, FD.units.fmtFlow(def.gpm * FD.plumbing.GPM_TO_M3S, flowUnit)));
+        tr.appendChild(el('td', cls, FD.units.fmtPressure(def.psi * FD.plumbing.PSI_TO_PA, presUnit)));
+        fdBody.appendChild(tr);
+      });
+    });
+    fdT.appendChild(fdBody); host.appendChild(fdT);
+    if (anyEstimated) {
+      host.appendChild(el('p', 'est-note',
+        'Items in red were not in IPC Table 604.3, and are estimated based on ' +
+        'similar plumbing fixtures.'));
+    }
   }
 
   function renderHydraulic() {

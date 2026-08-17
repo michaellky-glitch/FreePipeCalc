@@ -90,6 +90,12 @@
       { id: 'priv8',  name: 'Private (8 lb)',  fu: 1.0 },
       { id: 'pub15',  name: 'Public (15 lb)',  fu: 3.0 }
     ] },
+    /* Dishwashing machine — Table E103.3(2) leaves its cold FV blank ("—"), so it
+     * carries no cold fixture units (fu:0) and adds nothing to the diversified
+     * FU sizing; it is here for its undiversified 604.3 flow (Michael, 2026-08-17). */
+    { id: 'dishwashingMachine', name: 'Dishwashing machine', tag: 'DW', variations: [
+      { id: 'priv', name: 'Private', fu: 0 }
+    ] },
     { id: 'waterCloset', name: 'Water closet', tag: 'WC', variations: [
       { id: 'privTank',  name: 'Private (flush tank)',  fu: 2.2 },
       { id: 'privValve', name: 'Private (flush valve)', fu: 6.0 },
@@ -176,31 +182,44 @@
     return null;
   }
 
-  /* Default 604.3 supply outlet for each E103.3(2) fixture variation. This is a
-   * convenience DEFAULT only — the outflow's own `dev.supply` overrides it — so a
-   * sized model simulates without the engineer setting a supply outlet on every
-   * fixture by hand (a plumbing file with no supply outlets had zero
-   * undiversified flow, so its pump reported no flow — Michael, 2026-08-17). The
-   * associations are the obvious ones; the ambiguous fixtures (bathroom group,
-   * tank urinal, washing machine — none of which has a single 604.3 row) default
-   * to none and are the engineer's to set. Values are 604.3; only the pairing is
-   * a default, which the user sees and can change. */
-  var SUPPLY_DEFAULT = {
-    'bathtub.priv': 'bathtubMix', 'bathtub.pub': 'bathtubMix',
-    'bidet.priv': 'bidet',
-    'drinkingFountain.pub': 'drinkingFountain',
-    'kitchenSink.priv': 'sinkResidential', 'kitchenSink.pub': 'sinkService',
-    'lavatory.priv': 'lavatoryPrivate', 'lavatory.pub': 'lavatoryPublic',
-    'serviceSink.pub': 'sinkService',
-    'shower.priv': 'shower', 'shower.pub': 'shower',
-    'urinal.pubValve': 'urinalValve',
-    'waterCloset.privTank': 'wcTankCloseCoupled',
-    'waterCloset.privValve': 'wcSiphonicValve',
-    'waterCloset.pubTank': 'wcTankCloseCoupled',
-    'waterCloset.pubValve': 'wcSiphonicValve'
+  /* DEFAULT design flow & pressure for each E103.3(2) fixture variation, mapped
+   * to Table 604.3 (Michael's spreadsheet, 2026-08-17). Each entry is either a
+   * DIRECT map to a 604.3 outlet (`id`), or an ESTIMATE derived from 604.3
+   * outlets for fixtures/variations that 604.3 does not list directly:
+   *   estimate 'group'   — largest two of the part flows, highest of their psi
+   *                        (a bathroom group = lavatory + shower + WC).
+   *   estimate 'ratio'   — base outlet flow × (FU of this variation ÷ FU of the
+   *                        base variation), at the base outlet's psi.
+   *   estimate 'flowAtP' — a base outlet's flow, but at a stated pressure (Pa).
+   * The model resolves these against the (editable) 604.3 values, so an estimate
+   * tracks edits to the outlets it is built from. Estimated entries are shown in
+   * RED with a footnote — they were not in 604.3. */
+  var DEFAULT_SPEC = {
+    'bathroomGroup.privTank':  { estimate: 'group', parts: ['lavatoryPrivate', 'showerMix', 'wcFlushometerTank'], label: 'Bathroom group (largest 2 of lavatory + shower + WC)' },
+    'bathroomGroup.privValve': { estimate: 'group', parts: ['lavatoryPrivate', 'showerMix', 'wcBlowoutValve'],    label: 'Bathroom group (largest 2 of lavatory + shower + WC)' },
+    'bathtub.priv': { id: 'bathtubMix' },
+    'bathtub.pub':  { id: 'bathtubMix' },
+    'bidet.priv':   { id: 'bidet' },
+    'drinkingFountain.pub': { id: 'drinkingFountain' },
+    'kitchenSink.priv': { id: 'sinkResidential' },
+    'kitchenSink.pub':  { estimate: 'ratio', of: 'sinkResidential', numer: 'pub', denom: 'priv', label: 'Estimated — Sink residential × FU ratio' },
+    'lavatory.priv': { id: 'lavatoryPrivate' },
+    'lavatory.pub':  { id: 'lavatoryPublic' },
+    'serviceSink.pub': { id: 'sinkService' },
+    'shower.priv': { id: 'showerMix' },
+    'shower.pub':  { estimate: 'ratio', of: 'showerMix', numer: 'pub', denom: 'priv', label: 'Estimated — Shower mixing valve × FU ratio' },
+    'urinal.pubTank':  { id: 'urinalValve' },
+    'urinal.pubValve': { id: 'urinalValve' },
+    'washingMachine.priv8': { estimate: 'flowAtP', flowOf: 'lavatoryPrivate', psiPa: 100000, label: 'Estimated — Lavatory flow @ 100 kPa' },
+    'washingMachine.pub15': { estimate: 'flowAtP', flowOf: 'sinkService',     psiPa: 100000, label: 'Estimated — Service sink flow @ 100 kPa' },
+    'dishwashingMachine.priv': { id: 'dishwasher' },
+    'waterCloset.privTank':  { id: 'wcFlushometerTank' },
+    'waterCloset.privValve': { id: 'wcBlowoutValve' },
+    'waterCloset.pubTank':   { id: 'wcTankCloseCoupled' },
+    'waterCloset.pubValve':  { id: 'wcBlowoutValve' }
   };
-  function supplyDefault(fixtureId, variationId) {
-    return SUPPLY_DEFAULT[fixtureId + '.' + variationId] || null;
+  function defaultSpec(fixtureId, variationId) {
+    return DEFAULT_SPEC[fixtureId + '.' + variationId] || null;
   }
 
   function fixture(id) {
@@ -281,7 +300,7 @@
     supplies: FIXTURE_SUPPLY,
     fixture: fixture,
     fixtureSupply: fixtureSupply,
-    supplyDefault: supplyDefault,
+    defaultSpec: defaultSpec,
     tagPrefix: tagPrefix,
     variations: variations,
     variation: variation,

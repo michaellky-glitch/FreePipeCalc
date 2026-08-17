@@ -1384,10 +1384,9 @@
 
   /* ---- undiversified fixture supply (IPC Table 604.3) ----
    * The flow ONE fixture supply outlet draws, and the pressure it needs, used by
-   * a plumbing SIMULATION (each fixture imposes this flow, run through the GGA)
-   * and by the residual-pressure check. Chosen per outflow (`dev.supply`, an id
-   * into FD.plumbing.supplies), independent of the FU fixture. Per-model edits
-   * live on m.settings.plumbing.supply keyed by id, same as the other tables. */
+   * a plumbing SIMULATION (each fixture is a K-terminal at this design point) and
+   * by the residual check. Per-model edits to the raw 604.3 outlets live on
+   * m.settings.plumbing.supply keyed by id, same as the other tables. */
   function plumbingSupplyValue(m, supplyId) {
     var base = FD.plumbing.fixtureSupply(supplyId) || { gpm: 0, psi: 0 };
     var ov = m.settings.plumbing && m.settings.plumbing.supply;
@@ -1397,31 +1396,61 @@
       psi: (o && isFinite(o.psi)) ? Number(o.psi) : base.psi
     };
   }
-  /* The 604.3 supply outlet a plumbing outflow uses: its own `dev.supply`, or the
-   * fixture's default when none is set, or 'none'. Resolving the default here is
-   * what lets a sized model simulate without a supply outlet set on every fixture
-   * by hand (see FD.plumbing.supplyDefault). */
-  function plumbingSupplyId(dev) {
-    if (!dev || dev.demandType !== 'plumbing') return 'none';
-    if (dev.supply) return dev.supply;
-    return FD.plumbing.supplyDefault(dev.fixture, dev.variation) || 'none';
+
+  /* The DEFAULT design flow & pressure a plumbing outflow takes, from Michael's
+   * 604.3 mapping (FD.plumbing.defaultSpec). Returns
+   *   { gpm, psi, estimated, label }
+   * resolved against the model's (editable) 604.3 values, so an ESTIMATE tracks
+   * edits to the outlets it is built from. An explicit `dev.supply` still wins.
+   * `estimated` is true for the entries 604.3 does not list directly (shown in
+   * red). Custom / unmapped → zero. */
+  function plumbingFixtureDefault(m, dev) {
+    if (!dev || dev.demandType !== 'plumbing') return { gpm: 0, psi: 0, estimated: false, label: '—' };
+    if (dev.supply === 'none') return { gpm: 0, psi: 0, estimated: false, label: '(none)' };
+    if (dev.supply) {
+      var sv0 = plumbingSupplyValue(m, dev.supply);
+      var s0 = FD.plumbing.fixtureSupply(dev.supply);
+      return { gpm: sv0.gpm, psi: sv0.psi, estimated: false, label: s0 ? s0.name : dev.supply };
+    }
+    var spec = FD.plumbing.defaultSpec(dev.fixture, dev.variation);
+    if (!spec) return { gpm: 0, psi: 0, estimated: false, label: '—' };
+    if (spec.id) {
+      var sv = plumbingSupplyValue(m, spec.id);
+      var s = FD.plumbing.fixtureSupply(spec.id);
+      return { gpm: sv.gpm, psi: sv.psi, estimated: false, label: s ? s.name : spec.id };
+    }
+    if (spec.estimate === 'ratio') {
+      var base = plumbingSupplyValue(m, spec.of);
+      var denom = plumbingFixtureFU(m, dev.fixture, spec.denom);
+      var r = denom > 0 ? (plumbingFixtureFU(m, dev.fixture, spec.numer) / denom) : 1;
+      return { gpm: r * base.gpm, psi: base.psi, estimated: true, label: spec.label };
+    }
+    if (spec.estimate === 'flowAtP') {
+      var b2 = plumbingSupplyValue(m, spec.flowOf);
+      return { gpm: b2.gpm, psi: spec.psiPa / FD.plumbing.PSI_TO_PA, estimated: true, label: spec.label };
+    }
+    if (spec.estimate === 'group') {
+      var parts = spec.parts.map(function (id) { return plumbingSupplyValue(m, id); });
+      var flows = parts.map(function (p) { return p.gpm; }).sort(function (a, b) { return b - a; });
+      var psi = Math.max.apply(null, parts.map(function (p) { return p.psi; }));
+      return { gpm: (flows[0] || 0) + (flows[1] || 0), psi: psi, estimated: true, label: spec.label };
+    }
+    return { gpm: 0, psi: 0, estimated: false, label: '—' };
   }
-  /* Undiversified flow of a plumbing outflow (SI, m³/s): supply outlet gpm ×
-   * count. A generic outflow keeps its own flow; anything without a supply
-   * outlet (and no default) contributes zero (nothing to push). */
+
+  /* Undiversified flow of a plumbing outflow (SI, m³/s): the default outlet flow
+   * × count. A generic outflow keeps its own flow; a fixture with no default
+   * (custom / unmapped) contributes zero. */
   function plumbingUndivFlow(m, dev) {
     if (!dev || dev.kind !== 'demand' || dev.include === false) return 0;
     if (dev.demandType !== 'plumbing') return dev.flow || 0;
-    var supplyId = plumbingSupplyId(dev);
-    if (supplyId === 'none') return 0;
     var count = dev.count > 0 ? dev.count : 1;
-    return plumbingSupplyValue(m, supplyId).gpm * FD.plumbing.GPM_TO_M3S * count;
+    return plumbingFixtureDefault(m, dev).gpm * FD.plumbing.GPM_TO_M3S * count;
   }
-  /* Required flow pressure at the outlet (SI, Pa) from Table 604.3. */
+  /* Required flow pressure at the outlet (SI, Pa). */
   function plumbingReqPressure(m, dev) {
-    var supplyId = plumbingSupplyId(dev);
-    if (supplyId === 'none') return (dev && dev.reqPressure) || 0;
-    return plumbingSupplyValue(m, supplyId).psi * FD.plumbing.PSI_TO_PA;
+    if (!dev || dev.demandType !== 'plumbing') return (dev && dev.reqPressure) || 0;
+    return plumbingFixtureDefault(m, dev).psi * FD.plumbing.PSI_TO_PA;
   }
 
   /* ===================================================== DOMESTIC-WATER SIZING
@@ -3052,7 +3081,7 @@
     plumbingFixtureFU: plumbingFixtureFU, plumbingFuToFlow: plumbingFuToFlow,
     plumbingDemandCurve: plumbingDemandCurve, plumbingFUKey: plumbingFUKey,
     plumbingSupplyValue: plumbingSupplyValue, plumbingUndivFlow: plumbingUndivFlow,
-    plumbingReqPressure: plumbingReqPressure, plumbingSupplyId: plumbingSupplyId,
+    plumbingReqPressure: plumbingReqPressure, plumbingFixtureDefault: plumbingFixtureDefault,
     clearDevice: clearDevice,
     applyFluidPreset: applyFluidPreset,
     controlOf: controlOf, canControl: canControl, setControl: setControl,

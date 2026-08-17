@@ -328,28 +328,73 @@ section('Fixture supply — Table 604.3 (undiversified flow & pressure)');
                     variation: 'priv', count: 2, supply: 'none', include: true };
   near('explicit none → zero undiversified flow', M.plumbingUndivFlow(ms, devNone), 0, 0);
 
-  // UNSET supply falls back to the fixture DEFAULT, so a sized model simulates
-  // without a supply set on every fixture (Michael, 2026-08-17: pump had no flow).
+  // UNSET supply falls back to the fixture DEFAULT (Michael's 604.3 mapping,
+  // 2026-08-17: WC private flush-tank → Water closet, flushometer tank, 1.6 gpm).
   const devDef = { kind: 'demand', demandType: 'plumbing', fixture: 'waterCloset',
                    variation: 'privTank', count: 1, include: true };   // no dev.supply
-  ok('unset supply resolves to the fixture default',
-    M.plumbingSupplyId(devDef) === 'wcTankCloseCoupled', M.plumbingSupplyId(devDef));
-  near('unset supply still yields undiversified flow (3 gpm default)',
-    M.plumbingUndivFlow(ms, devDef), 3 * GPM, 1e-12);
+  ok('unset supply resolves to the fixture default outlet',
+    M.plumbingFixtureDefault(ms, devDef).label === 'Water closet, flushometer tank',
+    M.plumbingFixtureDefault(ms, devDef).label);
+  near('WC private flush-tank default is 1.6 gpm', M.plumbingUndivFlow(ms, devDef), 1.6 * GPM, 1e-12);
   const devExplicit = { kind: 'demand', demandType: 'plumbing', fixture: 'waterCloset',
                         variation: 'privTank', count: 1, supply: 'wcBlowoutValve', include: true };
   ok('an explicit supply overrides the default',
-    M.plumbingSupplyId(devExplicit) === 'wcBlowoutValve');
+    M.plumbingFixtureDefault(ms, devExplicit).label === 'Water closet, blow out, flushometer valve');
 
   // A generic outflow keeps its own flow.
   near('generic outflow keeps its flow',
     M.plumbingUndivFlow(ms, { kind: 'demand', demandType: 'generic', flow: 0.002, include: true }),
     0.002, 1e-12);
 
-  // Per-model override of a supply row.
+  // Per-model override of a supply row (dev has an explicit wcTankCloseCoupled).
   ms.settings.plumbing.supply = { wcTankCloseCoupled: { gpm: 5, psi: 25 } };
   near('an override changes the undiversified flow', M.plumbingUndivFlow(ms, dev), 4 * 5 * GPM, 1e-12);
   near('...and the required pressure', M.plumbingReqPressure(ms, dev), 25 * P.PSI_TO_PA, 1e-6);
+}
+
+// ---------------------------------------- 604.3 default mapping (Michael's sheet)
+section('Fixture default flow & pressure — 604.3 mapping (Michael, 2026-08-17)');
+{
+  const mm = M.create();
+  function def(fx, v) {
+    return M.plumbingFixtureDefault(mm, { demandType: 'plumbing', fixture: fx, variation: v });
+  }
+  // Direct maps (not estimated).
+  near('bathtub private → 4 gpm', def('bathtub', 'priv').gpm, 4, 1e-9);
+  ok('bathtub is a direct 604.3 map (not estimated)', def('bathtub', 'priv').estimated === false);
+  near('WC private flush-tank → flushometer tank 1.6 gpm', def('waterCloset', 'privTank').gpm, 1.6, 1e-9);
+  near('WC private flush-valve → blow-out 25 gpm @ 45 psi', def('waterCloset', 'privValve').gpm, 25, 1e-9);
+  near('...at 45 psi', def('waterCloset', 'privValve').psi, 45, 1e-9);
+  near('WC public flush-tank → close coupled 3 gpm', def('waterCloset', 'pubTank').gpm, 3, 1e-9);
+  near('WC public flush-valve → blow-out 25 gpm', def('waterCloset', 'pubValve').gpm, 25, 1e-9);
+  near('urinal (tank) → urinal valve 12 gpm', def('urinal', 'pubTank').gpm, 12, 1e-9);
+  near('dishwashing machine → dishwasher residential 2.75 gpm', def('dishwashingMachine', 'priv').gpm, 2.75, 1e-9);
+
+  // Estimated (red) — derived from 604.3.
+  const ks = def('kitchenSink', 'pub');
+  ok('kitchen sink public is estimated', ks.estimated === true);
+  near('...= FU ratio (3/1) × sink residential 1.75 = 5.25 gpm', ks.gpm, 5.25, 1e-9);
+  const sh = def('shower', 'pub');
+  ok('shower public is estimated', sh.estimated === true);
+  near('...= 3 × shower mixing valve 2.5 = 7.5 gpm', sh.gpm, 7.5, 1e-9);
+  const wm = def('washingMachine', 'priv8');
+  ok('washing machine (private) is estimated', wm.estimated === true);
+  near('...= lavatory 0.8 gpm', wm.gpm, 0.8, 1e-9);
+  near('...at 100 kPa', wm.psi * P.PSI_TO_PA, 100000, 1);
+  const bg = def('bathroomGroup', 'privTank');
+  ok('bathroom group is estimated', bg.estimated === true);
+  // largest 2 of lav 0.8, shower 2.5, WC-flushometer-tank 1.6 = 2.5 + 1.6 = 4.1
+  near('...= largest 2 of lav+shower+WC = 4.1 gpm', bg.gpm, 4.1, 1e-9);
+  near('...highest pressure of the three = 20 psi', bg.psi, 20, 1e-9);
+  const bgv = def('bathroomGroup', 'privValve');
+  near('bathroom group (flush valve) = 25 + 2.5 = 27.5 gpm', bgv.gpm, 27.5, 1e-9);
+  near('...highest pressure = 45 psi', bgv.psi, 45, 1e-9);
+
+  // An estimate TRACKS an edit to the 604.3 outlet it is built from.
+  mm.settings.plumbing = mm.settings.plumbing || { system: 'flushTank' };
+  mm.settings.plumbing.supply = { sinkResidential: { gpm: 2.0, psi: 8 } };
+  near('kitchen sink public follows an edited residential (3 × 2.0 = 6.0)',
+    def('kitchenSink', 'pub').gpm, 6.0, 1e-9);
 }
 
 section('Plumbing SIMULATE — undiversified flows through the GGA (converted copy)');
@@ -416,7 +461,8 @@ section('setDemand — plumbing outflow by default in a plumbing file');
   ok('...a water closet, first variation, count 1',
     pd.fixture === 'waterCloset' && pd.count === 1 && !!pd.variation);
   ok('...with a baked-in supply outlet (no separate pick needed)',
-    M.plumbingSupplyId(pd) === 'wcTankCloseCoupled', M.plumbingSupplyId(pd));
+    M.plumbingFixtureDefault(pl, pd).label === 'Water closet, flushometer tank',
+    M.plumbingFixtureDefault(pl, pd).label);
 }
 
 // ---------------------------------------- regression: booster with no supply set
