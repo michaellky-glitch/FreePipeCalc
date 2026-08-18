@@ -1,5 +1,7 @@
 # FreePipeCalc
 
+Disclaimer - I have zero programing knowledge 🤡. My role in this project was directing the LLMs, validation, and testing.
+
 Free piping friction loss calculator for Building Services Engineers. You can draw and simulate multi level piping networks and loops.
 Calculate friction losses to size the pump, and export node-to-node calculations.
 A thermal module carries temperature through the network: heat loss through

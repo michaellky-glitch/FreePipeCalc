@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.17.15, 2026-08-18.** Ten test suites, **2173 assertions**, all
+State: **v0.17.16, 2026-08-18.** Ten test suites, **2182 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -70,7 +70,7 @@ inside it. The data (`data/plumbing.js`) and the sizing core (`M.plumbingSizing`
 `M.outflowFU`) stay. Full spec and build phases A/B/C are in `docs/DW-MODULE.md`
 → **Architecture v2**.
 
-**CURRENT STATE (v0.17.15): the DW module is functionally complete and Michael
+**CURRENT STATE (v0.17.16): the DW module is functionally complete and Michael
 has signed the IPC data off — `FD.plumbing.verified = { fixtures, demand, supply }`
 all TRUE.** What exists:
 
@@ -269,6 +269,17 @@ replaced a span of `app.js` has quietly deleted functions inside it — the
 Static/Dynamic wiring (v0.16.2) and the progress-bar helpers (v0.16.3). Both
 shipped looking plausible and doing nothing. After any such edit, `grep` for
 what you expect to still be there.
+
+**A PLACEHOLDER IS A LOADED GUN ONCE A SECOND DISCIPLINE READS IT.** A plumbing
+fixture keeps `device.flow = 0.001` and `device.reqPressure = 100000` — the
+values `setDemand` writes for a hydronic outflow — because the real numbers come
+from Table 604.3 via `M.plumbingUndivFlow` / `M.plumbingReqPressure`. Anything
+that reads the raw fields on a plumbing fixture gets a number that is
+syntactically fine and physically meaningless. It has now bitten three times:
+the drawing showed 1.00 L/s (v0.17.8), `computeWarnings` measured shortfalls
+against the wrong pressure (v0.17.15), and `autoSizePump` sized a booster at
+47 fixtures × 1.00 L/s = **47 L/s @ 2 MPa** (v0.17.16). **In a plumbing file, go
+through the M.plumbing* helpers, never `dev.flow` or `dev.reqPressure`.**
 
 **A SECOND DISCIPLINE DRIFTS UNLESS SOMETHING PULLS IT BACK.** The plumbing
 module reached "functionally complete" with ten presentation and engine

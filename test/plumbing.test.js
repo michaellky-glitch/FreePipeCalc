@@ -564,6 +564,88 @@ section('plumbingReport — pipework the sizing never reached');
       .every(function (x) { return x.code !== 'DW_UNSIZED'; }));
 }
 
+// ---------------------------- booster pump sizing on the plumbing path (v0.17.16)
+section('plumbingPumpDuty — sizing a booster without the GGA');
+{
+  /* Michael, 2026-08-18: on 20260818-lowrise the booster auto-sized to
+   * 47 L/s @ 2 MPa. The app's hydronic sizer calls `solveModel(m)` — the GGA —
+   * on the model itself, so it saw all 47 fixtures as ordinary flow demands at
+   * `device.flow`, the 1.00 L/s PLACEHOLDER (47 × 1.00 = 47 L/s), and chased
+   * `device.reqPressure`, the hydronic placeholder, for twelve rounds of added
+   * head. The plumbing duty needs no solve at all: the residual pass is exactly
+   * linear in pump head, so one pass is exact. */
+  function boosterTree() {
+    const t = M.create(); t.discipline = 'plumbing';
+    const lv = t.levels[0].id;
+    const S = M.addNode(t, lv, 0, 0);
+    const A = M.addNode(t, lv, 2, 0);
+    const B = M.addNode(t, lv, 12, 0);
+    M.setSource(t, S.id, 0);                       // no mains pressure: the pump is it
+    M.setDemand(t, B.id, 0.001, 100000);
+    const dv = M.node(t, B.id).device;
+    dv.demandType = 'plumbing'; dv.fixture = 'waterCloset';
+    dv.variation = 'privTank'; dv.count = 4;
+    const pump = M.addPipe(t, S.id, A.id, { size: 'DN50' });
+    pump.kind = 'pump';
+    pump.pump = { mode: 'fixed', head: 0, sizing: 'auto' };
+    M.addPipe(t, A.id, B.id, { size: 'DN25' });
+    if (!t.settings.plumbing) t.settings.plumbing = { system: 'flushTank' };
+    t.settings.pumpSafetyPct = 0;
+    return { m: t, pump: pump.id, fixture: B.id };
+  }
+
+  const BT = boosterTree();
+  const rep0 = FD.network.plumbingReport(BT.m);
+  const duty = FD.network.plumbingPumpDuty(BT.m, BT.pump);
+  ok('the duty resolves', duty.ok === true, duty.error && duty.error.code);
+
+  /* THE FLOW IS THE DIVERSITY FLOW, not the sum of undiversified fixture flows
+   * and emphatically not count × the 1 L/s placeholder. */
+  near('duty flow = the diversity flow through the pump',
+    duty.q, Math.abs(rep0.flow[BT.pump]), 1e-15);
+  const placeholder = M.node(BT.m, BT.fixture).device.flow *
+                      M.node(BT.m, BT.fixture).device.count;
+  ok('...and is NOT count × the placeholder flow (the 47 L/s bug)',
+    Math.abs(duty.q - placeholder) > 1e-6,
+    `duty ${duty.q} vs placeholder ${placeholder}`);
+
+  /* APPLY IT AND THE WORST FIXTURE LANDS EXACTLY ON ITS REQUIREMENT. One pass,
+   * because the residual pass is linear in head. */
+  M.pipe(BT.m, BT.pump).pump.head = duty.h;
+  const rep1 = FD.network.plumbingReport(BT.m);
+  const fixNode = M.node(BT.m, BT.fixture);
+  const need = M.plumbingReqPressure(BT.m, fixNode.device);
+  near('one pass puts the worst fixture exactly on its 604.3 requirement',
+    rep1.pressure[BT.fixture], need, 1e-6);
+  ok('...so nothing is reported short', rep1.warnings
+    .every(function (w) { return w.code !== 'DW_FIXTURE_SHORT'; }));
+  ok('the governing fixture is named', duty.worstNode === BT.fixture, duty.worstNode);
+
+  /* IT CONVERGES FROM ABOVE TOO. An oversized booster must come DOWN — "auto"
+   * that only ever adds head is not auto. */
+  M.pipe(BT.m, BT.pump).pump.head = duty.h + 25;
+  const down = FD.network.plumbingPumpDuty(BT.m, BT.pump);
+  near('a 25 m oversized booster re-sizes back to the same duty', down.h, duty.h, 1e-9);
+
+  /* The safety percentage lands on the duty, once. */
+  BT.m.settings.pumpSafetyPct = 10;
+  M.pipe(BT.m, BT.pump).pump.head = duty.h;
+  const safe = FD.network.plumbingPumpDuty(BT.m, BT.pump);
+  near('10% safety gives 1.10 x the required head', safe.h, duty.h * 1.1, 1e-9);
+  BT.m.settings.pumpSafetyPct = 0;
+
+  /* A pump off the sized tree is refused rather than given a made-up duty. */
+  const OT = boosterTree();
+  const lv2 = OT.m.levels[0].id;
+  const x1 = M.addNode(OT.m, lv2, 60, 60), x2 = M.addNode(OT.m, lv2, 65, 60);
+  const stray = M.addPipe(OT.m, x1.id, x2.id, { size: 'DN25' });
+  stray.kind = 'pump'; stray.pump = { mode: 'fixed', head: 0, sizing: 'auto' };
+  const bad = FD.network.plumbingPumpDuty(OT.m, stray.id);
+  ok('a pump off the sized tree is refused, not guessed',
+    bad.ok === false && bad.error.code === 'DW_PUMP_UNSIZED',
+    bad.error && bad.error.code);
+}
+
 // ------------------------------- display defaults (default-ON Tag, v0.17.13)
 section('Display defaults — a default-ON flag is not stored in `show`');
 {

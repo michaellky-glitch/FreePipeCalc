@@ -2306,7 +2306,12 @@
     lines.push('# Engineer: ' + (meta.engineer || '—') + '  Company: ' + (meta.company || '—'));
     lines.push('# Date: ' + (meta.date || new Date().toISOString().slice(0, 10)) +
                '  Revision: ' + (meta.revision || '—'));
-    lines.push('# Method: Hazen-Williams (ASHRAE). System: ' + systemTypeLabel() + '.');
+    /* THE METHOD, NOT A STRING THAT USED TO BE TRUE. This was the literal
+     * 'Hazen-Williams (ASHRAE)' whatever the model was actually solved with, so
+     * a Darcy-Weisbach run exported a file claiming a method the sheet did not
+     * use — a document stating a false basis for its own figures. */
+    lines.push('# Method: ' + FD.hydraulics.method(m.settings.frictionMethod).name +
+               '. System: ' + systemTypeLabel() + '.');
     lines.push('# Pressures are gauge; velocity pressure neglected.');
     lines.push('# For preliminary design assistance only. Results must be verified by a ' +
                'qualified engineer. No warranty; no liability.');
@@ -5811,8 +5816,49 @@
     if (n) toast('Regenerated ' + n + ' pump curve' + (n === 1 ? '' : 's') + '.');
   }
 
+  /* SIZING A BOOSTER IN A PLUMBING FILE.
+   *
+   * The hydronic sizer below cannot do this, and quietly did it wrong: it calls
+   * `solveModel(m)` — the GGA — on the model itself. In a plumbing file that
+   * means the solver sees every fixture as an ordinary flow demand at
+   * `device.flow`, which for a plumbing fixture is the 1.00 L/s PLACEHOLDER, and
+   * aims at `device.reqPressure`, which is the hydronic placeholder too. On
+   * 20260818-lowrise that is 47 fixtures × 1.00 L/s = 47 L/s through the main,
+   * and twelve rounds of adding head chasing a target that was never the
+   * fixture's: Michael got 47 L/s @ 2 MPa (2026-08-18). It also put the GGA back
+   * on the plumbing DESIGN path, which the discipline split exists to prevent.
+   *
+   * The plumbing answer needs no iteration, because the residual pass is EXACTLY
+   * LINEAR in pump head: `pressure[node] = source + pumpGain − friction −
+   * static`, and the friction is fixed at the DIVERSITY flow, which does not
+   * depend on the head. So the head that brings the worst fixture to exactly its
+   * Table 604.3 required pressure is the current head plus that fixture's
+   * shortfall — one pass, and it converges from ABOVE as readily as from below
+   * (an oversized booster comes down).
+   *
+   * The duty flow is the diversity flow through the pump, not the sum of the
+   * undiversified fixture flows. */
+  function autoSizePlumbingPump(p) {
+    var m = app.model;
+    var duty = FD.network.plumbingPumpDuty(m, p.id);
+    if (!duty.ok) {
+      toast((duty.error && duty.error.message) ||
+            'The plumbing network cannot be sized.', 'error');
+      return;
+    }
+    p.pump.head = duty.h;
+    p.pump.qDesign = duty.q;
+    p.pump.hDesign = duty.h;
+    toast('Booster sized to ' +
+          FD.units.fmtFlow(duty.q, m.settings.display.flow, true) + ' @ ' +
+          duty.h.toFixed(2) + ' m head.');
+  }
+
   function autoSizePump(p) {
     var m = app.model;
+    /* A PLUMBING FILE SIZES ITS BOOSTER ITS OWN WAY, and must not reach the
+     * `solveModel` below — see `autoSizePlumbingPump`. */
+    if (m.discipline === 'plumbing') return autoSizePlumbingPump(p);
     for (var i = 0; i < 12; i++) {
       var res = FD.network.solveModel(m);
       var worst = 0;
@@ -6820,6 +6866,26 @@
       return FD.units.toSIFlow(v, flowUnit) / GPM;
     }
 
+    /* COLLAPSIBLE TABLES (Michael, 2026-08-18: "make the demand table
+     * collapsible"). Both IPC tables are long — 22 fixture rows and 30-odd
+     * demand rows — and they sit above the friction method, the pipe schedule
+     * and the limits, which is a lot of scrolling to reach a control. The same
+     * `<details class="calc-section">` the calculation sheet uses, so it
+     * keyboards and screen-reads for free and picks up the existing styling.
+     * The FIXTURES table opens by default (it is the one you edit); the DEMAND
+     * curves are reference data and start closed. */
+    function fold(title, open, note) {
+      var det = el('details', 'calc-section');
+      det.open = !!open;
+      var sum = el('summary', '', title);
+      if (note) sum.appendChild(el('span', 'sec-note', note));
+      det.appendChild(sum);
+      var body = el('div', 'calc-section-body');
+      det.appendChild(body);
+      host.appendChild(det);
+      return body;
+    }
+
     // ---- demand system ----
     h2('Plumbing supply system');
     var psg = grid();
@@ -6838,7 +6904,9 @@
     var presUnit = (m.settings.display && m.settings.display.pressure) || 'kPa';
     var presLabel = ('' + FD.units.fmtPressure(0, presUnit, true)).split(' ').slice(1).join(' ');
     var PSI = FD.plumbing.PSI_TO_PA;
-    h2('Fixtures — units (E103.3(2)) and design flow & pressure (604.3)');
+    var fuHost = fold('Fixtures — units (E103.3(2)) and design flow & pressure (604.3)',
+                      true, String(FD.plumbing.fixtures.reduce(function (a, f) {
+                        return a + ((f.variations && f.variations.length) || 0); }, 0)) + ' rows');
     var fuT = el('table', 'sheet');
     var fuThead = el('thead'), fuHr = el('tr');
     ['Fixture', 'Occupancy/Supply', 'Fixture Units (FU)',
@@ -6915,9 +6983,9 @@
         fuBody.appendChild(tr);
       });
     });
-    fuT.appendChild(fuBody); host.appendChild(fuT);
+    fuT.appendChild(fuBody); fuHost.appendChild(fuT);
     if (anyEstimated) {
-      host.appendChild(el('p', 'est-note',
+      fuHost.appendChild(el('p', 'est-note',
         'Items in red were not in IPC Table 604.3, and are estimated based on ' +
         'similar plumbing fixtures.'));
     }
@@ -6927,10 +6995,11 @@
     fuReset.addEventListener('click', function () {
       pushUndo(); delete pl.fu; delete pl.design; renderHydraulic(); redrawAll();
     });
-    fuActs.appendChild(fuReset); host.appendChild(fuActs);
+    fuActs.appendChild(fuReset); fuHost.appendChild(fuActs);
 
     // ============================ DEMAND — Table E103.3(3) ----------------
-    h2('Demand — Table E103.3(3)  (' + flowLabel + ')');
+    var dmHost = fold('Demand — Table E103.3(3)  (' + flowLabel + ')', false,
+                      'IPC reference · editable');
     function curveOf(sys) { return M.plumbingDemandCurve(m, sys) || FD.plumbing.demand[sys]; }
     function toMap(c) { var mp = {}; c.forEach(function (r) { mp[r[0]] = r[1]; }); return mp; }
     var ftMap = toMap(curveOf('flushTank')), foMap = toMap(curveOf('flushometer'));
@@ -6982,14 +7051,14 @@
       demandCell(tr, 'flushometer', fu, foMap[fu], defFo[fu]);
       dmBody.appendChild(tr);
     });
-    dmT.appendChild(dmBody); host.appendChild(dmT);
+    dmT.appendChild(dmBody); dmHost.appendChild(dmT);
     var dmActs = el('div', 'table-actions');
     var dmReset = el('button', 'btn', 'Reset demand curves to IPC defaults');
     dmReset.disabled = !(pl.demand && Object.keys(pl.demand).length);
     dmReset.addEventListener('click', function () {
       pushUndo(); delete pl.demand; renderHydraulic(); redrawAll();
     });
-    dmActs.appendChild(dmReset); host.appendChild(dmActs);
+    dmActs.appendChild(dmReset); dmHost.appendChild(dmActs);
   }
 
   function renderHydraulic() {
@@ -7061,9 +7130,23 @@
      * table E103.3(3). Both are editable per model — the engineer's numbers
      * override the shipped IPC transcription. Pipe flows
      * interpolate off the (possibly edited) demand table. */
-    if (m.discipline === 'plumbing') {
+    /* PLUMBING GETS ITS OWN BLOCK **AND THEN THE SHARED ONE** (Michael,
+     * 2026-08-18: "reinstate Hydraulic Parameters … Pipe Schedule, Fitting
+     * Equivalent Lengths & Warning Threshold").
+     *
+     * This used to `return` after the IPC tables, which put the friction
+     * method, the pipe schedule, the fitting allowances and the velocity /
+     * friction-rate limits out of reach in a plumbing file — every one of which
+     * the plumbing calculation USES. The sheet quoted a friction rate against a
+     * 400 Pa/m limit that could not be changed, and charged fitting equivalent
+     * lengths from a table that could not be seen.
+     *
+     * Only the two genuinely hydronic-only sections are skipped below: SYSTEM
+     * (open/closed loop, a concept the discipline split removed) and the
+     * thermal half of the fluid usage list. */
+    var plumbingTab = (m.discipline === 'plumbing');
+    if (plumbingTab) {
       renderPlumbingHydraulic(host, m, { h2: h2, hint: hint, grid: grid, selField: selField });
-      return;
     }
 
     // ============================================ 1. FLUID PROPERTIES (top)
@@ -7130,9 +7213,16 @@
     usage.appendChild(el('li', '', 'Kinematic viscosity — ' + (isDW
       ? 'used: sets Reynolds number and the friction factor.'
       : 'used for the laminar-flow check; fully live under Darcy-Weisbach.')));
-    usage.appendChild(el('li', '',
-      'Specific heat capacity — used: it is what Q = ṁ·Cp·ΔT runs on. See the ' +
-      'THERMAL tab.'));
+    /* No THERMAL tab in a plumbing file, so no line pointing at one. */
+    if (!plumbingTab) {
+      usage.appendChild(el('li', '',
+        'Specific heat capacity — used: it is what Q = ṁ·Cp·ΔT runs on. See the ' +
+        'THERMAL tab.'));
+    } else {
+      usage.appendChild(el('li', 'unused',
+        'Specific heat capacity — not used in a plumbing file: there is no ' +
+        'thermal calculation here.'));
+    }
     usage.appendChild(el('li', 'unused',
       'Temperature — the temperature the three properties above are QUOTED at, ' +
       'not a result and not a driver. Nothing recalculates density or viscosity ' +
@@ -7140,13 +7230,17 @@
     host.appendChild(usage);
 
     // =================================================== 2. SYSTEM (detected)
-    h2('System');
-    var det = FD.network.detectSystemType(m);
-    var box = el('div', 'notice ' + (det.type === 'closed' ? 'info-notice' : ''));
-    box.appendChild(el('p', 'notice-head', 'System type: ' +
-      (det.type === 'open' ? 'Open loop'
-       : det.type === 'closed' ? 'Closed loop' : 'No supply yet')));
-    host.appendChild(box);
+    /* Open/closed loop is a HYDRONIC reading. A plumbing file is neither, which
+     * is why the discipline split took this off the status chip. */
+    if (!plumbingTab) {
+      h2('System');
+      var det = FD.network.detectSystemType(m);
+      var box = el('div', 'notice ' + (det.type === 'closed' ? 'info-notice' : ''));
+      box.appendChild(el('p', 'notice-head', 'System type: ' +
+        (det.type === 'open' ? 'Open loop'
+         : det.type === 'closed' ? 'Closed loop' : 'No supply yet')));
+      host.appendChild(box);
+    }
 
     // ======================================= 3. HYDRAULIC PARAMETERS
     h2('Hydraulic Parameters');
@@ -7166,19 +7260,12 @@
         pushUndo(); m.settings.frictionMethod = v; renderHydraulic(); redrawAll();
       });
 
-    /* DOMESTIC WATER: which IPC E103.3 demand curve a plumbing branch is sized
-     * on. Belongs to the PLUMBING DISCIPLINE (DW re-architecture, 2026-08-16):
-     * the HYDRAULIC tab is hydronic-only and hidden in plumbing, so this
-     * selector no longer sits here in a hydronic file. The setting stays on the
-     * model; Phase B gives it a home in the plumbing discipline. */
+    /* The IPC demand-curve selector lives at the TOP of the plumbing block
+     * above ("Plumbing supply system"), where it reads with the tables it
+     * governs. It was also drawn here, which since plumbing began falling
+     * through to this section would have put the same control on the tab
+     * twice. */
     if (!m.settings.plumbing) m.settings.plumbing = { system: 'flushTank' };
-    if (m.discipline === 'plumbing') {
-      selField(mg, 'Plumbing supply',
-        FD.plumbing.systems.map(function (s) { return [s.id, s.name]; }),
-        m.settings.plumbing.system, function (v) {
-          pushUndo(); m.settings.plumbing.system = v; renderHydraulic(); redrawAll();
-        });
-    }
 
     // ---- the formula, with the coefficients editable in place ----
     var fbox = el('div', 'formula-box');

@@ -3653,6 +3653,10 @@
    * side uses, and node PRESSURES from a FORWARD pass down the tree (residual
    * pressure at each fixture). build() is used only to resolve geometry, fittings
    * and per-link resistance — it constructs, it does not solve. */
+  /* Below this, a pressure difference is arithmetic noise rather than a
+   * finding — 1 Pa, a ten-thousandth of a kPa. */
+  var PRESSURE_EPS = 1;
+
   function plumbingReport(m) {
     var dw = M.plumbingSizing(m);
     if (!dw.ok || !Object.keys(dw.byPipe).length) {
@@ -3760,7 +3764,12 @@
         var need = (d.demandType === 'plumbing')
           ? M.plumbingReqPressure(m, d) : (d.reqPressure || 0);
         var short = pressure[n.id] - need;
-        if (short < 0) {
+        /* A TOLERANCE, or an exactly-sized system reports itself short. Size a
+         * booster with `plumbingPumpDuty` and the index fixture lands ON its
+         * requirement — to within about 3e-11 Pa, which `< 0` duly flagged in
+         * red. 1 Pa is the same "close enough" the hydronic pump sizer has
+         * always used, and is a ten-thousandth of a kPa. */
+        if (short < -PRESSURE_EPS) {
           warnings.push({
             code: 'DW_FIXTURE_SHORT', node: n.id,
             shortfall: -short, required: need, available: pressure[n.id],
@@ -3812,9 +3821,66 @@
              warnings: warnings, errors: errors, iterations: 0 };
   }
 
+  /* THE DUTY A PLUMBING BOOSTER HAS TO MEET.
+   *
+   * Pure, and in the engine, so it is pinned by tests rather than living in a
+   * panel handler — and so the answer cannot drift from the report it is
+   * derived from.
+   *
+   * The residual pass is EXACTLY LINEAR in pump head: pressure at a node is
+   * source + pumpGain − friction − static, and the friction is fixed at the
+   * DIVERSITY flow, which does not depend on the head. So the head that brings
+   * the worst fixture to exactly its Table 604.3 required pressure is the
+   * pump's current head plus that fixture's shortfall — one pass, exact, and it
+   * converges from ABOVE as readily as from below (an oversized booster comes
+   * down). No iteration, and no GGA: the hydronic sizer solves the model 12
+   * times, which in a plumbing file meant the solver seeing every fixture as a
+   * 1.00 L/s placeholder demand.
+   *
+   * Returns { ok, q, h, worstNode, error } with q in m³/s and h in metres.
+   * `safetyPct` is applied to the DUTY, not to an increment — there is one pass
+   * here, so "10%" means a pump selected 10% above the head the design needs. */
+  function plumbingPumpDuty(m, pipeId, rep) {
+    rep = rep || plumbingReport(m);
+    if (!rep.ok) return { ok: false, error: rep.error, q: null, h: null };
+    var p = M.pipe(m, pipeId);
+    if (!p || p.kind !== 'pump' || !p.pump) {
+      return { ok: false, q: null, h: null,
+               error: { code: 'DW_PUMP_MISSING', message: 'Not a pump.' } };
+    }
+    if (rep.flow[pipeId] === undefined) {
+      return { ok: false, q: null, h: null,
+               error: { code: 'DW_PUMP_UNSIZED', message:
+                 'Pump ' + (p.tag || pipeId) + ' is not on a sized branch, so ' +
+                 'there is no flow to size it for.' } };
+    }
+    var worst = null, worstNode = null;
+    m.nodes.forEach(function (n) {
+      var dv = n.device;
+      if (!(dv && dv.kind === 'demand' && dv.include !== false)) return;
+      if (rep.pressure[n.id] === undefined) return;
+      var need = (dv.demandType === 'plumbing')
+        ? M.plumbingReqPressure(m, dv) : (dv.reqPressure || 0);
+      var short = need - rep.pressure[n.id];
+      if (worst === null || short > worst) { worst = short; worstNode = n.id; }
+    });
+    if (worst === null) {
+      return { ok: false, q: null, h: null,
+               error: { code: 'DW_PUMP_NO_FIXTURES', message:
+                 'No fixtures to size against — place outflows first.' } };
+    }
+    var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
+    var h = (p.pump.head || 0) + worst / (rho * 9.81);
+    if (h < 0) h = 0;
+    h = h * (1 + (m.settings.pumpSafetyPct || 0) / 100);
+    return { ok: true, error: null, q: Math.abs(rep.flow[pipeId]), h: h,
+             worstNode: worstNode, shortfall: worst };
+  }
+
   FD.network = {
     build: build,
     plumbingReport: plumbingReport,
+    plumbingPumpDuty: plumbingPumpDuty,
     nodeTypeCode: nodeTypeCode,
     flowRegimeWarnings: flowRegimeWarnings,
     supplyWarnings: supplyWarnings,

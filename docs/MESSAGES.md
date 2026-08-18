@@ -61,6 +61,9 @@ A plumbing branch is sized from the fixture units DOWNSTREAM of each pipe, which
 | `DW_MULTI_SOURCE` | A plumbing branch has more than one source (…). Fixture-unit sizing needs a single source so each pipe has one upstream path. | A plumbing component has two or more sources, so a pipe's single upstream path — and thus its downstream set — is undefined. |
 | `DW_FIXTURE_SHORT` | Fixture … is … kPa short of its required … kPa. Go up a pipe size on its run, or raise the supply pressure. | The DESIGN forward pass delivers less residual at the fixture than its Table 604.3 flow pressure. Only raised where there is a pressure origin (a pressurised source or a running booster pump) — with neither, every residual is zero and the check is noise. |
 | `DW_UNSIZED` | … pipes are not sized (…). Fixture-unit sizing only reaches pipework on a branch that has a source and at least one plumbing fixture, so these are left off the calculation. | `plumbingSizing` walks only components containing a plumbing fixture. Pipework outside one is absent from the sheet — said out loud rather than dropped silently. |
+| `DW_PUMP_UNSIZED` | Pump … is not on a sized branch, so there is no flow to size it for. | `network.plumbingPumpDuty` refuses to size a booster the fixture-unit walk never reached — a duty invented for a pump with no downstream fixtures would be a number with nothing behind it. |
+| `DW_PUMP_NO_FIXTURES` | No fixtures to size against — place outflows first. | `plumbingPumpDuty` with no included demand nodes: there is no required pressure to size to. |
+| `DW_PUMP_MISSING` | Not a pump. | `plumbingPumpDuty` called with an id that is not a pump. A programming guard, not something the user can provoke. |
 
 ### Disconnection errors (checked on every solve)
 

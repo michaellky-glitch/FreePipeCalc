@@ -103,6 +103,11 @@
     var q = results && results.flow ? results.flow[p.id] : undefined;
 
     var parts = [];
+    /* A PIPE'S OWN NAME, first, exactly as the canvas draws it. `pipeLabelText`
+     * puts `p.tag` at the head of the label and this did not, so a named run
+     * (CHW-S-01) was on screen and missing from the printed plan. Same
+     * `tagVisible` rule — a tag switched off does not print either. */
+    if (p.tag && M.tagVisible(p)) parts.push(p.tag);
     /* DOWNSTREAM FIXTURE UNITS, plumbing only — the same annotation the canvas
      * draws, and it was missing here, so the printed plan dropped a label the
      * screen was showing (Michael, 2026-08-18). `res.byPipe` only exists on a

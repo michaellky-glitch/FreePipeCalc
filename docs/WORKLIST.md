@@ -9,8 +9,8 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-18, after v0.17.15 (plumbing/hydronic presentation parity and
-the plumbing engine's missing warnings).
+Updated 2026-08-18, after v0.17.16 (the plumbing HYDRAULIC tab's missing
+controls, and the booster sizing to 47 L/s @ 2 MPa).
 
 ---
 
@@ -48,6 +48,38 @@ The likeliest things to come back:
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
+
+* **v0.17.16** — **The booster sized to 47 L/s @ 2 MPa, and the plumbing
+  HYDRAULIC tab had no controls on it** (Michael, 2026-08-18).
+  **THE PUMP.** `autoSizePump` calls `solveModel(m)` — the GGA — on the model
+  itself, twelve times. In a plumbing file that put the GGA back on the DESIGN
+  path the discipline split exists to keep it off, and it saw every fixture as
+  an ordinary demand at `device.flow`, which on a plumbing fixture is the
+  **1.00 L/s placeholder**: 47 fixtures × 1.00 = **47 L/s**, chasing
+  `device.reqPressure` (the hydronic placeholder) for twelve rounds of added
+  head. New `FD.network.plumbingPumpDuty(m, pipeId)` — pure, in the engine,
+  pinned by tests — sizes it in **one pass with no solve at all**: the residual
+  pass is exactly linear in pump head (friction is fixed at the diversity flow,
+  which does not depend on head), so the head that puts the worst fixture on its
+  604.3 requirement is the current head plus that fixture's shortfall. It
+  converges from ABOVE as readily as from below, so an oversized booster comes
+  down. On 20260818-lowrise: **3.984 L/s @ 23.6 m (231 kPa)**, zero GGA calls,
+  worst margin 0.00 kPa. Hydronic sizing is untouched.
+  **THE TAB.** The plumbing HYDRAULIC tab `return`ed after the IPC tables, so
+  the **friction method**, the **pipe schedule**, the **fitting equivalent
+  lengths / K table** and the **warning thresholds** were unreachable in a
+  plumbing file — every one of which the plumbing calculation uses. It now falls
+  through to the shared sections (only SYSTEM, an open/closed-loop reading, stays
+  hydronic-only). Verified live: raising the friction-rate limit 400 → 900 Pa/m
+  takes the warnings 86 → 50, and switching to Darcy swaps the equivalent-length
+  table for the K table. Both IPC tables are now **collapsible** — fixtures open,
+  demand curves closed.
+  **Also, both flagged items fixed** (Michael: "fix both"): the CSV header no
+  longer hard-codes "Hazen-Williams (ASHRAE)" whatever the model uses, and the
+  printed plan carries a pipe's tag as the canvas does. And a **1 Pa tolerance**
+  on `DW_FIXTURE_SHORT` — an exactly-sized booster lands the index fixture on
+  its requirement to within 3e-11 Pa, which the bare `< 0` flagged in red.
+  9 new assertions (suite 2182). Human-Test **DW.U**.
 
 * **v0.17.15** — **Plumbing/hydronic parity pass** (Michael, 2026-08-18: "check
   that the presentation is consistent in both modes … also check the backend").
