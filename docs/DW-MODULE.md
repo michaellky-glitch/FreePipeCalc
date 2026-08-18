@@ -1,5 +1,13 @@
 # Domestic Water (DW) module — agreed design
 
+> **STATUS (v0.17.12): built and IPC data signed off.** The module below is
+> implemented — discipline scaffold, editable IPC tables (E103.3(2)/(3)+604.3 in
+> one merged fixtures table), design sizing + friction + residual pass, K-terminal
+> SIMULATE, calc sheet (All Pipes/Critical Path Design + Critical Path Simulation),
+> outflow tags/templates/multi-select. `FD.plumbing.verified` is all TRUE. Only a
+> per-pipe canvas diversity-flow readout remains. See `HANDOVER.md` §2 for the
+> current-state summary; the text below is the original agreed design.
+
 Michael's request, 2026-08-12; re-architected 2026-08-16 to isolate the
 known-good GGA (see **Architecture v2**). The DATA and the sizing CORE are built
 (v0.16.31–32); the DISCIPLINE split and the plumbing UI/report are what remain.

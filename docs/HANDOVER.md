@@ -23,7 +23,7 @@ model is wrong, and that has held up every time it has been tested.
 **Layers**, load order fixed in `index.html`:
 
     data/*.js      tables — schedules, fittings, valves, pumps, fluids,
-                   plumbing (IPC fixture units + demand curves, verified:false)
+                   plumbing (IPC fixture units, demand + 604.3 tables, verified)
     src/units.js   SI internally, conversion at the edges only
     src/hydraulics.js  friction methods (Hazen-Williams, Darcy/Swamee-Jain)
     src/solver.js  the GGA loop and the linear algebra
@@ -70,53 +70,49 @@ inside it. The data (`data/plumbing.js`) and the sizing core (`M.plumbingSizing`
 `M.outflowFU`) stay. Full spec and build phases A/B/C are in `docs/DW-MODULE.md`
 → **Architecture v2**.
 
-**Phase A (scaffold, v0.16.33) and most of Phase B (v0.17.0) are DONE.**
-`m.discipline` round-trips; the `#system-chip` toggle/confirm, the per-discipline
-tab set and the solve gate are wired (a plumbing file makes **zero** GGA calls).
-**v0.17.0** built the plumbing HYDRAULIC tab and the sizing sheet to Michael's
-brief: the Design ribbon drops the thermal tools; the HYDRAULIC tab STAYS in
-plumbing (only THERMAL is hidden now) and carries the **editable** IPC
-fixture-FU and FU→flow tables (per-model overrides on `m.settings.plumbing.fu` /
-`.demand`, resolved by `M.plumbingFixtureFU` / `M.plumbingDemandCurve` /
-`M.plumbingFuToFlow` and used by `plumbingSizing`); the plumbing CALCULATION
-sheet reports per-pipe downstream FU → diversity flow → velocity, mains first,
-over-limit velocity in red. All verified live (flows, velocity flags, editing an
-FU or demand cell reshapes the sizing, hydronic side unaffected). **Left to do:**
-a per-pipe diversity-flow readout on the CANVAS, and **Phase C** the
-residual-pressure forward pass. **The IPC data is still `verified: false`** until
-Michael signs off the transcription and the per-fixture occupancy/control
-assumptions in `data/plumbing.js` (incl. the WC "Ppublic"→Private typo). NB the
-editable tables let him correct any cell in-app; a correction there overrides the
-transcription for that model but does not promote the shipped default.
+**CURRENT STATE (v0.17.12): the DW module is functionally complete and Michael
+has signed the IPC data off — `FD.plumbing.verified = { fixtures, demand, supply }`
+all TRUE.** What exists:
 
-**v0.17.1** added the plumbing "solve" (`FD.network.plumbingReport`) and closed
-Michael's 2026-08-16 review list: (a) `FD.plumbing.verified` is now PER TABLE —
-`{ fixtures: true, demand: false }`; he verified E103.3(2), E103.3(3) still
-pending; (b) the explanatory hints + unverified banner are off the HYDRAULIC tab;
-(c) SHOW ▸ Temperature is hidden in plumbing; (d) plumbing now produces signed
-per-pipe FLOW (canvas arrows), FRICTION drop, and a forward RESIDUAL-pressure pass
-(Phase C essentially in) — the report is built from `M.plumbingSizing` + a
-geometry-only `build()`, still never the GGA solver; (e) **pasting a fragment onto
-a pipe now tees in** (`canvas.js` paste path + `M.splitPipeAt`), which also fixes
-the same gap in hydronic. Flow-arrow appearance and the paste snap-detection are
-in `Human-Test.md` §5DW (the preview canvas has no layout, so px hit-testing and
-pixels can't be checked in-session).
+* **Discipline scaffold** — `m.discipline` `'hydronic'|'plumbing'`, the
+  `#system-chip` toggle/confirm, per-discipline tab set, and the solve gate: a
+  plumbing file makes ZERO GGA `solveModel`/`solveCore` calls on the DESIGN path.
+* **Data** (`data/plumbing.js`): E103.3(2) fixture cold-FU (with per-fixture
+  `tag` prefix, e.g. WC/UR/HB), E103.3(3) demand curves (flush-tank/flushometer),
+  and Table 604.3 supply outlets. `DEFAULT_SPEC` maps each fixture/variation to a
+  604.3 outlet OR a computed ESTIMATE (bathroom group = largest 2 of lav+shower+WC;
+  kitchen-sink/shower public = FU-ratio × private; washing machine = lavatory /
+  service-sink flow @ 100 kPa). All three tables editable per model
+  (`m.settings.plumbing.fu` / `.demand` / `.design`, plus legacy `.supply`).
+* **Model helpers** (`src/model.js`): `plumbingSizing` (diversified tree sizing),
+  `plumbingFixtureDefault`/`plumbingSpecDefault` (604.3 design flow+pressure,
+  estimate-aware), `plumbingUndivFlow`, `plumbingReqPressure`, `plumbingFuToFlow`,
+  `outflowFU`, `plumbingTagPrefix`.
+* **The plumbing "solve"** (`FD.network.plumbingReport`): DESIGN sizing +
+  per-pipe friction + a forward RESIDUAL-pressure pass (adds a booster pump's
+  head). SIMULATE (`app.buildPlumbingSimModel`) converts each fixture to a
+  pressure-dependent K-terminal at its undiversified 604.3 design point and runs
+  the UNMODIFIED GGA — so DESIGN and SIMULATION give different, both-correct
+  pressures.
+* **HYDRAULIC tab** (plumbing): supply-system selector; ONE merged fixtures table
+  (Fixture | Occupancy/Supply | Fixture Units (FU) | Design Flow | Design
+  Pressure | Table 604.3 Type), all editable, estimated rows in RED with a
+  footnote; and the editable demand-curve table.
+* **CALCULATION sheet** (plumbing, hydronic-style collapsible sections): a
+  Demand-Curve-Type line, **All Pipes (Design)**, **Critical Path (Design)**, and
+  **Critical Path (Simulation)** — columns follow hydronic with a Downstream-FU
+  column before Flow.
+* **Outflows**: default to a plumbing WC in a plumbing file; auto-tag by fixture
+  (WC-1, UR-1…); a pre-placement TEMPLATE panel (OUTFLOW tool); Display switches
+  (Tag Info-Panel default-on, FU, Design/Actual flow, Required/Available), no
+  Temperature; multi-select edits common props + Display together.
 
-**v0.17.2** — Michael's second review list + SIMULATE for plumbing. (a) IPC
-**Table 604.3** transcribed to metric (`FD.plumbing.supplies`, verified:false),
-the per-fixture UNDIVERSIFIED flow + required pressure — a different taxonomy from
-E103.3(2), so it is a SEPARATE per-outflow selection (`dev.supply`), not a
-mapping. (b) **SIMULATE now pushes water through plumbing**: `buildPlumbingSimModel`
-converts each fixture to a fixed generic demand at its undiversified 604.3 flow
-and runs the UNMODIFIED GGA in DESIGN mode (fixed demands) — DESIGN stays
-fixture-unit sizing, SIMULATE is the undiversified push. The GGA is still never
-taught fixture units. (c) The plumbing CALCULATION sheet gained a **most
-unfavourable path** section (index run to the least-margin fixture: residual vs
-604.3 required pressure), like the hydronic critical path. (d) `verified.fixtures`
-= true (Michael signed off E103.3(2)); demand + supply still false. (e)
-Explanations removed from the plumbing HYDRAULIC tab (last round) and the plumbing
-CALCULATION intro (this round). (f) SHOW ▸ Temperature hidden in plumbing. The
-604.3 table is editable on the HYDRAULIC tab like the other two.
+**Left to do (nice-to-have, not blocking):** a per-pipe diversity-flow readout
+drawn on the CANVAS itself (numbers already on the sheet and pipe panel). The DXF
+item DX.1 is unrelated. Regression fixtures: `test/fixtures/plumbing-booster.pnet.json`.
+
+**Debug files used:** `debug/20260817-PLBG.json` (booster), `debug/20260818-lowrise.json`
+(47 outflows, the current test model).
 
 Nine versions were built in one session on 2026-08-09 (v0.16.4 → v0.16.15), and
 the big ones were:
@@ -160,12 +156,13 @@ clipboard writes fall back to `execCommand`.
 removed because *"an invented correction is not defensible to a checking
 engineer"*. Vindicated twice: a synthesised 45° elbow column turned out 250%
 wrong against the real ASHRAE table. If a number cannot be sourced, ship it
-flagged or not at all. Two things are shipped flagged `verified: false` and must
-not be quietly promoted: the propylene glycol properties, and the IPC 2018
-plumbing tables in `data/plumbing.js` (fixture cold FU and the FU→demand
-diversity curves) — transcribed, awaiting Michael's sign-off against his own
-copy of the code, including the per-fixture occupancy/control choices noted in
-that file. When he confirms them, set `FD.plumbing.verified = true`.
+flagged or not at all. The propylene glycol properties are still shipped flagged
+`verified: false` and must not be quietly promoted. The IPC 2018 plumbing tables
+in `data/plumbing.js` (fixture cold FU, FU→demand curves, 604.3 supply outlets)
+WERE transcribed-not-confirmed but Michael signed them off on 2026-08-18, so
+`FD.plumbing.verified` is now `{ fixtures:true, demand:true, supply:true }`. The
+"estimated" 604.3 rows (not in the code — bathroom group, kitchen-sink/shower
+public, washing machine) remain flagged in RED on the HYDRAULIC tab.
 
 **Test expectations are independent hand calculations**, never numbers copied
 out of the code. About half of all test failures here turned out to be the TEST
