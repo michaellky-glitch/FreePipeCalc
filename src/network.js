@@ -3724,10 +3724,92 @@
       }
     });
 
+    /* WARNINGS ARE THE ENGINE'S JOB HERE TOO.
+     *
+     * This returned `warnings: []` unconditionally until v0.17.15, so a plumbing
+     * file could not report a single one: on Michael's own test model
+     * (20260818-lowrise) three sections ran over the velocity limit and 83 over
+     * the friction-rate limit, and the status chip stayed green with an empty
+     * MESSAGES window. The sheet renderer coloured the velocity cells red and
+     * nothing else in the app knew — which is precisely the failure this project
+     * already fixed once on the hydronic side ("solveModel() reported no
+     * warnings for a network running at 12 m/s"). The detection is not
+     * re-written here: `flowRegimeWarnings` and `disconnections` are the same
+     * functions the GGA path uses, and they are discipline-neutral. */
+    var warnings = flowRegimeWarnings(m, net, { flow: flow });
+    var errors = [];
+
+    /* A FIXTURE BELOW ITS 604.3 REQUIRED PRESSURE. The delivered residual is
+     * the whole point of the forward pass, and nothing was checking it.
+     * `computeWarnings` in the app cannot: it compares against the hydronic
+     * `device.reqPressure`, which on a plumbing fixture is a placeholder.
+     *
+     * Only meaningful where there IS a pressure origin — a pressurised source
+     * or a running booster pump. With neither, every residual is zero-ish and
+     * every fixture would be reported short, which is noise, not a finding. */
+    var hasOrigin = m.nodes.some(function (n) {
+      return n.device && n.device.kind === 'source' && n.device.pressure > 0;
+    }) || m.pipes.some(function (p) {
+      return p.kind === 'pump' && p.pump && p.pump.mode !== 'off';
+    });
+    if (hasOrigin) {
+      m.nodes.forEach(function (n) {
+        var d = n.device;
+        if (!(d && d.kind === 'demand' && d.include !== false)) return;
+        if (pressure[n.id] === undefined) return;
+        var need = (d.demandType === 'plumbing')
+          ? M.plumbingReqPressure(m, d) : (d.reqPressure || 0);
+        var short = pressure[n.id] - need;
+        if (short < 0) {
+          warnings.push({
+            code: 'DW_FIXTURE_SHORT', node: n.id,
+            shortfall: -short, required: need, available: pressure[n.id],
+            message: 'Fixture ' + (n.tag || n.id) + ' is ' +
+                     Math.round(-short / 1000) + ' kPa short of its required ' +
+                     Math.round(need / 1000) + ' kPa. Go up a pipe size on its ' +
+                     'run, or raise the supply pressure.'
+          });
+        }
+      });
+    }
+
+    /* PIPEWORK THE SIZING NEVER SAW. `plumbingSizing` only walks components
+     * that contain a plumbing fixture, so a branch drawn with no fixture on it
+     * is absent from `byPipe` — and therefore absent from the calculation sheet
+     * entirely, with nothing said. Silently dropping pipework from an issued
+     * sheet is the worst version of this. */
+    var unsized = m.pipes.filter(function (p) {
+      return dw.byPipe[p.id] === undefined && p.kind !== 'riser';
+    }).map(function (p) { return p.id; });
+    if (unsized.length) {
+      warnings.push({
+        code: 'DW_UNSIZED', pipe: unsized[0],
+        pipes: unsized,
+        message: unsized.length + ' pipe' + (unsized.length > 1 ? 's are' : ' is') +
+                 ' not sized (' + unsized.slice(0, 6).join(', ') +
+                 (unsized.length > 6 ? ', …' : '') + '). Fixture-unit sizing only ' +
+                 'reaches pipework on a branch that has a source and at least one ' +
+                 'plumbing fixture, so these are left off the calculation.'
+      });
+    }
+
+    /* The same drawing checks the hydronic path runs. A riser ending in mid-air
+     * or two nodes on top of each other is a defect in the DRAWING, and the
+     * drawing is shared between the disciplines. */
+    var dis = disconnections(m);
+    dis.forEach(function (dd) {
+      if (dd.severity === 'error') {
+        errors.push({ code: dd.code, message: dd.message, nodes: dd.nodes, pipe: dd.pipe });
+      } else {
+        warnings.push(dd);
+      }
+    });
+
     return { ok: true, error: null, flow: flow, pressure: pressure, network: net,
              byPipe: dw.byPipe, plumbing: dw, headloss: headloss, dpFric: dpFric,
              totalFU: dw.totalFU, totalFlow: dw.totalFlow,
-             warnings: [], errors: [], iterations: 0 };
+             disconnections: dis,
+             warnings: warnings, errors: errors, iterations: 0 };
   }
 
   FD.network = {

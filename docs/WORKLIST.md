@@ -9,8 +9,8 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-18, after v0.17.14 (the Calculation sheet printed past the
-portrait page margins).
+Updated 2026-08-18, after v0.17.15 (plumbing/hydronic presentation parity and
+the plumbing engine's missing warnings).
 
 ---
 
@@ -48,6 +48,39 @@ The likeliest things to come back:
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
+
+* **v0.17.15** — **Plumbing/hydronic parity pass** (Michael, 2026-08-18: "check
+  that the presentation is consistent in both modes … also check the backend").
+  The plumbing module was built by a less capable model and had drifted from the
+  hydronic baseline in ten places. **Engine (the serious half):**
+  `plumbingReport` returned `warnings: []` unconditionally, so a plumbing file
+  could not raise one — on `20260818-lowrise` **83 sections were over the
+  400 Pa/m friction-rate limit and 2 over the velocity limit**, and the status
+  chip sat green with an empty MESSAGES window. It now runs the SAME
+  `flowRegimeWarnings` and `disconnections` the GGA path uses, plus two new
+  codes: **`DW_FIXTURE_SHORT`** (a fixture below its 604.3 required pressure —
+  the app's `computeWarnings` could not catch this, it was measuring against the
+  hydronic `device.reqPressure` placeholder) and **`DW_UNSIZED`** (pipework in a
+  component with no fixture, previously dropped from the sheet in silence). The
+  status chip is now the shared one, so it counts, colours, previews and honours
+  dismissals like hydronic. **Sheet:** the **Fittings** and **EL** columns are
+  back (the allowance was always IN the numbers — the pipe panel and the CSV
+  showed it, the sheet printed L and L eff with nothing to explain the gap);
+  **Tag** gets its own column; sizes go through `fmtSize` (with the size unit on
+  NPS, hydronic read 2" and plumbing read DN50 for the same pipe); the friction
+  rate is flagged red against the limit; the sheet head names the **friction
+  method** (it quotes a friction drop on every row and never said which
+  equation); new **Fixtures** section (the analogue of hydronic's Device Flow —
+  every fixture, FU, design flow, required, available, margin, worst first); new
+  **Warnings** and **Appendix — Sizing Parameters** sections; Static and Pump
+  head added to the Critical Path grid; and **the DISCLAIMER**, which the
+  plumbing sheet did not carry at all. **CSV:** a plumbing file exported the
+  hydronic columns with a "System: Open loop" header — it now exports the
+  plumbing sheet, same columns, same order. **Print:** the printed plan now
+  carries the FU pipe label the canvas draws. 15 new assertions (suite 2173).
+  Verified live on 20260818-lowrise and 20260817-PLBG; hydronic sheet unchanged
+  (7 sections, 14 columns, 9 warnings); the 14-column plumbing table still fits
+  A4 portrait. Human-Test **DW.S**.
 
 * **v0.17.14** — **The Calculation sheet printed past the page margins in
   portrait** (Michael, 2026-08-18). Every sheet cell is `white-space: nowrap`,

@@ -499,30 +499,30 @@
     app.results = res;
     if (app.view) { app.view.results = res; app.view.render(); }
     hideSolveProgress();
-    var chip = $('status-chip');
-    if (chip) {
-      if (res.error) {
-        chip.textContent = res.error.message.split('.')[0];
-        chip.className = 'chip error';
-        chip.title = res.error.message;
-        chip.style.cursor = '';
-      } else {
-        var nP = Object.keys(res.byPipe || {}).length;
-        chip.textContent = nP
-          ? ('Sized · ' + nP + ' pipe' + (nP > 1 ? 's' : '') + ' · ' +
-             res.totalFU.toFixed(0) + ' FU')
-          : 'Plumbing — place a source and fixtures';
-        chip.className = 'chip ok';
-        chip.title = '';
-        chip.style.cursor = '';
-      }
-    }
+    /* THE SAME CHIP AS HYDRONIC. This used to be written by hand here and set
+     * `chip ok` for anything that sized at all — so a model with three sections
+     * over the velocity limit and 83 over the friction-rate limit reported
+     * "Sized · 184 pipes · 117 FU" in green, with an empty MESSAGES window
+     * behind it (Michael's 20260818-lowrise). `plumbingReport` now returns real
+     * warnings, and the shared chip counts them, colours by severity, previews
+     * them on hover and honours dismissals. */
+    var nP = Object.keys(res.byPipe || {}).length;
+    updateStatusChip(res, null, nP
+      ? ('Sized · ' + nP + ' pipe' + (nP > 1 ? 's' : '') + ' · ' +
+         res.totalFU.toFixed(0) + ' FU')
+      : 'Plumbing — place a source and fixtures');
     refreshPropertyReadouts();
     if (app.messagesRefresh) app.messagesRefresh();
     return res;
   }
 
-  function updateStatusChip(res, errMsg) {
+  /* `okLabel` is what the chip reads when there is nothing to report. Hydronic
+   * says "Solved · N iterations"; a plumbing file is SIZED, not solved, and has
+   * no iteration count to quote. Everything else — errors, defects, the warning
+   * count, the dismissals, the tooltip — is shared, which is the point: the
+   * plumbing chip used to be built by hand in `plumbingSolve` and was therefore
+   * green whatever the model did. */
+  function updateStatusChip(res, errMsg, okLabel) {
     var chip = $('status-chip');
     if (errMsg) { chip.textContent = 'Error: ' + errMsg; chip.className = 'chip error'; return; }
     if (!res) { chip.textContent = 'not solved'; chip.className = 'chip'; return; }
@@ -615,7 +615,7 @@
       chip.title = lines.join('\n');
       chip.style.cursor = 'pointer';
     } else {
-      chip.textContent = 'Solved · ' + res.iterations + ' iterations';
+      chip.textContent = okLabel || ('Solved · ' + res.iterations + ' iterations');
       chip.className = 'chip ok';
       chip.title = '';
       chip.style.cursor = '';
@@ -665,6 +665,15 @@
      * show you. */
     var out = (res.warnings || []).map(function (w) {
       var where = { code: w.code, pipe: w.pipe, node: w.node, nodes: w.nodes };
+      /* Reformatted into the engineer's pressure unit, exactly as PDM is —
+       * the engine states the shortfall in Pa. */
+      if (w.code === 'DW_FIXTURE_SHORT' && w.shortfall !== undefined) {
+        where.message = 'Fixture ' + ((M.node(m, w.node) || {}).tag || w.node) +
+          ' is ' + FD.units.fmtPressure(w.shortfall, d.pressure, true) +
+          ' short of its required ' + FD.units.fmtPressure(w.required, d.pressure, true) +
+          '. Go up a pipe size on its run, or raise the supply pressure.';
+        return where;
+      }
       if (w.code === 'PDM' && w.pdm !== undefined) {
         where.message = 'Section ' + w.section + ': friction rate ' +
           FD.units.fmtPdm(w.pdm, d.pdm, true) + ' exceeds the ' +
@@ -679,6 +688,14 @@
     m.nodes.forEach(function (n) {
       if (!n.device || n.device.kind !== 'demand' || n.device.include === false) return;
       if (res.pressure[n.id] === undefined) return;
+      /* A PLUMBING FIXTURE'S REQUIREMENT IS NOT `device.reqPressure`. It is the
+       * Table 604.3 flow pressure for its fixture and variation, and the field
+       * this loop reads is a placeholder left by `setDemand` — so the shortfall
+       * below was measured against the wrong number and could not fire
+       * correctly. `plumbingReport` raises DW_FIXTURE_SHORT for these instead,
+       * against `M.plumbingReqPressure`, and it arrives through `res.warnings`
+       * above. */
+      if (m.discipline === 'plumbing' && n.device.demandType === 'plumbing') return;
       if (isUnreachable(res.pressure[n.id])) {
         out.push({ code: 'UNREACHABLE', node: n.id,
                    message: 'Outflow ' + n.id + ' cannot be reached — it is isolated by a shut ' +
@@ -835,6 +852,47 @@
   }
 
   /* One row per pipe section, oriented along the direction of flow. */
+  /* THE WARNINGS SECTION AND THE DISCLAIMER, SHARED BY BOTH DISCIPLINES.
+   *
+   * Both used to live inside the hydronic renderer, and the plumbing sheet
+   * returns before them — so a plumbing sheet listed no warnings at all and,
+   * worse, carried NO DISCLAIMER (Michael, 2026-08-18). The disclaimer text is
+   * his, verbatim, and an issued sheet without it is the one presentation
+   * defect here with consequences outside the drawing. */
+  var WARN_GROUPS = [
+    ['defect', 'Model defects', 'What was drawn is not what was meant. ' +
+                                'The arithmetic is sound; the model is not.'],
+    ['warning', 'Warnings', 'The answer stands — worth an engineer\u2019s eye.'],
+    ['notice', 'Notices', 'Nothing to do. Stated so a number is not a puzzle.']
+  ];
+  function fillWarningGroups(secWarn, warnings) {
+    WARN_GROUPS.forEach(function (grp) {
+      var rows = warnings.filter(function (w) { return (w.level || 'warning') === grp[0]; });
+      if (!rows.length) return;
+      secWarn.appendChild(el('h4', 'warn-group ' + grp[0], grp[1] + ' (' + rows.length + ')'));
+      secWarn.appendChild(el('p', 'hint', grp[2]));
+      var ul = el('ul');
+      rows.forEach(function (w) { ul.appendChild(el('li', '', w.message)); });
+      secWarn.appendChild(ul);
+    });
+  }
+
+  /* Disclaimer, always shown and always printed. Supplied verbatim by
+   * Michael — do not paraphrase it. */
+  function appendDisclaimer(host) {
+    host.appendChild(el('p', 'legend disclaimer',
+      'Disclaimer: All calculation results generated by this software must be ' +
+      'independently verified and validated by a qualified professional engineer ' +
+      'prior to use. The outputs have not been evaluated or approved by any ' +
+      'certification body or Authority Having Jurisdiction. Furthermore, the ' +
+      'underlying software is provided "as is," without express or implied ' +
+      'warranties of any kind, including merchantability or fitness for a ' +
+      'particular purpose. In no event shall the software creator be held liable ' +
+      'for any direct, indirect, or consequential damages, claims, or other ' +
+      'liability arising out of or in connection with the use of these results ' +
+      'or the software.'));
+  }
+
   function sheetRows(res) {
     if (!res || !res.network) return [];
     var m = app.model;
@@ -964,6 +1022,15 @@
     metaField('Revision', 'revision', '');
     metaRead('Discipline', 'Plumbing (domestic water)');
     metaRead('Sizing', 'IPC Appendix E — fixture units → ' + sysName + ' demand');
+    /* THE FRICTION METHOD BELONGS ON THE SHEET. This sheet reports a friction
+     * drop, a friction rate and a residual pressure for every section, all
+     * computed with the model's friction method — and never said which one
+     * (Michael, 2026-08-18). The hydronic sheet has always named it, along with
+     * the BETA caveat when the method carries one. */
+    metaRead('Method', FD.hydraulics.method(m.settings.frictionMethod).name);
+    if (FD.hydraulics.method(m.settings.frictionMethod).experimental) {
+      metaRead('Status', 'BETA — verify before issue');
+    }
     metaRead('Fluid', (m.settings.fluid && m.settings.fluid.name) || 'Water');
     metaRead('App version', FD.VERSION);
     if (FD.plumbing.verified && (!FD.plumbing.verified.demand || !FD.plumbing.verified.supply)) {
@@ -1052,17 +1119,32 @@
     }
 
     /* Columns follow the hydronic sheet, with Downstream FU added before Flow
-     * (Michael, 2026-08-18). `ctx` supplies the per-pipe flow and the node
-     * pressure, so the same table serves DESIGN (diversified) and SIMULATION. */
-    var cols = ['Section', 'Size', 'ID mm', 'L ' + d.length, 'L eff ' + d.length,
-                'Downstream FU', 'Flow ' + flowLabel, 'V m/s', 'PD/m ' + d.pdm,
-                'Section PD ' + presLabel, 'Static ' + presLabel];
+     * (Michael, 2026-08-18).
+     *
+     * FITTINGS AND EL WERE MISSING (Michael, 2026-08-18). The fitting
+     * allowance is IN the numbers — `build()` charges it exactly as it does on
+     * the hydronic side, and the pipe PANEL and the CSV export both show it —
+     * but the sheet printed L and L eff with nothing to explain the difference
+     * between them, so the engineer could not see where 0.40 m of drawn pipe
+     * became 1.41 m of effective length. Same columns, same order, same
+     * classes as hydronic; Tag likewise gets its own column when anything is
+     * tagged, instead of being crammed into the Section cell.
+     *
+     * `ctx` supplies the per-pipe flow and the node pressure, so the same table
+     * serves DESIGN (diversified) and SIMULATION. */
+    var anyTag = ids.some(function (id) { var p = M.pipe(m, id); return p && p.tag; });
+    var cols = ['Section'].concat(anyTag ? ['Tag'] : [])
+      .concat(['Size', 'ID mm', 'L ' + d.length, 'Fittings', 'EL ' + d.length,
+               'L eff ' + d.length, 'Downstream FU', 'Flow ' + flowLabel, 'V m/s',
+               'PD/m ' + d.pdm, 'Section PD ' + presLabel, 'Static ' + presLabel]);
     if (anySource) cols.push('Residual ' + presLabel);
+    var pdmLimit = (m.settings.warn && m.settings.warn.pdm) || 0;
     function plumbingTable(list, ctx) {
       var table = el('table', 'sheet');
       var thead = el('thead'), hr = el('tr');
       cols.forEach(function (c) {
-        hr.appendChild(el('th', (c === 'Section' || c === 'Size') ? 'txt' : '', c));
+        hr.appendChild(el('th',
+          (c === 'Section' || c === 'Tag' || c === 'Fittings' || c === 'Size') ? 'txt' : '', c));
       });
       thead.appendChild(hr); table.appendChild(thead);
       var tb = el('tbody');
@@ -1070,24 +1152,33 @@
         var s = rep.byPipe[id], p = M.pipe(m, id), l = linkById[id];
         var q = ctx.flowOf(id), bore = p ? M.pipeBore(m, p) : null;
         var tr = el('tr', pathSet[id] ? 'index-row' : '');
-        tr.appendChild(el('td', 'txt', (p && p.tag ? p.tag + '  ' : '') +
-          nodeLabel(s.from) + ' → ' + nodeLabel(s.to) +
-          (p && p.kind === 'riser' ? '  (riser)' : '')));
-        tr.appendChild(el('td', 'txt', p ? (p.size || '—') : '—'));
-        tr.appendChild(el('td', 'dim', bore ? (bore * 1000).toFixed(1) : '—'));
-        tr.appendChild(el('td', '', l ? FD.units.fmtLength(l._L, d.length) : '—'));
-        tr.appendChild(el('td', 'dim', l ? FD.units.fmtLength(l._Leff, d.length) : '—'));
-        tr.appendChild(el('td', '', s.fu.toFixed(1)));
-        tr.appendChild(el('td', '', FD.units.fmtFlow(q, flowUnit)));
+        function cell(t, cls) { tr.appendChild(el('td', cls, t)); }
+        cell(nodeLabel(s.from) + ' → ' + nodeLabel(s.to) +
+             (p && p.kind === 'riser' ? '  (riser)' : ''), 'txt');
+        if (anyTag) cell((p && p.tag) || '—', 'txt' + (p && p.tag ? '' : ' dim'));
+        /* THROUGH `fmtSize`, like hydronic — with the size unit set to NPS the
+         * hydronic sheet read 2" and this one read DN50 for the same pipe. */
+        cell(p ? FD.units.fmtSize(p.size, d.size) : '—', 'txt');
+        cell(bore ? (bore * 1000).toFixed(2) : '—', 'dim');
+        cell(l ? FD.units.fmtLength(l._L, d.length) : '—');
+        cell((l && FD.fittings.summarise(l._types)) || '—', 'txt dim');
+        cell(l ? FD.units.fmtLength(l._el, d.length) : '—', 'dim');
+        cell(l ? FD.units.fmtLength(l._Leff, d.length) : '—');
+        cell(s.fu.toFixed(1));
+        cell(FD.units.fmtFlow(q, flowUnit));
         var v = bore ? FD.hydraulics.velocity(q, bore) : 0;
-        tr.appendChild(el('td', v > vLimit ? 'bad' : '', v ? v.toFixed(2) : '—'));
-        tr.appendChild(el('td', '', FD.units.fmtPdm(pdmPa(id, q), d.pdm)));
-        tr.appendChild(el('td', '', FD.units.fmtPressure(sectionPa(id, q), presUnit)));
-        tr.appendChild(el('td', 'dim', FD.units.fmtPressure(staticPa(id), presUnit)));
+        cell(v ? v.toFixed(2) : '—', v > vLimit ? 'bad' : '');
+        /* The friction rate is flagged against the model's limit, as hydronic
+         * flags it. It was printed unmarked here, and on 20260818-lowrise 83
+         * sections were over the 400 Pa/m limit with nothing said. */
+        var pdmV = pdmPa(id, q);
+        cell(FD.units.fmtPdm(pdmV, d.pdm), (pdmLimit && pdmV > pdmLimit) ? 'bad' : '');
+        cell(FD.units.fmtPressure(sectionPa(id, q), presUnit));
+        cell(FD.units.fmtPressure(staticPa(id), presUnit), 'dim');
         if (anySource) {
           var pr = ctx.pressOf(s.to);
-          tr.appendChild(el('td', (pr !== undefined && pr < 0) ? 'bad' : '',
-            pr === undefined ? '—' : FD.units.fmtPressure(pr, presUnit)));
+          cell(pr === undefined ? '—' : FD.units.fmtPressure(pr, presUnit),
+               (pr !== undefined && pr < 0) ? 'bad' : '');
         }
         tb.appendChild(tr);
       });
@@ -1116,7 +1207,11 @@
       (anySource && negResidual ? ' · ' + negResidual + ' below zero residual (red)' : '') + '.'));
 
     // ================================================== 2. CRITICAL PATH (DESIGN)
-    function critGrid(sec, avail, reqP, sections, totFric) {
+    /* The hydronic Critical Path grid states Sections / friction / STATIC /
+     * PUMP HEAD / residual. The static lift and the booster's contribution were
+     * missing here, so a run up six floors showed its friction and its answer
+     * with the largest term between them unstated (Michael, 2026-08-18). */
+    function critGrid(sec, avail, reqP, sections, totFric, pathList) {
       var margin = avail - reqP;
       var grid = el('div', 'index-grid');
       function kv(k, v, bad) {
@@ -1127,6 +1222,16 @@
       }
       kv('Sections', String(sections));
       kv('Total friction drop', FD.units.fmtPressure(totFric, presUnit, true));
+      if (pathList) {
+        var stat = pathList.reduce(function (a, id) { return a + staticPa(id); }, 0);
+        kv('Static', FD.units.fmtPressure(stat, presUnit, true));
+        var ph = pathList.reduce(function (a, id) {
+          var pp = M.pipe(m, id);
+          return a + ((pp && pp.kind === 'pump' && pp.pump && pp.pump.mode !== 'off')
+            ? headToPa(pp.pump.head || 0) : 0);
+        }, 0);
+        if (ph) kv('Pump head', FD.units.fmtPressure(ph, presUnit, true));
+      }
       kv('Available at fixture', FD.units.fmtPressure(avail, presUnit, true));
       kv('Required pressure', FD.units.fmtPressure(reqP, presUnit, true));
       kv('Margin', FD.units.fmtPressure(margin, presUnit, true) +
@@ -1141,7 +1246,7 @@
         (wdef.gpm > 0 || wdef.psi > 0 ? '  (' + wdef.label + ')' : '')));
       secCrit.appendChild(plumbingTable(pathPipes, designCtx));
       var totFricD = pathPipes.reduce(function (a, id) { return a + (rep.dpFric[id] || 0); }, 0);
-      critGrid(secCrit, rep.pressure[worst.id], req, pathPipes.length, totFricD);
+      critGrid(secCrit, rep.pressure[worst.id], req, pathPipes.length, totFricD, pathPipes);
       secCrit.appendChild(el('p', 'hint',
         'DESIGN uses the undiversified 604.3 flow at each fixture and the pump’s ' +
         'design head — the sizing basis. What the system actually delivers, with ' +
@@ -1178,13 +1283,144 @@
             (swdef.gpm > 0 || swdef.psi > 0 ? '  (' + swdef.label + ')' : '')));
           secSim.appendChild(plumbingTable(sPath, simCtx));
           var totFricS = sPath.reduce(function (a, id) { return a + sectionPa(id, Math.abs(simRes.flow[id] || 0)); }, 0);
-          critGrid(secSim, simRes.pressure[sWorst.id], reqOf(sWorst), sPath.length, totFricS);
+          critGrid(secSim, simRes.pressure[sWorst.id], reqOf(sWorst), sPath.length, totFricS, sPath);
           secSim.appendChild(el('p', 'hint',
             'SIMULATION: fixtures draw against the pump curve as K-terminals, so ' +
             'flows and delivered pressures differ from the DESIGN basis above.'));
         }
       }
     }
+
+    // ================================================================ FIXTURES
+    /* The plumbing analogue of the hydronic sheet's DEVICE FLOW section: every
+     * fixture, what it was sized for and what the design pass delivers to it.
+     * The sheet had no per-fixture table at all, so the only way to read a
+     * fixture's margin was to be the one fixture that governed the Critical
+     * Path (Michael, 2026-08-18). Sorted by margin, worst first — the order an
+     * engineer reads it in. */
+    (function () {
+      var fx = [];
+      m.nodes.forEach(function (n) {
+        var dv = n.device;
+        if (!(dv && dv.kind === 'demand')) return;
+        fx.push({ n: n, dv: dv, included: dv.include !== false,
+                  pr: rep.pressure[n.id],
+                  need: (dv.demandType === 'plumbing') ? M.plumbingReqPressure(m, dv) : (dv.reqPressure || 0),
+                  q: (dv.demandType === 'plumbing') ? M.plumbingUndivFlow(m, dv) : (dv.flow || 0),
+                  fu: (dv.demandType === 'plumbing') ? M.outflowFU(m, dv) : 0 });
+      });
+      if (!fx.length) return;
+      fx.forEach(function (f) {
+        f.margin = (anySource && f.pr !== undefined) ? f.pr - f.need : null;
+      });
+      fx.sort(function (x, y) {
+        if (x.margin === null && y.margin === null) return 0;
+        if (x.margin === null) return 1;
+        if (y.margin === null) return -1;
+        return x.margin - y.margin;
+      });
+      var shortN = fx.filter(function (f) { return f.margin !== null && f.margin < 0; }).length;
+      var secFx = calcSection('Fixtures', {
+        note: fx.length + (shortN ? ' · ' + shortN + ' short' : '')
+      });
+      var t = el('table', 'sheet'), th = el('thead'), hr = el('tr');
+      var fcols = ['Tag', 'Fixture', 'Count', 'FU', 'Design flow ' + flowLabel,
+                   'Required ' + presLabel];
+      if (anySource) fcols = fcols.concat(['Available ' + presLabel, 'Margin ' + presLabel]);
+      fcols.forEach(function (c) {
+        hr.appendChild(el('th', (c === 'Tag' || c === 'Fixture') ? 'txt' : '', c));
+      });
+      th.appendChild(hr); t.appendChild(th);
+      var tbf = el('tbody');
+      fx.forEach(function (f) {
+        var tr = el('tr', (f.margin !== null && f.margin < 0) ? 'warn-row' : '');
+        function c(txt, cls) { tr.appendChild(el('td', cls, txt)); }
+        c(f.n.tag || f.n.id, 'txt');
+        var fxDef = (f.dv.demandType === 'plumbing') ? M.plumbingFixtureDefault(m, f.dv) : null;
+        c((fxDef && fxDef.label) || 'Generic outflow', 'txt' + (f.included ? '' : ' dim'));
+        c(String(f.dv.count || 1));
+        c(f.fu ? f.fu.toFixed(1) : '—', f.fu ? '' : 'dim');
+        c(FD.units.fmtFlow(f.q, flowUnit));
+        c(FD.units.fmtPressure(f.need, presUnit));
+        if (anySource) {
+          c(f.pr === undefined ? '—' : FD.units.fmtPressure(f.pr, presUnit),
+            f.pr === undefined ? 'dim' : '');
+          c(f.margin === null ? '—' : FD.units.fmtPressure(f.margin, presUnit),
+            (f.margin !== null && f.margin < 0) ? 'bad' : '');
+        }
+        tbf.appendChild(tr);
+      });
+      t.appendChild(tbf);
+      secFx.appendChild(t);
+      secFx.appendChild(el('p', 'hint',
+        'DESIGN basis: the undiversified Table 604.3 flow each fixture is sized ' +
+        'for, against the residual the design pass delivers there. An excluded ' +
+        'fixture is greyed and carries no fixture units.' +
+        (shortN ? '  ' + shortN + ' fixture' + (shortN > 1 ? 's are' : ' is') +
+                  ' below the required pressure (red).' : '')));
+    })();
+
+    // ================================================================ WARNINGS
+    /* The same section the hydronic sheet carries, from the same
+     * `computeWarnings` the status chip reads — so a red cell in the tables
+     * above (WHERE) is paired with a line saying WHAT, and the sheet and the
+     * chip cannot disagree. There was no warnings section here at all until
+     * v0.17.15, because `plumbingReport` returned none. */
+    /* TWO BASES, SAID SEPARATELY. The tables above are the DESIGN sizing, so
+     * the design warnings describe them. But in SIMULATE the status chip counts
+     * the K-terminal solve's warnings, and a chip reading "1 warning" over a
+     * sheet with no warnings section is the two disagreeing about the same
+     * model. Both are listed, each under the basis it came from. */
+    var pWarnD = computeWarnings(rep);
+    var pWarnS = (m.settings.calcMode === 'simulation' && app.results &&
+                  app.results !== rep && app.results.warnings)
+      ? computeWarnings(app.results) : [];
+    if (pWarnD.length || pWarnS.length) {
+      var note = pWarnS.length
+        ? (pWarnD.length + ' design · ' + pWarnS.length + ' simulation')
+        : String(pWarnD.length);
+      var secW = calcSection('Warnings', { note: note });
+      if (pWarnD.length) {
+        if (pWarnS.length) secW.appendChild(el('h4', 'warn-group', 'From the DESIGN sizing'));
+        fillWarningGroups(secW, pWarnD);
+      }
+      if (pWarnS.length) {
+        secW.appendChild(el('h4', 'warn-group', 'From the SIMULATION'));
+        fillWarningGroups(secW, pWarnS);
+      }
+    }
+
+    // ================================================================ APPENDIX
+    /* The parameters these numbers were produced with. A sheet that does not
+     * state its own assumptions cannot be checked — and this sheet quotes a
+     * friction rate and a residual pressure on every row. */
+    (function () {
+      var secApp = calcSection('Appendix — Sizing Parameters', { open: false });
+      var g = el('div', 'index-grid');
+      function kv2(k, v) {
+        var w = el('div', 'kv');
+        w.appendChild(el('span', 'k', k));
+        w.appendChild(el('span', 'v', v));
+        g.appendChild(w);
+      }
+      var meth = FD.hydraulics.method(m.settings.frictionMethod);
+      kv2('Friction method', meth.name);
+      kv2('Demand curve', sysName + ' (IPC Table E103.3(3))');
+      kv2('Fixture units', 'IPC Table E103.3(2), cold');
+      kv2('Fixture flow & pressure', 'IPC Table 604.3');
+      var fl = m.settings.fluid || {};
+      kv2('Fluid', (fl.name || 'Water') + ', ρ = ' + (fl.density || 998) + ' kg/m³');
+      kv2('Default C factor', String(m.settings.C));
+      kv2('Velocity limit', vLimit + ' m/s');
+      kv2('Friction rate limit', ((m.settings.warn && m.settings.warn.pdm) || 0) + ' Pa/m');
+      secApp.appendChild(g);
+      secApp.appendChild(el('p', 'hint',
+        'Fitting allowances are charged into L eff by the same fitting tables the ' +
+        'hydronic side uses; the Fittings column names them per section. Any edit ' +
+        'made to the IPC tables on the HYDRAULIC tab is in the figures above.'));
+    })();
+
+    appendDisclaimer(host);
   }
 
   /* A render failure part-way through leaves a plausible-looking but truncated
@@ -1580,22 +1816,7 @@
        * right?" and "is my design right?" — stopped sharing one list on
        * 2026-08-05. Notices are things that need no action at all and go last. */
       var secWarn = calcSection('Warnings', { note: String(warnings.length) });
-      [['defect', 'Model defects', 'What was drawn is not what was meant. ' +
-                                   'The arithmetic is sound; the model is not.'],
-       ['warning', 'Warnings', 'The answer stands — worth an engineer’s eye.'],
-       ['notice', 'Notices', 'Nothing to do. Stated so a number is not a puzzle.']
-      ].forEach(function (grp) {
-        var rows = warnings.filter(function (w) {
-          return (w.level || 'warning') === grp[0];
-        });
-        if (!rows.length) return;
-        secWarn.appendChild(el('h4', 'warn-group ' + grp[0],
-                               grp[1] + ' (' + rows.length + ')'));
-        secWarn.appendChild(el('p', 'hint', grp[2]));
-        var ul = el('ul');
-        rows.forEach(function (w) { ul.appendChild(el('li', '', w.message)); });
-        secWarn.appendChild(ul);
-      });
+      fillWarningGroups(secWarn, warnings);
     }
 
     // =============================================================== 5. APPENDIX
@@ -1961,23 +2182,108 @@
       secApp.appendChild(g);
     })();
 
-    /* Disclaimer, always shown and always printed. Supplied verbatim by
-     * Michael — do not paraphrase it. */
-    host.appendChild(el('p', 'legend disclaimer',
-      'Disclaimer: All calculation results generated by this software must be ' +
-      'independently verified and validated by a qualified professional engineer ' +
-      'prior to use. The outputs have not been evaluated or approved by any ' +
-      'certification body or Authority Having Jurisdiction. Furthermore, the ' +
-      'underlying software is provided "as is," without express or implied ' +
-      'warranties of any kind, including merchantability or fitness for a ' +
-      'particular purpose. In no event shall the software creator be held liable ' +
-      'for any direct, indirect, or consequential damages, claims, or other ' +
-      'liability arising out of or in connection with the use of these results ' +
-      'or the software.'));
+    appendDisclaimer(host);
+  }
+
+  /* The plumbing calculation as CSV — the same columns, order and figures as
+   * the PLUMBING sheet, so the file and the sheet can be checked against each
+   * other. Mains first, like the sheet's All Pipes (Design). */
+  function exportPlumbingCSV(m) {
+    var rep = FD.network.plumbingReport(m);
+    var delim = m.settings.csv.delimiter;
+    var dec = m.settings.csv.decimal;
+    var d = m.settings.display;
+    function num(v) { var t = String(v); return dec === ',' ? t.replace('.', ',') : t; }
+    function field(v) {
+      var t = String(v);
+      return (t.indexOf(delim) >= 0 || t.indexOf('"') >= 0)
+        ? '"' + t.replace(/"/g, '""') + '"' : t;
+    }
+    var meta = m.settings.meta;
+    var sysKey = (m.settings.plumbing && m.settings.plumbing.system) || 'flushTank';
+    var sysName = sysKey === 'flushometer' ? 'flushometer valve' : 'flush tank';
+    var lines = [];
+    lines.push('# ' + FD.APP_NAME + ' ' + FD.VERSION + ' — domestic water pipe sizing');
+    lines.push('# Project: ' + (meta.project || '—'));
+    lines.push('# Engineer: ' + (meta.engineer || '—') + '  Company: ' + (meta.company || '—'));
+    lines.push('# Date: ' + (meta.date || new Date().toISOString().slice(0, 10)) +
+               '  Revision: ' + (meta.revision || '—'));
+    lines.push('# Method: ' + FD.hydraulics.method(m.settings.frictionMethod).name +
+               '. Sizing: IPC Appendix E, ' + sysName + ' demand curve.');
+    lines.push('# Pressures are gauge; velocity pressure neglected.');
+    lines.push('# For preliminary design assistance only. Results must be verified by a ' +
+               'qualified engineer. No warranty; no liability.');
+
+    if (!rep.ok && rep.error) {
+      lines.push('# NOT SIZED: ' + rep.error.message);
+      download('calculation.csv', lines.join('\r\n'), 'text/csv');
+      toast('Plumbing network cannot be sized — see the calculation sheet.', 'error');
+      return;
+    }
+
+    var linkById = {};
+    if (rep.network) rep.network.links.forEach(function (l) { linkById[l.id] = l; });
+    var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
+    var ids = Object.keys(rep.byPipe).sort(function (a, b) {
+      return rep.byPipe[b].flow - rep.byPipe[a].flow;         // mains first
+    });
+
+    lines.push(['Section', 'Tag', 'Size', 'ID mm', 'L ' + d.length, 'Fittings',
+                'EL ' + d.length, 'L eff ' + d.length, 'Downstream FU',
+                'Flow ' + d.flow, 'Velocity m/s', 'PD/m ' + d.pdm,
+                'Section PD ' + d.pressure, 'Static ' + d.pressure,
+                'Residual ' + d.pressure].map(field).join(delim));
+
+    ids.forEach(function (id) {
+      var sct = rep.byPipe[id], p = M.pipe(m, id), l = linkById[id];
+      var bore = p ? M.pipeBore(m, p) : null, q = sct.flow;
+      var fn = M.node(m, sct.from), tn = M.node(m, sct.to);
+      var statPa = -FD.units.headToPaWith(
+        (tn ? M.elevation(m, tn) : 0) - (fn ? M.elevation(m, fn) : 0), rho);
+      var isPump = p && p.kind === 'pump';
+      var pdmV = (l && l._L > 1e-9 && !isPump)
+        ? FD.units.headToPaWith(
+            Math.abs(FD.hydraulics.headloss(l._rActual, q, l.n)) / l._L, rho) : 0;
+      var pdV = (l && !isPump)
+        ? FD.units.headToPaWith(Math.abs(FD.hydraulics.linkLoss(l, q)), rho) : 0;
+      var pr = rep.pressure[sct.to];
+      lines.push([
+        sct.from + ' → ' + sct.to, (p && p.tag) || '',
+        p ? FD.units.fmtSize(p.size, d.size) : '',
+        l ? num((l._d * 1000).toFixed(2)) : '',
+        l ? num(FD.units.fmtLength(l._L, d.length)) : '',
+        (l && FD.fittings.summarise(l._types)) || '',
+        l ? num(FD.units.fmtLength(l._el, d.length)) : '',
+        l ? num(FD.units.fmtLength(l._Leff, d.length)) : '',
+        num(sct.fu.toFixed(1)),
+        num(FD.units.fmtFlow(q, d.flow)),
+        num(bore ? FD.hydraulics.velocity(q, bore).toFixed(2) : ''),
+        num(FD.units.fmtPdm(pdmV, d.pdm)),
+        num(FD.units.fmtPressure(pdV, d.pressure)),
+        num(FD.units.fmtPressure(statPa, d.pressure)),
+        pr === undefined ? '' : num(FD.units.fmtPressure(pr, d.pressure))
+      ].map(field).join(delim));
+    });
+
+    lines.push('');
+    lines.push('# Total connected load: ' + rep.totalFU.toFixed(1) + ' FU → ' +
+               FD.units.fmtFlow(rep.totalFlow, d.flow) + ' ' + d.flow +
+               ' probable demand at the source.');
+
+    var name = (meta.project || 'calculation').replace(/[^\w\-]+/g, '_').toLowerCase();
+    download(name + '.csv', lines.join('\r\n'), 'text/csv');
+    toast('Plumbing calculation exported as CSV');
   }
 
   function exportCSV() {
     var m = app.model, res = app.results || solveNow();
+    /* A PLUMBING FILE EXPORTS THE PLUMBING SHEET. It used to fall through to
+     * the hydronic writer, which reads `sheetRows` — so the CSV came out with
+     * the hydronic columns, no Downstream FU, rows in network order rather than
+     * mains-first, and a header line reading "System: Open loop", a hydronic
+     * concept the discipline split deliberately removed (Michael, 2026-08-18).
+     * The file did not match the sheet it claims to be. */
+    if (m.discipline === 'plumbing') { exportPlumbingCSV(m); return; }
     var rows = sheetRows(res);
     var delim = m.settings.csv.delimiter;
     var dec = m.settings.csv.decimal;

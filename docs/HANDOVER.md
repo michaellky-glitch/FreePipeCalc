@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.17.14, 2026-08-18.** Ten test suites, **2158 assertions**, all
+State: **v0.17.15, 2026-08-18.** Ten test suites, **2173 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -70,7 +70,7 @@ inside it. The data (`data/plumbing.js`) and the sizing core (`M.plumbingSizing`
 `M.outflowFU`) stay. Full spec and build phases A/B/C are in `docs/DW-MODULE.md`
 → **Architecture v2**.
 
-**CURRENT STATE (v0.17.13): the DW module is functionally complete and Michael
+**CURRENT STATE (v0.17.15): the DW module is functionally complete and Michael
 has signed the IPC data off — `FD.plumbing.verified = { fixtures, demand, supply }`
 all TRUE.** What exists:
 
@@ -107,8 +107,11 @@ all TRUE.** What exists:
   (Tag Info-Panel default-on, FU, Design/Actual flow, Required/Available), no
   Temperature; multi-select edits common props + Display together.
 
-**Left to do (nice-to-have, not blocking):** a per-pipe diversity-flow readout
-drawn on the CANVAS itself (numbers already on the sheet and pipe panel). The DXF
+**The per-pipe diversity-flow readout on the canvas is DONE** — it was built and
+never ticked off. Annotations ▸ Pipes carries **Fixture units** (plumbing only,
+`a.pipeFU`) and the ordinary **Flow** annotation reads `res.flow`, which in a
+plumbing file IS the diversity flow: a pipe on 20260818-lowrise labels
+`48.8FU/50⌀/2.81L/s`. The printed plan carries the same label as of v0.17.15. The DXF
 item DX.1 is unrelated. Regression fixtures: `test/fixtures/plumbing-booster.pnet.json`.
 
 **Debug files used:** `debug/20260817-PLBG.json` (booster), `debug/20260818-lowrise.json`
@@ -266,6 +269,19 @@ replaced a span of `app.js` has quietly deleted functions inside it — the
 Static/Dynamic wiring (v0.16.2) and the progress-bar helpers (v0.16.3). Both
 shipped looking plausible and doing nothing. After any such edit, `grep` for
 what you expect to still be there.
+
+**A SECOND DISCIPLINE DRIFTS UNLESS SOMETHING PULLS IT BACK.** The plumbing
+module reached "functionally complete" with ten presentation and engine
+divergences from the hydronic baseline, none of them visible from inside the
+plumbing code (v0.17.15). The two that mattered: `plumbingReport` returned
+`warnings: []` unconditionally, so 83 over-limit sections reported a green chip;
+and the plumbing sheet carried no DISCLAIMER, because the shared one sat after
+the early `return` in `renderCalculationInner`. **When you add a discipline
+branch, list what the hydronic path does AFTER the branch point** — the
+disclaimer, the warnings section, the appendix and the CSV writer were all
+downstream of it. Shared behaviour now lives in shared functions
+(`fillWarningGroups`, `appendDisclaimer`, `updateStatusChip(res, err, okLabel)`,
+`flowRegimeWarnings`) rather than being written twice.
 
 **`nowrap` IS A SCREEN DECISION, AND PAPER HAS NO SCROLLBAR.** Every
 `table.sheet` cell is `white-space: nowrap` so a column never breaks mid-number;

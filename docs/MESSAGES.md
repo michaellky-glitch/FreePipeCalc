@@ -59,6 +59,8 @@ A plumbing branch is sized from the fixture units DOWNSTREAM of each pipe, which
 | `DW_LOOP` | A plumbing branch contains a loop. Fixture-unit sizing needs a tree — one path from the source to every fixture — so remove the loop or make the outflows generic. | A plumbing component has a cycle, so "downstream" is ambiguous. Diversity sizing is defined only on a tree. |
 | `DW_NO_SOURCE` | A plumbing branch has no source feeding it. Downstream fixture units are only defined from a source, so add one to the branch. | A plumbing component has no source, so there is no root to accumulate downstream fixture units from. |
 | `DW_MULTI_SOURCE` | A plumbing branch has more than one source (…). Fixture-unit sizing needs a single source so each pipe has one upstream path. | A plumbing component has two or more sources, so a pipe's single upstream path — and thus its downstream set — is undefined. |
+| `DW_FIXTURE_SHORT` | Fixture … is … kPa short of its required … kPa. Go up a pipe size on its run, or raise the supply pressure. | The DESIGN forward pass delivers less residual at the fixture than its Table 604.3 flow pressure. Only raised where there is a pressure origin (a pressurised source or a running booster pump) — with neither, every residual is zero and the check is noise. |
+| `DW_UNSIZED` | … pipes are not sized (…). Fixture-unit sizing only reaches pipework on a branch that has a source and at least one plumbing fixture, so these are left off the calculation. | `plumbingSizing` walks only components containing a plumbing fixture. Pipework outside one is absent from the sheet — said out loud rather than dropped silently. |
 
 ### Disconnection errors (checked on every solve)
 

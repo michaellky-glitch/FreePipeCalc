@@ -477,6 +477,93 @@ section('setDemand — plumbing outflow by default in a plumbing file');
     M.plumbingFixtureDefault(pl, pd).label);
 }
 
+// ------------------------------ engine warnings from plumbingReport (v0.17.15)
+section('plumbingReport — the engine reports warnings, not just the renderer');
+{
+  /* `plumbingReport` returned `warnings: []` unconditionally until v0.17.15, so
+   * a plumbing file could not raise one: on Michael's own 20260818-lowrise, 83
+   * sections were over the friction-rate limit and the status chip stayed green.
+   * Detection belongs in the engine — the same rule the hydronic side already
+   * learned. These pin that the SHARED detectors now run on the plumbing path. */
+  const W = tree();
+  // Squeeze the main so it is unambiguously over both limits.
+  const mainPipe = W.m.pipes.filter(function (x) { return x.id === W.ids.p1; })[0];
+  mainPipe.size = 'DN15';
+  W.m.settings.warn = W.m.settings.warn || {};
+  W.m.settings.warn.velocity = 2.4;
+  W.m.settings.warn.pdm = 400;
+  const rw = FD.network.plumbingReport(W.m);
+  ok('the report still sizes', rw.ok === true, rw.error && rw.error.code);
+  const codes = rw.warnings.map(function (x) { return x.code; });
+  ok('an over-velocity main raises VELOCITY', codes.indexOf('VELOCITY') >= 0, codes.join(','));
+  ok('...and PDM for the friction rate', codes.indexOf('PDM') >= 0, codes.join(','));
+  const vw = rw.warnings.filter(function (x) { return x.code === 'VELOCITY'; })[0];
+  ok('the warning names the pipe it is about', vw.pipe === W.ids.p1, vw.pipe);
+  ok('...and carries the limit it breached', vw.limit === 2.4, String(vw.limit));
+
+  // Generously sized, the same model raises neither — the limits are respected,
+  // not just the detectors wired up.
+  const Q = tree();
+  Q.m.pipes.forEach(function (x) { x.size = 'DN100'; });
+  Q.m.settings.warn = { velocity: 2.4, pdm: 400 };
+  const rq = FD.network.plumbingReport(Q.m);
+  const qc = rq.warnings.map(function (x) { return x.code; });
+  ok('an amply sized model raises no VELOCITY', qc.indexOf('VELOCITY') < 0, qc.join(','));
+  ok('...and no PDM', qc.indexOf('PDM') < 0, qc.join(','));
+}
+
+section('plumbingReport — a fixture below its 604.3 required pressure');
+{
+  /* The app's `computeWarnings` cannot catch this: it measures against the
+   * hydronic `device.reqPressure`, which on a plumbing fixture is a placeholder
+   * left by setDemand. The engine measures against M.plumbingReqPressure. */
+  const S = tree();
+  // Starve it: a source barely above zero cannot meet a WC's 604.3 pressure.
+  S.m.nodes.filter(function (n) { return n.device && n.device.kind === 'source'; })
+    .forEach(function (n) { n.device.pressure = 20000; });   // 20 kPa
+  const rs = FD.network.plumbingReport(S.m);
+  const shorts = rs.warnings.filter(function (x) { return x.code === 'DW_FIXTURE_SHORT'; });
+  ok('a starved fixture raises DW_FIXTURE_SHORT', shorts.length > 0, String(rs.warnings.length));
+  ok('...naming the node', !!M.node(S.m, shorts[0].node), shorts[0].node);
+  ok('...with the shortfall in Pa', shorts[0].shortfall > 0, String(shorts[0].shortfall));
+  ok('...and the requirement it missed',
+    Math.abs(shorts[0].required -
+      M.plumbingReqPressure(S.m, M.node(S.m, shorts[0].node).device)) < 1e-9,
+    String(shorts[0].required));
+
+  /* NO PRESSURE ORIGIN, NO CHECK. With no supply pressure and no pump every
+   * residual is zero and every fixture would be reported short — noise, not a
+   * finding. */
+  const N = tree();
+  N.m.nodes.filter(function (n) { return n.device && n.device.kind === 'source'; })
+    .forEach(function (n) { n.device.pressure = 0; });
+  const rn = FD.network.plumbingReport(N.m);
+  ok('an unpressurised model raises no fixture-short noise',
+    rn.warnings.every(function (x) { return x.code !== 'DW_FIXTURE_SHORT'; }),
+    rn.warnings.map(function (x) { return x.code; }).join(','));
+}
+
+section('plumbingReport — pipework the sizing never reached');
+{
+  /* `plumbingSizing` only walks components that contain a plumbing fixture, so
+   * a branch drawn without one is absent from byPipe — and was therefore absent
+   * from the calculation sheet with nothing said. */
+  const U = tree();
+  const lv = U.m.levels[0].id;
+  const a1 = M.addNode(U.m, lv, 40, 40);
+  const b1 = M.addNode(U.m, lv, 45, 40);
+  const stray = M.addPipe(U.m, a1.id, b1.id, { size: 'DN25' });
+  const ru = FD.network.plumbingReport(U.m);
+  const un = ru.warnings.filter(function (x) { return x.code === 'DW_UNSIZED'; })[0];
+  ok('a fixture-less branch raises DW_UNSIZED', !!un,
+    ru.warnings.map(function (x) { return x.code; }).join(','));
+  ok('...listing the pipe it left out', un && un.pipes.indexOf(stray.id) >= 0,
+    un && un.pipes.join(','));
+  ok('...and the sized tree itself raises none',
+    FD.network.plumbingReport(tree().m).warnings
+      .every(function (x) { return x.code !== 'DW_UNSIZED'; }));
+}
+
 // ------------------------------- display defaults (default-ON Tag, v0.17.13)
 section('Display defaults — a default-ON flag is not stored in `show`');
 {

@@ -103,6 +103,14 @@
     var q = results && results.flow ? results.flow[p.id] : undefined;
 
     var parts = [];
+    /* DOWNSTREAM FIXTURE UNITS, plumbing only — the same annotation the canvas
+     * draws, and it was missing here, so the printed plan dropped a label the
+     * screen was showing (Michael, 2026-08-18). `res.byPipe` only exists on a
+     * plumbing report, so the branch is inert in a hydronic file. */
+    if (a.pipeFU && m.discipline === 'plumbing' &&
+        results && results.byPipe && results.byPipe[p.id]) {
+      parts.push(results.byPipe[p.id].fu.toFixed(1) + 'FU');
+    }
     if (a.pipeDiameter) parts.push(FD.units.sizeLabel(p.size, d.size));
     if (a.pipeLength) parts.push(FD.units.fmtLength(M.pipeLength(m, p), d.length) +
                                  (d.length === 'm' ? 'm' : 'ft'));
