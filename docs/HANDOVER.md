@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.17.12, 2026-08-18.** Ten test suites, **2148 assertions**, all
+State: **v0.17.13, 2026-08-18.** Ten test suites, **2158 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -70,7 +70,7 @@ inside it. The data (`data/plumbing.js`) and the sizing core (`M.plumbingSizing`
 `M.outflowFU`) stay. Full spec and build phases A/B/C are in `docs/DW-MODULE.md`
 → **Architecture v2**.
 
-**CURRENT STATE (v0.17.12): the DW module is functionally complete and Michael
+**CURRENT STATE (v0.17.13): the DW module is functionally complete and Michael
 has signed the IPC data off — `FD.plumbing.verified = { fixtures, demand, supply }`
 all TRUE.** What exists:
 
@@ -266,6 +266,15 @@ replaced a span of `app.js` has quietly deleted functions inside it — the
 Static/Dynamic wiring (v0.16.2) and the progress-bar helpers (v0.16.3). Both
 shipped looking plausible and doing nothing. After any such edit, `grep` for
 what you expect to still be there.
+
+**A DEFAULT-ON SWITCH IS NOT IN THE MODEL.** `setDisplayFlag` deletes a value
+equal to its default to keep the document sparse, so a plumbing outflow's Tag —
+which defaults ON — is stored only when it is switched OFF. `drawDeviceBox` then
+bailed on `Object.keys(show).length === 0` before it could draw it, and the tag
+appeared only once some OTHER switch had put a key in `show` (v0.17.13). An
+empty `show` does not mean "nothing is drawn": ask `M.displayDefaults(m, obj)`
+too, and take a panel's `def:` from there rather than writing `true` at the call
+site, or the two drift.
 
 **`renderProperties` is rebuilt from scratch on every solve.** So panel state
 cannot live in the DOM, and a focused input is detached mid-edit. Field handlers

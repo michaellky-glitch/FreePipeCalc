@@ -878,6 +878,32 @@
     return (obj && obj.show) || {};
   }
 
+  /* WHICH FLAGS DEFAULT ON for this object.
+   *
+   * A default-ON flag is NOT stored in `obj.show` — `setDisplayFlag` deletes a
+   * value equal to its default, to keep the model sparse — so an EMPTY `show`
+   * does not mean "nothing is drawn". A plumbing outflow's Tag was invisible
+   * for exactly that reason (Michael, 2026-08-18): the renderer bailed on
+   * `Object.keys(show).length === 0` before it reached the tag, so the tag only
+   * appeared once some OTHER switch had put a key in `show`.
+   *
+   * Anything that reads `displayFlags` to decide whether there is work to do
+   * must ask this too. */
+  function displayDefaults(m, obj) {
+    var def = {};
+    var dev = obj && obj.device;
+    if (m && m.discipline === 'plumbing' && dev && dev.kind === 'demand' &&
+        dev.demandType === 'plumbing') def.tag = true;
+    return def;
+  }
+
+  /* Is `key` drawn for this object — the explicit switch if there is one, the
+   * default otherwise. */
+  function displayShown(m, obj, key) {
+    var show = displayFlags(obj);
+    return (key in show) ? !!show[key] : !!displayDefaults(m, obj)[key];
+  }
+
   /* `def` is the flag's default (for keys that default ON, e.g. a plumbing
    * outflow's Tag). Setting a flag back to its default deletes it (so the model
    * stays sparse); setting it away from the default stores the explicit value —
@@ -3100,6 +3126,7 @@
     labelOffset: labelOffset, setLabelOffset: setLabelOffset,
     clearLabelOffsets: clearLabelOffsets,
     displayFlags: displayFlags, setDisplayFlag: setDisplayFlag,
+    displayDefaults: displayDefaults, displayShown: displayShown,
 
     setSource: setSource, setDemand: setDemand, outflowFU: outflowFU,
     plumbingSizing: plumbingSizing,

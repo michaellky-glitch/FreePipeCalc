@@ -9,8 +9,8 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-18, after v0.17.12 (plumbing test-run fixes: verified IPC data,
-multi-outflow editing, Display/wording, and Design vs Simulation critical paths).
+Updated 2026-08-18, after v0.17.13 (info-panel Tag drew only when another
+Display switch was on).
 
 ---
 
@@ -48,6 +48,20 @@ The likeliest things to come back:
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
+
+* **v0.17.13** — **Info-panel Tag drew only when another Display switch was on**
+  (Michael, 2026-08-18). A plumbing outflow's Tag defaults ON, and a default-ON
+  flag is stored in `obj.show` only when it is switched OFF — so a fresh outflow
+  had an empty `show` and `View.drawDeviceBox` early-returned on
+  `Object.keys(flags).length === 0` before it reached the tag. Ticking any other
+  switch put a key in `show` and the tag appeared alongside it. The defaults now
+  live in the model (`M.displayDefaults` / `M.displayShown`), the renderer's
+  cheap guard asks for them too, and both properties panels take their `def`
+  from the same place instead of hard-coding `true`. 10 new assertions (suite
+  2158). Verified live on 20260818-lowrise: every plumbing outflow on the active
+  level draws its tag with nothing stored in `show`; a leftover *generic*
+  outflow correctly does not; switching Tag off (single or multi-select) removes
+  it and switching it back on returns the model to sparse. No console errors.
 
 * **v0.17.12** — Michael's 2026-08-18 plumbing test-run list. **General:** IPC
   demand/604.3 data marked **verified** (all three tables signed off); **>1

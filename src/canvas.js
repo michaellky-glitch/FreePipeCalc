@@ -4229,12 +4229,17 @@
    * fitting, which is exactly what a busy drawing needs (Michael, 2026-08-02).
    * The disconnection ⚠️ already worked this way, under the 'warn' key. */
   View.prototype.drawDeviceBox = function (obj, s) {
+    var m = this.getModel(), d = m.settings.display, res = this.results, ctx = this.ctx;
     var flags = M.displayFlags(obj);
-    var keys = Object.keys(flags);
-    if (!keys.length) return;
+    /* A DEFAULT-ON FLAG IS NOT IN `show`. Bailing on an empty `show` skipped a
+     * plumbing outflow's Tag, which defaults ON and is therefore stored only
+     * when it is switched OFF — so the tag appeared only once some other
+     * switch had put a key in `show` (Michael, 2026-08-18). The cheap guard is
+     * kept, but it now asks the model what defaults on as well. */
+    var defs = M.displayDefaults(m, obj);
+    if (!Object.keys(flags).length && !Object.keys(defs).length) return;
     var off = M.labelOffset(obj, 'box');
 
-    var m = this.getModel(), d = m.settings.display, res = this.results, ctx = this.ctx;
     var lines = [];
     var dev = obj.device;
 
@@ -4245,8 +4250,7 @@
       /* Tag in the info panel — DEFAULT ON for a plumbing outflow (Michael,
        * 2026-08-18), off unless ticked otherwise. It is the only place a node's
        * tag is drawn. */
-      var tagOn = (obj.show && ('tag' in obj.show)) ? obj.show.tag : isPlumbFix;
-      if (tagOn && obj.tag) lines.push(obj.tag);
+      if (M.displayShown(m, obj, 'tag') && obj.tag) lines.push(obj.tag);
       /* Fixture units — plumbing only. */
       if (flags.fu && m.discipline === 'plumbing') {
         lines.push('FU ' + M.outflowFU(m, dev).toFixed(1));

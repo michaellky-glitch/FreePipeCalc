@@ -2756,7 +2756,11 @@
         scheduleSave(); app.view.render(); renderProperties();
       });
       var dispOpts = plumbSel
-        ? [{ key: 'tag', label: 'Tag (Info Panel)', def: true }, { key: 'fu', label: 'Fixture units' },
+        ? [{ key: 'tag', label: 'Tag (Info Panel)',
+             /* Default-ON only if it is default-ON for EVERY selected outflow —
+              * a mixed selection stores the explicit value instead. */
+             def: demandNodes.every(function (n) { return !!M.displayDefaults(m, n).tag; }) },
+           { key: 'fu', label: 'Fixture units' },
            { key: 'flow', label: 'Design flow' }, { key: 'actualFlow', label: 'Actual flow' },
            { key: 'required', label: 'Required pressure' }, { key: 'available', label: 'Available pressure' }]
         : [{ key: 'flow', label: 'Design flow' }, { key: 'actualFlow', label: 'Actual flow' },
@@ -5878,7 +5882,10 @@
       var demandDisplay = [];
       /* Tag in the info panel — DEFAULT ON for a plumbing outflow (Michael,
        * 2026-08-18), matching the in-line devices. */
-      if (plumbingOutflow) demandDisplay.push({ key: 'tag', label: 'Tag (Info Panel)', def: true });
+      if (plumbingOutflow) {
+        demandDisplay.push({ key: 'tag', label: 'Tag (Info Panel)',
+                             def: !!M.displayDefaults(m, n).tag });
+      }
       /* Fixture units — plumbing only (a hydronic outflow has none). */
       if (m.discipline === 'plumbing') demandDisplay.push({ key: 'fu', label: 'Fixture units' });
       demandDisplay.push(

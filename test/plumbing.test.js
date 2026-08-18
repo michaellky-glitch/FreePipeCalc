@@ -477,6 +477,43 @@ section('setDemand — plumbing outflow by default in a plumbing file');
     M.plumbingFixtureDefault(pl, pd).label);
 }
 
+// ------------------------------- display defaults (default-ON Tag, v0.17.13)
+section('Display defaults — a default-ON flag is not stored in `show`');
+{
+  /* THE BUG (Michael, 2026-08-18): the info-panel Tag defaults ON for a plumbing
+   * outflow, so it is absent from `obj.show` until it is switched OFF — and the
+   * renderer bailed on an empty `show` before it drew anything. The tag only
+   * appeared once some OTHER display switch had put a key in `show`. */
+  const pl = M.create(); pl.discipline = 'plumbing';
+  const pn = M.addNode(pl, pl.levels[0].id, 0, 0);
+  M.setDemand(pl, pn.id, 0.001, 100000);
+  const node = M.node(pl, pn.id);
+
+  ok('a fresh plumbing outflow stores no display flags', !node.show);
+  ok('...but Tag defaults ON', M.displayDefaults(pl, node).tag === true);
+  ok('...so displayShown reports the tag drawn', M.displayShown(pl, node, 'tag') === true);
+  ok('...and there IS a default to stop the renderer bailing',
+    Object.keys(M.displayDefaults(pl, node)).length > 0);
+  ok('a flag with no default reads off', M.displayShown(pl, node, 'fu') === false);
+
+  // Switching it OFF stores the explicit false; switching back ON clears it.
+  M.setDisplayFlag(node, 'tag', false, true);
+  ok('switching Tag off stores an explicit false', node.show && node.show.tag === false);
+  ok('...and displayShown follows the explicit value', M.displayShown(pl, node, 'tag') === false);
+  M.setDisplayFlag(node, 'tag', true, true);
+  ok('switching it back on returns to the sparse default',
+    !node.show && M.displayShown(pl, node, 'tag') === true);
+
+  // A hydronic outflow has no default-ON tag — nothing changes for it.
+  const hy = M.create();
+  const hn = M.addNode(hy, hy.levels[0].id, 0, 0);
+  M.setDemand(hy, hn.id, 0.001, 100000);
+  const hnode = M.node(hy, hn.id);
+  ok('a hydronic outflow has no default-ON flags',
+    Object.keys(M.displayDefaults(hy, hnode)).length === 0);
+  ok('...and its tag is not drawn by default', M.displayShown(hy, hnode, 'tag') === false);
+}
+
 // ---------------------------------------- regression: booster with no supply set
 section('Regression — plumbing booster simulates with no supply outlets set');
 {
