@@ -878,10 +878,15 @@
     return (obj && obj.show) || {};
   }
 
-  function setDisplayFlag(obj, key, on) {
+  /* `def` is the flag's default (for keys that default ON, e.g. a plumbing
+   * outflow's Tag). Setting a flag back to its default deletes it (so the model
+   * stays sparse); setting it away from the default stores the explicit value —
+   * which for a default-ON key means storing `false`. */
+  function setDisplayFlag(obj, key, on, def) {
     if (!obj) return;
     if (!obj.show) obj.show = {};
-    if (on) obj.show[key] = true; else delete obj.show[key];
+    if (on === !!def) delete obj.show[key];
+    else obj.show[key] = on;
     if (!Object.keys(obj.show).length) delete obj.show;
   }
 

@@ -18,12 +18,11 @@
  * The CFM column is not carried (gpm is what sizing needs). Nothing here is
  * derived or interpolated at rest, only transcribed.
  *
- * `FD.plumbing.verified` is now PER TABLE, because they are signed off
- * separately: { fixtures, demand }.
- *   - fixtures: TRUE — Michael verified Table E103.3(2) on 2026-08-16.
- *   - demand:   false — Table E103.3(3) not yet confirmed against his copy.
- * The tables are also editable per model on the HYDRAULIC tab; an in-app edit
- * overrides a cell for that model but does not promote the shipped default.
+ * `FD.plumbing.verified` is PER TABLE: { fixtures, demand, supply }. Michael
+ * signed off all three — fixtures E103.3(2) on 2026-08-16, and the demand curves
+ * E103.3(3) + the 604.3 supply outlets on 2026-08-18. The tables stay editable
+ * per model on the HYDRAULIC tab; an in-app edit overrides a cell for that model
+ * but does not change the shipped default.
  *
  * A fixture that the table splits by occupancy and/or supply control carries one
  * VARIATION per row (Private / Public, flush tank / flush valve), each with its
@@ -139,7 +138,7 @@
   ];
 
   /* ==========================================================================
-   * FIXTURE SUPPLY OUTLETS — IPC Table 604.3 (transcribed verbatim, verified:false)
+   * FIXTURE SUPPLY OUTLETS — IPC Table 604.3 (transcribed verbatim, verified)
    * ==========================================================================
    * The UNDIVERSIFIED flow a single fixture supply outlet draws, and the flow
    * PRESSURE it needs at the outlet. This is a DIFFERENT taxonomy from the
@@ -291,7 +290,7 @@
     /* Per-table sign-off. Fixtures (E103.3(2)) verified by Michael 2026-08-16;
      * the demand curves (E103.3(3)) and the supply outlets (604.3) are still
      * transcribed-not-confirmed. */
-    verified: { fixtures: true, demand: false, supply: false },
+    verified: { fixtures: true, demand: true, supply: true },
     GPM_TO_M3S: GPM_TO_M3S,
     PSI_TO_PA: PSI_TO_PA,
     fixtures: FIXTURES,

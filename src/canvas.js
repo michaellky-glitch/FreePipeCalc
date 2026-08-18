@@ -4119,8 +4119,14 @@
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(s.x, s.y, 6.5, 0, Math.PI * 2);
         if (active) ctx.fill(); else ctx.stroke();      // hollow when excluded (§8.2)
-        var txt = FD.units.fmtFlow(dev.flow, m.settings.display.flow, true);
-        self.label(s, txt, active ? self.theme.accent : self.theme.mute);
+        /* A PLUMBING fixture has no meaningful `dev.flow` (it is sized from FUs),
+         * so the old glyph label printed the 1.00 L/s placeholder on every
+         * outflow — Michael, 2026-08-18. Show nothing there; the design flow is
+         * an opt-in Display value box instead. Hydronic keeps the demand flow. */
+        if (!(m.discipline === 'plumbing' && dev.demandType === 'plumbing')) {
+          var txt = FD.units.fmtFlow(dev.flow, m.settings.display.flow, true);
+          self.label(s, txt, active ? self.theme.accent : self.theme.mute);
+        }
       } else if (degree !== 2) {
         // junctions and ends get a dot; plain elbows do not need one
         ctx.fillStyle = self.theme.dim;
@@ -4233,34 +4239,30 @@
     var dev = obj.device;
 
     if (dev && dev.kind === 'demand') {
-      /* Fixture units on the drawing — plumbing only (a hydronic outflow has
-       * none). The outflow's own cold FU: count × the fixture's FU. */
-      if (flags.fu && m.discipline === 'plumbing') {
-        lines.push('FU ' + M.outflowFU(m, dev).toFixed(1));
-      }
-      /* A PLUMBING fixture's design flow is its UNDIVERSIFIED 604.3 flow, not the
-       * generic dev.flow (which stays at its placeholder for a fixture) — Michael,
-       * 2026-08-17. In SIMULATION the shown flow is what the K-terminal actually
-       * draws at the solved pressure, exactly like a hydronic terminal. */
       var isPlumbFix = (m.discipline === 'plumbing' && dev.demandType === 'plumbing');
       var simR = res && res.simulation;
       var solvedTerm = simR && simR.terminals.filter(function (t) { return t.node === obj.id; })[0];
+      /* Tag in the info panel — DEFAULT ON for a plumbing outflow (Michael,
+       * 2026-08-18), off unless ticked otherwise. It is the only place a node's
+       * tag is drawn. */
+      var tagOn = (obj.show && ('tag' in obj.show)) ? obj.show.tag : isPlumbFix;
+      if (tagOn && obj.tag) lines.push(obj.tag);
+      /* Fixture units — plumbing only. */
+      if (flags.fu && m.discipline === 'plumbing') {
+        lines.push('FU ' + M.outflowFU(m, dev).toFixed(1));
+      }
+      /* DESIGN flow: the fixture's undiversified 604.3 flow (a plumbing fixture's
+       * dev.flow is a placeholder). Always the design value — the solved draw is
+       * the separate "Actual flow" (Michael, 2026-08-18). */
       if (flags.flow) {
-        var qShow;
-        if (isPlumbFix) {
-          qShow = (m.settings.calcMode === 'simulation' && solvedTerm)
-            ? solvedTerm.actualFlow : M.plumbingUndivFlow(m, dev);
-        } else {
-          qShow = dev.flow;
-        }
-        if (qShow !== null && qShow !== undefined && isFinite(qShow)) {
-          lines.push('Q ' + FD.units.fmtFlow(qShow, d.flow, true));
+        var qd = isPlumbFix ? M.plumbingUndivFlow(m, dev) : dev.flow;
+        if (qd !== null && qd !== undefined && isFinite(qd)) {
+          lines.push('Q ' + FD.units.fmtFlow(qd, d.flow, true));
         }
       }
       if (flags.actualFlow) {
         /* What the terminal actually draws: the solved terminal flow in
-         * SIMULATION, the design demand in DESIGN (where it is imposed). For a
-         * plumbing fixture the DESIGN demand is its undiversified flow. */
+         * SIMULATION, the design demand in DESIGN (where it is imposed). */
         var qa = solvedTerm ? solvedTerm.actualFlow
                : (m.settings.calcMode !== 'simulation'
                     ? (isPlumbFix ? M.plumbingUndivFlow(m, dev) : dev.flow) : null);
@@ -4268,7 +4270,10 @@
           lines.push('Qa ' + FD.units.fmtFlow(qa, d.flow, true));
         }
       }
-      if (flags.required) lines.push('Req ' + FD.units.fmtPressure(dev.reqPressure, d.pressure, true));
+      if (flags.required) {
+        var reqP = isPlumbFix ? M.plumbingReqPressure(m, dev) : dev.reqPressure;
+        lines.push('Req ' + FD.units.fmtPressure(reqP, d.pressure, true));
+      }
       if (flags.available && res && res.pressure[obj.id] !== undefined) {
         lines.push('Avail ' + FD.units.fmtPressure(res.pressure[obj.id], d.pressure, true));
       }

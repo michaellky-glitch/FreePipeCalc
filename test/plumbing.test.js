@@ -16,8 +16,8 @@ const GPM = P.GPM_TO_M3S;
 section('Provenance');
 ok('fixture table E103.3(2) is verified (Michael, 2026-08-16)', P.verified.fixtures === true,
   `verified.fixtures = ${P.verified.fixtures}, expected true`);
-ok('demand table E103.3(3) is still unverified', P.verified.demand === false,
-  `verified.demand = ${P.verified.demand}, expected false (transcribed, not signed off)`);
+ok('demand table E103.3(3) is verified (Michael, 2026-08-18)', P.verified.demand === true,
+  `verified.demand = ${P.verified.demand}, expected true`);
 
 // --------------------------------------------------- fixture cold FU
 section('Fixture cold FU — Table E103.3(2), by variation');
@@ -308,7 +308,7 @@ const NET = FD.network;
 // ---------------------------------------- fixture supply (Table 604.3)
 section('Fixture supply — Table 604.3 (undiversified flow & pressure)');
 {
-  ok('supply table is flagged unverified', P.verified.supply === false);
+  ok('supply table (604.3) is verified (Michael, 2026-08-18)', P.verified.supply === true);
   ok('the supply list is present', P.supplies.length > 5);
   const wc = P.fixtureSupply('wcTankCloseCoupled');
   ok('a supply row transcribes gpm/psi', wc && wc.gpm === 3 && wc.psi === 20);
