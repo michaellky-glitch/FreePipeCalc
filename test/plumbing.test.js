@@ -564,6 +564,48 @@ section('plumbingReport — pipework the sizing never reached');
       .every(function (x) { return x.code !== 'DW_UNSIZED'; }));
 }
 
+// -------------------- generic demand is added undiversified, and says so (v0.17.17)
+section('plumbingReport — a generic outflow is added undiversified and reported');
+{
+  /* Michael, 2026-08-18, on P276 of 20260818-lowrise: "Downstream FU = 116.9,
+   * Diversity Flow = 2.98. Why is Design Flow 3.98?" One generic outflow a floor
+   * below, still at the 1.00 L/s value `setDemand` writes as a default, added
+   * LINEARLY to every pipe upstream — a quarter of the building's design flow
+   * and a quarter of the booster duty. The rule is right (a continuous draw is
+   * not a fixture unit); nothing was saying it applied. */
+  const G = tree();                      // p4 feeds a generic outflow at 0.002
+  const rg = FD.network.plumbingReport(G.m);
+  const main = rg.byPipe[G.ids.p1];
+  near('the main carries the diversified FU flow plus the generic, linearly',
+    main.flow, P.fuToFlow(main.fu, 'flushTank') + main.generic, 1e-15);
+  near('...and the generic part is NOT run through the demand curve',
+    main.generic, 0.002, 1e-12);
+  ok('the diversified part alone is less than the total',
+    P.fuToFlow(main.fu, 'flushTank') < main.flow);
+
+  const note = rg.warnings.filter(function (w) { return w.code === 'DW_GENERIC_DEMAND'; })[0];
+  ok('a generic outflow raises DW_GENERIC_DEMAND', !!note,
+    rg.warnings.map(function (w) { return w.code; }).join(','));
+  ok('...as a NOTICE, because the rule is correct and deliberate',
+    note && note.level === 'notice', note && note.level);
+  near('...carrying the total generic draw', note.total, 0.002, 1e-12);
+  ok('...and naming the node responsible', note.nodes.length === 1 &&
+    !!M.node(G.m, note.nodes[0]), note.nodes.join(','));
+
+  /* An all-fixture job says nothing — the notice must not become wallpaper. */
+  const F = tree();
+  F.m.nodes.forEach(function (n) {
+    if (n.device && n.device.kind === 'demand' && n.device.demandType !== 'plumbing') {
+      n.device.include = false;
+    }
+  });
+  const rf = FD.network.plumbingReport(F.m);
+  ok('an all-fixture model raises no generic notice',
+    rf.warnings.every(function (w) { return w.code !== 'DW_GENERIC_DEMAND'; }));
+  near('...and its main is purely the diversified FU flow',
+    rf.byPipe[F.ids.p1].flow, P.fuToFlow(rf.byPipe[F.ids.p1].fu, 'flushTank'), 1e-15);
+}
+
 // ---------------------------- booster pump sizing on the plumbing path (v0.17.16)
 section('plumbingPumpDuty — sizing a booster without the GGA');
 {
@@ -599,12 +641,35 @@ section('plumbingPumpDuty — sizing a booster without the GGA');
   const duty = FD.network.plumbingPumpDuty(BT.m, BT.pump);
   ok('the duty resolves', duty.ok === true, duty.error && duty.error.code);
 
-  /* THE FLOW IS THE DIVERSITY FLOW, not the sum of undiversified fixture flows
-   * and emphatically not count × the 1 L/s placeholder. */
-  near('duty flow = the diversity flow through the pump',
+  /* THE DUTY FLOW IS MICHAEL'S RULE (2026-08-18, logged in docs/DW-MODULE.md):
+   * the index fixture at its FULL 604.3 flow, plus the DIVERSIFIED flow of every
+   * other fixture unit the pump serves, plus any generic draw. It is NOT the
+   * whole-branch diversified flow (that is the PIPE's basis), and emphatically
+   * not count × the 1.00 L/s placeholder (the 47 L/s bug). */
+  const idxDev = M.node(BT.m, BT.fixture).device;
+  const idxFU = M.outflowFU(BT.m, idxDev);
+  const servedFU = rep0.byPipe[BT.pump].fu;
+  const expect = M.plumbingUndivFlow(BT.m, idxDev) +
+                 P.fuToFlow(servedFU - idxFU, 'flushTank') +
+                 (rep0.byPipe[BT.pump].generic || 0);
+  near('the rule gives index-at-full-flow + the rest diversified', duty.ruleFlow, expect, 1e-15);
+  ok('the index fixture is named', duty.indexNode === BT.fixture, duty.indexNode);
+  near('...at its undiversified 604.3 flow',
+    duty.indexFlow, M.plumbingUndivFlow(BT.m, idxDev), 1e-15);
+
+  /* THE FLOOR. This tree puts all four WCs on ONE node, so the index fixture is
+   * the whole branch: the rule takes all 8.8 FU out of the curve and adds back
+   * 4 x 1.6 gpm = 0.404 L/s, which is BELOW the 0.853 L/s the pipe is sized for
+   * (at low FU the demand curve sits above the sum of the outlet flows). A pump
+   * that passes less than its own pipe is not defensible, so the duty floors at
+   * the branch flow. */
+  ok('the rule alone would fall below the pipe flow here',
+    duty.ruleFlow < Math.abs(rep0.flow[BT.pump]),
+    `rule ${duty.ruleFlow} vs pipe ${Math.abs(rep0.flow[BT.pump])}`);
+  near('...so the duty floors at the branch diversified flow',
     duty.q, Math.abs(rep0.flow[BT.pump]), 1e-15);
-  const placeholder = M.node(BT.m, BT.fixture).device.flow *
-                      M.node(BT.m, BT.fixture).device.count;
+  ok('...and says it was floored', duty.flooredToBranch === true);
+  const placeholder = idxDev.flow * idxDev.count;
   ok('...and is NOT count × the placeholder flow (the 47 L/s bug)',
     Math.abs(duty.q - placeholder) > 1e-6,
     `duty ${duty.q} vs placeholder ${placeholder}`);

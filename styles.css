@@ -866,8 +866,10 @@ table.doc-table th { background: var(--bg-raised); color: var(--text-dim); font-
 
   /* PRINT means the drawing on the network tab and the sheet on the
      calculation tab; app.js sets the body class to pick one. */
-  body.printing-sheet .pane#pane-calculation { display: block !important; padding: 0; }
-  body.printing-sheet #print-plans { display: none !important; }
+  body.printing-sheet .pane#pane-calculation,
+  body.printing-sheet-land .pane#pane-calculation { display: block !important; padding: 0; }
+  body.printing-sheet #print-plans,
+  body.printing-sheet-land #print-plans { display: none !important; }
 
   body.printing-plans #print-plans { display: block !important; }
   body.printing-plans .pane { display: none !important; }
@@ -905,9 +907,18 @@ table.doc-table th { background: var(--bg-raised); color: var(--text-dim); font-
      letterhead (spec §11). Level plans: thin margins and landscape, because
      the drawing carries its own title strip and wants the width. */
   @page sheetpage { margin: 28mm 12mm 14mm; }
+  /* THE SAME SHEET, TURNED. A pipe schedule wide enough to carry Fittings, EL,
+     Downstream FU, Diversified and Generic runs to seventeen columns, and at
+     that width NOTHING fits A4 portrait — 734px of table against 703px of page
+     even at 8pt with 2px padding, which is past the point of being readable on
+     paper anyway. So the sheet turns instead of shrinking, and `printAs`
+     measures the widest table and picks. The letterhead margin is kept, at the
+     20mm a landscape page can spare. */
+  @page sheetpageland { margin: 20mm 12mm 14mm; size: landscape; }
   @page planpage { margin: 8mm; size: landscape; }
 
   body.printing-sheet #pane-calculation { page: sheetpage; }
+  body.printing-sheet-land #pane-calculation { page: sheetpageland; }
   body.printing-plans #print-plans { page: planpage; }
 }
 

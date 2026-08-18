@@ -12,6 +12,59 @@ Michael's request, 2026-08-12; re-architected 2026-08-16 to isolate the
 known-good GGA (see **Architecture v2**). The DATA and the sizing CORE are built
 (v0.16.31–32); the DISCIPLINE split and the plumbing UI/report are what remain.
 
+## Booster duty flow — DECISION, Michael, 2026-08-18
+
+**Logged here at his request so it can be revisited.**
+
+> "In plumbing mode the pump should be autosized to cater for flow at most
+> remote outflow + diversified flow of (Total FU − FU of furthest outflows)."
+
+So the booster's DUTY FLOW is
+
+    Q_duty = Q_undiversified(index fixture)              ← Table 604.3, × count
+           + fuToFlow(FU_served − FU_index)              ← the demand curve
+           + generic (continuous) draw served            ← added linearly
+
+**Why it differs from the pipe sizing, deliberately.** A PIPE carries the
+diversified demand of everything downstream of it, which is the right basis for
+a pipe: it is a statistical statement about a population of fixtures. The PUMP
+has to satisfy the index fixture *while that fixture is actually running*, at its
+full 604.3 flow — not at its share of a diversified total. Everything behind the
+index fixture is still a population and is still diversified. The generic draw is
+continuous by definition, so it is neither diversified nor singled out.
+
+**"Most remote" is defined as LEAST MARGIN** — delivered residual minus the
+fixture's 604.3 required pressure — which is the same definition the Critical
+Path uses, so the calculation sheet and the pump cannot disagree about which
+fixture governs. Only fixtures in the pump's own subtree are considered.
+
+On `debug/20260818-lowrise.json`: index fixture N185 (2.2 FU, 0.101 L/s full
+flow), the remaining 114.7 FU diversify to 2.953 L/s, plus 1.000 L/s of generic
+draw → **4.054 L/s**. The previous rule (whole-branch diversified flow) gave
+3.984 L/s.
+
+**ONE ADDITION TO THE RULE, flagged for Michael's decision (2026-08-18).** At
+LOW fixture-unit counts the IPC demand curve sits ABOVE the sum of the
+individual 604.3 outlet flows — four WCs are 8.8 FU → 0.853 L/s off the curve,
+but 4 × 1.6 gpm = 0.404 L/s at the outlets. So taking the index fixture out of
+the curve and adding back only its own outlet flow can land BELOW the
+diversified demand the pipe itself is sized for; in the degenerate case (one
+node carrying every fixture on the branch) it removes the entire load. A pump
+sized to pass less than its own pipe carries is not defensible whatever the rule
+says, so **the duty is floored at the branch's diversified flow**. On a real job
+the rule governs and the floor is inert — lowrise gives 4.054 L/s from the rule
+against 3.984 L/s from the branch. `plumbingPumpDuty` returns `ruleFlow`,
+`branchFlow` and `flooredToBranch` so it is visible which applied.
+
+**Implemented in** `FD.network.plumbingPumpDuty(m, pipeId)` (`src/network.js`),
+pinned by `test/plumbing.test.js`. **Open question, not yet answered:** the HEAD
+is still the head that puts the index fixture on its required pressure at the
+DESIGN (diversified) flows — the residual pass's own basis. It is not recomputed
+at the higher duty flow, where the index run's friction would be greater. If the
+duty head should be evaluated at the duty flow, that is a change to make here.
+
+---
+
 ## Decisions
 
 > **SUPERSEDED, 2026-08-16.** Decision 1 below (DW lives inside DESIGN, sharing

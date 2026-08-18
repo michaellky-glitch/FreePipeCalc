@@ -9,8 +9,8 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-18, after v0.17.16 (the plumbing HYDRAULIC tab's missing
-controls, and the booster sizing to 47 L/s @ 2 MPa).
+Updated 2026-08-18, after v0.17.17 (where the plumbing design flow comes from,
+and Michael's booster duty rule).
 
 ---
 
@@ -48,6 +48,34 @@ The likeliest things to come back:
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
+
+* **v0.17.17** — **"Downstream FU = 116.9, Diversity Flow = 2.98. Why is Design
+  Flow 3.98?"** (Michael, 2026-08-18, on P276 of 20260818-lowrise). The answer
+  is **one generic outflow**, N54/OF-2 on Level 1, still sitting at the 1.00 L/s
+  value `setDemand` writes as a default. `plumbingSizing` adds a generic
+  (non-plumbing) demand LINEARLY on top of the diversified fixture-unit flow,
+  which is the right rule — a continuous draw is not a fixture unit — but
+  nothing said it was happening, and that one node was **a quarter of the
+  building's design flow and a quarter of the booster duty**, from a number
+  nobody chose. Now: a **`DW_GENERIC_DEMAND` notice** naming the nodes and their
+  total; **Diversified** and **Generic** columns on the sheet (Generic only when
+  the model has any) so a row shows its own arithmetic — 116.9 | 2.98 | 1.00 |
+  3.98; and the pipe panel always writes the sum out instead of hiding Design
+  flow when there is no generic.
+  **BOOSTER DUTY FLOW — Michael's rule, logged in `docs/DW-MODULE.md` at his
+  request:** Q = the undiversified flow at the most remote outflow + the
+  diversified flow of (total FU − that outflow's FU) + any generic draw. The
+  index fixture is the least-margin one, the same definition the Critical Path
+  uses. Lowrise: N185 at 0.101 L/s + 114.7 FU diversified to 2.953 + 1.000
+  generic = **4.054 L/s** (was 3.984 on the whole-branch rule). **One addition,
+  flagged:** at low FU the demand curve sits above the sum of the 604.3 outlet
+  flows, so the rule can land BELOW the flow the pipe itself is sized for — the
+  duty is floored at the branch flow. Inert on a real job.
+  **PRINT: the sheet now turns.** The pipe schedule reached 17 columns and at
+  that width nothing fits A4 portrait — 734px even at 8pt with 2px padding.
+  `printAs` measures the widest OPEN table under the print typography and claims
+  a landscape named page when it must, saying so in a toast.
+  14 new assertions (suite 2196). Human-Test **DW.X**.
 
 * **v0.17.16** — **The booster sized to 47 L/s @ 2 MPa, and the plumbing
   HYDRAULIC tab had no controls on it** (Michael, 2026-08-18).

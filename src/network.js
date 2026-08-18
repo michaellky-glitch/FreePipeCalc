@@ -3782,6 +3782,43 @@
       });
     }
 
+    /* A GENERIC OUTFLOW IN A PLUMBING FILE IS ADDED UNDIVERSIFIED, AND SAYS SO.
+     *
+     * `plumbingSizing` accumulates a non-plumbing demand's `device.flow`
+     * LINEARLY on top of the diversified fixture-unit flow, which is the right
+     * rule — a continuous draw (a hose bibb left running, cooling make-up, a
+     * filter flush) is not a fixture unit and must not be diversified. What was
+     * missing is anyone being told it is happening.
+     *
+     * Michael, 2026-08-18, on 20260818-lowrise: pipe P276 reads 116.9 FU →
+     * 2.98 L/s diversified, and a design flow of 3.98. The extra litre is ONE
+     * node, N54/OF-2, a generic outflow still sitting at the 1.00 L/s value
+     * `setDemand` writes as a default — a quarter of the building's design flow,
+     * and a quarter of the booster duty, from a number nobody chose. The flow
+     * was right; the silence was the bug. */
+    var generics = m.nodes.filter(function (n) {
+      var d = n.device;
+      return d && d.kind === 'demand' && d.include !== false &&
+             d.demandType !== 'plumbing' && (d.flow || 0) > 0;
+    });
+    if (generics.length) {
+      var genTotal = generics.reduce(function (a2, n) { return a2 + n.device.flow; }, 0);
+      warnings.push({
+        code: 'DW_GENERIC_DEMAND', node: generics[0].id,
+        nodes: generics.map(function (n) { return n.id; }),
+        total: genTotal, level: 'notice',
+        message: generics.length + ' generic outflow' + (generics.length > 1 ? 's add ' : ' adds ') +
+                 (genTotal * 1000).toFixed(2) + ' L/s to the design flow ' +
+                 'UNDIVERSIFIED (' + generics.slice(0, 5).map(function (n) {
+                   return (n.tag || n.id) + ' ' + (n.device.flow * 1000).toFixed(2) + ' L/s';
+                 }).join(', ') + (generics.length > 5 ? ', …' : '') + '). A generic ' +
+                 'outflow is a continuous draw, not a fixture unit, so it is added ' +
+                 'on top of the fixture-unit flow rather than through the demand ' +
+                 'curve. Check the figure is one you chose — 1.00 L/s is the ' +
+                 'default a new outflow is created with.'
+      });
+    }
+
     /* PIPEWORK THE SIZING NEVER SAW. `plumbingSizing` only walks components
      * that contain a plumbing fixture, so a branch drawn with no fixture on it
      * is absent from `byPipe` — and therefore absent from the calculation sheet
@@ -3854,7 +3891,45 @@
                  'Pump ' + (p.tag || pipeId) + ' is not on a sized branch, so ' +
                  'there is no flow to size it for.' } };
     }
-    var worst = null, worstNode = null;
+    /* WHAT THE PUMP MUST DELIVER — Michael's rule, 2026-08-18:
+     *
+     *   Q = the UNDIVERSIFIED flow at the most remote outflow
+     *     + the DIVERSIFIED flow of (all other fixture units it serves)
+     *     + any generic (continuous) draw it serves
+     *
+     * The index fixture is the one the pump has to satisfy, and it has to
+     * satisfy it while it is actually running — at its full Table 604.3 flow,
+     * not at its share of a diversified total. Everything behind it is a
+     * statistical population and is diversified normally. The generic draw is
+     * continuous by definition and is neither diversified nor singled out.
+     *
+     * This is DIFFERENT from the flow the PIPES are sized on, deliberately: a
+     * pipe carries the diversified demand of everything downstream of it, which
+     * is the right basis for a pipe and the wrong one for the machine that has
+     * to push the index fixture. See docs/DW-MODULE.md → "Booster duty flow".
+     *
+     * MOST REMOTE = LEAST MARGIN, the same definition the Critical Path uses,
+     * so the sheet and the pump agree on which fixture governs. Only fixtures
+     * the pump actually serves are considered — its own subtree. */
+    var served = {};                      // nodes downstream of the pump
+    (function () {
+      var kids = {};
+      Object.keys(rep.byPipe).forEach(function (id) {
+        var sc = rep.byPipe[id];
+        (kids[sc.from] = kids[sc.from] || []).push(sc.to);
+      });
+      var stack = [rep.byPipe[pipeId].to];
+      served[rep.byPipe[pipeId].to] = true;
+      while (stack.length) {
+        var u = stack.pop();
+        (kids[u] || []).forEach(function (v) {
+          if (served[v]) return;
+          served[v] = true; stack.push(v);
+        });
+      }
+    })();
+
+    var worst = null, worstNode = null, worstDev = null;
     m.nodes.forEach(function (n) {
       var dv = n.device;
       if (!(dv && dv.kind === 'demand' && dv.include !== false)) return;
@@ -3862,19 +3937,73 @@
       var need = (dv.demandType === 'plumbing')
         ? M.plumbingReqPressure(m, dv) : (dv.reqPressure || 0);
       var short = need - rep.pressure[n.id];
-      if (worst === null || short > worst) { worst = short; worstNode = n.id; }
+      if (worst === null || short > worst) {
+        worst = short; worstNode = n.id; worstDev = served[n.id] ? dv : worstDev;
+      }
     });
     if (worst === null) {
       return { ok: false, q: null, h: null,
                error: { code: 'DW_PUMP_NO_FIXTURES', message:
                  'No fixtures to size against — place outflows first.' } };
     }
+
+    /* The index fixture among those this pump serves (which on a single-source
+     * tree with the booster at the head is every fixture). */
+    var idxNode = null, idxMargin = null;
+    m.nodes.forEach(function (n) {
+      var dv = n.device;
+      if (!(dv && dv.kind === 'demand' && dv.include !== false)) return;
+      if (!served[n.id] || rep.pressure[n.id] === undefined) return;
+      var need = (dv.demandType === 'plumbing')
+        ? M.plumbingReqPressure(m, dv) : (dv.reqPressure || 0);
+      var margin = rep.pressure[n.id] - need;
+      if (idxMargin === null || margin < idxMargin) { idxMargin = margin; idxNode = n; }
+    });
+
+    var carried = rep.byPipe[pipeId];               // FU + generic through the pump
+    var branchQ = Math.abs(rep.flow[pipeId]);       // what the PIPE is sized for
+    var q, ruleQ = null;
+    if (idxNode) {
+      var idxFU = M.outflowFU(m, idxNode.device);
+      var restFU = Math.max(0, carried.fu - idxFU);
+      ruleQ = M.plumbingUndivFlow(m, idxNode.device) +
+              M.plumbingFuToFlow(m, restFU) +
+              (carried.generic || 0);
+      /* A FLOOR, added to the rule rather than found in it.
+       *
+       * At LOW fixture-unit counts the IPC demand curve sits ABOVE the sum of
+       * the individual 604.3 flows — four WCs are 8.8 FU → 0.853 L/s off the
+       * curve, but 4 × 1.6 gpm = 0.404 L/s at the outlets. So taking the index
+       * fixture out of the curve and adding back only its own outlet flow can
+       * land BELOW the diversified demand the pipe itself is sized for, and in
+       * the degenerate case (one node carrying every fixture on the branch) it
+       * removes the entire load. A pump sized to pass less than its own pipe
+       * carries is not defensible whatever the rule says, so the duty is never
+       * less than the branch's diversified flow.
+       *
+       * On a real job the rule governs — 20260818-lowrise: 4.054 L/s from the
+       * rule against 3.984 L/s from the branch. The floor only bites on small
+       * or heavily-grouped branches. Flagged to Michael 2026-08-18; recorded in
+       * docs/DW-MODULE.md → "Booster duty flow". */
+      q = Math.max(ruleQ, branchQ);
+    } else {
+      q = branchQ;
+    }
+
     var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
     var h = (p.pump.head || 0) + worst / (rho * 9.81);
     if (h < 0) h = 0;
     h = h * (1 + (m.settings.pumpSafetyPct || 0) / 100);
-    return { ok: true, error: null, q: Math.abs(rep.flow[pipeId]), h: h,
-             worstNode: worstNode, shortfall: worst };
+    return { ok: true, error: null, q: q, h: h,
+             worstNode: worstNode, shortfall: worst,
+             indexNode: idxNode ? idxNode.id : null,
+             indexFU: idxNode ? M.outflowFU(m, idxNode.device) : 0,
+             indexFlow: idxNode ? M.plumbingUndivFlow(m, idxNode.device) : 0,
+             servedFU: carried.fu, genericFlow: carried.generic || 0,
+             ruleFlow: ruleQ, branchFlow: branchQ, flooredToBranch: ruleQ !== null && branchQ > ruleQ,
+             diversifiedFlow: idxNode
+               ? M.plumbingFuToFlow(m, Math.max(0, carried.fu - M.outflowFU(m, idxNode.device)))
+               : 0 };
   }
 
   FD.network = {

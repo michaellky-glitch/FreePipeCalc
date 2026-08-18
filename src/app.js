@@ -1133,9 +1133,19 @@
      * `ctx` supplies the per-pipe flow and the node pressure, so the same table
      * serves DESIGN (diversified) and SIMULATION. */
     var anyTag = ids.some(function (id) { var p = M.pipe(m, id); return p && p.tag; });
+    /* WHERE THE FLOW CAME FROM. A pipe's design flow is the diversified
+     * fixture-unit flow PLUS any generic (non-plumbing) demand downstream,
+     * added linearly — and with only an FU column and a Flow column beside it,
+     * the two did not add up on the page. Michael, 2026-08-18: "Downstream FU =
+     * 116.9, Diversity Flow = 2.98. Why is Design Flow 3.98?" The answer was one
+     * generic outflow a floor below. The column appears only when the model has
+     * generic demand in it, so an all-fixture job is unchanged. */
+    var anyGeneric = ids.some(function (id) { return rep.byPipe[id].generic > 0; });
     var cols = ['Section'].concat(anyTag ? ['Tag'] : [])
       .concat(['Size', 'ID mm', 'L ' + d.length, 'Fittings', 'EL ' + d.length,
-               'L eff ' + d.length, 'Downstream FU', 'Flow ' + flowLabel, 'V m/s',
+               'L eff ' + d.length, 'Downstream FU', 'Diversified ' + flowLabel])
+      .concat(anyGeneric ? ['Generic ' + flowLabel] : [])
+      .concat(['Flow ' + flowLabel, 'V m/s',
                'PD/m ' + d.pdm, 'Section PD ' + presLabel, 'Static ' + presLabel]);
     if (anySource) cols.push('Residual ' + presLabel);
     var pdmLimit = (m.settings.warn && m.settings.warn.pdm) || 0;
@@ -1165,6 +1175,15 @@
         cell(l ? FD.units.fmtLength(l._el, d.length) : '—', 'dim');
         cell(l ? FD.units.fmtLength(l._Leff, d.length) : '—');
         cell(s.fu.toFixed(1));
+        /* The diversified part and the generic part, then their sum — so the
+         * row shows its own arithmetic. In SIMULATION `q` is the solved draw
+         * and the two design columns stay the design basis, which is why they
+         * are labelled Diversified/Generic and the total is labelled Flow. */
+        cell(FD.units.fmtFlow(M.plumbingFuToFlow(m, s.fu), flowUnit), 'dim');
+        if (anyGeneric) {
+          cell(s.generic > 0 ? FD.units.fmtFlow(s.generic, flowUnit) : '—',
+               s.generic > 0 ? '' : 'dim');
+        }
         cell(FD.units.fmtFlow(q, flowUnit));
         var v = bore ? FD.hydraulics.velocity(q, bore) : 0;
         cell(v ? v.toFixed(2) : '—', v > vLimit ? 'bad' : '');
@@ -3898,18 +3917,28 @@
         var dwb = readoutBox(host, 'Domestic water');
         var sysName = ((m.settings.plumbing && m.settings.plumbing.system) || 'flushTank')
           .replace('flushometer', 'flushometer valve').replace('flushTank', 'flush tank');
+        /* THE SUM IS ALWAYS WRITTEN OUT. Design flow used to appear only when
+         * there was generic demand, so a pipe reading "Downstream FU 116.9,
+         * Diversity flow 2.98" beside a drawing that sized it for 3.98 gave the
+         * engineer no way to see where the extra litre came from — Michael,
+         * 2026-08-18. Now the design flow is always stated, and the generic
+         * line names the outflows responsible. */
         dwb.ro('Downstream FU', s.fu.toFixed(1));
         dwb.ro('Diversity flow', FD.units.fmtFlow(M.plumbingFuToFlow(m, s.fu), du.flow, true) +
           '  (' + sysName + ')');
         if (s.generic > 0) {
-          dwb.ro('Generic downstream', FD.units.fmtFlow(s.generic, du.flow, true));
-          dwb.ro('Design flow', FD.units.fmtFlow(s.flow, du.flow, true));
+          dwb.ro('Generic downstream', '+ ' + FD.units.fmtFlow(s.generic, du.flow, true));
         }
+        dwb.ro('Design flow', FD.units.fmtFlow(s.flow, du.flow, true));
         var dwBore = M.pipeBore(m, p);
         var dwV = FD.hydraulics.velocity(s.flow, dwBore);
         dwb.ro('Velocity at design', dwV.toFixed(2) + ' m/s');
-        dwb.box.appendChild(el('p', 'hint',
-          'Sized on downstream fixture units through the ' + sysName + ' demand curve.'));
+        dwb.box.appendChild(el('p', 'hint', s.generic > 0
+          ? ('Sized on downstream fixture units through the ' + sysName + ' demand ' +
+             'curve, PLUS ' + FD.units.fmtFlow(s.generic, du.flow, true) + ' of generic ' +
+             'outflow downstream. A generic outflow is a continuous draw, not a ' +
+             'fixture unit, so it is added undiversified.')
+          : ('Sized on downstream fixture units through the ' + sysName + ' demand curve.')));
       }
     }
 
@@ -8684,7 +8713,59 @@
      * drawing (one page per level), the calculation tab prints the sheet. A
      * body class picks which, and is cleared afterwards so the next print is
      * not poisoned by the last one. */
+    /* WILL THE SHEET FIT A PORTRAIT PAGE?
+     *
+     * Measured, not guessed: the widest OPEN table is cloned, given the print
+     * typography, and laid out at `width: min-content` — the narrowest it can
+     * be without breaking a number. A4 portrait leaves 186mm between the 12mm
+     * margins, which is 703 CSS px at 96 dpi; Letter is wider, so A4 is the
+     * case to satisfy. A collapsed section does not print, so it is not
+     * measured — collapsing All Pipes really does buy the page back.
+     *
+     * This exists because the plumbing pipe schedule grew to seventeen columns
+     * (Fittings, EL, Downstream FU, Diversified, Generic) and at that width
+     * nothing fits portrait: 734px even at 8pt with 2px padding. Shrinking type
+     * until an issued calculation is unreadable is the wrong trade; turning the
+     * page is the right one. */
+    var A4_PORTRAIT_CONTENT_PX = 703;
+    function sheetNeedsLandscape() {
+      var pane = $('pane-calculation');
+      if (!pane) return false;
+      var host = el('div');
+      host.style.cssText = 'position:absolute;left:-9999px;top:0;width:4000px;';
+      document.body.appendChild(host);
+      var widest = 0;
+      try {
+        var tables = pane.querySelectorAll('table.sheet');
+        Array.prototype.forEach.call(tables, function (t) {
+          var sec = t.closest && t.closest('details.calc-section');
+          if (sec && !sec.open) return;                 // collapsed does not print
+          var c = t.cloneNode(true);
+          c.style.width = 'min-content';
+          c.style.fontSize = '9pt';                     // matches @media print
+          host.appendChild(c);
+          Array.prototype.forEach.call(c.querySelectorAll('th,td'), function (x) {
+            x.style.padding = '3px 5px';
+          });
+          Array.prototype.forEach.call(c.querySelectorAll('th'), function (x) {
+            x.style.whiteSpace = 'normal';
+          });
+          Array.prototype.forEach.call(c.querySelectorAll('tr'), function (r) {
+            if (r.children[0]) r.children[0].style.whiteSpace = 'normal';
+          });
+          Array.prototype.forEach.call(c.querySelectorAll('td.txt'), function (x) {
+            x.style.whiteSpace = 'normal';
+          });
+          widest = Math.max(widest, Math.ceil(c.getBoundingClientRect().width));
+        });
+      } finally {
+        document.body.removeChild(host);
+      }
+      return widest > A4_PORTRAIT_CONTENT_PX;
+    }
+
     function printAs(mode) {
+      var cls = 'printing-' + mode;
       if (mode === 'plans') {
         if (!app.model.pipes.length) { toast('Nothing to print — the model is empty.', 'error'); return; }
         /* The VIEW goes with it, so the page shows what the screen shows —
@@ -8692,10 +8773,21 @@
         FD.printer.renderPlans(app.model, app.results || solveNow(), app.view);
       } else {
         renderCalculation();
+        if (sheetNeedsLandscape()) {
+          cls = 'printing-sheet-land';
+          /* SAY SO. A sheet that silently comes out of the printer sideways
+           * reads as a fault; a sheet that says why does not. No advice
+           * offered: "collapse a section" was the obvious suggestion and it is
+           * WRONG — the Critical Path tables carry the same columns as All
+           * Pipes, so collapsing one leaves 844px against 703px of page. The
+           * sheet is simply wider than portrait. */
+          toast('Printing landscape — the pipe schedule is wider than a portrait page.');
+        }
       }
-      document.body.classList.add('printing-' + mode);
+      document.body.classList.add(cls);
       var cleanup = function () {
-        document.body.classList.remove('printing-plans', 'printing-sheet');
+        document.body.classList.remove('printing-plans', 'printing-sheet',
+                                       'printing-sheet-land');
         window.removeEventListener('afterprint', cleanup);
       };
       window.addEventListener('afterprint', cleanup);
