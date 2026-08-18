@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.17.13, 2026-08-18.** Ten test suites, **2158 assertions**, all
+State: **v0.17.14, 2026-08-18.** Ten test suites, **2158 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -266,6 +266,15 @@ replaced a span of `app.js` has quietly deleted functions inside it — the
 Static/Dynamic wiring (v0.16.2) and the progress-bar helpers (v0.16.3). Both
 shipped looking plausible and doing nothing. After any such edit, `grep` for
 what you expect to still be there.
+
+**`nowrap` IS A SCREEN DECISION, AND PAPER HAS NO SCROLLBAR.** Every
+`table.sheet` cell is `white-space: nowrap` so a column never breaks mid-number;
+on screen the pane scrolls sideways when that makes the table too wide. Printed,
+it simply ran off the right margin — 1059px of hydronic table against 703px of
+A4 portrait between the 12mm margins (v0.17.14). The print rules now let the
+HEADINGS and TEXT cells wrap and keep the numbers unbreakable. If a column is
+added to a sheet, measure the table's `min-content` width against 703px before
+assuming it still fits.
 
 **A DEFAULT-ON SWITCH IS NOT IN THE MODEL.** `setDisplayFlag` deletes a value
 equal to its default to keep the document sparse, so a plumbing outflow's Tag —

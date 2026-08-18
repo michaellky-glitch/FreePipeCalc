@@ -9,8 +9,8 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-18, after v0.17.13 (info-panel Tag drew only when another
-Display switch was on).
+Updated 2026-08-18, after v0.17.14 (the Calculation sheet printed past the
+portrait page margins).
 
 ---
 
@@ -48,6 +48,21 @@ The likeliest things to come back:
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
+
+* **v0.17.14** — **The Calculation sheet printed past the page margins in
+  portrait** (Michael, 2026-08-18). Every sheet cell is `white-space: nowrap`,
+  which is right on screen — the pane scrolls sideways — and wrong on paper,
+  where there is nowhere to scroll to. Measured at the old print size: the
+  plumbing critical-path table needs **945px** and the hydronic one **1059px**,
+  against the **703px** between A4 portrait's 12mm margins, so it ran 356px off
+  the right edge. `@media print` now lets the HEADINGS and the TEXT cells (the
+  section, the tag, the fitting list) wrap, tightens the cell padding to 3×5px
+  and drops 9.5pt → 9pt; **numeric cells stay `nowrap`**, so no figure is ever
+  split across lines. Table rows also no longer break across a page boundary.
+  Verified by replaying the real @media print rules in a 703px box: every table
+  on both the plumbing and the hydronic sheet sits at exactly 703px with zero
+  overflow anywhere in the pane (the 14-column hydronic one included), and the
+  on-screen sheet is untouched at 13px/nowrap. Human-Test **DW.R**.
 
 * **v0.17.13** — **Info-panel Tag drew only when another Display switch was on**
   (Michael, 2026-08-18). A plumbing outflow's Tag defaults ON, and a default-ON

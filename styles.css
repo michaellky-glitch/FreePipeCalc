@@ -872,8 +872,29 @@ table.doc-table th { background: var(--bg-raised); color: var(--text-dim); font-
   body.printing-plans #print-plans { display: block !important; }
   body.printing-plans .pane { display: none !important; }
 
-  table.sheet { font-size: 9.5pt; }
+  /* THE SHEET HAS TO FIT THE PAGE WIDTH. On screen every cell is `nowrap` and
+     the pane scrolls sideways if it must; on paper there is nowhere to scroll
+     to, so the table simply ran off the right margin — Michael, 2026-08-18,
+     printing the plumbing Calculation in portrait. Measured at the old print
+     size: the plumbing critical-path table needs 945px and the hydronic one
+     1059px, against 703px between A4 portrait's 12mm margins.
+
+     So on paper: the HEADINGS and the TEXT cells (the section, the tag, the
+     fitting list) may wrap, the padding tightens, and the size drops half a
+     point. NUMBERS ARE STILL `nowrap` — a pressure broken across two lines is
+     worse than a narrow column — which is what keeps the fix honest: the
+     widths above fall to 634px (plumbing) and 679px (hydronic), inside the
+     page with room to spare, and no figure can be split. */
+  table.sheet { font-size: 9pt; width: 100%; max-width: 100%; }
   table.sheet th, table.sheet td { border-color: #999; color: #000; background: #fff; }
+  table.sheet th, table.sheet td { padding: 3px 5px; }
+  table.sheet th,
+  table.sheet tr > :first-child,
+  table.sheet td.txt { white-space: normal; overflow-wrap: break-word; }
+  /* A row is one section of pipe — do not split it down the middle of a page.
+     The header repeats on every page on its own, because the sheet tables are
+     built with a real `thead`. */
+  table.sheet tr { page-break-inside: avoid; break-inside: avoid; }
   table.sheet td.bad, table.sheet td.warn { color: #000; font-weight: 700; }
   .sheet-head { border-color: #999; background: #fff; }
   .kv .k, .kv .v, .legend, .footer-note { color: #000; }
