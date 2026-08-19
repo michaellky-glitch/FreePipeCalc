@@ -3858,6 +3858,301 @@
              warnings: warnings, errors: errors, iterations: 0 };
   }
 
+  /* ============================ PLUMBING SIMULATION — the model, and REMOTE1
+   *
+   * `plumbingSimModel` is the K-terminal conversion: every included fixture
+   * becomes an ordinary pressure-dependent terminal at its UNDIVERSIFIED 604.3
+   * design point, so the UNMODIFIED GGA can push water through it. `openSet`,
+   * when given, is the set of fixture nodes left OPEN — everything else is
+   * excluded, which is what a closed tap is.
+   *
+   * It lives here rather than in the panel that used to own it because REMOTE1
+   * calls it dozens of times per run and because it is now worth testing. */
+  function plumbingSimModel(m, openSet) {
+    var sim = JSON.parse(JSON.stringify(m));
+    sim.settings.calcMode = 'simulation';
+    sim.nodes.forEach(function (n) {
+      var d = n.device;
+      if (!d || d.kind !== 'demand' || d.demandType !== 'plumbing') return;
+      if (openSet && !openSet[n.id]) { d.include = false; return; }   // tap shut
+      var q = M.plumbingUndivFlow(m, d);
+      if (!(q > 0)) { d.include = false; return; }   // no fixture flow to draw
+      d.flow = q;                                     // design flow → sets K
+      d.reqPressure = Math.max(M.plumbingReqPressure(m, d), M.MIN_OUTFLOW_PRESSURE);
+      d.demandType = 'generic';
+    });
+    return sim;
+  }
+
+  /* ONE LOAD CASE: a stated set of taps OPEN, everything else shut.
+   *
+   * Not the K-terminal model, deliberately. A K-terminal takes whatever the
+   * system gives it, so with ONE tap open the whole pump head lands on it and it
+   * draws absurdly — on 20260818-lowrise a single water closet pulled 2.35 L/s,
+   * and the "simulation" then reported the network 538 kPa short. That is the
+   * model answering a question nobody asked. A tap that is OPEN draws its Table
+   * 604.3 flow, because that is what a fixture outlet is designed to pass, and
+   * the question is whether the system can deliver it.
+   *
+   * So: flows accumulate up the tree from the open taps (no diversity — these
+   * ones really are running at once), friction is the model's own friction
+   * method through `build`, and the pump contributes what its CURVE gives at the
+   * flow it is actually passing. Then one forward pass gives the residual at
+   * every fixture. A tree, so the accumulation is exact and there is no solve —
+   * the GGA is not on this path either.
+   *
+   * Generic outflows draw continuously and are always included: a hose left
+   * running does not shut because a tap upstairs did.
+   */
+  function plumbingOpenPass(m, openMap, rep) {
+    rep = rep || plumbingReport(m);
+    if (!rep.ok) return { ok: false, error: rep.error };
+
+    var byPipe = rep.byPipe;
+    var parentPipe = {}, kids = {};
+    Object.keys(byPipe).forEach(function (id) {
+      var sc = byPipe[id];
+      parentPipe[sc.to] = id;
+      (kids[sc.from] = kids[sc.from] || []).push({ pipe: id, to: sc.to });
+    });
+
+    /* What each node draws in this load case. */
+    var draw = {};
+    m.nodes.forEach(function (n) {
+      var d = n.device;
+      if (!(d && d.kind === 'demand' && d.include !== false)) return;
+      if (d.demandType !== 'plumbing') { draw[n.id] = d.flow || 0; return; }  // continuous
+      draw[n.id] = openMap[n.id] ? M.plumbingUndivFlow(m, d) : 0;
+    });
+
+    /* Post-order accumulation from the roots, so a pipe carries everything open
+     * below it. `rep.plumbing.roots` are the sources. */
+    var order = [], seen = {};
+    (rep.plumbing.roots || []).forEach(function (root) {
+      var q = [root]; seen[root] = true;
+      while (q.length) {
+        var u = q.shift(); order.push(u);
+        (kids[u] || []).forEach(function (e) {
+          if (seen[e.to]) return;
+          seen[e.to] = true; q.push(e.to);
+        });
+      }
+    });
+    var sub = {};
+    order.forEach(function (id) { sub[id] = draw[id] || 0; });
+    for (var i = order.length - 1; i >= 0; i--) {
+      var child = order[i], pp = parentPipe[child];
+      if (pp === undefined) continue;
+      sub[byPipe[pp].from] = (sub[byPipe[pp].from] || 0) + sub[child];
+    }
+
+    /* Signed per-pipe flow, then the network at THOSE flows. */
+    var flow = {};
+    Object.keys(byPipe).forEach(function (id) {
+      var sc = byPipe[id], p = M.pipe(m, id);
+      if (!p) return;
+      var q = sub[sc.to] || 0;
+      flow[id] = (p.a === sc.from) ? q : -q;
+    });
+    var net = build(m, { flow: flow });
+    var rho = net.rho, g = 9.81;
+    var linkById = {};
+    net.links.forEach(function (l) { linkById[l.id] = l; });
+
+    var dpFric = {}, pumpGain = {};
+    Object.keys(byPipe).forEach(function (id) {
+      var pipeObj = M.pipe(m, id);
+      if (pipeObj && pipeObj.kind === 'pump' && pipeObj.pump && pipeObj.pump.mode !== 'off') {
+        /* THE CURVE, read at the flow the pump is passing — which is the whole
+         * of Michael's test. `M.pumpHead` falls back to the design head when
+         * there is no curve, which is the only honest answer then. */
+        dpFric[id] = 0;
+        pumpGain[id] = rho * g * M.pumpHead(m, pipeObj, Math.abs(flow[id] || 0));
+        return;
+      }
+      var l = linkById[id];
+      if (!l) return;
+      dpFric[id] = rho * g * Math.abs(FD.hydraulics.linkLoss(l, flow[id] || 0));
+    });
+
+    var pressure = {};
+    (rep.plumbing.roots || []).forEach(function (root) {
+      var rn = M.node(m, root);
+      pressure[root] = (rn && rn.device && rn.device.pressure) || 0;
+      var q2 = [root], seen2 = {}; seen2[root] = true;
+      while (q2.length) {
+        var u = q2.shift();
+        (kids[u] || []).forEach(function (e) {
+          if (seen2[e.to]) return;
+          seen2[e.to] = true;
+          var un = M.node(m, u), cn = M.node(m, e.to);
+          var dz = (cn ? M.elevation(m, cn) : 0) - (un ? M.elevation(m, un) : 0);
+          pressure[e.to] = pressure[u] + (pumpGain[e.pipe] || 0) -
+                           (dpFric[e.pipe] || 0) - rho * g * dz;
+          q2.push(e.to);
+        });
+      }
+    });
+
+    /* THE SAME DETECTORS AS EVERY OTHER PATH. This load case has its own flows,
+     * so it has its own velocities and friction rates — and a REMOTE1 run that
+     * reported none would be the v0.17.15 bug again, one path along. */
+    var passWarnings = flowRegimeWarnings(m, net, { flow: flow });
+
+    return { ok: true, error: null, flow: flow, pressure: pressure, network: net,
+             byPipe: byPipe, plumbing: rep.plumbing, headloss: {}, dpFric: dpFric,
+             draw: draw, totalFU: rep.totalFU, totalFlow: rep.totalFlow,
+             openFlow: (rep.plumbing.roots || []).reduce(function (a, r) {
+               return a + (sub[r] || 0); }, 0),
+             warnings: passWarnings, errors: [], iterations: 0 };
+  }
+
+  /* REMOTE1 — how many taps can this system actually serve at once?
+   *
+   * Michael, 2026-08-19, on why the old SIMULATE was answering the wrong
+   * question: "The pump is sized based on the diversified flow & (residual
+   * required + static + friction). But as all outflows are open, the furthest
+   * point will never receive water."
+   *
+   * He is right, and the sheet said so: opening all 47 fixtures on
+   * 20260818-lowrise left the index fixture 220.8 kPa short. That is not a
+   * finding about the design — it is an artefact of simulating a load case that
+   * never happens. A booster is not sized to run every tap in the building
+   * simultaneously; it is sized so that the WORST-PLACED tap works.
+   *
+   * So the load case is built up rather than assumed, exactly as he specified:
+   *
+   *   1. Open the critical-path fixture. Close everything else.
+   *   2. If the pump can still deliver, open the next-most-remote fixture.
+   *   3. Repeat until it cannot, then back off the last one.
+   *
+   * The answer is the largest set of most-remote fixtures the system serves in
+   * full, and the number itself is the useful output: "this booster serves the
+   * 9 most remote fixtures at once" is a statement an engineer can check against
+   * the job.
+   *
+   * "CANNOT DELIVER" is two things, and both are failures of the same kind:
+   * an open fixture receiving less than its Table 604.3 flow pressure, or the
+   * pump running off the end of its curve (PUMP_RUNOUT). Either way the last
+   * fixture opened is the one that broke it.
+   *
+   * "MOST REMOTE" is LEAST DESIGN MARGIN — the same definition the Critical Path
+   * and the booster duty use, so all three agree on which fixture governs.
+   *
+   * Cost: one GGA solve per fixture opened, so it is bounded by `maxSolves`
+   * (default 120) and says when it stopped early rather than running for a
+   * minute on a tower block. */
+  var REMOTE1_MAX_SOLVES = 120;
+
+  function plumbingRemote1(m, opts) {
+    opts = opts || {};
+    var maxSolves = opts.maxSolves || REMOTE1_MAX_SOLVES;
+    var rep = opts.report || plumbingReport(m);
+    if (!rep.ok) {
+      return { ok: false, error: rep.error, order: [], openCount: 0,
+               result: null, solves: 0 };
+    }
+
+    /* The remoteness order, worst design margin first. */
+    var order = [];
+    m.nodes.forEach(function (n) {
+      var d = n.device;
+      if (!(d && d.kind === 'demand' && d.include !== false)) return;
+      if (d.demandType !== 'plumbing') return;
+      if (!(M.plumbingUndivFlow(m, d) > 0)) return;      // draws nothing
+      var need = M.plumbingReqPressure(m, d);
+      var margin = (rep.pressure[n.id] === undefined)
+        ? -Infinity : rep.pressure[n.id] - need;
+      order.push({ node: n.id, margin: margin, need: need });
+    });
+    order.sort(function (a, b) { return a.margin - b.margin; });
+
+    if (!order.length) {
+      return { ok: false, order: [], openCount: 0, result: null, solves: 0,
+               error: { code: 'DW_REMOTE1_NO_FIXTURES', message:
+                 'No plumbing fixtures to simulate — place outflows first.' } };
+    }
+
+    /* CAN THE SYSTEM DELIVER, with this set open? Two ways to fail, and they
+     * are the same failure: a tap receiving less than its Table 604.3 flow
+     * pressure, or the pump asked for more head than its curve gives at that
+     * flow (which shows here as the residual going short, because the forward
+     * pass reads the curve at the flow being passed). */
+    function feasible(pass, openIds) {
+      if (!pass || !pass.ok) return false;
+      for (var i = 0; i < openIds.length; i++) {
+        var id = openIds[i].node;
+        var p2 = pass.pressure[id];
+        if (p2 === undefined) return false;
+        if (p2 < openIds[i].need - PRESSURE_EPS) return false;
+      }
+      return true;
+    }
+
+    var openSet = {}, opened = [];
+    var best = null, bestCount = 0, solves = 0, firstFailure = null;
+    var budgetHit = false, lastPass = null;
+
+    for (var k = 0; k < order.length; k++) {
+      if (solves >= maxSolves) { budgetHit = true; break; }
+      openSet[order[k].node] = true;
+      opened.push(order[k]);
+      var pass = plumbingOpenPass(m, openSet, rep);
+      solves++;
+      lastPass = pass;
+      if (feasible(pass, opened)) {
+        best = pass; bestCount = opened.length;
+        continue;
+      }
+      /* BACK OFF THE LAST ONE and stop — it is the tap that broke it. */
+      firstFailure = order[k].node;
+      delete openSet[order[k].node];
+      opened.pop();
+      break;
+    }
+
+    /* Even the index fixture on its own cannot be served. A real answer, and the
+     * pass is returned so the sheet can show how far short it is — flagged,
+     * not dressed up as a served case. */
+    var noneServed = (bestCount === 0);
+    if (noneServed) best = lastPass;
+
+    /* THE ANSWER, AS A MESSAGE. "This booster serves the 12 most remote fixtures
+     * at once" is the output of the whole method, and it belongs where the
+     * engineer already looks for findings rather than only in a section
+     * heading. */
+    if (best) {
+      best.warnings = (best.warnings || []).concat([{
+        code: 'DW_REMOTE1', level: noneServed ? 'warning' : 'notice',
+        node: order[0].node,
+        served: bestCount, total: order.length,
+        message: noneServed
+          ? ('REMOTE1: the system cannot serve even its most remote fixture (' +
+             ((M.node(m, order[0].node) || {}).tag || order[0].node) +
+             ') on its own. Check the booster duty and the index run.')
+          : ('REMOTE1: ' + bestCount + ' of ' + order.length + ' fixtures are ' +
+             'served at once, opened most-remote first' +
+             (firstFailure ? ' — opening ' +
+               ((M.node(m, firstFailure) || {}).tag || firstFailure) +
+               ' is what the system cannot deliver.' : '.'))
+      }]);
+    }
+
+    return {
+      ok: true, error: null,
+      order: order.map(function (o) { return o.node; }),
+      openNodes: Object.keys(openSet),
+      openCount: bestCount,
+      total: order.length,
+      indexNode: order[0].node,
+      firstFailure: firstFailure,
+      noneServed: noneServed,
+      budgetHit: budgetHit,
+      solves: solves,
+      result: best
+    };
+  }
+
   /* THE DUTY A PLUMBING BOOSTER HAS TO MEET.
    *
    * Pure, and in the engine, so it is pinned by tests rather than living in a
@@ -4010,6 +4305,9 @@
     build: build,
     plumbingReport: plumbingReport,
     plumbingPumpDuty: plumbingPumpDuty,
+    plumbingSimModel: plumbingSimModel,
+    plumbingOpenPass: plumbingOpenPass,
+    plumbingRemote1: plumbingRemote1,
     nodeTypeCode: nodeTypeCode,
     flowRegimeWarnings: flowRegimeWarnings,
     supplyWarnings: supplyWarnings,

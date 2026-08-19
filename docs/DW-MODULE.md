@@ -12,6 +12,59 @@ Michael's request, 2026-08-12; re-architected 2026-08-16 to isolate the
 known-good GGA (see **Architecture v2**). The DATA and the sizing CORE are built
 (v0.16.31–32); the DISCIPLINE split and the plumbing UI/report are what remain.
 
+## REMOTE1 — the plumbing SIMULATE load case, Michael, 2026-08-19
+
+**Logged here with the duty rule so both can be revisited together.**
+
+> "I think Simulation in plumbing is using a non appropriate method. The pump is
+> sized based on the diversified flow & (residual required+static+friction). But
+> as all outflows are open, the furthest point will never receive water."
+
+He is right, and the sheet was saying so: opening all 47 fixtures on
+`debug/20260818-lowrise.json` left the index fixture **220.8 kPa short**. That is
+not a finding about the design — it is an artefact of simulating a load case that
+never happens. A booster is not sized to run every tap in a building at once.
+
+**The method**, as he specified it:
+
+1. Open the critical-path fixture. Close everything else.
+2. If the pump can still deliver, open the next-most-remote fixture.
+3. Repeat until it cannot, then back off the last one.
+
+The answer is **how many of the most-remote fixtures the system serves at once** —
+a number an engineer can check against the job.
+
+**"Cannot deliver"** is an open fixture receiving less than its Table 604.3 flow
+pressure. The pump curve enters through the forward pass, which reads
+`M.pumpHead` at the flow the pump is actually passing — so a pump asked for more
+head than its curve gives at that flow shows up as the residual going short,
+which is the same test.
+
+**An open tap draws its FULL 604.3 flow — not a K-terminal draw.** This matters
+and was the first thing tried: a K-terminal takes whatever the system gives it,
+so with one tap open the entire pump head lands on it. On lowrise a single water
+closet pulled **2.35 L/s** and the "simulation" then declared the network 538 kPa
+short. A tap that is open passes what its outlet is designed to pass; the
+question is whether the system can deliver it.
+
+**No GGA on this path.** The load case is a tree with known draws, so flows
+accumulate exactly and one forward pass gives every residual —
+`FD.network.plumbingOpenPass`. One pass per tap opened, bounded at 120.
+
+**The UI**: in a plumbing file the SIMULATE mode's **STATIC** button reads
+**REMOTE1** and runs this method; **DYNAMIC** keeps the all-open K-terminal
+behaviour, which is still the right thing to look at when the question really is
+"what if everything is opened". Hydronic is untouched.
+
+**Implemented in** `FD.network.plumbingRemote1(m)` (`src/network.js`), pinned by
+`test/plumbing.test.js`; the result carries `openCount`, `total`, `indexNode`,
+`firstFailure` and a `DW_REMOTE1` message. **Open question:** the order is by
+DESIGN margin and is computed once, not re-ranked as taps open. Re-ranking each
+round would be more faithful to "the next most remote" under the new flows, at
+the cost of another pass per step.
+
+---
+
 ## Booster duty flow — DECISION, Michael, 2026-08-18
 
 **Logged here at his request so it can be revisited.**

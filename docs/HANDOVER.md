@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.17.17, 2026-08-18.** Ten test suites, **2196 assertions**, all
+State: **v0.17.19, 2026-08-19.** Ten test suites, **2204 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -70,7 +70,7 @@ inside it. The data (`data/plumbing.js`) and the sizing core (`M.plumbingSizing`
 `M.outflowFU`) stay. Full spec and build phases A/B/C are in `docs/DW-MODULE.md`
 → **Architecture v2**.
 
-**CURRENT STATE (v0.17.17): the DW module is functionally complete and Michael
+**CURRENT STATE (v0.17.19): the DW module is functionally complete and Michael
 has signed the IPC data off — `FD.plumbing.verified = { fixtures, demand, supply }`
 all TRUE.** What exists:
 
@@ -353,6 +353,15 @@ as, and is what Michael runs.
 Screenshots still render nothing to pixels, so this verifies logic, wiring and
 numbers — never appearance. **No visual item can be signed off in-session:** log
 it in `Human-Test.md`, saying what was driven and what was not.
+
+**NO TEST READS `examples/` OR `debug/` ANY MORE (v0.17.19).** Two did —
+`thermal.test.js` opened `examples/stacked-riser.pnet.json` and
+`debug/20260805-4.json` directly — which broke the project's own rule and meant
+neither directory could be dropped from a public deployment without taking 528
+assertions with it. Both are frozen into `test/fixtures/` now, and the full suite
+passes with both directories deleted. `debug/` is gitignored AND untracked: it
+lives on Michael's disk and does not go to GitHub. **`examples/` is therefore
+free to change** — nothing depends on its contents.
 
 **`test/testrun-*.js` are GENERATORS, not tests.** Running one rewrites
 `examples/`. Tests read frozen copies in `test/fixtures/`; keep it that way.

@@ -1214,6 +1214,102 @@
     redraw();
   }
 
+  /* ==================================================== Tool — MONITOR
+   *
+   * Michael, 2026-08-19: "+ adds a device to be monitored (Outflow, Equipment,
+   * pipes). Duplicate view of properties of that device so the user can tune
+   * equipment on another floor."
+   *
+   * The problem it solves: the properties panel shows ONE selected device, and
+   * the canvas shows ONE level. Tuning a valve on Level 2 against a fixture on
+   * Level 6 meant switching floors, losing the selection, and holding the number
+   * you were chasing in your head. Here they sit side by side and stay put.
+   *
+   * The panels are NOT re-implemented — `app.monitor.renderInto` calls the same
+   * `renderPipeProps` / `renderNodeProps` the left-hand panel uses. Anything
+   * else would drift within a version, and a monitor that disagrees with the
+   * panel is worse than no monitor.
+   */
+  function renderMonitorTool(host, app) {
+    var mon = app.monitor;
+    if (!mon) { host.appendChild(el('p', 'hint', 'Monitor unavailable.')); return; }
+    var list = mon.list();
+
+    var head = el('div', 'monitor-head');
+    var title = el('h3', '', 'Monitor');
+    head.appendChild(title);
+    var btns = el('span', 'monitor-btns');
+
+    /* + TAKES THE CANVAS SELECTION. There is no picker: the drawing already is
+     * the picker, and a device you can see is one you can click. Multi-select
+     * adds them all, which is how a run of terminals gets watched at once. */
+    var add = el('button', 'btn tiny', '+');
+    add.type = 'button';
+    add.title = 'Add the selected device(s) on the drawing to the monitor';
+    add.addEventListener('click', function () {
+      var n = mon.addSelection();
+      if (!n) {
+        app.toast('Select a device on the drawing first — then press + to watch it.', 'error');
+        return;
+      }
+      render(app);
+    });
+    var sub = el('button', 'btn tiny', '\u2212');
+    sub.type = 'button';
+    sub.title = 'Remove the last device from the monitor';
+    sub.disabled = !list.length;
+    sub.addEventListener('click', function () {
+      if (mon.removeLast()) render(app);
+    });
+    btns.appendChild(add); btns.appendChild(sub);
+    head.appendChild(btns);
+    host.appendChild(head);
+
+    if (!list.length) {
+      host.appendChild(el('p', 'hint',
+        'Nothing monitored. Select an outflow, a pump, a valve, a piece of ' +
+        'equipment or a pipe on the drawing and press +. It stays here while ' +
+        'you work on another floor, and it is saved with the model.'));
+      return;
+    }
+
+    host.appendChild(el('p', 'hint', list.length + ' device' +
+      (list.length === 1 ? '' : 's') + ' watched. These are the same controls as ' +
+      'the properties panel — editing here edits the model.'));
+
+    list.forEach(function (e) {
+      var lab = mon.label(e);
+      var card = el('div', 'monitor-card');
+      var hd = el('div', 'monitor-card-head');
+      var name = el('button', 'monitor-goto');
+      name.type = 'button';
+      name.title = 'Go to it on the drawing';
+      name.appendChild(el('span', 'monitor-tag', lab.title));
+      name.appendChild(el('span', 'monitor-meta',
+        lab.kind + (lab.title !== lab.id ? '  \u00b7  ' + lab.id : '') +
+        (lab.level ? '  \u00b7  ' + lab.level : '')));
+      name.addEventListener('click', function () { mon.goTo(e); });
+      hd.appendChild(name);
+      var x = el('button', 'btn tiny', '\u00d7');
+      x.type = 'button';
+      x.title = 'Stop watching this one';
+      x.addEventListener('click', function () { mon.remove(e.kind, e.id); render(app); });
+      hd.appendChild(x);
+      card.appendChild(hd);
+
+      /* GUARDED, like the properties panel itself. One monitored device whose
+       * panel throws must not take the rest of the list with it. */
+      var body = el('div', 'monitor-card-body');
+      try { mon.renderInto(body, e); }
+      catch (err) {
+        body.appendChild(el('p', 'hint warn',
+          'This panel could not be drawn: ' + String(err && err.message || err)));
+      }
+      card.appendChild(body);
+      host.appendChild(card);
+    });
+  }
+
   // ---------------------------------------------------------------- rendering
   /* Q2, Michael: four tools, one at a time, chosen from a tab strip.
    *
@@ -1227,7 +1323,8 @@
     { key: 'vel',   label: 'Hydraulic',     render: renderVelocityTool },
     { key: 'heat',  label: 'Heat transfer', render: renderHeatTool },
     { key: 'conv',  label: 'Convert',       render: renderConvertTool },
-    { key: 'find',  label: 'Find',          render: renderFindTool }
+    { key: 'find',  label: 'Find',          render: renderFindTool },
+    { key: 'mon',   label: 'Monitor',       render: renderMonitorTool }
   ];
 
   function render(app) {
@@ -1306,6 +1403,10 @@
 
   FD.tools = {
     render: render,
+    /* Which tool is showing — the app asks before redrawing the window, so a
+     * properties edit does not rebuild a calculator you are half-way through
+     * typing into. */
+    activeTab: function () { ensureState(); return state.tab; },
     generate: generate,
     prefill: prefill,
     critical: critical,

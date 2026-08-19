@@ -9,8 +9,8 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-18, after v0.17.17 (where the plumbing design flow comes from,
-and Michael's booster duty rule).
+Updated 2026-08-19, after v0.17.19 (REMOTE1, the MONITOR tool, and cutting
+`examples/` and `debug/` loose from the test suite).
 
 ---
 
@@ -48,6 +48,29 @@ The likeliest things to come back:
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
+
+* **v0.17.19** — Michael's 2026-08-19 list. **REMOTE1** — the plumbing SIMULATE
+  load case. Opening every fixture at once left the index fixture 220.8 kPa short
+  on lowrise, which is an artefact of the question, not a finding: a booster is
+  not sized to run every tap at once. REMOTE1 opens the most remote tap, then the
+  next, until the system cannot deliver, and backs off the last one — **12 of 46
+  served on lowrise, index margin +5.2 kPa** instead of −220.8. An open tap draws
+  its FULL 604.3 flow, not a K-terminal draw (which had one WC pulling 2.35 L/s);
+  the pump contributes what its CURVE gives at the flow it passes; no GGA on the
+  path. In plumbing the SIMULATE **STATIC** button reads **REMOTE1**; DYNAMIC
+  keeps the all-open case. Spec + the open question in `docs/DW-MODULE.md`.
+  **MONITOR tool** — a new TOOLS tab: + adds the canvas selection, − removes the
+  last, and each watched device gets the REAL properties panel (the same
+  `renderPipeProps`/`renderNodeProps`, not a copy) so equipment on another floor
+  can be tuned without leaving the floor you are on. Saved with the model.
+  **TOOLS ribbon in caps.** **The active level now shows on the collapsed LEVELS
+  header.** **CALCULATION:** a TOTAL row on Fixtures (count, FU, flow) and on both
+  Critical Paths (Section PD, Static); Total friction drop reads negative.
+  **Deployment:** `test/thermal.test.js` was reading `examples/stacked-riser` and
+  `debug/20260805-4.json` directly — both are now frozen in `test/fixtures/`, so
+  the whole suite passes with `examples/` and `debug/` deleted, and `debug/` is
+  untracked (it stays on Michael's disk, it no longer goes to GitHub).
+  8 new assertions (suite 2204).
 
 * **v0.17.17** — **"Downstream FU = 116.9, Diversity Flow = 2.98. Why is Design
   Flow 3.98?"** (Michael, 2026-08-18, on P276 of 20260818-lowrise). The answer

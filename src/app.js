@@ -438,32 +438,37 @@
    * required pressure, then run the UNMODIFIED GGA on it. Node/pipe ids are
    * unchanged, so the result maps straight back onto the drawing (flow arrows,
    * pressures, velocities). The original model keeps its fixture-unit data. */
+  /* MOVED TO THE ENGINE (v0.17.18). `FD.network.plumbingSimModel` is the one
+   * implementation — REMOTE1 calls it dozens of times per run and it is now
+   * covered by the suite. Kept as a thin alias because the calculation sheet
+   * and the tests both name it. */
   function buildPlumbingSimModel(m) {
-    var sim = JSON.parse(JSON.stringify(m));
-    /* SIMULATE a plumbing file exactly like a hydronic one (Michael, 2026-08-17):
-     * each fixture becomes a pressure-dependent K-TERMINAL whose design point is
-     * its UNDIVERSIFIED 604.3 flow at its 604.3 required pressure (K = Q/√ΔP).
-     * The GGA then finds the actual flow each fixture draws given the pump curve
-     * / source pressure — the fixtures draw more where pressure is ample and
-     * less where it is short, which is the point of a simulation. The GGA itself
-     * is untouched; the fixtures are handed to it as ordinary generic terminals. */
-    sim.settings.calcMode = 'simulation';
-    sim.nodes.forEach(function (n) {
-      var d = n.device;
-      if (!d || d.kind !== 'demand' || d.demandType !== 'plumbing') return;
-      var q = M.plumbingUndivFlow(m, d);
-      if (!(q > 0)) { d.include = false; return; }   // no fixture flow to draw
-      d.flow = q;                                     // design flow → sets K
-      d.reqPressure = Math.max(M.plumbingReqPressure(m, d), M.MIN_OUTFLOW_PRESSURE);
-      d.demandType = 'generic';
-    });
-    return sim;
+    return FD.network.plumbingSimModel(m, null);
   }
 
   function plumbingSimSolve() {
     var res;
     try {
-      res = FD.network.solveModel(buildPlumbingSimModel(app.model));
+      /* REMOTE1 (Michael, 2026-08-19) — the default, and the reason the old
+       * answer was wrong. Opening every fixture at once is a load case that
+       * never happens, and it left the index fixture 220 kPa short on
+       * 20260818-lowrise: an artefact of the question, not a finding about the
+       * design. REMOTE1 opens the most remote tap, then the next, until the
+       * system cannot deliver, and backs off the last one.
+       *
+       * DYNAMIC keeps the all-open K-terminal behaviour, which is still the
+       * right thing to look at when you want to know what happens if everything
+       * IS opened. */
+      if (app.view && app.view.simStatic) {
+        var r1 = FD.network.plumbingRemote1(app.model);
+        app.remote1 = r1;
+        res = r1.ok ? r1.result : null;
+        if (!res) throw new Error((r1.error && r1.error.message) ||
+                                  'The plumbing network could not be simulated.');
+      } else {
+        app.remote1 = null;
+        res = FD.network.solveModel(FD.network.plumbingSimModel(app.model, null));
+      }
     } catch (e) {
       console.error(e);
       app.results = null;
@@ -1149,7 +1154,8 @@
                'PD/m ' + d.pdm, 'Section PD ' + presLabel, 'Static ' + presLabel]);
     if (anySource) cols.push('Residual ' + presLabel);
     var pdmLimit = (m.settings.warn && m.settings.warn.pdm) || 0;
-    function plumbingTable(list, ctx) {
+    function plumbingTable(list, ctx, opts) {
+      opts = opts || {};
       var table = el('table', 'sheet');
       var thead = el('thead'), hr = el('tr');
       cols.forEach(function (c) {
@@ -1202,6 +1208,31 @@
         tb.appendChild(tr);
       });
       table.appendChild(tb);
+
+      /* THE RUN TOTALS, on the CRITICAL PATH only (Michael, 2026-08-19).
+       * Section PD and Static are the two figures you add up along an index run
+       * — the friction the pump has to find and the lift it has to find — and
+       * they were there to be summed by hand off thirty-odd rows. Not offered on
+       * All Pipes: adding the pressure drop of every section in a branched tree
+       * totals paths that no water ever takes together, which is a number that
+       * looks meaningful and is not. */
+      if (opts.totals) {
+        var sPD = 0, sStat = 0;
+        list.forEach(function (id) {
+          sPD += sectionPa(id, ctx.flowOf(id));
+          sStat += staticPa(id);
+        });
+        var tf = el('tfoot'), ftr = el('tr', 'total-row');
+        var iPD = cols.indexOf('Section PD ' + presLabel);
+        var iSt = cols.indexOf('Static ' + presLabel);
+        cols.forEach(function (c, i) {
+          if (i === 0) { ftr.appendChild(el('td', 'txt', 'TOTAL (' + list.length + ' sections)')); return; }
+          if (i === iPD) { ftr.appendChild(el('td', '', FD.units.fmtPressure(sPD, presUnit))); return; }
+          if (i === iSt) { ftr.appendChild(el('td', '', FD.units.fmtPressure(sStat, presUnit))); return; }
+          ftr.appendChild(el('td', 'dim', ''));
+        });
+        tf.appendChild(ftr); table.appendChild(tf);
+      }
       return table;
     }
     var designCtx = { flowOf: function (id) { return rep.byPipe[id].flow; },
@@ -1240,7 +1271,12 @@
         grid.appendChild(d2);
       }
       kv('Sections', String(sections));
-      kv('Total friction drop', FD.units.fmtPressure(totFric, presUnit, true));
+      /* A LOSS READS NEGATIVE (Michael, 2026-08-19). It is subtracted from the
+       * available pressure, and stating it as a positive number beside a
+       * Static that carries its sign made the grid read as though the two
+       * worked the same way. `sectionPa` returns the magnitude, so the sign is
+       * applied here, at the one place it is presented as a term in a sum. */
+      kv('Total friction drop', FD.units.fmtPressure(-Math.abs(totFric), presUnit, true));
       if (pathList) {
         var stat = pathList.reduce(function (a, id) { return a + staticPa(id); }, 0);
         kv('Static', FD.units.fmtPressure(stat, presUnit, true));
@@ -1263,7 +1299,7 @@
       secCrit.appendChild(el('p', 'notice-head',
         'Critical Path from ' + nodeLabel(rootId) + ' to ' + (worst.tag || worst.id) +
         (wdef.gpm > 0 || wdef.psi > 0 ? '  (' + wdef.label + ')' : '')));
-      secCrit.appendChild(plumbingTable(pathPipes, designCtx));
+      secCrit.appendChild(plumbingTable(pathPipes, designCtx, { totals: true }));
       var totFricD = pathPipes.reduce(function (a, id) { return a + (rep.dpFric[id] || 0); }, 0);
       critGrid(secCrit, rep.pressure[worst.id], req, pathPipes.length, totFricD, pathPipes);
       secCrit.appendChild(el('p', 'hint',
@@ -1278,8 +1314,22 @@
      * PROPERTIES panel shows in SIMULATE — distinct from the DESIGN residual
      * (Michael, 2026-08-18: 307 kPa design vs 150 kPa actual). */
     if (anySource) {
-      var simRes = null;
-      try { simRes = FD.network.solveModel(buildPlumbingSimModel(m)); } catch (e) { simRes = null; }
+      /* THE SAME LOAD CASE THE SIMULATE MODE IS SHOWING. Under REMOTE1 the sheet
+       * must report the served set, not an all-open case the canvas is not
+       * showing — a sheet and a drawing that disagree about the load case is the
+       * worst of both. `app.remote1` is set by the solve; recomputed here when
+       * the sheet is opened without one (the CALCULATION tab does not wait for
+       * SIMULATE). */
+      var r1 = null, simRes = null;
+      var useRemote1 = !!(app.view && app.view.simStatic);
+      try {
+        if (useRemote1) {
+          r1 = (app.remote1 && app.remote1.ok) ? app.remote1 : FD.network.plumbingRemote1(m);
+          simRes = r1 && r1.ok ? r1.result : null;
+        } else {
+          simRes = FD.network.solveModel(buildPlumbingSimModel(m));
+        }
+      } catch (e) { simRes = null; }
       if (simRes && simRes.pressure) {
         var simCtx = { flowOf: function (id) { return Math.abs(simRes.flow[id] || 0); },
                        pressOf: function (nid) { return simRes.pressure[nid]; } };
@@ -1295,17 +1345,33 @@
           var sPath = [], sn = sWorst.id, g2 = 0;
           while (parentPipeOf[sn] && g2++ < 100000) { sPath.unshift(parentPipeOf[sn]); sn = rep.byPipe[parentPipeOf[sn]].from; }
           var sRoot = sn;
-          var secSim = calcSection('Critical Path (Simulation)');
+          var secSim = calcSection('Critical Path (Simulation)',
+            r1 ? { note: r1.noneServed ? 'REMOTE1 — none served'
+                                       : ('REMOTE1 — ' + r1.openCount + ' of ' + r1.total + ' open') }
+               : { note: 'all fixtures open' });
           var swdef = M.plumbingFixtureDefault(m, sWorst.device);
           secSim.appendChild(el('p', 'notice-head',
             'Critical Path from ' + nodeLabel(sRoot) + ' to ' + (sWorst.tag || sWorst.id) +
             (swdef.gpm > 0 || swdef.psi > 0 ? '  (' + swdef.label + ')' : '')));
-          secSim.appendChild(plumbingTable(sPath, simCtx));
+          secSim.appendChild(plumbingTable(sPath, simCtx, { totals: true }));
           var totFricS = sPath.reduce(function (a, id) { return a + sectionPa(id, Math.abs(simRes.flow[id] || 0)); }, 0);
           critGrid(secSim, simRes.pressure[sWorst.id], reqOf(sWorst), sPath.length, totFricS, sPath);
-          secSim.appendChild(el('p', 'hint',
-            'SIMULATION: fixtures draw against the pump curve as K-terminals, so ' +
-            'flows and delivered pressures differ from the DESIGN basis above.'));
+          secSim.appendChild(el('p', 'hint', r1
+            ? ('REMOTE1: the most remote fixture is opened first, then the next, ' +
+               'until the system cannot deliver — ' +
+               (r1.noneServed
+                 ? 'and here it cannot serve even the most remote one on its own.'
+                 : r1.openCount + ' of ' + r1.total + ' fixtures are served at once' +
+                   (r1.firstFailure
+                     ? ', and opening ' + ((M.node(m, r1.firstFailure) || {}).tag ||
+                        r1.firstFailure) + ' breaks it.'
+                     : '.')) +
+               ' Each open fixture draws its full Table 604.3 flow and the pump ' +
+               'contributes what its CURVE gives at the flow it is passing.' +
+               (r1.budgetHit ? '  Stopped at the ' + r1.solves + '-pass budget.' : ''))
+            : ('SIMULATION: every fixture is open at once and draws against the ' +
+               'pump curve as a K-terminal, so flows and delivered pressures ' +
+               'differ from the DESIGN basis above.')));
         }
       }
     }
@@ -1351,6 +1417,7 @@
       });
       th.appendChild(hr); t.appendChild(th);
       var tbf = el('tbody');
+      var sumCount = 0, sumFU = 0, sumQ = 0;
       fx.forEach(function (f) {
         var tr = el('tr', (f.margin !== null && f.margin < 0) ? 'warn-row' : '');
         function c(txt, cls) { tr.appendChild(el('td', cls, txt)); }
@@ -1367,9 +1434,35 @@
           c(f.margin === null ? '—' : FD.units.fmtPressure(f.margin, presUnit),
             (f.margin !== null && f.margin < 0) ? 'bad' : '');
         }
+        /* EXCLUDED FIXTURES DO NOT COUNT TOWARDS THE TOTAL. They are listed —
+         * greyed — because the schedule is a record of what is drawn, but the
+         * connected load is what is connected. */
+        if (f.included) {
+          sumCount += (f.dv.count || 1);
+          sumFU += f.fu;
+          sumQ += f.q;
+        }
         tbf.appendChild(tr);
       });
       t.appendChild(tbf);
+
+      /* THE CONNECTED LOAD, at the foot of its own schedule (Michael,
+       * 2026-08-19). Count, fixture units and undiversified flow are the three
+       * figures an engineer copies off a fixture schedule, and they were only
+       * obtainable by adding 47 rows by hand. The FU total is the same figure
+       * the All Pipes hint quotes at the source, so the two must agree — they
+       * come from the same per-fixture numbers. */
+      var tfoot = el('tfoot'), ftr = el('tr', 'total-row');
+      function fcell(txt, cls) { ftr.appendChild(el('td', cls, txt)); }
+      fcell('TOTAL', 'txt');
+      fcell(fx.length + ' listed' +
+            (fx.length !== sumCount ? '' : ''), 'txt dim');
+      fcell(String(sumCount));
+      fcell(sumFU.toFixed(1));
+      fcell(FD.units.fmtFlow(sumQ, flowUnit));
+      fcell('', 'dim');
+      if (anySource) { fcell('', 'dim'); fcell('', 'dim'); }
+      tfoot.appendChild(ftr); t.appendChild(tfoot);
       secFx.appendChild(t);
       secFx.appendChild(el('p', 'hint',
         'DESIGN basis: the undiversified Table 604.3 flow each fixture is sized ' +
@@ -2366,6 +2459,18 @@
     host.innerHTML = '';
     var m = app.model;
 
+    /* The active level's name on the COLLAPSED header (Michael, 2026-08-19).
+     * Collapsing the list is how you stop looking at it, and the active level is
+     * the one thing you still need from it: it decides what the canvas draws and
+     * which floor the next node lands on. CSS hides it while expanded, where the
+     * highlighted row already says it. Written on every render, so it follows a
+     * level switch, a rename and a reorder without its own wiring. */
+    var cur = $('levels-current');
+    if (cur) {
+      var av = M.level(m, m.activeLevel);
+      cur.textContent = av ? av.name : '';
+    }
+
     m.levels.forEach(function (lv, idx) {
       var row = el('div', 'level-row' + (lv.id === m.activeLevel ? ' active' : ''));
       row.draggable = true;
@@ -2573,7 +2678,56 @@
    *
    * Guarded rather than merely fixed, because the next one will be some other
    * helper: say so on the panel, log it, and let everything else carry on. */
+  /* ===================================================== THE MONITOR LIST
+   *
+   * Michael, 2026-08-19: "+ adds a device to be monitored (Outflow, Equipment,
+   * pipes). Duplicate view of properties of that device so the user can tune
+   * equipment on another floor."
+   *
+   * The list lives on `m.settings.monitor`, so it is SAVED with the model — it
+   * names devices in that model and would be meaningless anywhere else, and a
+   * commissioning set you assembled is worth keeping across a reload.
+   *
+   * The panels themselves are the SAME functions the left-hand properties panel
+   * uses, rendered into a different host. Not a copy: a second implementation of
+   * a pump panel would drift from the first one within a version, and the whole
+   * point is that what you tune on Level 6 is what Level 2 shows. */
+  function monitorList() {
+    var m = app.model;
+    if (!m.settings.monitor) m.settings.monitor = [];
+    return m.settings.monitor;
+  }
+  function monitorHas(kind, id) {
+    return monitorList().some(function (e) { return e.kind === kind && e.id === id; });
+  }
+  function monitorAdd(kind, id) {
+    if (monitorHas(kind, id)) return false;
+    monitorList().push({ kind: kind, id: id });
+    return true;
+  }
+  function monitorRemove(kind, id) {
+    var l = monitorList();
+    for (var i = 0; i < l.length; i++) {
+      if (l[i].kind === kind && l[i].id === id) { l.splice(i, 1); return true; }
+    }
+    return false;
+  }
+  /* A monitored device that has since been deleted is dropped rather than
+   * rendered as an empty box. */
+  function monitorPrune() {
+    var m = app.model;
+    var l = monitorList().filter(function (e) {
+      return e.kind === 'pipe' ? !!M.pipe(m, e.id) : !!M.node(m, e.id);
+    });
+    m.settings.monitor = l;
+    return l;
+  }
+
   function renderProperties() {
+    /* THE MONITOR IS REDRAWN AFTER THE PANEL, ALWAYS. Its field handlers are
+     * created under the render token, and `commit` refuses a write from a
+     * render that has been superseded — so if the panel were rebuilt without
+     * the monitor following, every box in the monitor would go quietly dead. */
     try { renderPropertiesInner(); }
     catch (err) {
       var h = $('prop-body');
@@ -2586,6 +2740,10 @@
           String(err && err.message || err)));
       }
       if (window.console) window.console.error('renderProperties', err);
+    }
+    if (app.monitorRefresh) {
+      try { app.monitorRefresh(); }
+      catch (e2) { if (window.console) window.console.error('monitorRefresh', e2); }
     }
   }
 
@@ -4108,9 +4266,15 @@
        * (v0.15.8, `20260808-DC-broken`), so this does not rely on the same
        * signal. If the device this box belongs to is no longer what the user is
        * looking at, the edit is not theirs to make. */
+      /* ...or STILL MONITORED. The TOOLS ▸ MONITOR panel renders the same
+       * properties for a device that is deliberately being watched from another
+       * floor, and it is not selected — so the selection test alone would make
+       * every tag box in that panel silently do nothing. The guard's intent is
+       * "the user is looking at this device", and a monitored device qualifies;
+       * a detached panel from a stale render still does not. */
       var owned = (app.view.selection || []).some(function (x) {
         return x.kind === 'pipe' && x.id === p.id;
-      });
+      }) || monitorHas('pipe', p.id);
       if (!owned) return;
       /* AND IT MAY NEVER APPEND A GENERATED TAG. Every corrupted value seen so
        * far is `<a real tag><a freshly generated one>` — `CHWP-04PMP-1PMP-1…`,
@@ -8009,6 +8173,22 @@
       var sec = $('pane-thermal');
       if (sec && sec.dataset.active === 'true' && app.showTab) app.showTab('pane-network');
     }
+    /* STATIC BECOMES REMOTE1 IN PLUMBING (Michael, 2026-08-19). The button keeps
+     * doing what STATIC did — lock the model, re-solve on RUN SIMULATION — and
+     * in a plumbing file it also names the LOAD CASE being simulated, because
+     * there the choice of load case is the whole question. Hydronic is
+     * untouched: it still reads STATIC and still simulates what is drawn. */
+    var statBtn = document.querySelector('[data-simmode="static"]');
+    if (statBtn) {
+      statBtn.textContent = plumbing ? 'REMOTE1' : 'STATIC';
+      statBtn.title = plumbing
+        ? 'REMOTE1 — open the most remote fixture, then the next, until the ' +
+          'system cannot deliver, and back off the last one. The load case a ' +
+          'booster is actually sized for. RUN SIMULATION re-solves.'
+        : 'Look, do not touch. The drawing is locked against anything that ' +
+          'would change the answer, so nothing re-solves — which is what makes ' +
+          'a large model usable';
+    }
     updateSystemChip();
   }
 
@@ -8414,6 +8594,75 @@
     /* GO TO WHAT FIND FOUND. Switches floor if it has to, centres it, selects
      * it — and changes nothing else, which is what lets a tool touch the model
      * at all. */
+    /* THE MONITOR'S API, exposed for `tools.js` — which owns the window but not
+     * the panels. Everything that touches the model goes through here so the
+     * undo stack, the autosave and the solve schedule behave as they do
+     * everywhere else. */
+    /* `tools.js` lives outside this closure, so anything it needs to SAY has to
+     * come through here — otherwise it invents its own notification and the app
+     * grows two. */
+    app.toast = toast;
+
+    app.monitor = {
+      list: function () { return monitorPrune(); },
+      has: monitorHas,
+      /* Adds the current canvas selection. Returns how many were added, so the
+       * caller can say something useful when the answer is none. */
+      addSelection: function () {
+        var sel = app.view.selection || [];
+        var added = 0;
+        sel.forEach(function (x) {
+          if (x.kind !== 'pipe' && x.kind !== 'node') return;   // not a device
+          if (monitorAdd(x.kind, x.id)) added++;
+        });
+        if (added) scheduleSave();
+        return added;
+      },
+      removeLast: function () {
+        var l = monitorPrune();
+        if (!l.length) return false;
+        var e = l[l.length - 1];
+        monitorRemove(e.kind, e.id);
+        scheduleSave();
+        return true;
+      },
+      remove: function (kind, id) {
+        var r = monitorRemove(kind, id);
+        if (r) scheduleSave();
+        return r;
+      },
+      clear: function () { app.model.settings.monitor = []; scheduleSave(); },
+      /* What a monitored entry is called on screen. */
+      label: function (e) {
+        var m = app.model;
+        var o = e.kind === 'pipe' ? M.pipe(m, e.id) : M.node(m, e.id);
+        if (!o) return e.id;
+        var kind = e.kind === 'pipe'
+          ? (o.kind === 'pump' ? 'Pump' : o.kind === 'valve' ? 'Valve'
+             : o.kind === 'equip' ? 'Equipment' : o.kind === 'sensor' ? 'Sensor'
+             : o.kind === 'riser' ? 'Riser' : 'Pipe')
+          : (o.device && o.device.kind === 'demand' ? 'Outflow'
+             : o.device && o.device.kind === 'source' ? 'Source' : 'Node');
+        var lvId = e.kind === 'pipe' ? (M.node(m, o.a) || {}).level : o.level;
+        var lv = M.level(m, lvId);
+        return { title: (o.tag || o.id), kind: kind, id: o.id,
+                 level: lv ? lv.name : '' };
+      },
+      /* THE SAME PANEL THE LEFT-HAND SIDE DRAWS, into someone else's host. */
+      renderInto: function (host, e) {
+        var m = app.model;
+        if (e.kind === 'pipe') renderPipeProps(host, M.pipe(m, e.id));
+        else renderNodeProps(host, M.node(m, e.id));
+      },
+      goTo: function (e) {
+        var m = app.model;
+        var lvId;
+        if (e.kind === 'pipe') { var p = M.pipe(m, e.id); lvId = p && (M.node(m, p.a) || {}).level; }
+        else { var n = M.node(m, e.id); lvId = n && n.level; }
+        if (app.findGoTo) app.findGoTo({ kind: e.kind, id: e.id, level: lvId });
+      }
+    };
+
     app.findGoTo = function (hit) {
       var m = app.model;
       if (!hit) return;
@@ -8487,6 +8736,16 @@
         try { localStorage.setItem('fpc.toolsOpen', on ? '1' : '0'); } catch (e) {}
       }
       app.toolsOpen = open;
+      /* THE MONITOR FOLLOWS THE PROPERTIES PANEL. Its inputs are built under the
+       * render token, and `commit` refuses a write from a superseded render — so
+       * a monitor that is not redrawn alongside the panel is a monitor whose
+       * boxes quietly stop working. Only when the window is open and only on the
+       * MONITOR tab: the other tools are calculators and do not go stale. */
+      app.monitorRefresh = function () {
+        if (win.hidden || !FD.tools) return;
+        if (FD.tools.activeTab && FD.tools.activeTab() !== 'mon') return;
+        FD.tools.render(app);
+      };
 
       [].slice.call(document.querySelectorAll('[data-tools-open]')).forEach(function (b) {
         b.addEventListener('click', function () { open(win.hidden); });

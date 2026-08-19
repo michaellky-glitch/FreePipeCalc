@@ -524,6 +524,15 @@ table.sheet td.edited input.cell-input { color: var(--accent); font-weight: 600;
   margin-top: 8px;
 }
 /* index-circuit rows: tinted so the critical path reads at a glance */
+/* A TOTALS ROW reads as a rule under the column, not as one more section. Bold,
+   a line above it, and it does not take the hover tint the data rows do. */
+table.sheet tfoot tr.total-row td {
+  font-weight: 700;
+  border-top: 2px solid var(--line);
+  background: var(--bg-raised);
+}
+table.sheet tfoot tr.total-row td.dim { font-weight: 400; }
+
 table.sheet tbody tr.index-row td { background: rgba(70, 209, 127, .09); }
 table.sheet tbody tr.index-row td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
 table.sheet tbody tr.index-row:hover td { background: rgba(70, 209, 127, .16); }
@@ -897,6 +906,9 @@ table.doc-table th { background: var(--bg-raised); color: var(--text-dim); font-
      The header repeats on every page on its own, because the sheet tables are
      built with a real `thead`. */
   table.sheet tr { page-break-inside: avoid; break-inside: avoid; }
+  table.sheet tfoot tr.total-row td {
+    background: #fff; color: #000; border-top: 2px solid #000;
+  }
   table.sheet td.bad, table.sheet td.warn { color: #000; font-weight: 700; }
   .sheet-head { border-color: #999; background: #fff; }
   .kv .k, .kv .v, .legend, .footer-note { color: #000; }
@@ -1314,12 +1326,63 @@ body.sim-static #prop-body .field textarea {
   background: none; color: var(--text-mute);
   font-size: 11.5px; padding: 5px 9px; cursor: pointer;
   border-radius: 5px 5px 0 0;
+  /* CAPS, like every other ribbon in the app (Michael, 2026-08-19). Done in CSS
+     rather than by shouting in the label strings, so the tab name stays a
+     readable sentence everywhere else it is used. */
+  text-transform: uppercase;
+  letter-spacing: .4px;
 }
 .tool-window-tabs .tool-tab:hover { color: var(--text); }
 .tool-window-tabs .tool-tab.active {
   color: var(--text); border-color: var(--line);
   background: var(--bg-panel); margin-bottom: -1px;
 }
+
+/* WHICH FLOOR AM I ON, with the list collapsed (Michael, 2026-08-19). The whole
+   point of collapsing the list is to stop looking at it, and the active level is
+   the one thing you still need from it — it decides what the canvas draws and
+   where the next node lands. Shown only while collapsed, because expanded the
+   highlighted row already says it. */
+.panel-head-current { display: none; }
+.panel-collapse.collapsed .panel-head-current {
+  display: inline;
+  margin-left: 7px;
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ------------------------------------------------------------- MONITOR tool
+   A watched device is a CARD: a header you can click to go to it, an x to stop
+   watching, and underneath it the real properties panel for that device. The
+   card border is what stops six panels reading as one very long one. */
+.monitor-head { display: flex; align-items: center; justify-content: space-between; }
+.monitor-head h3 { margin: 0; }
+.monitor-btns { display: flex; gap: 4px; }
+.monitor-card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin: 10px 0;
+  overflow: hidden;
+}
+.monitor-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 6px; padding: 5px 7px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--line);
+}
+.monitor-goto {
+  flex: 1 1 auto; min-width: 0; text-align: left;
+  background: none; border: 0; cursor: pointer; padding: 0; color: inherit;
+}
+.monitor-goto:hover .monitor-tag { color: var(--accent); }
+.monitor-tag { display: block; font-weight: 600; font-size: 12.5px; color: var(--text); }
+.monitor-meta { display: block; font-size: 11px; color: var(--text-mute); }
+.monitor-card-body { padding: 6px 8px 10px; }
+/* The panels were written for a 260px properties column; in the card they get
+   the window's width and must not inherit the tool window's stacked fields. */
+.monitor-card-body .field { display: block; margin-bottom: 6px; }
 
 .tool-window-body {
   padding: 10px 12px 14px; overflow-y: auto;

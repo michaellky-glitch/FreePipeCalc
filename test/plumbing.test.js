@@ -564,6 +564,81 @@ section('plumbingReport — pipework the sizing never reached');
       .every(function (x) { return x.code !== 'DW_UNSIZED'; }));
 }
 
+// ------------------------------------- REMOTE1 plumbing simulation (v0.17.19)
+section('plumbingRemote1 — the load case a booster is actually sized for');
+{
+  /* Michael, 2026-08-19: "as all outflows are open, the furthest point will
+   * never receive water." He is right, and it is an artefact of the question:
+   * a booster is not sized to run every tap in the building at once. REMOTE1
+   * opens the most remote tap, then the next, until the system cannot deliver,
+   * and backs off the last one. */
+  const raw = JSON.parse(fs.readFileSync(
+    __dirname + '/fixtures/plumbing-booster.pnet.json', 'utf8'));
+  const mb = M.fromJSON(raw);
+  const r = FD.network.plumbingRemote1(mb);
+  ok('it resolves', r.ok === true, r.error && r.error.code);
+  ok('the index fixture is the most remote', !!M.node(mb, r.indexNode), r.indexNode);
+  ok('it serves at least the index fixture', r.openCount >= 1, String(r.openCount));
+  ok('...and never more than there are', r.openCount <= r.total,
+    r.openCount + '/' + r.total);
+  ok('one pass per tap opened, no more', r.solves <= r.total + 1, String(r.solves));
+
+  /* THE SERVED SET REALLY IS SERVED. Every open fixture must have at least its
+   * 604.3 flow pressure — that is what "served" means, and it is the assertion
+   * the whole method exists to make true. */
+  const open = {};
+  r.openNodes.forEach(function (id) { open[id] = true; });
+  let shortfalls = 0;
+  r.openNodes.forEach(function (id) {
+    const need = M.plumbingReqPressure(mb, M.node(mb, id).device);
+    if (r.result.pressure[id] < need - 1) shortfalls++;
+  });
+  ok('every served fixture has its required pressure', shortfalls === 0, String(shortfalls));
+
+  /* A CLOSED TAP DRAWS NOTHING. */
+  const closed = mb.nodes.filter(function (n) {
+    return n.device && n.device.kind === 'demand' &&
+           n.device.demandType === 'plumbing' && !open[n.id];
+  });
+  if (closed.length) {
+    ok('a shut tap draws nothing', (r.result.draw[closed[0].id] || 0) === 0,
+      String(r.result.draw[closed[0].id]));
+  }
+
+  /* AN OPEN TAP DRAWS ITS FULL 604.3 FLOW — not a diversified share, and not
+   * the K-terminal's "whatever the system gives it", which on lowrise had ONE
+   * water closet pulling 2.35 L/s. */
+  const first = r.openNodes[0];
+  near('an open tap draws its full 604.3 flow',
+    r.result.draw[first], M.plumbingUndivFlow(mb, M.node(mb, first).device), 1e-15);
+
+  /* OPENING THE ONE THAT BROKE IT REALLY DOES BREAK IT. */
+  if (r.firstFailure) {
+    const tooMany = {};
+    r.openNodes.forEach(function (id) { tooMany[id] = true; });
+    tooMany[r.firstFailure] = true;
+    const bad = FD.network.plumbingOpenPass
+      ? FD.network.plumbingOpenPass(mb, tooMany)
+      : null;
+    if (bad) {
+      let anyShort = false;
+      Object.keys(tooMany).forEach(function (id) {
+        const need = M.plumbingReqPressure(mb, M.node(mb, id).device);
+        if (bad.pressure[id] < need - 1) anyShort = true;
+      });
+      ok('opening one more leaves something short — which is why it stopped', anyShort);
+    }
+  }
+
+  /* THE ALL-OPEN CASE IS THE ONE HE OBJECTED TO, and it is still available on
+   * DYNAMIC — pinned here so the difference is on the record. */
+  const allOpen = FD.network.solveModel(FD.network.plumbingSimModel(mb, null));
+  ok('all-open remains a different (and harsher) answer',
+    allOpen.pressure[r.indexNode] < r.result.pressure[r.indexNode] + 1,
+    'all-open ' + allOpen.pressure[r.indexNode] + ' vs remote1 ' +
+    r.result.pressure[r.indexNode]);
+}
+
 // -------------------- generic demand is added undiversified, and says so (v0.17.17)
 section('plumbingReport — a generic outflow is added undiversified and reported');
 {

@@ -2588,7 +2588,12 @@ section('A fill on a dead leg absorbs nothing; one in the return line does');
     const fs = require('fs');
     const path = require('path');
     const raw = fs.readFileSync(
-      path.join(__dirname, '..', 'examples', 'stacked-riser.pnet.json'), 'utf8');
+      /* FROM `test/fixtures/`, not `examples/`. The rule is that tests read a
+       * FROZEN copy — `test/testrun-*.js` regenerate `examples/`, so a test
+       * reading one is a test whose input can be rewritten out from under it.
+       * It also means `examples/` and `debug/` can be left out of a public
+       * deployment without taking the suite with them (Michael, 2026-08-19). */
+      path.join(__dirname, 'fixtures', 'stacked-riser.pnet.json'), 'utf8');
     const ex = NET.solveModel(M.fromJSON(JSON.parse(raw)));
     near('examples/stacked-riser absorbs nothing at its fill',
          ex.thermal.sourceDuty, 0, 1);
@@ -2627,8 +2632,12 @@ section('Parallel branches balance against each other');
 {
   const fs = require('fs');
   const path = require('path');
+  /* FROZEN INTO `test/fixtures/`, from `debug/20260805-4.json`. A test that
+   * reads out of `debug/` is a test whose input is a working file someone may
+   * edit or delete — and it kept `debug/` (1.2 MB of investigation material) in
+   * a public deployment for one 33-node model. Michael, 2026-08-19. */
   const raw = fs.readFileSync(
-    path.join(__dirname, '..', 'debug', '20260805-4.json'), 'utf8');
+    path.join(__dirname, 'fixtures', 'parallel-branches.pnet.json'), 'utf8');
 
   const m = M.fromJSON(JSON.parse(raw));
   const res = NET.solveModel(m);

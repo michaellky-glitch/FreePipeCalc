@@ -2,14 +2,20 @@
 
 Disclaimer - I have zero programing knowledge 🤡. My role in this project was directing the LLMs, validation, and testing.
 
-Free piping friction loss calculator for Building Services Engineers. You can draw and simulate multi level piping networks and loops.
-Calculate friction losses to size the pump, and export node-to-node calculations.
-A thermal module carries temperature through the network: heat loss through
-insulation, mixing at junctions, and equipment duty from Q = ṁ·Cp·ΔT.
+FreePipeCalc is a Free piping friction loss calculator for Building Services Engineers. 
+- Draw and simulate Hydronic & Plumbing pipe networks. Support for looped piping in Hydronic module only.
+- Trace existing drawings in ANNOTATION>TRACE.
+- FPC calculates Friction & static losses.
+- Cooling ~~& Heating~~ (Not tested) loads can be added to the system to simulate typical closed-loop systems.
+- SIMULATION mode calculates 
 
-**Download the folder, open `index.html`, and it runs.** No server required, no install,
-no build step, no network access, no CDN, no accounts. It works from a USB stick
-on a machine with no internet.
+
+
+## KNOWN ISSUES
+- Plumbing module is still under development.
+- Plumbing simulation will usually fail because all outflows are open, water will almost never reach Most Remote Fixture. 
+
+Download the folder, open `index.html`.
 
 Calculations follow ASHRAE: Hazen-Williams friction loss and the equivalent-length
 fitting method, with Darcy-Weisbach available as a BETA option (Swamee-Jain
