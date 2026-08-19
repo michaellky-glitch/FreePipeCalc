@@ -564,6 +564,77 @@ section('plumbingReport — pipework the sizing never reached');
       .every(function (x) { return x.code !== 'DW_UNSIZED'; }));
 }
 
+// ------------- SIMULATE publishes what it computed, and flags high static
+section('plumbingOpenPass — the simulation report, and over-pressure');
+{
+  /* Michael, 2026-08-19 (20260819-lowrise): "simulate is not working, no actual
+   * flow shown at outflow." It WAS computing it — `draw[node]` is the whole
+   * basis of the pass — and then not publishing it in the shape the UI reads.
+   * `drawDeviceBox`, the outflow panel's ACTUAL section and the sheet all look
+   * for `res.simulation.terminals`. A number computed and not published is
+   * indistinguishable from a number not computed. */
+  const raw = JSON.parse(fs.readFileSync(
+    __dirname + '/fixtures/plumbing-booster.pnet.json', 'utf8'));
+  const ms = M.fromJSON(raw);
+  const openMap = {};
+  ms.nodes.forEach(function (n) {
+    if (n.device && n.device.kind === 'demand' && n.device.include !== false) {
+      openMap[n.id] = true;
+    }
+  });
+  const pass = FD.network.plumbingOpenPass(ms, openMap);
+  ok('the pass publishes a simulation report', !!(pass.simulation &&
+     pass.simulation.terminals), 'no simulation block');
+
+  const demands = ms.nodes.filter(function (n) {
+    return n.device && n.device.kind === 'demand';
+  });
+  ok('...with a row for every outflow, on or off',
+    pass.simulation.terminals.length === demands.length,
+    pass.simulation.terminals.length + ' vs ' + demands.length);
+
+  const row = pass.simulation.terminals.filter(function (t) { return !t.off; })[0];
+  ok('an open outflow reports an actual flow', row.actualFlow > 0, String(row.actualFlow));
+  near('...which is the draw the pass computed', row.actualFlow, pass.draw[row.node], 1e-15);
+  /* AND IT EQUALS THE DESIGN FLOW, BY CONSTRUCTION. An open tap draws what its
+   * outlet is designed to pass — that is what this method says. The answer
+   * SIMULATE gives here is the PRESSURE, not the flow, and the ratio being
+   * exactly 1 is the method working, not a coincidence. */
+  near('...and equals its design flow, because an open tap draws its design flow',
+    row.ratio, 1, 1e-12);
+  ok('...and carries the pressure delivered to it',
+    row.actualPressure !== undefined && isFinite(row.actualPressure),
+    String(row.actualPressure));
+
+  /* HIGH STATIC PRESSURE IS A FINDING. A fixed-speed booster runs UP its curve
+   * as the draw falls, so the worst case is the quietest one — which is exactly
+   * why nobody looks for it. */
+  ms.settings.warn.maxStatic = 0;                       // disabled
+  const none = FD.network.plumbingOpenPass(ms, openMap);
+  ok('a zero limit disables the check', none.warnings
+    .every(function (w) { return w.code !== 'DW_OVER_PRESSURE'; }));
+
+  let peak = 0;
+  Object.keys(pass.pressure).forEach(function (k) {
+    if (isFinite(pass.pressure[k]) && pass.pressure[k] > peak) peak = pass.pressure[k];
+  });
+  ms.settings.warn.maxStatic = Math.max(1, peak - 1000);   // just under the peak
+  const hit = FD.network.plumbingOpenPass(ms, openMap);
+  const op = hit.warnings.filter(function (w) { return w.code === 'DW_OVER_PRESSURE'; })[0];
+  ok('a limit below the peak raises DW_OVER_PRESSURE', !!op,
+    hit.warnings.map(function (w) { return w.code; }).join(','));
+  ok('...naming the highest point', op && op.pressure >= peak - 1e-6, op && String(op.pressure));
+  ms.settings.warn.maxStatic = 552e3;
+
+  /* HYDRONIC IS NEVER CHECKED — a heating circuit is legitimately pressurised
+   * past anything that would mean something at a tap. */
+  const hy = M.fromJSON(raw); hy.discipline = 'hydronic';
+  hy.settings.warn.maxStatic = 1;
+  const hp = FD.network.plumbingOpenPass(hy, openMap);
+  ok('a hydronic file is not static-pressure checked', hp.warnings
+    .every(function (w) { return w.code !== 'DW_OVER_PRESSURE'; }));
+}
+
 // --------------------- sizing a branch that has no fixture units (v0.17.21)
 section('plumbingSizing — a branch of ordinary outflows sizes too');
 {

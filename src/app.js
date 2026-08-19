@@ -8071,6 +8071,24 @@
       function (v) {
         pushUndo(); m.settings.warn.maxComponentPD = v * 1000; redrawAll();
       }, '(kPa)');
+    /* STATIC PRESSURE AT A FIXTURE — plumbing only. A hydronic circuit is
+     * legitimately pressurised past any figure that would mean anything here. */
+    if (plumbingTab) {
+      numField(wg, 'Max static pressure', (m.settings.warn.maxStatic || 0) / 1000,
+        function (v) {
+          pushUndo(); m.settings.warn.maxStatic = v * 1000; redrawAll();
+        }, '(kPa)');
+    }
+    if (plumbingTab) {
+      var sp = el('p', 'hint',
+        'Max static pressure defaults to 552 kPa (80 psi), the figure at which ' +
+        'IPC 604.8 calls for a pressure-reducing valve. 0 disables the check. ');
+      infoMark(sp, 'A fixed-speed booster runs UP its curve as the draw falls, ' +
+                   'so the highest pressure in a domestic system is usually at ' +
+                   'its quietest, not its busiest. Confirm the figure against ' +
+                   'the code you are working to.');
+      host.appendChild(sp);
+    }
     var pl = el('p', 'hint',
       'Past the pressure limit the answer is an ERROR, not a warning. ');
     infoMark(pl, 'The solve is exact — but a component at 1252 bar describes a ' +

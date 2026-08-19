@@ -1,139 +1,73 @@
-# FreePipeCalc
+# Introduction
+I have zero programing knowledge 🤡. My role in this project was directing the LLMs, providing calculation, testing & validation.
+ 
 
-Disclaimer - I have zero programing knowledge 🤡. My role in this project was directing the LLMs, validation, and testing.
+ 
 
-FreePipeCalc is a Free piping friction loss calculator for Building Services Engineers. 
-- Draw and simulate Hydronic & Plumbing pipe networks. Support for looped piping in Hydronic module only.
-- Trace existing drawings in ANNOTATION>TRACE.
-- FPC calculates Friction & static losses.
-- Cooling ~~& Heating~~ (Not tested) loads can be added to the system to simulate typical closed-loop systems.
-- SIMULATION mode models how the system responds to various conditions & expected VFD/valve positions.
-- No data or telemetry is logged if the page is installed locally (1).
+FreePipeCalc is a Free piping friction loss calculator for Building Services Engineers.
+ 
+* Draw and simulate Hydronic ~~\& Plumbing~~ pipe networks. 
+* Trace existing drawings in ANNOTATION>TRACE.
+* FPC calculates Friction \& static losses.
+* Cooling ~~\& Heating~~ (Not tested) loads can be added to the system to simulate typical closed-loop systems.
+* SIMULATION mode models how the system responds to various conditions \& expected VFD/valve positions.
+* Export as DXF and print.
+ 
 
-Download the folder, open `index.html`.
+ 
+# Usage
 
+* GitHub Pages (Not recommended)
+* Download the folder, open `index.html` in any web browser.
+* Deploy on your own webserver.
+ 
+
+ 
+## Data Storage
+
+Data is stored within your browser's storage between sessions. You should still save regularly. No data or telemetry is logged if the page is installed locally (1).
+ 
+ 
 *(1) - I did not prompt any of the LLMs that worked on this project to include any data logging or telemetry. But I have not run any security tests yet, so who knows? Will remove this message once I get it audited by a third party LLM.*
+ 
 
-## KNOWN ISSUES
-- Plumbing module is still under development.
-- Plumbing simulation will usually fail because all outflows are open, water will almost never reach Most Remote Fixture. 
+ 
+## Known Issues
 
+* Plumbing module is still under development.
+* Plumbing simulation will usually fail because all outflows are open, water will almost never reach Most Remote Fixture.
+* Support for looped piping in Hydronic module only.
+* Sometimes a \[REPAIR] button will appear under File. This usually means a tag is damaged. Pressing it should be harmless.
+ 
 
-## Everything below this line is LLM generated.
+ 
+## Calculation
+Friction Loss Calculations use 2 methods from ASHRAE Handbook - Fundamentals, Chapter 22.
+ 
+ 
+* Hazen-Williams (2)
+* Darcy-Weisbach  (Swamee-Jain friction factor).
+ 
+ 
+Network solver uses the Todini Global Gradient Algorithm (GGA). See Engine Documentation for more details.
+ 
+ 
+*(2) - At time of development, the ASHRAE handbook did not contain a list of equivalent lengths for pipe fittings. FPC uses Carrier Design Handbook values by default, with NFPA 13 equivalent lengths as an alternative. However, NFPA 13 (2025) 28.2.4.8.1 (6) states that Losses for straight-through flow in a tee or cross shall not be included. Carrier values for straight-through tees are used instead.*
+ 
 
-
-
-Calculations follow ASHRAE: Hazen-Williams friction loss and the equivalent-length
-fitting method, with Darcy-Weisbach available as a BETA option (Swamee-Jain
-friction factor). All
-computation is SI internally; imperial is a display conversion.
-
-## What it does
-
-* **Draws** multi-level networks — levels, riser columns, loops, rings.
-* **Traces** over a pasted screenshot of an existing drawing, with two-point
-  scale calibration.
-* **Solves** branched *and* looped topologies with multiple sources and pumps,
-  using the Global Gradient Algorithm (the method EPANET uses).
-* **Detects fittings automatically** from the drawn geometry — elbows and tees
-  are inferred from pipe angles, never placed by hand.
-* **Sizes pumps** to the index circuit, or to equipment rated flow in closed
-  circuits, re-sizing on every solve.
-* **Warns** on velocity, friction rate, laminar flow, insufficient supply,
-  dead-ended pumps and missing sources.
-* **Reports** a node-to-node calculation sheet, CSV export, and printable level
-  plans at a shared scale.
-
-Devices supported: sources, demands, pumps (running / fixed / off), gate and
-check valves with Kv/Cv, and equipment with rated flow and pressure drop. All
-of them carry an equipment tag that appears on the drawing and in the sheet.
-
-## Running it
-
-Open `index.html` in a browser. Double-clicking the file works; so does dragging
-it onto a browser window.
-
-Save your model with **SAVE MODEL** — it writes a `.pnet.json` file, plain text
-and readable, which **LOAD MODEL** reads back. Worked examples are in
-`examples/`.
-
-## Documentation
-
-* `docs/ARCHITECTURE.md` — how the program works and why. **Start here.**
-* `docs/ENGINE.md` — the hydraulics maths, with hand-checkable worked examples.
-* `docs/MESSAGES.md` — every error, warning and notice, what raises it, and
-  which setting drives its threshold.
-* `docs/piping-friction-loss-spec.md` — the specification; §12 logs every
-  deviation from it and the reason.
-* `docs/Human-Test.md` — what has been checked by hand, and what has not.
-* `docs/PUBLISHING.md` — notes on releasing this repository.
-
+ 
 ## A word on trust
-
-This is free software written to be useful, not a certified design tool. The engine is covered by 687 assertions whose expected values are independent hand calculations rather than numbers copied out of the code, and `docs/ENGINE.md` gives worked examples you can check yourself with a calculator.
-
+This is free software written to be useful, not a certified design tool. The engine is covered by over 2000 assertions whose expected values are independent hand calculations rather than numbers copied out of the code, and `docs/ENGINE.md` gives worked examples you can check yourself with a calculator.
+ 
+ 
 That is not the same as being right for your project. **Verify the results.**
+ 
+ 
 
----
-
-## Status
-
-Usable for simple networks. Implemented so far:
-
-| Area | State |
-|---|---|
-| Pipe schedule data (ASME Sch 10/40/80, EN 10255 M/H, PPR, HDPE) | done |
-| Fitting equivalent lengths (ASHRAE L/D method) | done |
-| Unit conversion / parsing (display layer) | done |
-| Hazen-Williams pipe loss | done |
-| Network solver (GGA — loops, multiple sources, pumps, islands) | done |
-| Model, levels, risers, save/load `.pnet.json` | done |
-| Fitting auto-detection + two-pass tee run/branch | done |
-| Canvas: draw, snap, tee insertion, zoom/pan, select, delete | done |
-| Calculation sheet + CSV export + print stylesheet | done |
-| Settings, theming, autosave, undo/redo | done |
-| Test suite (687 assertions) | done |
-| TRACE mode: trace over a pasted drawing | done |
-| Open/closed detection shown on the ribbon | done |
-| DOCUMENTATION tab rendering the project docs | done |
-| LAYOUT mode: draggable labels, device value boxes | done |
-| Rendered formulas with inline editable coefficients | done |
-| Riser placement UI, column snapping across levels (§7.2) | done |
-| Pump device: place, auto-size or fix head (§8.4) | done |
-| In-app dialogs (no browser popups) | done |
-| Level drag-reorder + property editor | done |
-| Drawing annotations `50⌀/12.50m/3.00L/s`, toggleable | done |
-| Node renumbering from source | done |
-| Printed level plans, one page per level, shared scale (§10.1) | done |
-| Valves: gate & check, Kv/Cv, 0–100% opening | done |
-| HYDRAULIC tab: method, editable coefficients, fluid, fitting tables | done |
-| Laminar / transitional flow warning | done |
-| Darcy-Weisbach module (BETA, Swamee-Jain friction factor) | done |
-| ASHRAE fitting K coefficient tables | done |
-| Riser auto-alignment: inactive floors slide to the active floor | done |
-
-| Rigid-translation length edits, incl. across risers (§6) | done |
-| Copy level layout up/down, carrying risers (§6) | done |
-| Custom user pipe schedules, paste from a spreadsheet (§9) | done |
-| Critical path identification, ordering and highlighting (§10) | done |
-| Geometry-conflict detection + Repair with change log (§6) | done |
-| Pump auto-sizing on every solve, with safety factor (§8.4) | done |
-| Supply-adequacy checks + pressure-driven actual delivery | done |
-| Equipment device with tag, rated flow and ΔP (§8.3) | done |
-| Equipment tags on drawing, sheet and CSV | done |
-| Closed circuits: pressure datum + flow-based pump sizing | done |
-| Pump off/running modes | done |
-| Pump duty table: head required vs selection margin | done |
-| DESIGN / SIMULATION modes, calculated side locked | done |
-| Pump curves: paste manufacturer data, least-squares fit with quality shown | done |
-| TOOLS tab — Generic Pump Curve (three-point, NFPA 20 preset) | done |
-| SHOW DISCONNECT: coincident nodes, islands, devices with nowhere to discharge | done |
-| Device direction with flip, no reverse flow through pump/equipment/check valve | done |
-| Parallel pumps share flow in DESIGN | done |
-| Combining vs dividing tees (structure done, 2 of 4 coefficients placeholder) | partial |
-| Drag a device body; labels snap to grid; riser select/delete | done |
-
-Previous releases are kept under `Previous Version/`.
+ 
+ 
+## Everything below is LLM generated.
+***
 
 ## Running the tests
 

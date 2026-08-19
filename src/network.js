@@ -3657,6 +3657,47 @@
    * finding — 1 Pa, a ten-thousandth of a kPa. */
   var PRESSURE_EPS = 1;
 
+  /* PRESSURE THAT IS TOO HIGH IS A FINDING TOO.
+   *
+   * Michael, 2026-08-19 (20260819-lowrise): "the pipe is over pressurized." He
+   * was reading it off the sheet by eye, because nothing said it. With four taps
+   * open the booster runs back UP its curve toward shutoff — 308 kPa at 1.26 L/s
+   * against a 231 kPa duty — and 200 kPa of mains under it puts 508 kPa into the
+   * riser. The arithmetic is right and the SYSTEM is the problem: a fixed-speed
+   * booster with no pressure control does exactly this at low draw.
+   *
+   * So it is reported rather than corrected. The limit is
+   * `settings.warn.maxStatic`, editable on the HYDRAULIC tab and defaulting to
+   * 552 kPa (80 psi, IPC 604.8's threshold for requiring a pressure-reducing
+   * valve). Plumbing only: "static pressure at a fixture" is a defined thing
+   * there, and a hydronic circuit is legitimately pressurised well past it. */
+  function overPressureWarnings(m, pressure) {
+    var out = [];
+    if (m.discipline !== 'plumbing') return out;
+    var limit = (m.settings.warn && m.settings.warn.maxStatic) || 0;
+    if (!(limit > 0)) return out;
+    var worst = null;
+    m.nodes.forEach(function (n) {
+      var p = pressure[n.id];
+      if (p === undefined || !isFinite(p)) return;
+      if (p <= limit) return;
+      if (!worst || p > worst.p) worst = { id: n.id, p: p, tag: n.tag };
+      out.push({ node: n.id, _p: p });
+    });
+    if (!out.length) return [];
+    return [{
+      code: 'DW_OVER_PRESSURE', node: worst.id, level: 'warning',
+      pressure: worst.p, limit: limit, count: out.length,
+      message: out.length + ' point' + (out.length === 1 ? '' : 's') +
+               ' exceed the ' + Math.round(limit / 1000) + ' kPa static-pressure ' +
+               'limit, the highest being ' + (worst.tag || worst.id) + ' at ' +
+               Math.round(worst.p / 1000) + ' kPa. A fixed-speed booster runs up ' +
+               'its curve as the draw falls, so the worst case is the QUIETEST ' +
+               'one. Consider a pressure-reducing valve or a speed-controlled ' +
+               'set; the limit is editable on the HYDRAULIC tab.'
+    }];
+  }
+
   function plumbingReport(m) {
     var dw = M.plumbingSizing(m);
     if (!dw.ok || !Object.keys(dw.byPipe).length) {
@@ -3740,7 +3781,8 @@
      * warnings for a network running at 12 m/s"). The detection is not
      * re-written here: `flowRegimeWarnings` and `disconnections` are the same
      * functions the GGA path uses, and they are discipline-neutral. */
-    var warnings = flowRegimeWarnings(m, net, { flow: flow });
+    var warnings = flowRegimeWarnings(m, net, { flow: flow })
+      .concat(overPressureWarnings(m, pressure));
     var errors = [];
 
     /* A FIXTURE BELOW ITS 604.3 REQUIRED PRESSURE. The delivered residual is
@@ -3995,15 +4037,54 @@
     });
 
     /* THE SAME DETECTORS AS EVERY OTHER PATH. This load case has its own flows,
-     * so it has its own velocities and friction rates — and a REMOTE1 run that
-     * reported none would be the v0.17.15 bug again, one path along. */
-    var passWarnings = flowRegimeWarnings(m, net, { flow: flow });
+     * so it has its own velocities and friction rates — and a pass that reported
+     * none would be the v0.17.15 bug again, one path along. */
+    var passWarnings = flowRegimeWarnings(m, net, { flow: flow })
+      .concat(overPressureWarnings(m, pressure));
+
+    /* THE SIMULATION REPORT — what every reader of a SIMULATE result expects.
+     *
+     * Michael, 2026-08-19 (20260819-lowrise): "simulate is not working, no
+     * actual flow shown at outflow." It was computing the actual flow — it is
+     * `draw[node]`, the whole basis of the pass — and then not publishing it in
+     * the shape the UI reads. `drawDeviceBox`, the outflow panel's ACTUAL
+     * section and the calculation sheet all look for `res.simulation.terminals`,
+     * which the GGA path builds via `simulationReport`; this path built nothing,
+     * so every one of them fell through to its "—" branch. A number computed and
+     * not published is indistinguishable from a number not computed.
+     *
+     * Same row shape as `simulationReport`, deliberately, so nothing downstream
+     * needs to know which path produced it. `actualFlow` is what the open tap
+     * draws — which for an open tap IS its design flow, because that is what
+     * this method says a tap does; the answer SIMULATE gives here is the
+     * PRESSURE at it. A tap switched off appears with zero flow rather than
+     * being omitted, so the panel can say "off" rather than "unknown". */
+    var terminals = [];
+    m.nodes.forEach(function (n) {
+      var dv = n.device;
+      if (!dv || dv.kind !== 'demand') return;
+      var qd = (dv.demandType === 'plumbing')
+        ? M.plumbingUndivFlow(m, dv) : (dv.flow || 0);
+      var need = (dv.demandType === 'plumbing')
+        ? M.plumbingReqPressure(m, dv) : (dv.reqPressure || 0);
+      var qa = draw[n.id] || 0;
+      terminals.push({
+        node: n.id, tag: n.tag || null,
+        designFlow: qd, actualFlow: qa,
+        ratio: qd > 0 ? qa / qd : null,
+        designPressure: need,
+        actualPressure: pressure[n.id],
+        off: dv.include === false,
+        balanceKv: null
+      });
+    });
 
     return { ok: true, error: null, flow: flow, pressure: pressure, network: net,
              byPipe: byPipe, plumbing: rep.plumbing, headloss: {}, dpFric: dpFric,
              draw: draw, totalFU: rep.totalFU, totalFlow: rep.totalFlow,
              openFlow: (rep.plumbing.roots || []).reduce(function (a, r) {
                return a + (sub[r] || 0); }, 0),
+             simulation: { terminals: terminals, pumps: [] },
              warnings: passWarnings, errors: [], iterations: 0 };
   }
 

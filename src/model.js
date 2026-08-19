@@ -210,9 +210,14 @@
        * PERCENTAGE. A fill connection legitimately carries a trickle; a plant
        * that cannot keep up hides in the same place, and used to do so
        * silently. */
+      /* `maxStatic` — IPC 604.8: where the static pressure exceeds 80 psi
+       * (552 kPa) a pressure-reducing valve is required. Held as an EDITABLE
+       * limit rather than a hard rule (other codes differ, and the figure is
+       * Michael's to confirm), checked only in a plumbing file where "static
+       * pressure at a fixture" is a defined thing. 0 disables it. */
       warn: { velocity: 2.4, pdm: 400, laminar: true, pumpRunout: 120,
-              equipFlowRatio: 2, maxComponentPD: 2000e3, valveOversized: 10,
-              heatBalance: 2 },
+              equipFlowRatio: 2, maxComponentPD: 2000e3, maxStatic: 552e3,
+              valveOversized: 10, heatBalance: 2 },
       floorToFloor: 3.5,
       grid: { minor: 0.5, major: 5, snap: true },
 

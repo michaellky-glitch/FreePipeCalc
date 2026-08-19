@@ -9,8 +9,8 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-19, after v0.17.21 (SIMULATE reverted to a user-chosen load
-case, export prompts, panel grouping).
+Updated 2026-08-19, after **v0.18.0 (beta)** — SIMULATE publishes what it
+computes, and high static pressure is reported.
 
 ---
 
@@ -48,6 +48,28 @@ The likeliest things to come back:
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
+
+* **v0.18.0 (BETA)** — **SIMULATE showed no actual flow** (Michael, 2026-08-19,
+  `20260819-lowrise`). It was COMPUTING it — `draw[node]` is the whole basis of
+  the forward pass — and then not publishing it in the shape every reader
+  expects: `drawDeviceBox`, the outflow panel's ACTUAL section and the sheet all
+  look for `res.simulation.terminals`, which the GGA path builds and this path
+  did not. A number computed and not published is indistinguishable from a
+  number not computed. Now published, same row shape, with a row for every
+  outflow — an OFF tap reads 0.00 L/s rather than "—", so the panel says "off"
+  instead of "unknown".
+  **"Suspiciously close to design" is the method, not a fault:** an open tap
+  draws its design flow, so the ratio is exactly 1 by construction. What
+  SIMULATE answers here is the PRESSURE.
+  **"The pipe is over pressurized" is real and now reported.** With 4 taps open
+  the booster runs back UP its curve toward shutoff — 308 kPa at 1.26 L/s
+  against a 231 kPa duty — and 200 kPa of mains under it puts **508 kPa** into
+  the riser. Correct arithmetic; the SYSTEM wants a PRV or a speed-controlled
+  set. New `DW_OVER_PRESSURE` warning against an editable
+  `settings.warn.maxStatic` (default 552 kPa = 80 psi, IPC 604.8's PRV
+  threshold), plumbing only, editable on the HYDRAULIC tab. **It does not fire on
+  this model** — 508 kPa is under 552 — so the threshold is Michael's to set.
+  10 new assertions (suite 2223).
 
 * **v0.17.21** — Michael's second 2026-08-19 list. **SIMULATE reverted to a
   user-chosen load case**: the REMOTE1 search is gone (spec kept in
