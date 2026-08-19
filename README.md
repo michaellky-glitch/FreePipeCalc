@@ -7,15 +7,21 @@ FreePipeCalc is a Free piping friction loss calculator for Building Services Eng
 - Trace existing drawings in ANNOTATION>TRACE.
 - FPC calculates Friction & static losses.
 - Cooling ~~& Heating~~ (Not tested) loads can be added to the system to simulate typical closed-loop systems.
-- SIMULATION mode calculates 
+- SIMULATION mode models how the system responds to various conditions & expected VFD/valve positions.
+- No data or telemetry is logged if the page is installed locally (1).
 
+Download the folder, open `index.html`.
 
+*(1) - I did not prompt any of the LLMs that worked on this project to include any data logging or telemetry. But I have not run any security tests yet, so who knows? Will remove this message once I get it audited by a third party LLM.*
 
 ## KNOWN ISSUES
 - Plumbing module is still under development.
 - Plumbing simulation will usually fail because all outflows are open, water will almost never reach Most Remote Fixture. 
 
-Download the folder, open `index.html`.
+
+## Everything below this line is LLM generated.
+
+
 
 Calculations follow ASHRAE: Hazen-Williams friction loss and the equivalent-length
 fitting method, with Darcy-Weisbach available as a BETA option (Swamee-Jain

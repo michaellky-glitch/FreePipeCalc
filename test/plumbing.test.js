@@ -630,6 +630,51 @@ section('plumbingRemote1 — the load case a booster is actually sized for');
     }
   }
 
+  /* RE-RANKED EVERY ROUND (Michael, 2026-08-19). "The next most remote" is a
+   * question about the system as it stands: once ten taps are running the
+   * pressures have moved, and the tap with the least margin LEFT is not
+   * necessarily the one the design pass ranked eleventh.
+   *
+   * The invariant, checked by replaying the run: at each step the tap chosen was
+   * the least-margin one still shut, measured on the pass that preceded it. That
+   * is the definition, and it is what ranking-once violated. */
+  {
+    const cands = mb.nodes.filter(function (n) {
+      return n.device && n.device.kind === 'demand' && n.device.include !== false &&
+             n.device.demandType === 'plumbing' &&
+             M.plumbingUndivFlow(mb, n.device) > 0;
+    }).map(function (n) {
+      return { node: n.id, need: M.plumbingReqPressure(mb, n.device) };
+    });
+    const rep0 = FD.network.plumbingReport(mb);
+    let prev = rep0, openSoFar = {}, violations = 0, checked = 0;
+    r.order.forEach(function (id) {
+      const shut = cands.filter(function (c) { return !openSoFar[c.node]; });
+      let bestMargin = Infinity;
+      shut.forEach(function (c) {
+        const p = prev.pressure[c.node];
+        const mg = (p === undefined) ? -Infinity : p - c.need;
+        if (mg < bestMargin) bestMargin = mg;
+      });
+      const chosen = cands.filter(function (c) { return c.node === id; })[0];
+      const pc = prev.pressure[chosen.node];
+      const mc = (pc === undefined) ? -Infinity : pc - chosen.need;
+      checked++;
+      if (mc > bestMargin + 1e-6) violations++;
+      openSoFar[id] = true;
+      prev = FD.network.plumbingOpenPass(mb, openSoFar, rep0);
+    });
+    ok('every tap opened was the least-margin one still shut at that moment',
+      violations === 0, violations + ' of ' + checked + ' out of order');
+    ok('...and the replay covered the whole run', checked === r.openCount,
+      checked + ' vs ' + r.openCount);
+  }
+
+  /* RANKING ONCE AND RE-RANKING CAN DISAGREE, and where they do the re-ranked
+   * order is the one that matches its own simulation. On the booster fixture the
+   * two happen to agree; the assertion is that the run is SELF-CONSISTENT
+   * (above), not that it differs on every model. */
+
   /* THE ALL-OPEN CASE IS THE ONE HE OBJECTED TO, and it is still available on
    * DYNAMIC — pinned here so the difference is on the record. */
   const allOpen = FD.network.solveModel(FD.network.plumbingSimModel(mb, null));

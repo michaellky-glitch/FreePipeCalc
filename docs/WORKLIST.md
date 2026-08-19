@@ -9,8 +9,8 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-19, after v0.17.19 (REMOTE1, the MONITOR tool, and cutting
-`examples/` and `debug/` loose from the test suite).
+Updated 2026-08-19, after v0.17.20 (REMOTE1 re-ranks its remoteness order every
+round).
 
 ---
 
@@ -48,6 +48,18 @@ The likeliest things to come back:
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
+
+* **v0.17.20** — **REMOTE1 re-ranks every round** (Michael, 2026-08-19: "yes,
+  please do this"). The order taps open in is now decided against the pressures
+  the system actually has at that moment, not the design ranking computed once —
+  because after ten taps are running, the least-margin tap left is not
+  necessarily the one design ranked eleventh. **The extra pass per step it was
+  supposed to cost does not exist:** the forward pass already computes a residual
+  at every SHUT node, which is exactly "what would be available here if I opened
+  it", so the last accepted pass carries the ranking signal for free. 19 passes
+  either way on lowrise, 98 ms. Pinned by the invariant rather than the output —
+  each tap opened was the least-margin one still shut, measured on the pass
+  before it. 2 new assertions (suite 2206).
 
 * **v0.17.19** — Michael's 2026-08-19 list. **REMOTE1** — the plumbing SIMULATE
   load case. Opening every fixture at once left the index fixture 220.8 kPa short

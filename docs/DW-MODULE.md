@@ -58,10 +58,27 @@ behaviour, which is still the right thing to look at when the question really is
 
 **Implemented in** `FD.network.plumbingRemote1(m)` (`src/network.js`), pinned by
 `test/plumbing.test.js`; the result carries `openCount`, `total`, `indexNode`,
-`firstFailure` and a `DW_REMOTE1` message. **Open question:** the order is by
-DESIGN margin and is computed once, not re-ranked as taps open. Re-ranking each
-round would be more faithful to "the next most remote" under the new flows, at
-the cost of another pass per step.
+`firstFailure`, the ORDER taps were opened in, and a `DW_REMOTE1` message.
+
+**RE-RANKED EVERY ROUND** (Michael, 2026-08-19: *"yes, please do this. Plumbing
+calculations are very lightweight compared to hydronic"*). "The next most remote"
+is a question about the system as it stands, not as it was drawn: once ten taps
+are running the pressures everywhere have moved, and the tap with the least
+margin LEFT is not necessarily the one the design pass ranked eleventh. Ranking
+once meant REMOTE1 opened taps in an order its own simulation disagreed with.
+
+**It costs nothing.** The feared "another pass per step" does not exist — the
+forward pass computes a residual at EVERY node, including the shut ones, where it
+is exactly *"what would be available here if I opened it"*. So the last accepted
+pass already carries the ranking signal for the next round. Round 1 has no pass
+to read and ranks on the DESIGN residuals, which is the same measurement on the
+sizing basis. `20260818-lowrise`: 19 passes either way, 98 ms.
+
+The invariant is pinned rather than the output: **at each step the tap chosen was
+the least-margin one still shut, measured on the pass that preceded it.** On
+lowrise it swaps N118 and N119 and serves the same 18 — a small effect on an
+evenly-graded job, and the point is that the run is now self-consistent with its
+own pressures.
 
 ---
 

@@ -4053,21 +4053,17 @@
                result: null, solves: 0 };
     }
 
-    /* The remoteness order, worst design margin first. */
-    var order = [];
+    /* THE CANDIDATES, and their Table 604.3 requirement. */
+    var candidates = [];
     m.nodes.forEach(function (n) {
       var d = n.device;
       if (!(d && d.kind === 'demand' && d.include !== false)) return;
       if (d.demandType !== 'plumbing') return;
       if (!(M.plumbingUndivFlow(m, d) > 0)) return;      // draws nothing
-      var need = M.plumbingReqPressure(m, d);
-      var margin = (rep.pressure[n.id] === undefined)
-        ? -Infinity : rep.pressure[n.id] - need;
-      order.push({ node: n.id, margin: margin, need: need });
+      candidates.push({ node: n.id, need: M.plumbingReqPressure(m, d) });
     });
-    order.sort(function (a, b) { return a.margin - b.margin; });
 
-    if (!order.length) {
+    if (!candidates.length) {
       return { ok: false, order: [], openCount: 0, result: null, solves: 0,
                error: { code: 'DW_REMOTE1_NO_FIXTURES', message:
                  'No plumbing fixtures to simulate — place outflows first.' } };
@@ -4089,24 +4085,58 @@
       return true;
     }
 
-    var openSet = {}, opened = [];
+    /* RE-RANKED EVERY ROUND (Michael, 2026-08-19: "yes, please do this").
+     *
+     * "The next most remote" is a question about the system as it stands, not as
+     * it was drawn: once ten taps are running, the pressures everywhere have
+     * moved and the tap with the least margin left is not necessarily the one
+     * the DESIGN pass ranked eleventh. Ranking once meant REMOTE1 opened taps in
+     * an order the simulation itself disagreed with.
+     *
+     * It costs NOTHING. The forward pass computes a residual at EVERY node —
+     * including the shut ones, where it is exactly "what would be available here
+     * if I opened it" — so the last accepted pass already carries the ranking
+     * signal for the next round. No extra pass per step, contrary to what was
+     * feared when this was left as an open question.
+     *
+     * Round 1 has no pass to read, so it ranks on the DESIGN residuals, which is
+     * the same thing measured on the sizing basis. */
+    function rank(list, pressures) {
+      return list.slice().sort(function (a, b) {
+        var ma = (pressures[a.node] === undefined) ? -Infinity : pressures[a.node] - a.need;
+        var mb = (pressures[b.node] === undefined) ? -Infinity : pressures[b.node] - b.need;
+        if (ma !== mb) return ma - mb;
+        return a.node < b.node ? -1 : a.node > b.node ? 1 : 0;   // stable, id order
+      });
+    }
+
+    var openSet = {}, opened = [], openedOrder = [];
+    var remaining = candidates.slice();
     var best = null, bestCount = 0, solves = 0, firstFailure = null;
     var budgetHit = false, lastPass = null;
+    var indexNode = rank(remaining, rep.pressure)[0].node;
 
-    for (var k = 0; k < order.length; k++) {
+    while (remaining.length) {
       if (solves >= maxSolves) { budgetHit = true; break; }
-      openSet[order[k].node] = true;
-      opened.push(order[k]);
+      /* Rank what is LEFT against the pressures the system actually has now. */
+      var ranked = rank(remaining, best ? best.pressure : rep.pressure);
+      var next = ranked[0];
+
+      openSet[next.node] = true;
+      opened.push(next);
       var pass = plumbingOpenPass(m, openSet, rep);
       solves++;
       lastPass = pass;
+
       if (feasible(pass, opened)) {
         best = pass; bestCount = opened.length;
+        openedOrder.push(next.node);
+        remaining = remaining.filter(function (c) { return c.node !== next.node; });
         continue;
       }
       /* BACK OFF THE LAST ONE and stop — it is the tap that broke it. */
-      firstFailure = order[k].node;
-      delete openSet[order[k].node];
+      firstFailure = next.node;
+      delete openSet[next.node];
       opened.pop();
       break;
     }
@@ -4124,13 +4154,13 @@
     if (best) {
       best.warnings = (best.warnings || []).concat([{
         code: 'DW_REMOTE1', level: noneServed ? 'warning' : 'notice',
-        node: order[0].node,
-        served: bestCount, total: order.length,
+        node: indexNode,
+        served: bestCount, total: candidates.length,
         message: noneServed
           ? ('REMOTE1: the system cannot serve even its most remote fixture (' +
-             ((M.node(m, order[0].node) || {}).tag || order[0].node) +
+             ((M.node(m, indexNode) || {}).tag || indexNode) +
              ') on its own. Check the booster duty and the index run.')
-          : ('REMOTE1: ' + bestCount + ' of ' + order.length + ' fixtures are ' +
+          : ('REMOTE1: ' + bestCount + ' of ' + candidates.length + ' fixtures are ' +
              'served at once, opened most-remote first' +
              (firstFailure ? ' — opening ' +
                ((M.node(m, firstFailure) || {}).tag || firstFailure) +
@@ -4140,11 +4170,13 @@
 
     return {
       ok: true, error: null,
-      order: order.map(function (o) { return o.node; }),
+      /* The order taps were actually OPENED in, which after re-ranking is not
+       * the design order and is the more useful record of the two. */
+      order: openedOrder,
       openNodes: Object.keys(openSet),
       openCount: bestCount,
-      total: order.length,
-      indexNode: order[0].node,
+      total: candidates.length,
+      indexNode: indexNode,
       firstFailure: firstFailure,
       noneServed: noneServed,
       budgetHit: budgetHit,
