@@ -373,6 +373,18 @@ passes with both directories deleted. `debug/` is gitignored AND untracked: it
 lives on Michael's disk and does not go to GitHub. **`examples/` is therefore
 free to change** — nothing depends on its contents.
 
+**GITHUB PAGES IS PUBLISHED BY A WORKFLOW, NOT THE BRANCH BUILDER (2026-08-19).**
+`.github/workflows/pages.yml` runs on every push to `master`: it runs all ten
+test suites, and deploys only if they pass. The legacy branch builder was silently
+dropping pushes — v0.17.19, v0.17.20 and v0.18.0 all reached the remote while the
+site went on serving v0.17.17, with no error recorded anywhere and only two builds
+in the entire history. A workflow leaves a run with a log. `workflow_dispatch`
+re-runs it by hand from the Actions tab without an empty commit. It also removes
+Jekyll from the path: the artifact is served exactly as uploaded.
+
+**If the site does not update, look at the Actions tab first** — a red `test` job
+means the deploy was refused on purpose.
+
 **`test/testrun-*.js` are GENERATORS, not tests.** Running one rewrites
 `examples/`. Tests read frozen copies in `test/fixtures/`; keep it that way.
 

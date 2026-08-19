@@ -49,6 +49,12 @@ The likeliest things to come back:
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
 
+* **CI, 2026-08-19** — GitHub Pages is now published by
+  `.github/workflows/pages.yml` on every push to `master`, gated on the test
+  suites. The legacy branch builder had stopped firing and the site served
+  v0.17.17 for three releases with nothing recorded anywhere. First run: test +
+  deploy both green, site live on 0.18.0.
+
 * **v0.18.0 (BETA)** — **SIMULATE showed no actual flow** (Michael, 2026-08-19,
   `20260819-lowrise`). It was COMPUTING it — `draw[node]` is the whole basis of
   the forward pass — and then not publishing it in the shape every reader
