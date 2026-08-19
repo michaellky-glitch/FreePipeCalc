@@ -5,7 +5,7 @@
 something and want to know why it is the way it is. `Human-Test.md` is what
 Michael has and has not verified with his own eyes.
 
-State: **v0.18.0 (beta), 2026-08-19.** Ten test suites, **2223 assertions**, all
+State: **v0.18.2 (beta), 2026-08-19.** Ten test suites, **2224 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -70,7 +70,7 @@ inside it. The data (`data/plumbing.js`) and the sizing core (`M.plumbingSizing`
 `M.outflowFU`) stay. Full spec and build phases A/B/C are in `docs/DW-MODULE.md`
 → **Architecture v2**.
 
-**CURRENT STATE (v0.18.0): the DW module is functionally complete and Michael
+**CURRENT STATE (v0.18.2): the DW module is functionally complete and Michael
 has signed the IPC data off — `FD.plumbing.verified = { fixtures, demand, supply }`
 all TRUE.** What exists:
 
@@ -269,6 +269,17 @@ replaced a span of `app.js` has quietly deleted functions inside it — the
 Static/Dynamic wiring (v0.16.2) and the progress-bar helpers (v0.16.3). Both
 shipped looking plausible and doing nothing. After any such edit, `grep` for
 what you expect to still be there.
+
+**`runControlsGen` BEGINS `if (!FD.thermal) return out;`** — so a harness that
+omits `src/thermal.js` makes every control loop a silent no-op, and a controlled
+pump appears to ignore its sensor. That is exactly how Michael's plumbing sensor
+looked broken from a test script on 2026-08-19; the app was fine. `plumbing.test.js`
+now loads thermal for this reason even though nothing in it is thermal.
+
+**DO NOT REPLACE THE K-TERMINAL WITH A FIXED DRAW.** It was done for one day
+(v0.17.21) and cost the physics AND the control loop — see
+`docs/DW-MODULE.md` → "SIMULATE is the GGA on a K-terminal copy". A fixture
+discharges more when over-pressurised; that is the finding, not a fault.
 
 **A NUMBER COMPUTED AND NOT PUBLISHED IS A NUMBER NOT COMPUTED.** The plumbing
 forward pass had every outflow's actual draw in `draw[node]` — it is the whole

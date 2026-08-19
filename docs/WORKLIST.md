@@ -9,8 +9,8 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-19, after **v0.18.0 (beta)** — SIMULATE publishes what it
-computes, and high static pressure is reported.
+Updated 2026-08-19, after **v0.18.2 (beta)** — SIMULATE is the GGA on a
+K-terminal copy again: Q = K·√P, and controlled pumps hold setpoint.
 
 ---
 
@@ -54,6 +54,20 @@ Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
   suites. The legacy branch builder had stopped firing and the site served
   v0.17.17 for three releases with nothing recorded anywhere. First run: test +
   deploy both green, site live on 0.18.0.
+
+* **v0.18.2 (BETA)** — **Q = K·√P is back, and with it the control loop**
+  (Michael, 2026-08-19). The fixed-draw forward pass built the previous day made
+  an open tap draw its 604.3 flow whatever the pressure — so simulated flow
+  equalled design flow by construction — and, because `runControls` lives inside
+  `solveModel`, a pump linked to a pressure sensor was not being controlled at
+  all. SIMULATE is the unmodified GGA on the K-terminal copy again (as
+  v0.17.2–v0.17.20). Verified: doubling the supply 300 → 600 kPa takes a
+  fixture's draw from 0.1177 to 0.1665 L/s, **ratio 1.4142 = √2**; and on
+  `20260819-lowrise` the booster settles at **84% speed with PS-1 reading
+  150.1 kPa against its 150.0 setpoint**, fixtures drawing 1.04–1.65× design.
+  The solved actuator positions are now copied back from the converted copy onto
+  the real model — the sensor was holding while the pump panel claimed 100%.
+  `plumbingOpenPass` is removed. 1 net new assertion (suite 2224).
 
 * **v0.18.0 (BETA)** — **SIMULATE showed no actual flow** (Michael, 2026-08-19,
   `20260819-lowrise`). It was COMPUTING it — `draw[node]` is the whole basis of

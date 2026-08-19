@@ -12,6 +12,47 @@ Michael's request, 2026-08-12; re-architected 2026-08-16 to isolate the
 known-good GGA (see **Architecture v2**). The DATA and the sizing CORE are built
 (v0.16.31–32); the DISCIPLINE split and the plumbing UI/report are what remain.
 
+## SIMULATE IS THE GGA ON A K-TERMINAL COPY — settled, 2026-08-19
+
+> Michael: *"simulated plumbing outflows should still follow K factor equation
+> used for Hydronic! The fundamental Q = K·√P, with K calculated based on design
+> information still stands. It is perfectly normal for a plumbing fixture to
+> discharge more water when overpressurized."*
+
+**This is the rule.** Every included fixture becomes a pressure-dependent
+terminal at its undiversified Table 604.3 design point — the same
+`M.outflowResistance` a hydronic terminal uses — and the UNMODIFIED GGA decides
+the flow. Verified: on a one-source/one-fixture rig, doubling the supply from
+300 kPa to 600 kPa takes the draw from 0.1177 to 0.1665 L/s, a ratio of
+**1.4142** — √2, exactly as Q = K·√P requires.
+
+**Two things were lost when a fixed-draw forward pass replaced it for a day**
+(v0.17.21, removed in v0.18.1):
+
+1. **The physics.** A tap drawing its 604.3 flow whatever the pressure makes the
+   simulated flow equal the design flow BY CONSTRUCTION. The model then cannot
+   answer the question a simulation exists to answer. The objection that pushed
+   me off K-terminals — one water closet drawing 2.35 L/s with the whole pump
+   head on it — was not an argument against the physics; it was the model
+   correctly reporting an over-pressurised fixture.
+2. **The control loop.** `runControls` lives inside `solveModel`. A forward pass
+   down a tree has nowhere to put a controller, so a pump linked to a pressure
+   sensor was ignored rather than failing to hold — Michael's "I connected the
+   pump to a pressure sensor near the last point but it is not maintaining
+   setpoint". On the GGA it holds: 84% speed, sensor reading 150.1 kPa against a
+   150.0 kPa setpoint on `20260819-lowrise`.
+
+**The solve runs on a CONVERTED COPY**, which is what keeps fixture units out of
+the GGA — so the actuator positions the loop settles on are copied back onto the
+real model afterwards. Without that the sensor held its setpoint while the pump
+panel claimed 100%: two readings of one device that cannot both be true.
+
+**What is still the user's** is which taps are open — the On/Off switch, and the
+bulk switch on a multi-selection. Only the SOLVE went back to the GGA, not the
+choice of load case. **DESIGN is untouched and still never invokes the GGA.**
+
+---
+
 ## REMOTE1 — BUILT AND REVERTED THE SAME DAY (2026-08-19)
 
 > **REVERSED, 2026-08-19, hours after it landed.** Michael: *"Revert back to the

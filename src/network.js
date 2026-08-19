@@ -850,6 +850,11 @@
     res.warnings = res.warnings.concat(flowRegimeWarnings(m, net, res));
     res.warnings = res.warnings.concat(supplyWarnings(m, net, res));
     res.warnings = res.warnings.concat(equipRatingWarnings(m, res));
+    /* STATIC PRESSURE, on the GGA path too. Plumbing SIMULATE runs here, and it
+     * is the mode where the number gets HIGH: a fixture is a K-terminal, so a
+     * quiet system pushes its pump up its curve and the pressure with it.
+     * `overPressureWarnings` is discipline-gated, so this is inert in hydronic. */
+    res.warnings = res.warnings.concat(overPressureWarnings(m, res.pressure));
     res.warnings = res.warnings.concat(valveOversizedWarnings(m, res));
 
     /* A pressure nothing will ever be built to is an ERROR, not a warning —
@@ -3926,167 +3931,22 @@
     return sim;
   }
 
-  /* ONE LOAD CASE: a stated set of taps OPEN, everything else shut.
+  /* THE FIXED-DRAW FORWARD PASS — `plumbingOpenPass` — lived here for one day
+   * (v0.17.21) and is removed. Michael, 2026-08-19: "simulated plumbing outflows
+   * should still follow K factor equation used for Hydronic! The fundamental
+   * Q = K·√P, with K calculated based on design information still stands. It is
+   * perfectly normal for a plumbing fixture to discharge more water when
+   * overpressurized."
    *
-   * Not the K-terminal model, deliberately. A K-terminal takes whatever the
-   * system gives it, so with ONE tap open the whole pump head lands on it and it
-   * draws absurdly — on 20260818-lowrise a single water closet pulled 2.35 L/s,
-   * and the "simulation" then reported the network 538 kPa short. That is the
-   * model answering a question nobody asked. A tap that is OPEN draws its Table
-   * 604.3 flow, because that is what a fixture outlet is designed to pass, and
-   * the question is whether the system can deliver it.
+   * He is right. A tap that draws its Table 604.3 flow WHATEVER the pressure
+   * makes the simulated flow equal the design flow by construction, which is a
+   * model that cannot answer the question a simulation exists to answer. And a
+   * forward pass down a tree has nowhere to put a CONTROLLER, so a pump linked
+   * to a pressure sensor was ignored rather than failing to hold.
    *
-   * So: flows accumulate up the tree from the open taps (no diversity — these
-   * ones really are running at once), friction is the model's own friction
-   * method through `build`, and the pump contributes what its CURVE gives at the
-   * flow it is actually passing. Then one forward pass gives the residual at
-   * every fixture. A tree, so the accumulation is exact and there is no solve —
-   * the GGA is not on this path either.
-   *
-   * Generic outflows draw continuously and are always included: a hose left
-   * running does not shut because a tap upstairs did.
-   */
-  function plumbingOpenPass(m, openMap, rep) {
-    rep = rep || plumbingReport(m);
-    if (!rep.ok) return { ok: false, error: rep.error };
-
-    var byPipe = rep.byPipe;
-    var parentPipe = {}, kids = {};
-    Object.keys(byPipe).forEach(function (id) {
-      var sc = byPipe[id];
-      parentPipe[sc.to] = id;
-      (kids[sc.from] = kids[sc.from] || []).push({ pipe: id, to: sc.to });
-    });
-
-    /* What each node draws in this load case. */
-    var draw = {};
-    m.nodes.forEach(function (n) {
-      var d = n.device;
-      if (!(d && d.kind === 'demand' && d.include !== false)) return;
-      if (d.demandType !== 'plumbing') { draw[n.id] = d.flow || 0; return; }  // continuous
-      draw[n.id] = openMap[n.id] ? M.plumbingUndivFlow(m, d) : 0;
-    });
-
-    /* Post-order accumulation from the roots, so a pipe carries everything open
-     * below it. `rep.plumbing.roots` are the sources. */
-    var order = [], seen = {};
-    (rep.plumbing.roots || []).forEach(function (root) {
-      var q = [root]; seen[root] = true;
-      while (q.length) {
-        var u = q.shift(); order.push(u);
-        (kids[u] || []).forEach(function (e) {
-          if (seen[e.to]) return;
-          seen[e.to] = true; q.push(e.to);
-        });
-      }
-    });
-    var sub = {};
-    order.forEach(function (id) { sub[id] = draw[id] || 0; });
-    for (var i = order.length - 1; i >= 0; i--) {
-      var child = order[i], pp = parentPipe[child];
-      if (pp === undefined) continue;
-      sub[byPipe[pp].from] = (sub[byPipe[pp].from] || 0) + sub[child];
-    }
-
-    /* Signed per-pipe flow, then the network at THOSE flows. */
-    var flow = {};
-    Object.keys(byPipe).forEach(function (id) {
-      var sc = byPipe[id], p = M.pipe(m, id);
-      if (!p) return;
-      var q = sub[sc.to] || 0;
-      flow[id] = (p.a === sc.from) ? q : -q;
-    });
-    var net = build(m, { flow: flow });
-    var rho = net.rho, g = 9.81;
-    var linkById = {};
-    net.links.forEach(function (l) { linkById[l.id] = l; });
-
-    var dpFric = {}, pumpGain = {};
-    Object.keys(byPipe).forEach(function (id) {
-      var pipeObj = M.pipe(m, id);
-      if (pipeObj && pipeObj.kind === 'pump' && pipeObj.pump && pipeObj.pump.mode !== 'off') {
-        /* THE CURVE, read at the flow the pump is passing — which is the whole
-         * of Michael's test. `M.pumpHead` falls back to the design head when
-         * there is no curve, which is the only honest answer then. */
-        dpFric[id] = 0;
-        pumpGain[id] = rho * g * M.pumpHead(m, pipeObj, Math.abs(flow[id] || 0));
-        return;
-      }
-      var l = linkById[id];
-      if (!l) return;
-      dpFric[id] = rho * g * Math.abs(FD.hydraulics.linkLoss(l, flow[id] || 0));
-    });
-
-    var pressure = {};
-    (rep.plumbing.roots || []).forEach(function (root) {
-      var rn = M.node(m, root);
-      pressure[root] = (rn && rn.device && rn.device.pressure) || 0;
-      var q2 = [root], seen2 = {}; seen2[root] = true;
-      while (q2.length) {
-        var u = q2.shift();
-        (kids[u] || []).forEach(function (e) {
-          if (seen2[e.to]) return;
-          seen2[e.to] = true;
-          var un = M.node(m, u), cn = M.node(m, e.to);
-          var dz = (cn ? M.elevation(m, cn) : 0) - (un ? M.elevation(m, un) : 0);
-          pressure[e.to] = pressure[u] + (pumpGain[e.pipe] || 0) -
-                           (dpFric[e.pipe] || 0) - rho * g * dz;
-          q2.push(e.to);
-        });
-      }
-    });
-
-    /* THE SAME DETECTORS AS EVERY OTHER PATH. This load case has its own flows,
-     * so it has its own velocities and friction rates — and a pass that reported
-     * none would be the v0.17.15 bug again, one path along. */
-    var passWarnings = flowRegimeWarnings(m, net, { flow: flow })
-      .concat(overPressureWarnings(m, pressure));
-
-    /* THE SIMULATION REPORT — what every reader of a SIMULATE result expects.
-     *
-     * Michael, 2026-08-19 (20260819-lowrise): "simulate is not working, no
-     * actual flow shown at outflow." It was computing the actual flow — it is
-     * `draw[node]`, the whole basis of the pass — and then not publishing it in
-     * the shape the UI reads. `drawDeviceBox`, the outflow panel's ACTUAL
-     * section and the calculation sheet all look for `res.simulation.terminals`,
-     * which the GGA path builds via `simulationReport`; this path built nothing,
-     * so every one of them fell through to its "—" branch. A number computed and
-     * not published is indistinguishable from a number not computed.
-     *
-     * Same row shape as `simulationReport`, deliberately, so nothing downstream
-     * needs to know which path produced it. `actualFlow` is what the open tap
-     * draws — which for an open tap IS its design flow, because that is what
-     * this method says a tap does; the answer SIMULATE gives here is the
-     * PRESSURE at it. A tap switched off appears with zero flow rather than
-     * being omitted, so the panel can say "off" rather than "unknown". */
-    var terminals = [];
-    m.nodes.forEach(function (n) {
-      var dv = n.device;
-      if (!dv || dv.kind !== 'demand') return;
-      var qd = (dv.demandType === 'plumbing')
-        ? M.plumbingUndivFlow(m, dv) : (dv.flow || 0);
-      var need = (dv.demandType === 'plumbing')
-        ? M.plumbingReqPressure(m, dv) : (dv.reqPressure || 0);
-      var qa = draw[n.id] || 0;
-      terminals.push({
-        node: n.id, tag: n.tag || null,
-        designFlow: qd, actualFlow: qa,
-        ratio: qd > 0 ? qa / qd : null,
-        designPressure: need,
-        actualPressure: pressure[n.id],
-        off: dv.include === false,
-        balanceKv: null
-      });
-    });
-
-    return { ok: true, error: null, flow: flow, pressure: pressure, network: net,
-             byPipe: byPipe, plumbing: rep.plumbing, headloss: {}, dpFric: dpFric,
-             draw: draw, totalFU: rep.totalFU, totalFlow: rep.totalFlow,
-             openFlow: (rep.plumbing.roots || []).reduce(function (a, r) {
-               return a + (sub[r] || 0); }, 0),
-             simulation: { terminals: terminals, pumps: [] },
-             warnings: passWarnings, errors: [], iterations: 0 };
-  }
+   * SIMULATE is the unmodified GGA on the K-terminal copy above, as it was from
+   * v0.17.2 to v0.17.20. It is in the history at v0.18.0 if the fixed-draw case
+   * is ever wanted as an option. */
 
   /* REMOTE1 — the automatic "how many taps can this serve" search — was built
    * here on 2026-08-19 and REMOVED the same day at Michael's request: "revert
@@ -4095,9 +3955,9 @@
    * engineer's job, not the app's.
    *
    * What it was built on is KEPT and is now the simulation itself:
-   * `plumbingOpenPass` above. The full spec, the reasoning and the numbers are
-   * in docs/DW-MODULE.md → "REMOTE1", and the implementation is in the history
-   * at v0.17.20, so it can be revived without being re-derived. */
+   * the K-terminal SIMULATE path. The full spec, the reasoning and the numbers
+   * are in docs/DW-MODULE.md → "REMOTE1", and the implementation is in the
+   * history at v0.17.20, so it can be revived without being re-derived. */
 
   /* THE DUTY A PLUMBING BOOSTER HAS TO MEET.
    *
@@ -4252,7 +4112,6 @@
     plumbingReport: plumbingReport,
     plumbingPumpDuty: plumbingPumpDuty,
     plumbingSimModel: plumbingSimModel,
-    plumbingOpenPass: plumbingOpenPass,
     nodeTypeCode: nodeTypeCode,
     flowRegimeWarnings: flowRegimeWarnings,
     supplyWarnings: supplyWarnings,

@@ -491,30 +491,62 @@
   function plumbingSimSolve() {
     var res;
     try {
-      /* PUSH FORWARD FROM THE PUMP, with whatever the user has left ON.
+      /* A FIXTURE IS A K-TERMINAL. Q = K·√P, K from its design point.
        *
-       * Michael, 2026-08-19: "Revert back to the original method, push forward
-       * from pump. The user will need to decide which outflows to turn on/off."
+       * Michael, 2026-08-19: "simulated plumbing outflows should still follow K
+       * factor equation used for Hydronic! The fundamental Q = K·√P, with K
+       * calculated based on design information still stands. It is perfectly
+       * normal for a plumbing fixture to discharge more water when
+       * overpressurized."
        *
-       * REMOTE1's search is gone — it chose the load case for you, and choosing
-       * the load case is the engineer's job, not the app's. What is KEPT is the
-       * mechanism it was built on, which is the part that was right: an open tap
-       * draws its full Table 604.3 flow, the pump contributes what its CURVE
-       * gives at the flow it is passing, and one forward pass down the tree
-       * gives the residual everywhere. No GGA, and no K-terminal draw (that is
-       * what had one water closet pulling 2.35 L/s).
+       * He is right and the fixed-draw pass built on 2026-08-19 was wrong. Its
+       * open tap drew its Table 604.3 flow WHATEVER the pressure, so the
+       * simulated flow equalled the design flow by construction and the model
+       * could not answer the question a simulation exists to answer. The
+       * objection that pushed me off K-terminals — one water closet drawing
+       * 2.35 L/s with the whole pump head on it — was not an argument against
+       * the physics. It was the model correctly reporting an over-pressurised
+       * fixture, which is exactly the finding.
        *
-       * The open set is simply every outflow switched ON — `device.include`. */
-      app.remote1 = null;
-      var openMap = {};
-      app.model.nodes.forEach(function (n) {
-        var d = n.device;
-        if (d && d.kind === 'demand' && d.include !== false) openMap[n.id] = true;
+       * So SIMULATE is the UNMODIFIED GGA on a converted copy again, which is
+       * what the discipline split always allowed and what v0.17.2–v0.17.20 did:
+       * every fixture becomes a pressure-dependent terminal at its
+       * undiversified 604.3 design point, and the solver decides the flow.
+       *
+       * IT ALSO BRINGS THE CONTROL LOOP BACK, which is the other half of
+       * Michael's report — "I connected the pump to a pressure sensor near the
+       * last point but it is not maintaining setpoint". `runControls` lives
+       * inside `solveModel`; a forward pass down a tree has nowhere to put a
+       * controller, so the sensor was being ignored entirely rather than failing
+       * to hold. On the GGA the pump follows its sensor exactly as it does in a
+       * hydronic model.
+       *
+       * WHICH TAPS ARE OPEN IS STILL THE USER'S CHOICE — `plumbingSimModel`
+       * excludes anything switched Off, and so does `build`. Only the SOLVE
+       * changed back, not who chooses the load case. DESIGN is untouched and
+       * still never invokes the GGA. */
+      var simModel = FD.network.plumbingSimModel(app.model, null);
+      res = FD.network.solveModel(simModel);
+      /* THE ACTUATOR POSITIONS COME BACK. The solve runs on a CONVERTED COPY —
+       * that is what keeps the fixture-unit machinery out of the GGA — so the
+       * control loop writes the pump speed and valve openings it settled on into
+       * the copy, and the panel, which reads the real model, went on showing
+       * 100%. The sensor was holding its setpoint and the pump claimed to be
+       * flat out; two readings of the same device that cannot both be true.
+       *
+       * A solved actuator position is a RESULT, and the hydronic path writes it
+       * straight onto the model for the same reason. Only devices the loop can
+       * actually move are copied, so nothing the user set by hand is touched. */
+      simModel.pipes.forEach(function (sp) {
+        var real = M.pipe(app.model, sp.id);
+        if (!real) return;
+        if (real.pump && sp.pump && M.controlOf(real)) {
+          if (sp.pump.speed !== undefined) real.pump.speed = sp.pump.speed;
+        }
+        if (real.valve && sp.valve && M.controlOf(real)) {
+          if (sp.valve.opening !== undefined) real.valve.opening = sp.valve.opening;
+        }
       });
-      var pass = FD.network.plumbingOpenPass(app.model, openMap);
-      res = pass && pass.ok ? pass : null;
-      if (!res) throw new Error((pass && pass.error && pass.error.message) ||
-                                'The plumbing network could not be simulated.');
     } catch (e) {
       console.error(e);
       app.results = null;
@@ -1360,18 +1392,13 @@
      * PROPERTIES panel shows in SIMULATE — distinct from the DESIGN residual
      * (Michael, 2026-08-18: 307 kPa design vs 150 kPa actual). */
     if (anySource) {
-      /* THE SAME LOAD CASE THE SIMULATE MODE IS SHOWING — a sheet and a drawing
-       * that disagree about which taps are open is the worst of both. That is
-       * the forward push from the pump with whatever is switched ON. */
+      /* THE SAME SOLVE THE SIMULATE MODE IS SHOWING — the unmodified GGA on the
+       * K-terminal copy, controllers and all. A sheet and a drawing that
+       * disagree about the load case, or about whether the pump was allowed to
+       * modulate, is the worst of both. */
       var simRes = null;
       try {
-        var openMap = {};
-        m.nodes.forEach(function (n) {
-          var dv2 = n.device;
-          if (dv2 && dv2.kind === 'demand' && dv2.include !== false) openMap[n.id] = true;
-        });
-        var sp = FD.network.plumbingOpenPass(m, openMap, rep);
-        simRes = (sp && sp.ok) ? sp : null;
+        simRes = FD.network.solveModel(FD.network.plumbingSimModel(m, null));
       } catch (e) { simRes = null; }
       if (simRes && simRes.pressure) {
         var simCtx = { flowOf: function (id) { return Math.abs(simRes.flow[id] || 0); },
@@ -1405,12 +1432,13 @@
           var totFricS = sPath.reduce(function (a, id) { return a + sectionPa(id, Math.abs(simRes.flow[id] || 0)); }, 0);
           critGrid(secSim, simRes.pressure[sWorst.id], reqOf(sWorst), sPath.length, totFricS, sPath);
           secSim.appendChild(el('p', 'hint',
-            'SIMULATION pushes forward from the source and pump with the ' +
-            nOpen + ' outflow' + (nOpen === 1 ? '' : 's') + ' switched ON. Each ' +
-            'open fixture draws its FULL Table 604.3 flow (no diversity — these ' +
-            'are running) and the pump contributes what its CURVE gives at the ' +
-            'flow it is passing. Which taps are open is yours to choose: switch ' +
-            'them On/Off in the outflow properties.'));
+            'SIMULATION solves the ' + nOpen + ' outflow' + (nOpen === 1 ? '' : 's') +
+            ' switched ON as pressure-dependent K-terminals — Q = K·√P, with K ' +
+            'from each fixture\u2019s Table 604.3 design point — so a fixture ' +
+            'discharges MORE where the pressure is ample and less where it is ' +
+            'short. A pump linked to a sensor modulates to hold its setpoint. ' +
+            'Which taps are open is yours to choose: switch them On/Off in the ' +
+            'outflow properties.'));
         }
       }
     }

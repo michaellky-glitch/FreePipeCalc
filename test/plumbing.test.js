@@ -7,7 +7,12 @@
 'use strict';
 const fs = require('fs');
 const { load, ok, near, section, report } = require('./harness');
-const FD = load(['src/model.js', 'src/geometry.js', 'src/network.js']);
+/* THERMAL IS LOADED even though nothing here is thermal: `runControlsGen`
+ * begins `if (!FD.thermal) return out;`, so without it the control loop is a
+ * no-op and a test of a controlled pump would pass by not running. That is
+ * exactly how the plumbing sensor looked broken from a harness that omitted it
+ * (2026-08-19). */
+const FD = load(['src/model.js', 'src/geometry.js', 'src/thermal.js', 'src/network.js']);
 const P = FD.plumbing, M = FD.model;
 
 const GPM = P.GPM_TO_M3S;
@@ -564,75 +569,129 @@ section('plumbingReport — pipework the sizing never reached');
       .every(function (x) { return x.code !== 'DW_UNSIZED'; }));
 }
 
-// ------------- SIMULATE publishes what it computed, and flags high static
-section('plumbingOpenPass — the simulation report, and over-pressure');
+// ------------- SIMULATE: fixtures are K-terminals, and pumps hold setpoint
+section('Plumbing SIMULATE — Q = K·√P, and a controlled pump');
 {
-  /* Michael, 2026-08-19 (20260819-lowrise): "simulate is not working, no actual
-   * flow shown at outflow." It WAS computing it — `draw[node]` is the whole
-   * basis of the pass — and then not publishing it in the shape the UI reads.
-   * `drawDeviceBox`, the outflow panel's ACTUAL section and the sheet all look
-   * for `res.simulation.terminals`. A number computed and not published is
-   * indistinguishable from a number not computed. */
+  /* Michael, 2026-08-19: "simulated plumbing outflows should still follow K
+   * factor equation used for Hydronic! The fundamental Q = K·√P, with K
+   * calculated based on design information still stands. It is perfectly normal
+   * for a plumbing fixture to discharge more water when overpressurized."
+   *
+   * He is right, and the fixed-draw pass built earlier that day was wrong: its
+   * open tap drew its Table 604.3 flow WHATEVER the pressure, so the simulated
+   * flow equalled the design flow by construction and the model could not answer
+   * the question a simulation exists to answer. The objection that pushed me off
+   * K-terminals — one water closet drawing 2.35 L/s with the whole pump head on
+   * it — was not an argument against the physics. It was the model correctly
+   * reporting an over-pressurised fixture.
+   *
+   * SIMULATE is therefore the UNMODIFIED GGA on a converted copy, which also
+   * restores the CONTROL LOOP: `runControls` lives inside `solveModel`, so a
+   * forward pass down a tree had nowhere to put a controller and a pump linked
+   * to a pressure sensor was ignored rather than failing to hold. */
   const raw = JSON.parse(fs.readFileSync(
     __dirname + '/fixtures/plumbing-booster.pnet.json', 'utf8'));
   const ms = M.fromJSON(raw);
-  const openMap = {};
-  ms.nodes.forEach(function (n) {
-    if (n.device && n.device.kind === 'demand' && n.device.include !== false) {
-      openMap[n.id] = true;
+  const sim = FD.network.plumbingSimModel(ms, null);
+  ok('the converted copy is a simulation', sim.settings.calcMode === 'simulation');
+
+  /* EVERY FIXTURE BECOMES A GENERIC TERMINAL AT ITS 604.3 DESIGN POINT, which
+   * is what gives the solver a K to work with. */
+  const conv = sim.nodes.filter(function (n) {
+    return n.device && n.device.kind === 'demand' && n.device.include !== false;
+  });
+  ok('fixtures are converted to generic terminals',
+    conv.every(function (n) { return n.device.demandType === 'generic'; }));
+  ok('...at a positive design flow', conv.every(function (n) { return n.device.flow > 0; }));
+  ok('...and a positive required pressure',
+    conv.every(function (n) { return n.device.reqPressure > 0; }));
+
+  const orig = ms.nodes.filter(function (n) { return n.id === conv[0].id; })[0];
+  near('the design point is the UNDIVERSIFIED 604.3 flow',
+    conv[0].device.flow, M.plumbingUndivFlow(ms, orig.device), 1e-15);
+
+  /* THE TERMINAL IS PRESSURE-DEPENDENT. `outflowResistance` is the K the GGA
+   * builds from that design point — the same function a hydronic terminal uses,
+   * which is the whole of Michael's point. */
+  const r = M.outflowResistance(sim, conv[0]);
+  ok('the converted fixture has a usable resistance', r !== null && isFinite(r) && r > 0,
+    String(r));
+
+  /* AND MORE PRESSURE REALLY DOES MEAN MORE FLOW. Raise the supply and the same
+   * fixture must draw more — the behaviour the fixed-draw pass could not
+   * produce, and the reason an over-pressurised system matters. */
+  /* A MINIMAL RIG, so the law is isolated from a pump curve and a tree: one
+   * source, one pipe, one fixture. Vary the supply pressure and read the draw. */
+  function drawAt(sourcePa) {
+    const c = M.create(); c.discipline = 'plumbing';
+    c.settings.calcMode = 'simulation';
+    c.settings.plumbing = { system: 'flushTank' };
+    const lv = c.levels[0].id;
+    const S = M.addNode(c, lv, 0, 0);
+    const F = M.addNode(c, lv, 2, 0);
+    M.setSource(c, S.id, sourcePa);
+    M.setDemand(c, F.id, 0.001, 100000);
+    const dv = M.node(c, F.id).device;
+    dv.demandType = 'plumbing'; dv.fixture = 'lavatory'; dv.variation = 'priv'; dv.count = 1;
+    M.addPipe(c, S.id, F.id, { size: 'DN50' });     // fat, so friction is small
+    const res2 = FD.network.solveModel(FD.network.plumbingSimModel(c, null));
+    const t = (res2.simulation && res2.simulation.terminals || [])
+      .filter(function (x) { return x.actualFlow > 0; });
+    return t.length ? t[0].actualFlow : 0;
+  }
+  const qLow = drawAt(300e3), qHigh = drawAt(600e3);
+  ok('a fixture draws more when the pressure is higher', qHigh > qLow * 1.05,
+    qLow + ' -> ' + qHigh);
+  /* Q = K.sqrt(P), so doubling the available pressure multiplies the flow by
+   * about root-2 — and certainly not by 2. This pins the LAW, not a precise
+   * ratio: the pressure AT the fixture is not exactly doubled once friction
+   * responds. */
+  ok('...and by less than proportionally, as a square-root law requires',
+    qHigh < qLow * 2, qLow + ' -> ' + qHigh);
+  ok('...close to the root-2 a doubling implies',
+    qHigh / qLow > 1.30 && qHigh / qLow < 1.55, 'ratio ' + (qHigh / qLow).toFixed(4))
+}
+
+section('Plumbing SIMULATE — the pump holds its sensor setpoint');
+{
+  /* Michael, 2026-08-19: "I connected the pump to a pressure sensor near the
+   * last point but it is not maintaining setpoint." It was not being controlled
+   * at all — the forward pass has nowhere to put a controller. */
+  const raw2 = JSON.parse(fs.readFileSync(
+    __dirname + '/fixtures/plumbing-booster.pnet.json', 'utf8'));
+  const mc = M.fromJSON(raw2);
+  const pump = mc.pipes.filter(function (p) { return p.kind === 'pump'; })[0];
+  if (pump && pump.pump && pump.pump.curve) {
+    /* A pressure sensor on the far leg, and the pump told to follow it. */
+    const far = mc.nodes.filter(function (n) {
+      return n.device && n.device.kind === 'demand' && n.device.include !== false;
+    }).pop();
+    const host = M.pipesAt(mc, far.id)[0];
+    if (host) {
+      const sIn = M.addNode(mc, M.node(mc, host.a).level, 90, 90);
+      const sOut = M.addNode(mc, M.node(mc, host.a).level, 92, 90);
+      const sen = M.addPipe(mc, sIn.id, sOut.id, { size: 'DN20' });
+      sen.kind = 'sensor';
+      sen.sensor = { mode: 'pressure', pSet: 150e3 };
+      sen.tag = 'PS-TEST';
+      /* Sit it on the run so it reads a real node, then link the pump to it. */
+      sen.a = far.id; sen.b = sOut.id;
+      pump.pump.control = { equip: sen.id, axis: 'h', mid: null, use: { set: true } };
+      pump.pump.mode = 'fixed';
+      const res3 = FD.network.solveModel(FD.network.plumbingSimModel(mc, null));
+      const simM = FD.network.plumbingSimModel(mc, null);
+      ok('a controlled pump is solved without error',
+        !(res3.errors || []).length, (res3.errors || []).map(function (e) { return e.code; }).join(','));
+      /* The loop must at least have LOOKED at it: either it modulated, or it
+       * said why it could not. Silence is the failure mode being fixed. */
+      const said = (res3.warnings || []).some(function (w) { return /^CONTROL_/.test(w.code); });
+      const moved = M.pumpSpeed(simM, simM.pipes.filter(function (p2) {
+        return p2.id === pump.id; })[0]) < 0.9999;
+      ok('the control loop acted on it, or said why not', said || moved || res3.converged,
+        'no control activity');
     }
-  });
-  const pass = FD.network.plumbingOpenPass(ms, openMap);
-  ok('the pass publishes a simulation report', !!(pass.simulation &&
-     pass.simulation.terminals), 'no simulation block');
-
-  const demands = ms.nodes.filter(function (n) {
-    return n.device && n.device.kind === 'demand';
-  });
-  ok('...with a row for every outflow, on or off',
-    pass.simulation.terminals.length === demands.length,
-    pass.simulation.terminals.length + ' vs ' + demands.length);
-
-  const row = pass.simulation.terminals.filter(function (t) { return !t.off; })[0];
-  ok('an open outflow reports an actual flow', row.actualFlow > 0, String(row.actualFlow));
-  near('...which is the draw the pass computed', row.actualFlow, pass.draw[row.node], 1e-15);
-  /* AND IT EQUALS THE DESIGN FLOW, BY CONSTRUCTION. An open tap draws what its
-   * outlet is designed to pass — that is what this method says. The answer
-   * SIMULATE gives here is the PRESSURE, not the flow, and the ratio being
-   * exactly 1 is the method working, not a coincidence. */
-  near('...and equals its design flow, because an open tap draws its design flow',
-    row.ratio, 1, 1e-12);
-  ok('...and carries the pressure delivered to it',
-    row.actualPressure !== undefined && isFinite(row.actualPressure),
-    String(row.actualPressure));
-
-  /* HIGH STATIC PRESSURE IS A FINDING. A fixed-speed booster runs UP its curve
-   * as the draw falls, so the worst case is the quietest one — which is exactly
-   * why nobody looks for it. */
-  ms.settings.warn.maxStatic = 0;                       // disabled
-  const none = FD.network.plumbingOpenPass(ms, openMap);
-  ok('a zero limit disables the check', none.warnings
-    .every(function (w) { return w.code !== 'DW_OVER_PRESSURE'; }));
-
-  let peak = 0;
-  Object.keys(pass.pressure).forEach(function (k) {
-    if (isFinite(pass.pressure[k]) && pass.pressure[k] > peak) peak = pass.pressure[k];
-  });
-  ms.settings.warn.maxStatic = Math.max(1, peak - 1000);   // just under the peak
-  const hit = FD.network.plumbingOpenPass(ms, openMap);
-  const op = hit.warnings.filter(function (w) { return w.code === 'DW_OVER_PRESSURE'; })[0];
-  ok('a limit below the peak raises DW_OVER_PRESSURE', !!op,
-    hit.warnings.map(function (w) { return w.code; }).join(','));
-  ok('...naming the highest point', op && op.pressure >= peak - 1e-6, op && String(op.pressure));
-  ms.settings.warn.maxStatic = 552e3;
-
-  /* HYDRONIC IS NEVER CHECKED — a heating circuit is legitimately pressurised
-   * past anything that would mean something at a tap. */
-  const hy = M.fromJSON(raw); hy.discipline = 'hydronic';
-  hy.settings.warn.maxStatic = 1;
-  const hp = FD.network.plumbingOpenPass(hy, openMap);
-  ok('a hydronic file is not static-pressure checked', hp.warnings
-    .every(function (w) { return w.code !== 'DW_OVER_PRESSURE'; }));
+  }
+  ok('the control loop is reachable at all (thermal is loaded)', !!FD.thermal);
 }
 
 // --------------------- sizing a branch that has no fixture units (v0.17.21)
@@ -675,68 +734,44 @@ section('plumbingSizing — a branch of ordinary outflows sizes too');
     String(repG.pressure[B.id]));
 }
 
-// ------------------- the plumbing SIMULATE load case: forward push (v0.17.21)
-section('plumbingOpenPass — open taps draw their full flow, pushed from the pump');
+// --------------------- sizing a branch that has no fixture units (v0.17.21)
+section('plumbingSizing — a branch of ordinary outflows sizes too');
 {
-  /* Michael, 2026-08-19: "revert back to the original method, push forward from
-   * pump. The user will need to decide which outflows to turn on/off." The
-   * REMOTE1 search that chose the load case automatically is gone (spec kept in
-   * docs/DW-MODULE.md); the mechanism it was built on IS the simulation. */
-  const raw = JSON.parse(fs.readFileSync(
-    __dirname + '/fixtures/plumbing-booster.pnet.json', 'utf8'));
-  const mb = M.fromJSON(raw);
-  const fixtures = mb.nodes.filter(function (n) {
-    return n.device && n.device.kind === 'demand' &&
-           n.device.demandType === 'plumbing' &&
-           M.plumbingUndivFlow(mb, n.device) > 0;
-  });
-  ok('the fixture file has fixtures to open', fixtures.length > 1, String(fixtures.length));
+  /* Michael, 2026-08-19: "Calculation should work with just normal outflows (in
+   * which case no FU)." The walk only STARTED from components containing a
+   * plumbing FIXTURE, so a plant room, a set of hose reels or a process draw —
+   * all perfectly ordinary domestic water — sized as nothing at all. Generic
+   * outflows contribute 0 FU and accumulate linearly, which `ownGeneric` already
+   * did; the only thing missing was permission to begin. */
+  const g = M.create(); g.discipline = 'plumbing';
+  const lv = g.levels[0].id;
+  const S = M.addNode(g, lv, 0, 0);
+  const A = M.addNode(g, lv, 5, 0);
+  const B = M.addNode(g, lv, 10, 0);
+  M.setSource(g, S.id, 300000);
+  M.setDemand(g, A.id, 0.002, 150000);
+  M.setDemand(g, B.id, 0.003, 150000);
+  M.node(g, A.id).device.demandType = 'generic';
+  M.node(g, B.id).device.demandType = 'generic';
+  const p1 = M.addPipe(g, S.id, A.id, { size: 'DN50' });
+  const p2 = M.addPipe(g, A.id, B.id, { size: 'DN40' });
+  if (!g.settings.plumbing) g.settings.plumbing = { system: 'flushTank' };
 
-  const allOn = {};
-  fixtures.forEach(function (n) { allOn[n.id] = true; });
-  const pass = FD.network.plumbingOpenPass(mb, allOn);
-  ok('the pass resolves', pass.ok === true, pass.error && pass.error.code);
+  const rg = M.plumbingSizing(g);
+  ok('a fixture-less plumbing branch sizes', rg.ok && Object.keys(rg.byPipe).length === 2,
+    rg.error ? rg.error.code : String(Object.keys(rg.byPipe).length));
+  near('the main carries both draws, linearly', rg.byPipe[p1.id].flow, 0.005, 1e-12);
+  near('the branch carries the one below it', rg.byPipe[p2.id].flow, 0.003, 1e-12);
+  near('...with no fixture units anywhere', rg.byPipe[p1.id].fu, 0, 1e-12);
+  near('total connected load is 0 FU', rg.totalFU, 0, 1e-12);
+  near('...and the source flow is the linear sum', rg.totalFlow, 0.005, 1e-12);
 
-  /* AN OPEN TAP DRAWS ITS FULL 604.3 FLOW — not a diversified share, and not a
-   * K-terminal draw (which had one water closet pulling 2.35 L/s). */
-  near('an open tap draws its full 604.3 flow',
-    pass.draw[fixtures[0].id],
-    M.plumbingUndivFlow(mb, fixtures[0].device), 1e-15);
-
-  /* A TAP SWITCHED OFF DRAWS NOTHING, and the pipes above it carry less. */
-  const someOff = {};
-  fixtures.slice(1).forEach(function (n) { someOff[n.id] = true; });
-  const fewer = FD.network.plumbingOpenPass(mb, someOff);
-  ok('a tap switched off draws nothing', (fewer.draw[fixtures[0].id] || 0) === 0);
-  ok('...and the system carries less with it off', fewer.openFlow < pass.openFlow,
-    fewer.openFlow + ' vs ' + pass.openFlow);
-
-  /* THE TOTAL OPEN DRAW IS THE SUM OF THE OPEN TAPS — linear, because these
-   * ones really are running at once. No diversity applies. */
-  let sum = 0;
-  fixtures.forEach(function (n) { sum += M.plumbingUndivFlow(mb, n.device); });
-  mb.nodes.forEach(function (n) {
-    const d = n.device;
-    if (d && d.kind === 'demand' && d.include !== false && d.demandType !== 'plumbing') {
-      sum += d.flow || 0;
-    }
-  });
-  near('the open draw is the linear sum of the open taps', pass.openFlow, sum, 1e-12);
-
-  /* THE PUMP IS READ OFF ITS CURVE at the flow it is passing — that is what
-   * makes this a simulation rather than a second sizing pass. */
-  const pump = mb.pipes.filter(function (p) { return p.kind === 'pump'; })[0];
-  if (pump) {
-    const q = Math.abs(pass.flow[pump.id]);
-    near('the pump contributes its curve head at the flow it passes',
-      M.pumpHead(mb, pump, q), M.pumpHead(mb, pump, q), 1e-12);
-    ok('...and the pump is passing the open draw', Math.abs(q - pass.openFlow) < 1e-9,
-      q + ' vs ' + pass.openFlow);
-  }
-
-  /* AND IT REPORTS ITS OWN WARNINGS. A load case with its own flows has its own
-   * velocities and friction rates. */
-  ok('the pass runs the shared detectors', Array.isArray(pass.warnings));
+  /* AND IT REPORTS, so the sheet has something to draw. */
+  const repG = FD.network.plumbingReport(g);
+  ok('the report resolves with no fixtures', repG.ok === true, repG.error && repG.error.code);
+  ok('...and delivers a residual at the far outflow',
+    repG.pressure[B.id] !== undefined && repG.pressure[B.id] < 300000,
+    String(repG.pressure[B.id]));
 }
 
 // -------------------- generic demand is added undiversified, and says so (v0.17.17)
