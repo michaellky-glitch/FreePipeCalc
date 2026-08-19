@@ -1,0 +1,78 @@
+# Publish FreePipeCalc to GitHub Pages on every push to master.
+#
+# WHY THIS EXISTS. Pages was on the LEGACY branch builder, which is triggered by
+# a push and simply stopped firing: v0.17.19, v0.17.20 and v0.18.0 all reached
+# the remote and the site went on serving v0.17.17 from 2026-08-18, with no error
+# anywhere to find. Michael, 2026-08-19: "not sure why the last version we pushed
+# to GH did not show up on GH pages." A workflow is triggered by the same push
+# but leaves a RUN with a log, so the next time it does not happen there is
+# somewhere to look.
+#
+# It also means no Jekyll: the artifact is served exactly as uploaded, so nothing
+# is silently transformed or excluded on the way out. A `.nojekyll` file is not
+# needed and is not there.
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  # So a stalled or superseded deploy can be re-run by hand from the Actions tab
+  # without an empty commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time. `cancel-in-progress: false` so a run that is already
+# publishing finishes rather than leaving the site half-written; a newer push
+# simply queues behind it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # THE ENGINE HAS TO PASS BEFORE THE SITE MOVES.
+  #
+  # 2223 assertions, plain node, no dependencies and no install step, so this
+  # costs seconds. A calculator that publishes a build whose own tests fail is
+  # worse than one that publishes late — this is an engineering tool and the
+  # numbers are the product.
+  #
+  # If you would rather always publish: delete this job and the `needs: test`
+  # line below.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run the test suites
+        run: |
+          fail=0
+          for f in test/*.test.js; do
+            echo "--- $f"
+            node "$f" || fail=1
+          done
+          exit $fail
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      # The whole repository, which is what the legacy builder published — the
+      # app opens from index.html and every path in it is relative. Trimming this
+      # to just the app would be a change to what is public, so it is left alone.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+      - id: deployment
+        uses: actions/deploy-pages@v4
