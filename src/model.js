@@ -1526,9 +1526,17 @@
    */
   function plumbingSizing(m) {
     var byPipe = {};
+    /* ANY OUTFLOW COUNTS, not only a fixture (Michael, 2026-08-19: "Calculation
+     * should work with just normal outflows (in which case no FU)"). A branch of
+     * generic outflows is a perfectly ordinary domestic-water job — a plant
+     * room, a set of hose reels, a process draw — and it was sized as nothing at
+     * all because the walk only started from components containing a PLUMBING
+     * fixture. Those outflows contribute 0 FU and their flow accumulates
+     * linearly, which is already what `ownGeneric` does; the only thing missing
+     * was permission to start. */
     var plumbingNodes = m.nodes.filter(function (n) {
       var d = n.device;
-      return d && d.kind === 'demand' && d.include !== false && d.demandType === 'plumbing';
+      return d && d.kind === 'demand' && d.include !== false;
     });
     if (!plumbingNodes.length) {
       return { ok: true, error: null, byPipe: byPipe, roots: [], totalFU: 0, totalFlow: 0 };

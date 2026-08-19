@@ -4894,7 +4894,12 @@
      * to ambient shrinks as the water approaches it. Interpolating linearly
      * between the two ends would read low near the inlet and high near the
      * outlet, so the probe re-solves the same closed form the engine uses. */
-    if (d.temperature !== null && d.temperature !== undefined) {
+    /* NO TEMPERATURE IN A PLUMBING FILE (Michael, 2026-08-19). There is no
+     * thermal solve there, so the row could only ever be blank or stale — and a
+     * blank temperature on a probe reads as "the model failed to compute one"
+     * rather than "this discipline does not have one". */
+    if (this.getModel().discipline !== 'plumbing' &&
+        d.temperature !== null && d.temperature !== undefined) {
       lines.push('Temp  ' + d.temperature.toFixed(2) + ' \u00b0C');
     }
     return lines;

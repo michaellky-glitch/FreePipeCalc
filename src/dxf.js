@@ -172,8 +172,16 @@
   }
 
   // ------------------------------------------------------------ the file
+  /* `opts.levels` limits the export to a set of level ids (Michael, 2026-08-19:
+   * "By Level exports 1 dxf file per level (leave the Z coordinates in)"). The
+   * Z ordinates are UNCHANGED — a per-level file is still drawn in world
+   * coordinates, so the sheets stack correctly when they are XREF'd back
+   * together. Only which levels are written changes. Risers are written with the
+   * level they RISE FROM, so a column appears once, on the floor it leaves. */
   function build(m, opts) {
     opts = opts || {};
+    var only = opts.levels ? {} : null;
+    if (only) (opts.levels || []).forEach(function (id) { only[id] = true; });
     var out = [];
     var layers = {};
 
@@ -188,6 +196,7 @@
     var ents = [];
 
     m.levels.forEach(function (lv) {
+      if (only && !only[lv.id]) return;
       var Lpipe = useLayer('PIPE', lv.name);
       var Lsym  = useLayer('SYMBOL', lv.name);
       var Ltag  = useLayer('TAG', lv.name);
@@ -254,6 +263,10 @@
       if (p.kind !== 'riser') return;
       var na = M.node(m, p.a), nb = M.node(m, p.b);
       if (!na || !nb) return;
+      /* A PER-LEVEL FILE gets the risers that TOUCH that level, so a column is
+       * on both sheets it connects rather than on neither. In a 3D export
+       * (`only` null) every riser is written once, as before. */
+      if (only && !only[na.level] && !only[nb.level]) return;
       var wa = M.worldXY(m, na), wb = M.worldXY(m, nb);
       line(ents, Lris, wa.x, wa.y, M.elevation(m, na),
                        wb.x, wb.y, M.elevation(m, nb));

@@ -4007,183 +4007,16 @@
              warnings: passWarnings, errors: [], iterations: 0 };
   }
 
-  /* REMOTE1 — how many taps can this system actually serve at once?
+  /* REMOTE1 — the automatic "how many taps can this serve" search — was built
+   * here on 2026-08-19 and REMOVED the same day at Michael's request: "revert
+   * back to the original method, push forward from pump. The user will need to
+   * decide which outflows to turn on/off." Choosing the load case is the
+   * engineer's job, not the app's.
    *
-   * Michael, 2026-08-19, on why the old SIMULATE was answering the wrong
-   * question: "The pump is sized based on the diversified flow & (residual
-   * required + static + friction). But as all outflows are open, the furthest
-   * point will never receive water."
-   *
-   * He is right, and the sheet said so: opening all 47 fixtures on
-   * 20260818-lowrise left the index fixture 220.8 kPa short. That is not a
-   * finding about the design — it is an artefact of simulating a load case that
-   * never happens. A booster is not sized to run every tap in the building
-   * simultaneously; it is sized so that the WORST-PLACED tap works.
-   *
-   * So the load case is built up rather than assumed, exactly as he specified:
-   *
-   *   1. Open the critical-path fixture. Close everything else.
-   *   2. If the pump can still deliver, open the next-most-remote fixture.
-   *   3. Repeat until it cannot, then back off the last one.
-   *
-   * The answer is the largest set of most-remote fixtures the system serves in
-   * full, and the number itself is the useful output: "this booster serves the
-   * 9 most remote fixtures at once" is a statement an engineer can check against
-   * the job.
-   *
-   * "CANNOT DELIVER" is two things, and both are failures of the same kind:
-   * an open fixture receiving less than its Table 604.3 flow pressure, or the
-   * pump running off the end of its curve (PUMP_RUNOUT). Either way the last
-   * fixture opened is the one that broke it.
-   *
-   * "MOST REMOTE" is LEAST DESIGN MARGIN — the same definition the Critical Path
-   * and the booster duty use, so all three agree on which fixture governs.
-   *
-   * Cost: one GGA solve per fixture opened, so it is bounded by `maxSolves`
-   * (default 120) and says when it stopped early rather than running for a
-   * minute on a tower block. */
-  var REMOTE1_MAX_SOLVES = 120;
-
-  function plumbingRemote1(m, opts) {
-    opts = opts || {};
-    var maxSolves = opts.maxSolves || REMOTE1_MAX_SOLVES;
-    var rep = opts.report || plumbingReport(m);
-    if (!rep.ok) {
-      return { ok: false, error: rep.error, order: [], openCount: 0,
-               result: null, solves: 0 };
-    }
-
-    /* THE CANDIDATES, and their Table 604.3 requirement. */
-    var candidates = [];
-    m.nodes.forEach(function (n) {
-      var d = n.device;
-      if (!(d && d.kind === 'demand' && d.include !== false)) return;
-      if (d.demandType !== 'plumbing') return;
-      if (!(M.plumbingUndivFlow(m, d) > 0)) return;      // draws nothing
-      candidates.push({ node: n.id, need: M.plumbingReqPressure(m, d) });
-    });
-
-    if (!candidates.length) {
-      return { ok: false, order: [], openCount: 0, result: null, solves: 0,
-               error: { code: 'DW_REMOTE1_NO_FIXTURES', message:
-                 'No plumbing fixtures to simulate — place outflows first.' } };
-    }
-
-    /* CAN THE SYSTEM DELIVER, with this set open? Two ways to fail, and they
-     * are the same failure: a tap receiving less than its Table 604.3 flow
-     * pressure, or the pump asked for more head than its curve gives at that
-     * flow (which shows here as the residual going short, because the forward
-     * pass reads the curve at the flow being passed). */
-    function feasible(pass, openIds) {
-      if (!pass || !pass.ok) return false;
-      for (var i = 0; i < openIds.length; i++) {
-        var id = openIds[i].node;
-        var p2 = pass.pressure[id];
-        if (p2 === undefined) return false;
-        if (p2 < openIds[i].need - PRESSURE_EPS) return false;
-      }
-      return true;
-    }
-
-    /* RE-RANKED EVERY ROUND (Michael, 2026-08-19: "yes, please do this").
-     *
-     * "The next most remote" is a question about the system as it stands, not as
-     * it was drawn: once ten taps are running, the pressures everywhere have
-     * moved and the tap with the least margin left is not necessarily the one
-     * the DESIGN pass ranked eleventh. Ranking once meant REMOTE1 opened taps in
-     * an order the simulation itself disagreed with.
-     *
-     * It costs NOTHING. The forward pass computes a residual at EVERY node —
-     * including the shut ones, where it is exactly "what would be available here
-     * if I opened it" — so the last accepted pass already carries the ranking
-     * signal for the next round. No extra pass per step, contrary to what was
-     * feared when this was left as an open question.
-     *
-     * Round 1 has no pass to read, so it ranks on the DESIGN residuals, which is
-     * the same thing measured on the sizing basis. */
-    function rank(list, pressures) {
-      return list.slice().sort(function (a, b) {
-        var ma = (pressures[a.node] === undefined) ? -Infinity : pressures[a.node] - a.need;
-        var mb = (pressures[b.node] === undefined) ? -Infinity : pressures[b.node] - b.need;
-        if (ma !== mb) return ma - mb;
-        return a.node < b.node ? -1 : a.node > b.node ? 1 : 0;   // stable, id order
-      });
-    }
-
-    var openSet = {}, opened = [], openedOrder = [];
-    var remaining = candidates.slice();
-    var best = null, bestCount = 0, solves = 0, firstFailure = null;
-    var budgetHit = false, lastPass = null;
-    var indexNode = rank(remaining, rep.pressure)[0].node;
-
-    while (remaining.length) {
-      if (solves >= maxSolves) { budgetHit = true; break; }
-      /* Rank what is LEFT against the pressures the system actually has now. */
-      var ranked = rank(remaining, best ? best.pressure : rep.pressure);
-      var next = ranked[0];
-
-      openSet[next.node] = true;
-      opened.push(next);
-      var pass = plumbingOpenPass(m, openSet, rep);
-      solves++;
-      lastPass = pass;
-
-      if (feasible(pass, opened)) {
-        best = pass; bestCount = opened.length;
-        openedOrder.push(next.node);
-        remaining = remaining.filter(function (c) { return c.node !== next.node; });
-        continue;
-      }
-      /* BACK OFF THE LAST ONE and stop — it is the tap that broke it. */
-      firstFailure = next.node;
-      delete openSet[next.node];
-      opened.pop();
-      break;
-    }
-
-    /* Even the index fixture on its own cannot be served. A real answer, and the
-     * pass is returned so the sheet can show how far short it is — flagged,
-     * not dressed up as a served case. */
-    var noneServed = (bestCount === 0);
-    if (noneServed) best = lastPass;
-
-    /* THE ANSWER, AS A MESSAGE. "This booster serves the 12 most remote fixtures
-     * at once" is the output of the whole method, and it belongs where the
-     * engineer already looks for findings rather than only in a section
-     * heading. */
-    if (best) {
-      best.warnings = (best.warnings || []).concat([{
-        code: 'DW_REMOTE1', level: noneServed ? 'warning' : 'notice',
-        node: indexNode,
-        served: bestCount, total: candidates.length,
-        message: noneServed
-          ? ('REMOTE1: the system cannot serve even its most remote fixture (' +
-             ((M.node(m, indexNode) || {}).tag || indexNode) +
-             ') on its own. Check the booster duty and the index run.')
-          : ('REMOTE1: ' + bestCount + ' of ' + candidates.length + ' fixtures are ' +
-             'served at once, opened most-remote first' +
-             (firstFailure ? ' — opening ' +
-               ((M.node(m, firstFailure) || {}).tag || firstFailure) +
-               ' is what the system cannot deliver.' : '.'))
-      }]);
-    }
-
-    return {
-      ok: true, error: null,
-      /* The order taps were actually OPENED in, which after re-ranking is not
-       * the design order and is the more useful record of the two. */
-      order: openedOrder,
-      openNodes: Object.keys(openSet),
-      openCount: bestCount,
-      total: candidates.length,
-      indexNode: indexNode,
-      firstFailure: firstFailure,
-      noneServed: noneServed,
-      budgetHit: budgetHit,
-      solves: solves,
-      result: best
-    };
-  }
+   * What it was built on is KEPT and is now the simulation itself:
+   * `plumbingOpenPass` above. The full spec, the reasoning and the numbers are
+   * in docs/DW-MODULE.md → "REMOTE1", and the implementation is in the history
+   * at v0.17.20, so it can be revived without being re-derived. */
 
   /* THE DUTY A PLUMBING BOOSTER HAS TO MEET.
    *
@@ -4339,7 +4172,6 @@
     plumbingPumpDuty: plumbingPumpDuty,
     plumbingSimModel: plumbingSimModel,
     plumbingOpenPass: plumbingOpenPass,
-    plumbingRemote1: plumbingRemote1,
     nodeTypeCode: nodeTypeCode,
     flowRegimeWarnings: flowRegimeWarnings,
     supplyWarnings: supplyWarnings,

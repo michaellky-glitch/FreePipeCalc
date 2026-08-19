@@ -12,6 +12,23 @@ Michael's request, 2026-08-12; re-architected 2026-08-16 to isolate the
 known-good GGA (see **Architecture v2**). The DATA and the sizing CORE are built
 (v0.16.31–32); the DISCIPLINE split and the plumbing UI/report are what remain.
 
+## REMOTE1 — BUILT AND REVERTED THE SAME DAY (2026-08-19)
+
+> **REVERSED, 2026-08-19, hours after it landed.** Michael: *"Revert back to the
+> original method, push forward from pump. The user will need to decide which
+> outflows to turn on/off."* Choosing the load case is the engineer's job, not
+> the app's. The automatic search is gone from the code (it is in the history at
+> v0.17.20); the spec below is kept because the REASONING in it still stands and
+> the mechanism it was built on IS the simulation now.
+>
+> **What survives, and is now how plumbing SIMULATE works:**
+> `FD.network.plumbingOpenPass(m, openMap)` — the taps the user has switched ON
+> each draw their FULL Table 604.3 flow, the pump contributes what its CURVE
+> gives at the flow it is passing, and one forward pass down the tree gives the
+> residual everywhere. No GGA, no K-terminal draw. The On/Off switch on an
+> outflow (and the bulk switch on a multi-selection) is how the load case is
+> chosen.
+
 ## REMOTE1 — the plumbing SIMULATE load case, Michael, 2026-08-19
 
 **Logged here with the duty rule so both can be revisited together.**

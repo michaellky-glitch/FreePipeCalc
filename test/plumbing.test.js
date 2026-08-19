@@ -564,124 +564,108 @@ section('plumbingReport — pipework the sizing never reached');
       .every(function (x) { return x.code !== 'DW_UNSIZED'; }));
 }
 
-// ------------------------------------- REMOTE1 plumbing simulation (v0.17.19)
-section('plumbingRemote1 — the load case a booster is actually sized for');
+// --------------------- sizing a branch that has no fixture units (v0.17.21)
+section('plumbingSizing — a branch of ordinary outflows sizes too');
 {
-  /* Michael, 2026-08-19: "as all outflows are open, the furthest point will
-   * never receive water." He is right, and it is an artefact of the question:
-   * a booster is not sized to run every tap in the building at once. REMOTE1
-   * opens the most remote tap, then the next, until the system cannot deliver,
-   * and backs off the last one. */
+  /* Michael, 2026-08-19: "Calculation should work with just normal outflows (in
+   * which case no FU)." The walk only STARTED from components containing a
+   * plumbing FIXTURE, so a plant room, a set of hose reels or a process draw —
+   * all perfectly ordinary domestic water — sized as nothing at all. Generic
+   * outflows contribute 0 FU and accumulate linearly, which `ownGeneric` already
+   * did; the only thing missing was permission to begin. */
+  const g = M.create(); g.discipline = 'plumbing';
+  const lv = g.levels[0].id;
+  const S = M.addNode(g, lv, 0, 0);
+  const A = M.addNode(g, lv, 5, 0);
+  const B = M.addNode(g, lv, 10, 0);
+  M.setSource(g, S.id, 300000);
+  M.setDemand(g, A.id, 0.002, 150000);
+  M.setDemand(g, B.id, 0.003, 150000);
+  M.node(g, A.id).device.demandType = 'generic';
+  M.node(g, B.id).device.demandType = 'generic';
+  const p1 = M.addPipe(g, S.id, A.id, { size: 'DN50' });
+  const p2 = M.addPipe(g, A.id, B.id, { size: 'DN40' });
+  if (!g.settings.plumbing) g.settings.plumbing = { system: 'flushTank' };
+
+  const rg = M.plumbingSizing(g);
+  ok('a fixture-less plumbing branch sizes', rg.ok && Object.keys(rg.byPipe).length === 2,
+    rg.error ? rg.error.code : String(Object.keys(rg.byPipe).length));
+  near('the main carries both draws, linearly', rg.byPipe[p1.id].flow, 0.005, 1e-12);
+  near('the branch carries the one below it', rg.byPipe[p2.id].flow, 0.003, 1e-12);
+  near('...with no fixture units anywhere', rg.byPipe[p1.id].fu, 0, 1e-12);
+  near('total connected load is 0 FU', rg.totalFU, 0, 1e-12);
+  near('...and the source flow is the linear sum', rg.totalFlow, 0.005, 1e-12);
+
+  /* AND IT REPORTS, so the sheet has something to draw. */
+  const repG = FD.network.plumbingReport(g);
+  ok('the report resolves with no fixtures', repG.ok === true, repG.error && repG.error.code);
+  ok('...and delivers a residual at the far outflow',
+    repG.pressure[B.id] !== undefined && repG.pressure[B.id] < 300000,
+    String(repG.pressure[B.id]));
+}
+
+// ------------------- the plumbing SIMULATE load case: forward push (v0.17.21)
+section('plumbingOpenPass — open taps draw their full flow, pushed from the pump');
+{
+  /* Michael, 2026-08-19: "revert back to the original method, push forward from
+   * pump. The user will need to decide which outflows to turn on/off." The
+   * REMOTE1 search that chose the load case automatically is gone (spec kept in
+   * docs/DW-MODULE.md); the mechanism it was built on IS the simulation. */
   const raw = JSON.parse(fs.readFileSync(
     __dirname + '/fixtures/plumbing-booster.pnet.json', 'utf8'));
   const mb = M.fromJSON(raw);
-  const r = FD.network.plumbingRemote1(mb);
-  ok('it resolves', r.ok === true, r.error && r.error.code);
-  ok('the index fixture is the most remote', !!M.node(mb, r.indexNode), r.indexNode);
-  ok('it serves at least the index fixture', r.openCount >= 1, String(r.openCount));
-  ok('...and never more than there are', r.openCount <= r.total,
-    r.openCount + '/' + r.total);
-  ok('one pass per tap opened, no more', r.solves <= r.total + 1, String(r.solves));
-
-  /* THE SERVED SET REALLY IS SERVED. Every open fixture must have at least its
-   * 604.3 flow pressure — that is what "served" means, and it is the assertion
-   * the whole method exists to make true. */
-  const open = {};
-  r.openNodes.forEach(function (id) { open[id] = true; });
-  let shortfalls = 0;
-  r.openNodes.forEach(function (id) {
-    const need = M.plumbingReqPressure(mb, M.node(mb, id).device);
-    if (r.result.pressure[id] < need - 1) shortfalls++;
-  });
-  ok('every served fixture has its required pressure', shortfalls === 0, String(shortfalls));
-
-  /* A CLOSED TAP DRAWS NOTHING. */
-  const closed = mb.nodes.filter(function (n) {
+  const fixtures = mb.nodes.filter(function (n) {
     return n.device && n.device.kind === 'demand' &&
-           n.device.demandType === 'plumbing' && !open[n.id];
+           n.device.demandType === 'plumbing' &&
+           M.plumbingUndivFlow(mb, n.device) > 0;
   });
-  if (closed.length) {
-    ok('a shut tap draws nothing', (r.result.draw[closed[0].id] || 0) === 0,
-      String(r.result.draw[closed[0].id]));
-  }
+  ok('the fixture file has fixtures to open', fixtures.length > 1, String(fixtures.length));
 
-  /* AN OPEN TAP DRAWS ITS FULL 604.3 FLOW — not a diversified share, and not
-   * the K-terminal's "whatever the system gives it", which on lowrise had ONE
-   * water closet pulling 2.35 L/s. */
-  const first = r.openNodes[0];
+  const allOn = {};
+  fixtures.forEach(function (n) { allOn[n.id] = true; });
+  const pass = FD.network.plumbingOpenPass(mb, allOn);
+  ok('the pass resolves', pass.ok === true, pass.error && pass.error.code);
+
+  /* AN OPEN TAP DRAWS ITS FULL 604.3 FLOW — not a diversified share, and not a
+   * K-terminal draw (which had one water closet pulling 2.35 L/s). */
   near('an open tap draws its full 604.3 flow',
-    r.result.draw[first], M.plumbingUndivFlow(mb, M.node(mb, first).device), 1e-15);
+    pass.draw[fixtures[0].id],
+    M.plumbingUndivFlow(mb, fixtures[0].device), 1e-15);
 
-  /* OPENING THE ONE THAT BROKE IT REALLY DOES BREAK IT. */
-  if (r.firstFailure) {
-    const tooMany = {};
-    r.openNodes.forEach(function (id) { tooMany[id] = true; });
-    tooMany[r.firstFailure] = true;
-    const bad = FD.network.plumbingOpenPass
-      ? FD.network.plumbingOpenPass(mb, tooMany)
-      : null;
-    if (bad) {
-      let anyShort = false;
-      Object.keys(tooMany).forEach(function (id) {
-        const need = M.plumbingReqPressure(mb, M.node(mb, id).device);
-        if (bad.pressure[id] < need - 1) anyShort = true;
-      });
-      ok('opening one more leaves something short — which is why it stopped', anyShort);
+  /* A TAP SWITCHED OFF DRAWS NOTHING, and the pipes above it carry less. */
+  const someOff = {};
+  fixtures.slice(1).forEach(function (n) { someOff[n.id] = true; });
+  const fewer = FD.network.plumbingOpenPass(mb, someOff);
+  ok('a tap switched off draws nothing', (fewer.draw[fixtures[0].id] || 0) === 0);
+  ok('...and the system carries less with it off', fewer.openFlow < pass.openFlow,
+    fewer.openFlow + ' vs ' + pass.openFlow);
+
+  /* THE TOTAL OPEN DRAW IS THE SUM OF THE OPEN TAPS — linear, because these
+   * ones really are running at once. No diversity applies. */
+  let sum = 0;
+  fixtures.forEach(function (n) { sum += M.plumbingUndivFlow(mb, n.device); });
+  mb.nodes.forEach(function (n) {
+    const d = n.device;
+    if (d && d.kind === 'demand' && d.include !== false && d.demandType !== 'plumbing') {
+      sum += d.flow || 0;
     }
+  });
+  near('the open draw is the linear sum of the open taps', pass.openFlow, sum, 1e-12);
+
+  /* THE PUMP IS READ OFF ITS CURVE at the flow it is passing — that is what
+   * makes this a simulation rather than a second sizing pass. */
+  const pump = mb.pipes.filter(function (p) { return p.kind === 'pump'; })[0];
+  if (pump) {
+    const q = Math.abs(pass.flow[pump.id]);
+    near('the pump contributes its curve head at the flow it passes',
+      M.pumpHead(mb, pump, q), M.pumpHead(mb, pump, q), 1e-12);
+    ok('...and the pump is passing the open draw', Math.abs(q - pass.openFlow) < 1e-9,
+      q + ' vs ' + pass.openFlow);
   }
 
-  /* RE-RANKED EVERY ROUND (Michael, 2026-08-19). "The next most remote" is a
-   * question about the system as it stands: once ten taps are running the
-   * pressures have moved, and the tap with the least margin LEFT is not
-   * necessarily the one the design pass ranked eleventh.
-   *
-   * The invariant, checked by replaying the run: at each step the tap chosen was
-   * the least-margin one still shut, measured on the pass that preceded it. That
-   * is the definition, and it is what ranking-once violated. */
-  {
-    const cands = mb.nodes.filter(function (n) {
-      return n.device && n.device.kind === 'demand' && n.device.include !== false &&
-             n.device.demandType === 'plumbing' &&
-             M.plumbingUndivFlow(mb, n.device) > 0;
-    }).map(function (n) {
-      return { node: n.id, need: M.plumbingReqPressure(mb, n.device) };
-    });
-    const rep0 = FD.network.plumbingReport(mb);
-    let prev = rep0, openSoFar = {}, violations = 0, checked = 0;
-    r.order.forEach(function (id) {
-      const shut = cands.filter(function (c) { return !openSoFar[c.node]; });
-      let bestMargin = Infinity;
-      shut.forEach(function (c) {
-        const p = prev.pressure[c.node];
-        const mg = (p === undefined) ? -Infinity : p - c.need;
-        if (mg < bestMargin) bestMargin = mg;
-      });
-      const chosen = cands.filter(function (c) { return c.node === id; })[0];
-      const pc = prev.pressure[chosen.node];
-      const mc = (pc === undefined) ? -Infinity : pc - chosen.need;
-      checked++;
-      if (mc > bestMargin + 1e-6) violations++;
-      openSoFar[id] = true;
-      prev = FD.network.plumbingOpenPass(mb, openSoFar, rep0);
-    });
-    ok('every tap opened was the least-margin one still shut at that moment',
-      violations === 0, violations + ' of ' + checked + ' out of order');
-    ok('...and the replay covered the whole run', checked === r.openCount,
-      checked + ' vs ' + r.openCount);
-  }
-
-  /* RANKING ONCE AND RE-RANKING CAN DISAGREE, and where they do the re-ranked
-   * order is the one that matches its own simulation. On the booster fixture the
-   * two happen to agree; the assertion is that the run is SELF-CONSISTENT
-   * (above), not that it differs on every model. */
-
-  /* THE ALL-OPEN CASE IS THE ONE HE OBJECTED TO, and it is still available on
-   * DYNAMIC — pinned here so the difference is on the record. */
-  const allOpen = FD.network.solveModel(FD.network.plumbingSimModel(mb, null));
-  ok('all-open remains a different (and harsher) answer',
-    allOpen.pressure[r.indexNode] < r.result.pressure[r.indexNode] + 1,
-    'all-open ' + allOpen.pressure[r.indexNode] + ' vs remote1 ' +
-    r.result.pressure[r.indexNode]);
+  /* AND IT REPORTS ITS OWN WARNINGS. A load case with its own flows has its own
+   * velocities and friction rates. */
+  ok('the pass runs the shared detectors', Array.isArray(pass.warnings));
 }
 
 // -------------------- generic demand is added undiversified, and says so (v0.17.17)

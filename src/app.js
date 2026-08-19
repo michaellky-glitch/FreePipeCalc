@@ -172,23 +172,65 @@
    * "no pixels" limit that governs every visual item, one step further out.
    * Until someone opens it in AutoCAD or BricsCAD, "it should work" is the
    * strongest claim available. */
+  /* DXF: ONE 3D MODEL, OR ONE FILE PER LEVEL (Michael, 2026-08-19).
+   *
+   * The 3D model is what it has always written — every floor at its real Z, so
+   * risers come out as genuine vertical lines. "By Level" writes the same
+   * geometry split into one file per floor, and **keeps the Z ordinates**: each
+   * sheet is still in world coordinates, so they stack correctly when they are
+   * XREF'd back together, and a plan taken off one of them is at the right
+   * height. A riser appears on both sheets it connects, not on neither. */
   function exportDxf() {
     if (!FD.dxf) { toast('DXF export is not loaded.', 'error'); return; }
     var m = app.model;
     if (!m.pipes.length) { toast('Nothing to export.', 'error'); return; }
-    var name = (m.settings.meta.project || 'network')
+    var base = (m.settings.meta.project || 'network')
       .replace(/[^\w\-]+/g, '_').toLowerCase() || 'network';
-    try {
-      download(name + '.dxf', FD.dxf.build(m), 'application/dxf');
-      toast('DXF exported (experimental) — geometry and text only. ' +
-            'Please check it opens correctly in your CAD.');
-    } catch (e) {
-      toast('DXF export failed: ' + e.message, 'error');
-    }
+
+    FD.dialog.choose({
+      title: 'Export DXF',
+      message: 'The 3D model puts every level at its real elevation in one ' +
+               'file. By Level writes one file per floor, with the Z ordinates ' +
+               'left in — so the sheets still line up when they are referenced ' +
+               'back together.',
+      cancelValue: null,
+      buttons: [
+        { label: 'Cancel', value: null },
+        { label: 'By Level', value: 'levels' },
+        { label: '3D Model', cls: 'primary', value: '3d' }
+      ]
+    }).then(function (choice) {
+      if (!choice) return;
+      try {
+        if (choice === '3d') {
+          download(base + '.dxf', FD.dxf.build(m), 'application/dxf');
+          toast('DXF exported (experimental) — geometry and text only. ' +
+                'Please check it opens correctly in your CAD.');
+          return;
+        }
+        var written = 0;
+        m.levels.forEach(function (lv) {
+          var text = FD.dxf.build(m, { levels: [lv.id] });
+          var safe = String(lv.name || lv.id).replace(/[^\w\-]+/g, '_').toLowerCase();
+          download(base + '-' + safe + '.dxf', text, 'application/dxf');
+          written++;
+        });
+        toast(written + ' DXF file' + (written === 1 ? '' : 's') +
+              ' exported, one per level (experimental).');
+      } catch (e) {
+        toast('DXF export failed: ' + e.message, 'error');
+      }
+    });
   }
 
-  function download(filename, text, mime) {
-    var blob = new Blob([text], { type: mime + ';charset=utf-8' });
+  /* `bom` prepends a UTF-8 byte-order mark. Excel opens a .csv as the system
+   * ANSI code page unless it finds one, which is why Michael's export read
+   * "# Project: â€”" and "N3 â†’ N1" — an em dash and an arrow, correctly encoded
+   * as UTF-8 and then decoded as Windows-1252 (2026-08-19). The BOM is the
+   * documented way to tell Excel otherwise, and every other tool ignores it. */
+  function download(filename, text, mime, bom) {
+    var parts = bom ? ['\ufeff', text] : [text];
+    var blob = new Blob(parts, { type: mime + ';charset=utf-8' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url; a.download = filename;
@@ -449,26 +491,30 @@
   function plumbingSimSolve() {
     var res;
     try {
-      /* REMOTE1 (Michael, 2026-08-19) — the default, and the reason the old
-       * answer was wrong. Opening every fixture at once is a load case that
-       * never happens, and it left the index fixture 220 kPa short on
-       * 20260818-lowrise: an artefact of the question, not a finding about the
-       * design. REMOTE1 opens the most remote tap, then the next, until the
-       * system cannot deliver, and backs off the last one.
+      /* PUSH FORWARD FROM THE PUMP, with whatever the user has left ON.
        *
-       * DYNAMIC keeps the all-open K-terminal behaviour, which is still the
-       * right thing to look at when you want to know what happens if everything
-       * IS opened. */
-      if (app.view && app.view.simStatic) {
-        var r1 = FD.network.plumbingRemote1(app.model);
-        app.remote1 = r1;
-        res = r1.ok ? r1.result : null;
-        if (!res) throw new Error((r1.error && r1.error.message) ||
-                                  'The plumbing network could not be simulated.');
-      } else {
-        app.remote1 = null;
-        res = FD.network.solveModel(FD.network.plumbingSimModel(app.model, null));
-      }
+       * Michael, 2026-08-19: "Revert back to the original method, push forward
+       * from pump. The user will need to decide which outflows to turn on/off."
+       *
+       * REMOTE1's search is gone — it chose the load case for you, and choosing
+       * the load case is the engineer's job, not the app's. What is KEPT is the
+       * mechanism it was built on, which is the part that was right: an open tap
+       * draws its full Table 604.3 flow, the pump contributes what its CURVE
+       * gives at the flow it is passing, and one forward pass down the tree
+       * gives the residual everywhere. No GGA, and no K-terminal draw (that is
+       * what had one water closet pulling 2.35 L/s).
+       *
+       * The open set is simply every outflow switched ON — `device.include`. */
+      app.remote1 = null;
+      var openMap = {};
+      app.model.nodes.forEach(function (n) {
+        var d = n.device;
+        if (d && d.kind === 'demand' && d.include !== false) openMap[n.id] = true;
+      });
+      var pass = FD.network.plumbingOpenPass(app.model, openMap);
+      res = pass && pass.ok ? pass : null;
+      if (!res) throw new Error((pass && pass.error && pass.error.message) ||
+                                'The plumbing network could not be simulated.');
     } catch (e) {
       console.error(e);
       app.results = null;
@@ -1314,21 +1360,18 @@
      * PROPERTIES panel shows in SIMULATE — distinct from the DESIGN residual
      * (Michael, 2026-08-18: 307 kPa design vs 150 kPa actual). */
     if (anySource) {
-      /* THE SAME LOAD CASE THE SIMULATE MODE IS SHOWING. Under REMOTE1 the sheet
-       * must report the served set, not an all-open case the canvas is not
-       * showing — a sheet and a drawing that disagree about the load case is the
-       * worst of both. `app.remote1` is set by the solve; recomputed here when
-       * the sheet is opened without one (the CALCULATION tab does not wait for
-       * SIMULATE). */
-      var r1 = null, simRes = null;
-      var useRemote1 = !!(app.view && app.view.simStatic);
+      /* THE SAME LOAD CASE THE SIMULATE MODE IS SHOWING — a sheet and a drawing
+       * that disagree about which taps are open is the worst of both. That is
+       * the forward push from the pump with whatever is switched ON. */
+      var simRes = null;
       try {
-        if (useRemote1) {
-          r1 = (app.remote1 && app.remote1.ok) ? app.remote1 : FD.network.plumbingRemote1(m);
-          simRes = r1 && r1.ok ? r1.result : null;
-        } else {
-          simRes = FD.network.solveModel(buildPlumbingSimModel(m));
-        }
+        var openMap = {};
+        m.nodes.forEach(function (n) {
+          var dv2 = n.device;
+          if (dv2 && dv2.kind === 'demand' && dv2.include !== false) openMap[n.id] = true;
+        });
+        var sp = FD.network.plumbingOpenPass(m, openMap, rep);
+        simRes = (sp && sp.ok) ? sp : null;
       } catch (e) { simRes = null; }
       if (simRes && simRes.pressure) {
         var simCtx = { flowOf: function (id) { return Math.abs(simRes.flow[id] || 0); },
@@ -1345,10 +1388,15 @@
           var sPath = [], sn = sWorst.id, g2 = 0;
           while (parentPipeOf[sn] && g2++ < 100000) { sPath.unshift(parentPipeOf[sn]); sn = rep.byPipe[parentPipeOf[sn]].from; }
           var sRoot = sn;
+          var nOpen = 0, nOff = 0;
+          m.nodes.forEach(function (n) {
+            var dv3 = n.device;
+            if (!(dv3 && dv3.kind === 'demand')) return;
+            if (dv3.include === false) nOff++; else nOpen++;
+          });
           var secSim = calcSection('Critical Path (Simulation)',
-            r1 ? { note: r1.noneServed ? 'REMOTE1 — none served'
-                                       : ('REMOTE1 — ' + r1.openCount + ' of ' + r1.total + ' open') }
-               : { note: 'all fixtures open' });
+            { note: nOpen + ' outflow' + (nOpen === 1 ? '' : 's') + ' ON' +
+                    (nOff ? ' · ' + nOff + ' off' : '') });
           var swdef = M.plumbingFixtureDefault(m, sWorst.device);
           secSim.appendChild(el('p', 'notice-head',
             'Critical Path from ' + nodeLabel(sRoot) + ' to ' + (sWorst.tag || sWorst.id) +
@@ -1356,22 +1404,13 @@
           secSim.appendChild(plumbingTable(sPath, simCtx, { totals: true }));
           var totFricS = sPath.reduce(function (a, id) { return a + sectionPa(id, Math.abs(simRes.flow[id] || 0)); }, 0);
           critGrid(secSim, simRes.pressure[sWorst.id], reqOf(sWorst), sPath.length, totFricS, sPath);
-          secSim.appendChild(el('p', 'hint', r1
-            ? ('REMOTE1: the most remote fixture is opened first, then the next, ' +
-               'until the system cannot deliver — ' +
-               (r1.noneServed
-                 ? 'and here it cannot serve even the most remote one on its own.'
-                 : r1.openCount + ' of ' + r1.total + ' fixtures are served at once' +
-                   (r1.firstFailure
-                     ? ', and opening ' + ((M.node(m, r1.firstFailure) || {}).tag ||
-                        r1.firstFailure) + ' breaks it.'
-                     : '.')) +
-               ' Each open fixture draws its full Table 604.3 flow and the pump ' +
-               'contributes what its CURVE gives at the flow it is passing.' +
-               (r1.budgetHit ? '  Stopped at the ' + r1.solves + '-pass budget.' : ''))
-            : ('SIMULATION: every fixture is open at once and draws against the ' +
-               'pump curve as a K-terminal, so flows and delivered pressures ' +
-               'differ from the DESIGN basis above.')));
+          secSim.appendChild(el('p', 'hint',
+            'SIMULATION pushes forward from the source and pump with the ' +
+            nOpen + ' outflow' + (nOpen === 1 ? '' : 's') + ' switched ON. Each ' +
+            'open fixture draws its FULL Table 604.3 flow (no diversity — these ' +
+            'are running) and the pump contributes what its CURVE gives at the ' +
+            'flow it is passing. Which taps are open is yours to choose: switch ' +
+            'them On/Off in the outflow properties.'));
         }
       }
     }
@@ -2300,7 +2339,7 @@
   /* The plumbing calculation as CSV — the same columns, order and figures as
    * the PLUMBING sheet, so the file and the sheet can be checked against each
    * other. Mains first, like the sheet's All Pipes (Design). */
-  function exportPlumbingCSV(m) {
+  function exportPlumbingCSV(m, want) {
     var rep = FD.network.plumbingReport(m);
     var delim = m.settings.csv.delimiter;
     var dec = m.settings.csv.decimal;
@@ -2328,7 +2367,7 @@
 
     if (!rep.ok && rep.error) {
       lines.push('# NOT SIZED: ' + rep.error.message);
-      download('calculation.csv', lines.join('\r\n'), 'text/csv');
+      download('calculation.csv', lines.join('\r\n'), 'text/csv', true);
       toast('Plumbing network cannot be sized — see the calculation sheet.', 'error');
       return;
     }
@@ -2340,11 +2379,15 @@
       return rep.byPipe[b].flow - rep.byPipe[a].flow;         // mains first
     });
 
-    lines.push(['Section', 'Tag', 'Size', 'ID mm', 'L ' + d.length, 'Fittings',
+    var header = lines.slice();
+    var cols = ['Section', 'Tag', 'Size', 'ID mm', 'L ' + d.length, 'Fittings',
                 'EL ' + d.length, 'L eff ' + d.length, 'Downstream FU',
+                'Diversified ' + d.flow, 'Generic ' + d.flow,
                 'Flow ' + d.flow, 'Velocity m/s', 'PD/m ' + d.pdm,
                 'Section PD ' + d.pressure, 'Static ' + d.pressure,
-                'Residual ' + d.pressure].map(field).join(delim));
+                'Residual ' + d.pressure];
+    lines = header.slice();
+    lines.push(cols.map(field).join(delim));
 
     ids.forEach(function (id) {
       var sct = rep.byPipe[id], p = M.pipe(m, id), l = linkById[id];
@@ -2368,6 +2411,8 @@
         l ? num(FD.units.fmtLength(l._el, d.length)) : '',
         l ? num(FD.units.fmtLength(l._Leff, d.length)) : '',
         num(sct.fu.toFixed(1)),
+        num(FD.units.fmtFlow(M.plumbingFuToFlow(m, sct.fu), d.flow)),
+        num(FD.units.fmtFlow(sct.generic || 0, d.flow)),
         num(FD.units.fmtFlow(q, d.flow)),
         num(bore ? FD.hydraulics.velocity(q, bore).toFixed(2) : ''),
         num(FD.units.fmtPdm(pdmV, d.pdm)),
@@ -2383,11 +2428,90 @@
                ' probable demand at the source.');
 
     var name = (meta.project || 'calculation').replace(/[^\w\-]+/g, '_').toLowerCase();
-    download(name + '.csv', lines.join('\r\n'), 'text/csv');
-    toast('Plumbing calculation exported as CSV');
+    var written = 0;
+    function emit(key, suffix, out) {
+      if (want && want.indexOf(key) < 0) return;
+      download(name + '-' + suffix + '.csv', out.join('\r\n'), 'text/csv', true);
+      written++;
+    }
+    emit('pipes', 'all-pipes', lines);
+
+    /* THE FIXTURE SCHEDULE, as its own file — a different shape from the pipe
+     * table, so stacking the two in one sheet would give Excel a grid with two
+     * unrelated header rows in it. */
+    if (!want || want.indexOf('fixtures') >= 0) {
+      var fx = header.slice();
+      fx.push('# Table: Fixtures');
+      fx.push(['Tag', 'Fixture', 'Count', 'FU', 'Design flow ' + d.flow,
+               'Required ' + d.pressure, 'Available ' + d.pressure,
+               'Margin ' + d.pressure, 'On/Off'].map(field).join(delim));
+      var sumC = 0, sumFU = 0, sumQ = 0;
+      m.nodes.forEach(function (n) {
+        var dv = n.device;
+        if (!(dv && dv.kind === 'demand')) return;
+        var isP = dv.demandType === 'plumbing';
+        var need = isP ? M.plumbingReqPressure(m, dv) : (dv.reqPressure || 0);
+        var q2 = isP ? M.plumbingUndivFlow(m, dv) : (dv.flow || 0);
+        var fu2 = isP ? M.outflowFU(m, dv) : 0;
+        var pr2 = rep.pressure[n.id];
+        var on = dv.include !== false;
+        if (on) { sumC += (dv.count || 1); sumFU += fu2; sumQ += q2; }
+        fx.push([
+          n.tag || n.id,
+          isP ? M.plumbingFixtureDefault(m, dv).label : 'Generic outflow',
+          String(dv.count || 1), num(fu2.toFixed(1)),
+          num(FD.units.fmtFlow(q2, d.flow)),
+          num(FD.units.fmtPressure(need, d.pressure)),
+          pr2 === undefined ? '' : num(FD.units.fmtPressure(pr2, d.pressure)),
+          pr2 === undefined ? '' : num(FD.units.fmtPressure(pr2 - need, d.pressure)),
+          on ? 'On' : 'Off'
+        ].map(field).join(delim));
+      });
+      fx.push(['TOTAL', '', String(sumC), num(sumFU.toFixed(1)),
+               num(FD.units.fmtFlow(sumQ, d.flow)), '', '', '', '']
+              .map(field).join(delim));
+      emit('fixtures', 'fixtures', fx);
+    }
+
+    if (!written) { toast('Nothing to export in the tables ticked.', 'error'); return; }
+    toast(written + ' CSV file' + (written === 1 ? '' : 's') + ' exported.');
   }
 
-  function exportCSV() {
+  /* WHICH TABLES? (Michael, 2026-08-19: "It only seems to be exporting all
+   * pipes. Give an in-browser prompt on which table to export.")
+   *
+   * It was exporting All Pipes and nothing else — the sheet has five or six
+   * tables and the writer knew about one. Each ticked table becomes its OWN
+   * file, because a spreadsheet with three differently-shaped tables stacked in
+   * one sheet is not something Excel can work with. */
+  function exportCSVPrompt() {
+    var m = app.model;
+    var plumbing = (m.discipline === 'plumbing');
+    /* Only what is actually written. Offering a tick box that produces no file
+     * is worse than not offering it — the export looks like it failed. */
+    var tables = plumbing
+      ? [['pipes', 'All Pipes (Design)', true],
+         ['fixtures', 'Fixture schedule', true]]
+      : [['pipes', 'All Pipes', true],
+         ['critical', 'Critical Path', true]];
+    FD.dialog.form({
+      title: 'Save calculation as CSV',
+      message: 'One file per table. Excel-safe encoding (UTF-8 with a byte-order ' +
+               'mark), so em dashes and arrows read correctly.',
+      ok: 'Export',
+      fields: tables.map(function (t) {
+        return { key: t[0], label: t[1], type: 'checkbox', value: t[2] };
+      })
+    }).then(function (v) {
+      if (!v) return;
+      var want = tables.filter(function (t) { return v[t[0]]; })
+                       .map(function (t) { return t[0]; });
+      if (!want.length) { toast('Nothing ticked — nothing exported.', 'error'); return; }
+      exportCSV(want);
+    });
+  }
+
+  function exportCSV(want) {
     var m = app.model, res = app.results || solveNow();
     /* A PLUMBING FILE EXPORTS THE PLUMBING SHEET. It used to fall through to
      * the hydronic writer, which reads `sheetRows` — so the CSV came out with
@@ -2395,7 +2519,7 @@
      * mains-first, and a header line reading "System: Open loop", a hydronic
      * concept the discipline split deliberately removed (Michael, 2026-08-18).
      * The file did not match the sheet it claims to be. */
-    if (m.discipline === 'plumbing') { exportPlumbingCSV(m); return; }
+    if (m.discipline === 'plumbing') { exportPlumbingCSV(m, want); return; }
     var rows = sheetRows(res);
     var delim = m.settings.csv.delimiter;
     var dec = m.settings.csv.decimal;
@@ -2428,13 +2552,20 @@
     lines.push('# For preliminary design assistance only. Results must be verified by a ' +
                'qualified engineer. No warranty; no liability.');
 
-    lines.push(['Section', 'Tag', 'Size', 'ID mm', 'L ' + d.length, 'Fittings', 'EL ' + d.length,
-                'L eff ' + d.length, 'Flow ' + d.flow, 'Velocity m/s', 'PD/m ' + d.pdm,
-                'Section PD ' + d.pressure, 'Static ' + d.pressure, 'Pressure ' + d.pressure]
-               .map(field).join(delim));
+    var cols = ['Section', 'Tag', 'Size', 'ID mm', 'L ' + d.length, 'Fittings',
+                'EL ' + d.length, 'L eff ' + d.length, 'Flow ' + d.flow,
+                'Velocity m/s', 'PD/m ' + d.pdm, 'Section PD ' + d.pressure,
+                'Static ' + d.pressure, 'Pressure ' + d.pressure];
 
-    rows.forEach(function (r) {
-      lines.push([
+    /* ONE FILE PER TABLE. The header block is repeated in each so a file is
+     * self-describing on its own — an exported table that does not say which
+     * project or method produced it is not an issue-able document. */
+    var header = lines.slice();
+    var name = (meta.project || 'calculation').replace(/[^\w\-]+/g, '_').toLowerCase();
+    var written = 0;
+
+    function pipeRow(r) {
+      return [
         r.section, r.tag || '', r.size, num(r.id_mm.toFixed(2)),
         num(FD.units.fmtLength(r.L, d.length)), r.codes || '',
         num(FD.units.fmtLength(r.el, d.length)),
@@ -2445,12 +2576,23 @@
         num(FD.units.fmtPressure(r.pd, d.pressure)),
         num(FD.units.fmtPressure(r.stat, d.pressure)),
         num(FD.units.fmtPressure(r.pOut, d.pressure))
-      ].map(field).join(delim));
-    });
-
-    var name = (meta.project || 'calculation').replace(/[^\w\-]+/g, '_').toLowerCase();
-    download(name + '.csv', lines.join('\r\n'), 'text/csv');
-    toast('Calculation exported as CSV');
+      ].map(field).join(delim);
+    }
+    function writeTable(key, suffix, title, list) {
+      if (want && want.indexOf(key) < 0) return;
+      if (!list.length) return;
+      var out = header.slice();
+      out.push('# Table: ' + title);
+      out.push(cols.map(field).join(delim));
+      list.forEach(function (r) { out.push(pipeRow(r)); });
+      download(name + '-' + suffix + '.csv', out.join('\r\n'), 'text/csv', true);
+      written++;
+    }
+    writeTable('pipes', 'all-pipes', 'All Pipes', rows);
+    writeTable('critical', 'critical-path', 'Critical Path',
+               rows.filter(function (r) { return r.index; }));
+    if (!written) { toast('Nothing to export in the tables ticked.', 'error'); return; }
+    toast(written + ' CSV file' + (written === 1 ? '' : 's') + ' exported.');
   }
 
   // -------------------------------------------------------- level panel
@@ -3177,6 +3319,51 @@
       });
     }
 
+    /* MULTIPLE VALVES OF ONE TYPE — open or shut them together (Michael,
+     * 2026-08-19). Isolating a wing to see what it does to the rest is a normal
+     * commissioning move, and doing it valve by valve across a floor is not.
+     *
+     * SAME TYPE ONLY, deliberately. A gate valve and a control valve do not mean
+     * the same thing by "open": one is a status, the other is a position a
+     * controller is writing. A mixed selection says so rather than picking a
+     * meaning. CHECK valves are never offered — their position is the physics,
+     * not a setting. */
+    var valveSel = [];
+    sel.forEach(function (s2) {
+      if (s2.kind !== 'pipe') return;
+      var pv = M.pipe(m, s2.id);
+      if (pv && pv.kind === 'valve' && pv.valve && pv.valve.type !== 'check') valveSel.push(pv);
+    });
+    if (valveSel.length > 1) {
+      var types = {};
+      valveSel.forEach(function (pv) { types[pv.valve.type] = true; });
+      var typeList = Object.keys(types);
+      host.appendChild(el('h3', 'sub', valveSel.length + ' valves selected'));
+      if (typeList.length > 1) {
+        host.appendChild(el('p', 'hint',
+          'Mixed valve types (' + typeList.join(', ') + '). "Open" does not mean ' +
+          'the same thing on each, so select one type at a time to switch them ' +
+          'together.'));
+      } else {
+        var vOpen = valveSel.every(function (pv) {
+          return (pv.valve.opening === undefined ? 100 : pv.valve.opening) > 0;
+        });
+        var vShut = valveSel.every(function (pv) {
+          return (pv.valve.opening === undefined ? 100 : pv.valve.opening) === 0;
+        });
+        var vMixed = !vOpen && !vShut;
+        statusToggle(host, vOpen, 'Open all', 'Close all', function (on) {
+          pushUndo();
+          valveSel.forEach(function (pv) { pv.valve.opening = on ? 100 : 0; });
+          renderProperties(); changed();
+        });
+        if (vMixed) {
+          host.appendChild(el('p', 'hint',
+            'Currently mixed — switching sets all ' + valveSel.length + ' the same way.'));
+        }
+      }
+    }
+
     /* MULTIPLE OUTFLOWS — edit their common properties at once (Michael,
      * 2026-08-18), including the Display switches. */
     var demandNodes = [];
@@ -3234,6 +3421,19 @@
           changed(); renderProperties();
         });
       }
+
+      /* ON/OFF ON ALL OF THEM (Michael, 2026-08-19). Choosing the load case is
+       * the point of the switch, and choosing it one fixture at a time across
+       * forty-seven of them is not a workflow. Shows the current state when they
+       * agree, and switches all of them either way when they do not. */
+      var allOn = demandNodes.every(function (n) { return n.device.include !== false; });
+      var allOff = demandNodes.every(function (n) { return n.device.include === false; });
+      var mixed = !allOn && !allOff;
+      switchRow(host, 'On/Off' + (mixed ? '  (mixed)' : ''), allOn, function (on) {
+        pushUndo();
+        demandNodes.forEach(function (n) { n.device.include = on; });
+        changed(); renderProperties();
+      });
 
       // ---- Display switches applied to every selected outflow ----
       host.appendChild(el('h3', 'sub', 'Display on all'));
@@ -3974,6 +4174,15 @@
     if (p.kind === 'equip') { renderEquipProps(host, p); return; }
     if (p.kind === 'sensor') { renderSensorProps(host, p); return; }
     host.appendChild(el('h3', '', 'Pipe ' + p.id));
+    /* EVERYTHING THE PIPE *IS*, IN ONE PLACE (Michael, 2026-08-19: "Group Tag,
+     * Schedule, Size, C Factor, Length, Insulation under Design"). They were
+     * loose at the top of the panel while every derived figure below them sat in
+     * a titled box, so the panel read as "six unlabelled controls, then three
+     * labelled groups". Same `section` the rest of the panel uses, so it
+     * collapses and remembers like the others. */
+    var pdes = section(host, 'Design');
+    var host0 = host;
+    host = pdes.box;
     /* A RUN IS A THING YOU NAME, and until now only the plant on it could be.
      * Michael, 2026-08-09. */
     tagField(host, p);
@@ -4055,6 +4264,8 @@
       }
       renderProperties(); changed();
     });
+
+    host = host0;                    // out of the Design group, on to the read-outs
 
     /* ---- Domestic-water sizing (DW) ----
      * A plumbing branch is sized from the FIXTURE UNITS downstream of the pipe,
@@ -4176,6 +4387,12 @@
    * is always in the same place and costs one line when closed. Michael's UI
    * pass, 2026-08-06. */
   function displayChecks(host, obj, opts) {
+    /* NOT IN THE MONITOR (Michael, 2026-08-19: "Remove Display from
+     * monitoring"). The monitor exists to watch and tune a device's DUTY from
+     * another floor; what it writes on the drawing is a drawing decision, made
+     * where the drawing is. A second set of the same switches in a second panel
+     * is also two places to look when one of them is wrong. */
+    if (app.renderingMonitor) return;
     /* Nothing to show at all — a plain pipe nobody has named — so no empty
      * section either. */
     if (!opts.length && !tagVisibleApplies(obj)) return;
@@ -5424,9 +5641,17 @@
     };
   }
 
+  /* A TITLED READ-OUT BOX IS A SECTION (Michael, 2026-08-19: "Pipe, Thermal,
+   * Domestic Water properties should be collapsable"). It already looked like
+   * one — a heading over a list of key/value rows — and on a plumbing pipe there
+   * are now three of them stacked, which is a lot of scrolling for figures you
+   * are not reading today. `section` gives the caret, the click and the
+   * remembered state, and returns the same `{ box, ro }` shape, so no caller
+   * changes. An UNTITLED box has nothing to label a control with and stays a
+   * plain block. */
   function readoutBox(host, title) {
+    if (title) return section(host, title);
     var box = el('div', 'readout');
-    if (title) box.appendChild(el('h4', 'readout-title', title));
     host.appendChild(box);
     return {
       box: box,
@@ -6396,7 +6621,11 @@
       /* K = Q/√ΔP is the GENERIC terminal characteristic; a plumbing fixture is
        * sized from FU instead, so it is not shown there. */
       if (!isPlumbingOutflow) designKRow(des, dev.flow, dev.reqPressure);
-      switchRow(des.box, 'Include in calculation', dev.include !== false, function (on) {
+      /* ON/OFF, not "Include in calculation" (Michael, 2026-08-19). In plumbing
+       * this switch IS the load case — SIMULATE pushes forward from the pump
+       * with whatever is ON — so it needs to read as a tap, not as a reporting
+       * option. */
+      switchRow(des.box, 'On/Off', dev.include !== false, function (on) {
         pushUndo(); dev.include = on; changed(); renderProperties();
       });
 
@@ -7097,9 +7326,8 @@
     var presUnit = (m.settings.display && m.settings.display.pressure) || 'kPa';
     var presLabel = ('' + FD.units.fmtPressure(0, presUnit, true)).split(' ').slice(1).join(' ');
     var PSI = FD.plumbing.PSI_TO_PA;
-    var fuHost = fold('Fixtures — units (E103.3(2)) and design flow & pressure (604.3)',
-                      true, String(FD.plumbing.fixtures.reduce(function (a, f) {
-                        return a + ((f.variations && f.variations.length) || 0); }, 0)) + ' rows');
+    var fuHost = fold('Fixture Units (Table E103.3(2)), Design Flow & Pressure (Table 604.3)',
+                      true);
     var fuT = el('table', 'sheet');
     var fuThead = el('thead'), fuHr = el('tr');
     ['Fixture', 'Occupancy/Supply', 'Fixture Units (FU)',
@@ -7191,8 +7419,7 @@
     fuActs.appendChild(fuReset); fuHost.appendChild(fuActs);
 
     // ============================ DEMAND — Table E103.3(3) ----------------
-    var dmHost = fold('Demand — Table E103.3(3)  (' + flowLabel + ')', false,
-                      'IPC reference · editable');
+    var dmHost = fold('Demand — Table E103.3(3)  (' + flowLabel + ')', false);
     function curveOf(sys) { return M.plumbingDemandCurve(m, sys) || FD.plumbing.demand[sys]; }
     function toMap(c) { var mp = {}; c.forEach(function (r) { mp[r[0]] = r[1]; }); return mp; }
     var ftMap = toMap(curveOf('flushTank')), foMap = toMap(curveOf('flushometer'));
@@ -7337,10 +7564,12 @@
      * Only the two genuinely hydronic-only sections are skipped below: SYSTEM
      * (open/closed loop, a concept the discipline split removed) and the
      * thermal half of the fluid usage list. */
+    /* THE SHARED SECTIONS COME FIRST (Michael, 2026-08-19: "Same Fluid
+     * Properties & Hydraulic Parameters at the top"). Both disciplines then read
+     * the same way down the page — fluid, method, schedule, fittings, limits —
+     * and the IPC tables sit below as the plumbing-specific part rather than
+     * pushing the controls off the top of the tab. */
     var plumbingTab = (m.discipline === 'plumbing');
-    if (plumbingTab) {
-      renderPlumbingHydraulic(host, m, { h2: h2, hint: hint, grid: grid, selField: selField });
-    }
 
     // ============================================ 1. FLUID PROPERTIES (top)
     h2('Fluid Properties');
@@ -7853,6 +8082,13 @@
               m.settings.warn.laminar !== false, function (on) {
       pushUndo(); m.settings.warn.laminar = on; redrawAll(); renderHydraulic();
     });
+
+    /* THE IPC TABLES, LAST. They are the plumbing-specific part of this tab and
+     * they are long; above the shared controls they pushed the friction method
+     * and the limits off the top of the page. */
+    if (plumbingTab) {
+      renderPlumbingHydraulic(host, m, { h2: h2, hint: hint, grid: grid, selField: selField });
+    }
   }
 
   /* Create or edit a custom schedule. The editable content is a plain
@@ -8178,17 +8414,6 @@
      * in a plumbing file it also names the LOAD CASE being simulated, because
      * there the choice of load case is the whole question. Hydronic is
      * untouched: it still reads STATIC and still simulates what is drawn. */
-    var statBtn = document.querySelector('[data-simmode="static"]');
-    if (statBtn) {
-      statBtn.textContent = plumbing ? 'REMOTE1' : 'STATIC';
-      statBtn.title = plumbing
-        ? 'REMOTE1 — open the most remote fixture, then the next, until the ' +
-          'system cannot deliver, and back off the last one. The load case a ' +
-          'booster is actually sized for. RUN SIMULATION re-solves.'
-        : 'Look, do not touch. The drawing is locked against anything that ' +
-          'would change the answer, so nothing re-solves — which is what makes ' +
-          'a large model usable';
-    }
     updateSystemChip();
   }
 
@@ -8651,8 +8876,11 @@
       /* THE SAME PANEL THE LEFT-HAND SIDE DRAWS, into someone else's host. */
       renderInto: function (host, e) {
         var m = app.model;
-        if (e.kind === 'pipe') renderPipeProps(host, M.pipe(m, e.id));
-        else renderNodeProps(host, M.node(m, e.id));
+        app.renderingMonitor = true;
+        try {
+          if (e.kind === 'pipe') renderPipeProps(host, M.pipe(m, e.id));
+          else renderNodeProps(host, M.node(m, e.id));
+        } finally { app.renderingMonitor = false; }
       },
       goTo: function (e) {
         var m = app.model;
@@ -8967,7 +9195,7 @@
 
     $('btn-save').addEventListener('click', saveModelFile);
     $('btn-save-2').addEventListener('click', saveModelFile);
-    $('btn-csv').addEventListener('click', exportCSV);
+    $('btn-csv').addEventListener('click', exportCSVPrompt);
     /* PRINT means different things on the two tabs: the network tab prints the
      * drawing (one page per level), the calculation tab prints the sheet. A
      * body class picks which, and is cleared afterwards so the next print is

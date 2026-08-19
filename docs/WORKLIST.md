@@ -9,8 +9,8 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-19, after v0.17.20 (REMOTE1 re-ranks its remoteness order every
-round).
+Updated 2026-08-19, after v0.17.21 (SIMULATE reverted to a user-chosen load
+case, export prompts, panel grouping).
 
 ---
 
@@ -48,6 +48,28 @@ The likeliest things to come back:
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
+
+* **v0.17.21** — Michael's second 2026-08-19 list. **SIMULATE reverted to a
+  user-chosen load case**: the REMOTE1 search is gone (spec kept in
+  `docs/DW-MODULE.md`), and plumbing SIMULATE now pushes forward from the source
+  and pump with whatever outflows are switched ON — each drawing its FULL 604.3
+  flow, the pump reading its CURVE at the flow it passes. So the outflow switch
+  is renamed **On/Off** and gains a **bulk** version for a multi-selection, and
+  **valves of one type open/close together**. **The source-fed-by-a-pump
+  "insufficient" warning is gone with it** — SUPPLY_INSUFFICIENT is a GGA
+  warning and the GGA is no longer on any plumbing path. **Sizing now works with
+  ordinary outflows and no fixture units at all** — the walk only started from
+  components containing a plumbing fixture. **HYDRAULIC:** Fluid Properties and
+  Hydraulic Parameters moved to the top, the IPC tables to the bottom, the
+  fixtures fold renamed, the row-count and "IPC reference" notes dropped.
+  **PROPERTIES:** Tag/Schedule/Size/C/Length/Insulation grouped under **Design**,
+  and every titled read-out box (Pipe, Thermal, Domestic water) is now
+  collapsible. **MONITOR** no longer duplicates Display. **PROBE** drops
+  Temperature in plumbing. **DXF** prompts *3D Model* or *By Level* — one file
+  per floor with the Z ordinates left in, so the sheets still stack. **CSV** is
+  written with a UTF-8 BOM (Excel was reading `—` as `â€"` and `→` as `â†'`) and
+  prompts for which tables to export, one file each — it was writing All Pipes
+  and nothing else. 8 new assertions (suite 2213).
 
 * **v0.17.20** — **REMOTE1 re-ranks every round** (Michael, 2026-08-19: "yes,
   please do this"). The order taps open in is now decided against the pressures
