@@ -940,7 +940,7 @@ section('SIMULATION refuses to run without a pump curve');
   const err = (res.errors || []).filter(e => e.code === 'NO_PUMP_CURVE');
   ok('Raises NO_PUMP_CURVE', err.length === 1, JSON.stringify(res.errors));
   ok('...with the required wording',
-     /Pump curve is required to simulate\. If no manufacturer data is available, please see the TOOLS tab\./
+     /Pump curve is required to simulate\. Change pump sizing mode to Manual or Curve\./
        .test(err[0].message), err[0].message);
   ok('...and does not report convergence', res.converged === false);
 

@@ -20,6 +20,26 @@ first. `WORKLIST.md` says what is waiting on me.
 
 ---
 
+# OPEN ENGINEERING QUESTIONS — moved out of the user documentation, 2026-08-19
+
+`docs/engine.html` replaced `docs/ENGINE.md` as the user-facing calculation
+method. It states finalized approaches only. Everything below was written in
+that document as undecided or unresolved, and belongs to you rather than to a
+reader of the manual.
+
+| # | Question | Where it stands |
+|---|---|---|
+| EQ.1 | **Which Darcy friction-factor correlation should be the default?** | Four are implemented and selectable: Colebrook-White (reference, iterated), **Swamee-Jain (current default)**, Haaland, Churchill. Measured spread across DN25–DN200, steel and PPR, new and fouled, is **at most 1.4%** — the choice barely moves the answer, which is why it has never been forced. `engine.html` states Swamee-Jain as the default and does not call it undecided. **Confirm Swamee-Jain, or name another.** |
+| EQ.2 | **The Hazen-Williams / Darcy equivalence.** | At C = 120 against ε = 0.045 mm, Darcy reads 16–27% lower on friction rate. Neither is wrong: C = 120 is aged steel, ε = 0.045 mm is clean new steel. Matching them needs ε ≈ 0.15–0.25 mm or C ≈ 130–140. `engine.html` says exactly this. **Do you want a default pairing recommended in the interface, or is the note enough?** |
+| EQ.3 | **Tee losses where flow divides or combines.** | A tee is charged run (L/D 20) or branch (L/D 60) from geometry alone. Real loss depends on the ratio of branch flow to combined flow, over which K varies by more than a factor of ten. Documented as a limitation in `engine.html` §10. **This is the largest known approximation in the engine. Do you want it addressed, and against which table (ASHRAE, Idelchik)?** |
+| EQ.4 | **Fitting L/D does not vary with pipe size.** | Published tables give a higher L/D at small bores. A correction curve was trialled and removed because it could not be sourced — a synthesised 45° elbow column proved 250% wrong against the real table. Documented as a limitation. **Leave as is, or source a table you accept?** |
+| EQ.5 | **Temperature does not drive fluid properties.** | Density and viscosity are entered independently; temperature is recorded only. A 6 °C circuit uses whatever properties were typed. Documented as a limitation. **Worth implementing, or is stating it enough?** |
+| EQ.6 | **Two K values that did not survive cross-checking.** | Threaded 45° elbow: both copies of the ASHRAE table returned a column identical to the 90° elbow, which is physically wrong — shipped as 0.53 × the 90° value (Crane TP-410 L/D ratio) and marked `derived`. Threaded 2 in tee-branch: copies disagreed, 1.4 vs 1.6; 1.4 used because it keeps the column monotonic. **Both need a third source, or your acceptance.** |
+| EQ.7 | **Propylene glycol properties are unverified.** | Still `verified: false` in `data/fluids.js`. Specific heat scales every thermal duty linearly. Not mentioned in `engine.html` beyond a general note that unverified fluids are flagged in the interface. |
+| EQ.8 | **The static-pressure limit.** | `settings.warn.maxStatic` defaults to 552 kPa (80 psi), the figure at which IPC 604.8 calls for a pressure-reducing valve. Confirmed by you on 2026-08-19. Recorded here because the default is a code figure and other codes differ. |
+
+---
+
 # WAITING ON YOU — v0.16.4 to v0.16.19
 
 Nothing in this block has been looked at by a person. Each row says what was

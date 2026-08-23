@@ -8,7 +8,7 @@ know which bug caused them.
 
 Companion documents:
 
-* `ENGINE.md` — the hydraulics maths, with hand-checkable worked examples.
+* `engine.html` — the hydraulics maths, with hand-checkable worked examples.
 * `piping-friction-loss-spec.md` — the original specification, plus §12 which
   logs every deviation from it and the reason.
 * `HANDOVER.md` — **start there.** Where things stand, the conventions that must
@@ -76,16 +76,18 @@ already (spec Q12 notes).
 
 | Key | Name | Pipe friction | Fittings |
 |---|---|---|---|
-| `HW` | Hazen-Williams (ASHRAE with Equivalent Lengths) | ASHRAE Ch 22 Eq (6) | equivalent length |
-| `DW` | Darcy-Weisbach (BETA) | Swamee-Jain friction factor | K velocity heads, Eq (7) |
+| `HW` | Hazen-Williams (ASHRAE SI) | ASHRAE Ch 22 Eq (6) | Equivalent length: Carrier Design Handbook Table 11 (default), NFPA 13 Table 27.2.3.1.1, or custom |
+| `DW` | Darcy-Weisbach (BETA) | Swamee-Jain friction factor | K velocity heads: ASHRAE Ch 22 Eq (7), Tables 3 and 4 |
 
-There were three until then: this one with K fittings, a second Hazen-Williams
-with equivalent length, and Darcy. The first two computed pipe loss
-*identically* — they were two roundings of the same ASHRAE equation, 0.035%
-apart — and differed only in how they charged fittings. So the menu offered what
-looked like two equations and was really one equation and two fitting bases.
-Collapsed at Michael's instruction; `'ASHRAE'` in a saved file migrates to
-`'HW'` on load.
+There were three methods until then: one Hazen-Williams with K fittings, a
+second Hazen-Williams with equivalent length, and Darcy-Weisbach. The first two
+computed pipe loss *identically* — they were two roundings of the same ASHRAE
+equation, 0.035% apart — and differed only in how they charged fittings. So the
+menu offered what looked like two equations and was really one equation and two
+fitting bases. Collapsed at Michael's instruction: Hazen-Williams always charges
+equivalent length, and Darcy-Weisbach always charges K velocity heads. The
+fitting basis follows the method instead of being a third choice. `'ASHRAE'` in
+a saved file migrates to `'HW'` on load.
 
 The survivor keeps the **printed velocity-form constants** (6.819 / 1.852 /
 1.167) and derives the flow form from them, rather than carrying the rounded
@@ -97,11 +99,12 @@ The solver asks a link for a resistance `r` and an exponent `n` such that
 `h = r·|Q|^(n−1)·Q`. Hazen-Williams and Darcy-Weisbach both satisfy it.
 
 A link may also carry an **optional second term** `rK` at exponent 2, because
-the ASHRAE method pairs Hazen-Williams pipe friction (n = 1.852) with
-velocity-head fitting losses (n = 2) and the two cannot be folded into one
-resistance. Both terms are monotonic in |Q| and share the sign convention, so
-the sum is still a strictly increasing loss curve and the Newton step is
-unaffected.
+Darcy-Weisbach charges pipe friction at exponent 2 and K-velocity-head fitting
+losses (ASHRAE Ch 22 Eq (7)) also at exponent 2. The two *could* be folded into
+one resistance, but they are kept apart so there is one code path for K fittings
+and the sheet can report pipe and fitting losses separately. Both terms are
+monotonic in |Q| and share the sign convention, so the sum is still a strictly
+increasing loss curve and the Newton step is unaffected.
 
 **Anything reconstructing a loss from a link must call
 `FD.hydraulics.linkLoss(link, q)`.** Reading `link.r` alone silently omits the
@@ -118,7 +121,7 @@ Load order matters; this is it.
 | File | Responsibility |
 |---|---|
 | `data/schedules.js` | Pipe schedules → bore, outside diameter, insulation thickness. Sizing helpers. |
-| `data/fittings.js` | Fitting equivalent lengths (L/D basis) and K-based losses. |
+| `data/fittings.js` | Equivalent-length tables: Carrier Design Handbook Table 11, NFPA 13 Table 27.2.3.1.1, and a user-editable custom set. Legacy L/D ratios are kept for old file migration only. |
 | `data/valves.js` | Valve Kv/Cv data, opening curves, resistance. |
 | `data/ktable.js` | ASHRAE fitting resistance coefficients K, by nominal size. |
 | `src/units.js` | SI ↔ display conversion, number parsing. **Display only.** |
@@ -133,7 +136,7 @@ Load order matters; this is it.
 | `src/dialog.js` | In-app modal dialogs (no browser popups). |
 | `src/canvas.js` | Drawing surface: rendering + pointer interaction. |
 | `src/printer.js` | Printed level plans as SVG. |
-| `src/tools.js` | TOOLS tab: standalone calculators. Reads no model state. |
+| `src/tools.js` | TOOLS window: standalone calculators, plus Find and Monitor which read the model for navigation and display only. |
 | `src/docs.js` | DOCUMENTATION tab: renders these files in the app. |
 | `src/app.js` | Shell: toolbar, panels, calculation sheet, settings, persistence. |
 
@@ -198,7 +201,7 @@ most of the interesting logic.
 
 Global Gradient Algorithm (Todini–Pilati), the method EPANET uses. Unknowns
 are head at each junction and flow in each link. Full derivation in
-`ENGINE.md` §3.
+`engine.html` §3.
 
 Two things about it are worth knowing here.
 
@@ -358,7 +361,7 @@ run"), and every branch variant reads the same table row.
 
 Note that until 2026-07-31 the K tables were **dead data**: this document
 claimed Darcy charged velocity heads, but `headlossK` was never called and both
-methods used equivalent length. The ASHRAE method is what finally wires the K
+methods used equivalent length. Darcy-Weisbach is what finally wires the K
 tables into the calculation.
 
 **The K lookup is keyed on NOMINAL size, not bore.** These are different
@@ -367,8 +370,9 @@ diameter with a 90 mm bore, so keying on bore lands two rows off in the table.
 `FD.schedules.nominalMm()` extracts the designation; the bore is used only for
 velocity.
 
-All L/D values and all K values are user-editable on the HYDRAULIC tab, because
-jurisdictions differ and the built-ins are a starting point, not an authority.
+Custom equivalent-length values and K overrides are editable on the HYDRAULIC
+tab, because jurisdictions differ and the built-ins are a starting point, not an
+authority.
 
 **Every K value is now checked against the printed page.** Michael supplied
 ASHRAE p.22.6 on 2026-08-02; both tables are transcribed a second time into
@@ -379,48 +383,28 @@ column, and is not a transcription slip.
 
 ---
 
-## 7A. Modes: EDIT, DRAW PIPE, VIEW
+## 7A. Modes and tools
 
-The canvas has three modes, plus a set of placement tools.
+The ribbon has four modes. Each mode shows the tools that belong in it.
 
-* **DESIGN / SIMULATE** — the two calculation modes (internally the same
-  `edit` tool); select, drag nodes, change properties. Both offer every drawing
-  tool. **SHOW DISCONNECT is gone**: disconnections always draw a ⚠️. Multi-selecting offers
-  size / schedule / C across the whole selection.
-* **DRAW PIPE** — click-to-click routing. Typing digits mid-run and pressing
-  Enter draws exactly that length along the current preview bearing: the
-  bearing stays a mouse gesture (with its 15° snapping) and only the magnitude
-  is typed.
-* **VIEW** — arrange the drawing for print. Every annotation is draggable,
-  and device properties can be echoed beside their entity in a box. (VIEW was
-  called LAYOUT until v0.6.0-dev.) VIEW carries **TRACE** (arranging the
-  background you draw over), **ALIGN**, and **ANNOTATIONS**.
+| Mode | Purpose | Tools shown |
+|---|---|---|
+| **DESIGN** | Build and size the system | SELECT, COPY, PASTE, PIPE, RISER, SOURCE, OUTFLOW, PUMP, HEAT SOURCE/SINK, HEAT EXCHANGER, OTHER, CONTROL valve, ISOLATION valve, CHECK valve |
+| **CONTROL** | Add sensors and control loops | SELECT, TEMPERATURE sensor, FLOW sensor, PRESSURE sensor, DIFF. PRESSURE sensor, DIFF. TEMPERATURE sensor, ADD CONTROL, valves |
+| **SIMULATE** | Inspect the solved system | SELECT, PROBE |
+| **ANNOTATE** | Arrange the drawing for print | MOVE (view), TRACE, ALIGN, DISPLAY TAGS, DETAIL, TEXT BOX |
 
-**PROBE** (v0.7.8-dev) reads pressure, flow and velocity at any *point* along a
-run rather than only at the nodes — the sheet gives node values, and the
-question in front of an engineer is often "what is the pressure at the tee I
-have not drawn yet". Hover follows the pointer, a click pins the reading so the
-mouse can come off the drawing, Esc clears it.
+DESIGN and SIMULATE both use the same `edit` tool internally: select, drag nodes and change properties. **SHOW DISCONNECT is gone** — disconnections always draw a ⚠️. Multi-selecting offers size, schedule and C-factor across the whole selection.
 
-Pressure between two nodes is a **straight line**, and that is the real profile
-rather than a convenience: both ends are at the same elevation by the rule
-above, so there is no static term varying along the run, and the flow and bore
-are constant along a pipe, so friction loss per metre is constant. The one
-caveat: fittings are charged as lumped equivalent length spread over the whole
-pipe, so where a real fitting sits there is a small step the line averages out.
-The node values are exact either way. **This lives here, not in the app** — the
-explanation was in the properties panel and was removed as clutter
-(Michael, 2026-08-02); flow and velocity likewise dropped the "(whole pipe)"
-note beside each reading.
+**PIPE** is click-to-click routing. Type digits mid-run and press Enter to draw exactly that length along the current bearing. The bearing stays a mouse gesture with 15° snapping; only the magnitude is typed.
 
-A **device** is where interpolating would be a lie — a pump, valve or piece of
-equipment puts its entire pressure change at one point — so probing one reports
-both sides and the change across it, and no value along it. This is the same
-distinction the PRESSURE visualiser makes between a ramp and a step.
+**PROBE** reads pressure, flow and velocity at any point along a pipe, not just at nodes. Hover follows the pointer; click to pin the reading so the mouse can come off the drawing; press Esc to clear it.
 
-The ribbon has ONE tool section that swaps both its contents and its label with
-the mode: the placement tools under `DRAW` in EDIT, the drawing-arrangement
-tools under `VIEW` in VIEW. They are alternatives, not companions.
+Pressure between two nodes is a **straight line**. Both ends are at the same elevation, and flow and bore are constant along a pipe, so friction loss per metre is constant. Fittings are charged as lumped equivalent length spread over the whole pipe, so a real fitting creates a small step that the line averages out. The node values are exact either way.
+
+A **device** is where interpolating would be a lie. A pump, valve or piece of equipment puts its entire pressure change at one point, so probing one reports both sides and the change across it, and no value along it. The PRESSURE visualiser uses the same distinction between a ramp (pipe) and a step (device).
+
+**ALIGN** drags the whole model by one node, snapping the grabbed point to the grid. It moves every level's `(dx, dy)` offset, never a coordinate, so no geometry, length or fitting can change (§8).
 
 **ALIGN** drags the whole model by one node, snapping the grabbed point to the
 grid — for putting a known node back on grid after the drawing has drifted. It
@@ -928,15 +912,15 @@ and the fraction's own `vertical-align: middle` was ignored too. Superscripts
 and fractions are built on inline layout; do not put a flex container above
 them.
 
-Only the fitting table the active method actually uses is shown: K coefficients
-under ASHRAE and Darcy-Weisbach, equivalent lengths under Hazen-Williams.
-Showing both invites entering numbers into the one being ignored.
+Only the fitting table the active method actually uses is shown: equivalent
+lengths under Hazen-Williams, K coefficients under Darcy-Weisbach. Showing both
+invites entering numbers into the one being ignored.
 
 **The method list is built from the registry**, not hand-written. It was
-hand-written and held HW and DW only, while the default method is ASHRAE — so a
-new model showed "Hazen-Williams" in a box that was set to ASHRAE, and picking
-either option was a one-way door with no route back. Both faults came from
-restating in the UI something the engine already knows.
+hand-written and held only HW and DW, while the saved default was the old key
+`'ASHRAE'` — so a new model showed "Hazen-Williams" in a box that was set to
+`'ASHRAE'`, and picking either option was a one-way door with no route back.
+Both faults came from restating in the UI something the engine already knows.
 
 ## 17B. Control links
 

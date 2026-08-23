@@ -1608,16 +1608,15 @@
       var srcs = members.filter(function (id) { return isSource[id]; });
       if (srcs.length === 0) {
         error = { code: 'DW_NO_SOURCE', message:
-          'A plumbing branch has no source feeding it. Downstream fixture units ' +
-          'are only defined from a source, so add one to the branch.',
+          'A plumbing branch has no source. Connect a source to the system or ' +
+          'check for disconnects.',
           nodes: members.filter(function (id) { return plumbCarrier(id); }) };
         return;
       }
       if (srcs.length > 1) {
         error = { code: 'DW_MULTI_SOURCE', message:
-          'A plumbing branch has more than one source (' + srcs.join(', ') + '). ' +
-          'Fixture-unit sizing needs a single source so each pipe has one ' +
-          'upstream path.', nodes: srcs };
+          'Multiple sources are not supported for plumbing systems. Consider ' +
+          'splitting the system or use Hydronic mode.', nodes: srcs };
         return;
       }
 
@@ -1625,9 +1624,8 @@
       var pipesIn = pipes.filter(function (p) { return memberSet[p.a] && memberSet[p.b]; });
       if (pipesIn.length !== members.length - 1) {
         error = { code: 'DW_LOOP', message:
-          'A plumbing branch contains a loop. Fixture-unit sizing needs a tree — ' +
-          'one path from the source to every fixture — so remove the loop or make ' +
-          'the outflows generic.', pipes: pipesIn.map(function (p) { return p.id; }) };
+          'Plumbing loops are not supported. Remove the loop or use generic ' +
+          'outflows in Hydronic mode.', pipes: pipesIn.map(function (p) { return p.id; }) };
         return;
       }
 
@@ -3080,12 +3078,9 @@
       n.dz = 0;
       notes.push({
         code: 'SOURCE_PRESSURE_MOVED', node: n.id,
-        message: 'Source ' + (n.tag || n.id) + ': its ' +
-                 (rho * 9.81 * dz / 1000).toFixed(1) + ' kPa static pressure was ' +
-                 'stored as a ' + dz.toFixed(2) + ' m elevation, which was ' +
-                 'stretching every pipe on it. The pressure is unchanged; the ' +
-                 'node is back at its drawn level, so those pipes are now their ' +
-                 'true drawn length.'
+        message: (n.tag || n.id) + ' static pressure ' +
+                 (rho * 9.81 * dz / 1000).toFixed(1) + ' kPa is stored as ' +
+                 dz.toFixed(2) + ' m elevation. A vertical pipe was created.'
       });
     });
     return notes;

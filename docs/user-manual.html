@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreePipeCalc — User Manual</title>
+<style>
+/* Self-contained: no fonts, no scripts, no network. The page must open from a
+   USB stick with a double-click, which is the same rule the app follows. */
+:root{
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+/* Dark by the reader's own setting when the page stands alone... */
+@media (prefers-color-scheme:dark){ :root{ color-scheme:dark } :root:not([data-theme]){
+    --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+    --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+    --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+    --code-bg:#1e242c;
+} }
+/* ...and by the APP's setting when it is embedded in the DOCUMENTATION tab,
+   which passes ?theme=. An explicit theme wins over the media query in both
+   directions, so a dark app never shows a white page and the reverse. */
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+  --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+  --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+  --code-bg:#1e242c;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+/* Embedded: the page supplies its own margin, so drop the outer one and let the
+   host frame own the scroll edge. */
+:root[data-embed="1"] header.top{padding-top:22px}
+:root[data-embed="1"] .wrap{padding-bottom:40px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.62 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px 80px;display:flex;gap:36px;align-items:flex-start}
+main{flex:1 1 auto;min-width:0;max-width:760px}
+
+/* ---- masthead ---- */
+header.top{border-bottom:1px solid var(--line);margin-bottom:28px;padding:30px 0 18px}
+header.top h1{font-size:27px;line-height:1.2;margin:0 0 6px;letter-spacing:-.2px}
+header.top .sub{color:var(--dim);margin:0;font-size:14.5px}
+header.top .meta{color:var(--mute);font-size:12.5px;margin-top:10px}
+
+/* ---- contents rail ---- */
+nav.toc{
+  position:sticky;top:18px;flex:0 0 232px;align-self:flex-start;
+  font-size:13px;line-height:1.5;max-height:calc(100vh - 40px);overflow:auto;
+  border-left:1px solid var(--line-soft);padding-left:16px
+}
+nav.toc h2{font-size:11px;letter-spacing:.9px;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:s}
+nav.toc > ol > li{counter-increment:s;margin:0 0 3px}
+nav.toc > ol > li > a::before{content:counter(s) ". ";color:var(--mute)}
+nav.toc ol ol{padding-left:16px;margin:2px 0 6px}
+nav.toc ol ol li{margin:0}
+nav.toc a{color:var(--dim);text-decoration:none;display:block;padding:2px 0}
+nav.toc a:hover{color:var(--accent)}
+
+/* ---- headings ---- */
+h2{font-size:21px;margin:44px 0 12px;padding-top:10px;border-top:1px solid var(--line);letter-spacing:-.15px}
+h2:first-of-type{border-top:0;margin-top:0}
+h3{font-size:16.5px;margin:28px 0 8px}
+h4{font-size:14px;margin:20px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 14px;padding-left:22px}
+li{margin:0 0 5px}
+a{color:var(--accent)}
+strong{font-weight:650}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.9em;background:var(--code-bg);padding:1px 5px;border-radius:4px
+}
+
+/* ---- formulae ---- */
+.eq{
+  background:var(--panel);border:1px solid var(--line-soft);border-left:3px solid var(--accent);
+  border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;overflow-x:auto;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:1.75
+}
+.eq .lbl{display:block;font-family:system-ui,sans-serif;font-size:11.5px;
+  text-transform:uppercase;letter-spacing:.7px;color:var(--mute);margin-bottom:7px}
+.eq em{color:var(--mute);font-style:normal}
+.steps{counter-reset:step;list-style:none;padding-left:0;margin:16px 0}
+.steps > li{
+  counter-increment:step;position:relative;padding-left:38px;margin-bottom:14px
+}
+.steps > li::before{
+  content:counter(step);position:absolute;left:0;top:1px;
+  width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;
+  font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center
+}
+
+/* ---- tables ---- */
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th,td{border:1px solid var(--line-soft);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel);font-weight:600;font-size:13px}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto;margin:16px 0}
+.scroll table{margin:0}
+
+/* ---- callouts ---- */
+.note{border-radius:6px;padding:12px 15px;margin:16px 0;border:1px solid var(--line);background:var(--panel)}
+.note p:last-child{margin-bottom:0}
+.note .tag{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.8px;
+  font-weight:700;margin-bottom:6px}
+.note.check{border-left:3px solid var(--ok)} .note.check .tag{color:var(--ok)}
+.note.limit{border-left:3px solid var(--warn)} .note.limit .tag{color:var(--warn)}
+.note.rule{border-left:3px solid var(--accent)} .note.rule .tag{color:var(--accent)}
+
+figure{margin:22px 0}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:13px;color:var(--dim);margin-top:8px}
+
+.lead{font-size:16px;color:var(--dim);margin-bottom:20px}
+footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);
+  font-size:13px;color:var(--mute)}
+
+@media (max-width:1000px){
+  nav.toc{display:none}
+  .wrap{display:block;padding-bottom:50px}
+  main{max-width:none}
+}
+@media print{
+  nav.toc{display:none} .wrap{display:block;max-width:none}
+  body{font-size:10.5pt;color:#000;background:#fff}
+  h2{page-break-after:avoid} .eq,table,figure,.note{page-break-inside:avoid}
+  a{color:#000;text-decoration:none}
+}
+</style><style>
+/* User-manual additions: a control/value table and a shortcut key style. */
+.ctrl{width:100%;margin:14px 0}
+.ctrl th,.ctrl td{vertical-align:top}
+.ctrl th:first-child,.ctrl td:first-child{white-space:nowrap;font-weight:600}
+kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
+  background:var(--code-bg);border:1px solid var(--line);border-radius:4px;
+  padding:1px 6px;white-space:nowrap}
+.tight li{margin-bottom:3px}
+</style>
+<script>
+/* The ONLY script in this document, and it does one thing: let the app tell the
+   page which theme to draw in. A query string survives file:// where fetch and
+   postMessage-to-an-opaque-origin do not, so this is what works when the app is
+   opened by double-clicking index.html. With no parameter the page falls back to
+   the reader's own prefers-color-scheme, which is what it does when opened on
+   its own. */
+(function () {
+  try {
+    var q = new URLSearchParams(location.search);
+    var t = q.get('theme');
+    if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
+    if (q.get('embed') === '1') document.documentElement.dataset.embed = '1';
+  } catch (e) { /* no parameters, no problem: the media query still applies */ }
+})();
+</script></head>
+<body>
+<div class="wrap">
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#overview">Interface overview</a>
+      <ol>
+        <li><a href="#ribbon">Main ribbon</a></li>
+        <li><a href="#discipline">Discipline chip</a></li>
+        <li><a href="#notification">Notification chip</a></li>
+        <li><a href="#levels">Levels</a></li>
+        <li><a href="#properties">Properties</a></li>
+      </ol>
+    </li>
+    <li><a href="#network">Hydronic design</a>
+      <ol>
+        <li><a href="#file">File</a></li>
+        <li><a href="#modes">Modes and shortcuts</a></li>
+        <li><a href="#design">Design</a></li>
+        <li><a href="#control">Control</a></li>
+        <li><a href="#simulate">Simulate</a></li>
+        <li><a href="#annotation">Annotation</a></li>
+        <li><a href="#show">Show</a></li>
+        <li><a href="#misc">Tools and misc</a></li>
+      </ol>
+    </li>
+    <li><a href="#plumbing">Plumbing discipline</a></li>
+  </ol>
+</nav>
+<main>
+<header class="top">
+  <h1>User Manual</h1>
+  <p class="sub">How to use FreePipeCalc: the interface, the design tools, and every control.</p>
+  <p class="meta">The calculation methods are documented separately in Calculation Method. Current to v0.18.2.</p>
+</header>
+<!-- ========================================================= 1 -->
+<h2 id="overview">1. Interface overview</h2>
+<p class="lead">The window has a top bar, a design pane, and a properties panel. This section describes each part.</p>
+
+<h3 id="ribbon">1.1 Main ribbon</h3>
+<p>The tabs at the top of the window select the main view.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Tab</th><th>What it shows</th></tr></thead>
+  <tbody>
+    <tr><td>HYDRONIC / PLUMBING</td><td>The design pane. You draw the network here. The tab is named for the current discipline.</td></tr>
+    <tr><td>CALCULATION</td><td>The calculation sheet: a node-to-node table of sizes, flows, friction and pressure.</td></tr>
+    <tr><td>HYDRAULIC</td><td>Fluid properties, the friction method, the pipe schedule, fitting allowances and the warning limits. In plumbing it also holds the IPC tables.</td></tr>
+    <tr><td>THERMAL</td><td>Ambient temperature, insulation, and the temperature plausibility band. Hidden in plumbing.</td></tr>
+    <tr><td>SETTINGS</td><td>Display units, the generated pump curve, drawing defaults, appearance, CSV options, and setpoint control.</td></tr>
+    <tr><td>DOCUMENTATION</td><td>These documents.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="discipline">1.2 Discipline chip</h3>
+<p>The chip on the right of the top bar shows the discipline: HYDRONIC or PLUMBING. Click it to switch. A file is one discipline.</p>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>Switching discipline on a drawing that is not empty can break it. The two disciplines share the geometry but not the device meaning, so a switch can leave device settings that no longer apply. The program asks you to confirm first.</p>
+</div>
+
+<h3 id="notification">1.3 Notification chip</h3>
+<p>The chip beside the discipline chip reports the state of the calculation. It shows one of: solved, a warning count, a defect count, or a hydraulic error. Its colour follows the severity.</p>
+<p>Click the chip to open the Messages window. The window lists the active messages and the dismissed ones. Click a message to go to the pipe or node it names. You can dismiss warnings and notices. You cannot dismiss errors or defects.</p>
+
+<h3 id="levels">1.4 Levels</h3>
+<p>The Levels panel lists the floors. The active level is the one you draw on. Everything drawn on a level is horizontal at that level's elevation. A riser joins one level to another.</p>
+<p>Add a level with <kbd>+</kbd> and remove the active level with <kbd>−</kbd>. Collapse the panel with the LEVELS heading; the active level is then shown on the heading. Drag a level to reorder it. Double-click a level to edit it.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Name</td><td>Name of the level.</td></tr>
+    <tr><td>Elevation</td><td>Height of the level above the datum.</td></tr>
+    <tr><td>View Direction</td><td>Look Down or Look Up. This shows the level above or below the active level as a faded overlay, so you can see what you are connecting to.</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>View Direction also sets which way a new riser runs from this level. Look Up runs the riser to the level above; Look Down runs it to the level below.</p>
+</div>
+
+<h3 id="properties">1.5 Properties</h3>
+<p>The Properties panel shows the selected item. It has up to four collapsible sections:</p>
+<ul class="tight">
+  <li><strong>Design</strong> — what you set: size, flow, capacity, and so on.</li>
+  <li><strong>Actual</strong> — what the calculation returned: the solved flow, pressure and temperature.</li>
+  <li><strong>Control</strong> — the control link, for a pump, a valve or a machine that carries one.</li>
+  <li><strong>Display</strong> — which values are written beside the item on the drawing.</li>
+</ul>
+<p>Each section remembers whether it is open or closed. A 🛈 marker holds a longer explanation where one is useful. Select nothing to see no panel; select several items to edit their common properties together.</p>
+<!-- ========================================================= 2 -->
+<h2 id="network">2. Hydronic design</h2>
+<p class="lead">The design pane is where you draw and analyse a water network. This section describes the hydronic discipline. The plumbing discipline is in section 3.</p>
+<p>Hydronic covers chilled water and process cooling systems. You draw the pipework and the plant, size it in Design, and then run it in Simulate.</p>
+
+<h3 id="file">2.1 File</h3>
+<p>The FILE group holds the common file actions.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>NEW</td><td>Start an empty model.</td></tr>
+    <tr><td>SAVE</td><td>Save the model to a file (<kbd>Ctrl</kbd>+<kbd>S</kbd>).</td></tr>
+    <tr><td>LOAD</td><td>Open a saved model file.</td></tr>
+    <tr><td>PRINT</td><td>Print the drawing. The program asks whether to print the level plans or the calculation sheet. Level plans print one page per level. The calculation sheet prints the open sections only, so you choose what to issue by collapsing the sections you do not need. The sheet turns to landscape by itself when its table is wider than a portrait page.</td></tr>
+    <tr><td>REPAIR</td><td>Find and fix tags that have an automatically generated tag stuck on the end of them.</td></tr>
+    <tr><td>DXF</td><td>Export the drawing as a DXF file. The program asks for one of two forms. The 3D model puts every level at its real height in one file. By Level writes one file per level and keeps the height ordinates, so the sheets still stack when referenced together. The export carries geometry and text only, not properties or reports. It is experimental; check that it opens in your CAD.</td></tr>
+    <tr><td>↶ / ↷</td><td>Undo and redo (<kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>).</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h4>Copying elements and properties</h4>
+<p>There are two kinds of copy.</p>
+<p><strong>Copy elements.</strong> Select one or more pipes and press COPY, or <kbd>Ctrl</kbd>+<kbd>C</kbd>. The copy holds the pipes, the nodes they touch, and the control links between them. Press PASTE, or <kbd>Ctrl</kbd>+<kbd>V</kbd>, and the copy follows the pointer. Click to place it. While placing, press <kbd>Tab</kbd> to choose which end joins the drawing, and <kbd>R</kbd> to rotate the copy by 90°. If you drop the copy on top of an existing pipe, the program splits that pipe and joins with a tee.</p>
+<p><strong>Copy properties.</strong> Copy a single device, then select one other device of the same kind and press <kbd>Ctrl</kbd>+<kbd>V</kbd>. The program stamps the copied device's properties onto the selected one. It does not copy the tag, the position or the control link. Use this to give several pumps, valves, coils or outflows the same settings.</p>
+
+<h3 id="modes">2.2 Modes and shortcuts</h3>
+<p>The MODE group selects what you are doing. Each mode has its own set of tools on the second ribbon row.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Mode</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td>DESIGN</td><td>Draw the pipework and the plant, and size it. Outflows state a required flow; the sizes are the answer.</td></tr>
+    <tr><td>CONTROL</td><td>Place sensors and link them to pumps and valves.</td></tr>
+    <tr><td>SIMULATE</td><td>Run the system in steady state. The pump curve is the input; the flow is the answer.</td></tr>
+    <tr><td>ANNOTATION</td><td>Arrange the drawing for print, and add drawing elements.</td></tr>
+  </tbody>
+</table>
+</div>
+<p>DESIGN and SIMULATE also set the calculation mode. CONTROL and ANNOTATION do not, so you can tune a control link while a simulation runs.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+  <tbody>
+    <tr><td><kbd>Esc</kbd></td><td>Cancel the current action, clear a pinned probe, or return to Select.</td></tr>
+    <tr><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>Delete the selection.</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>Undo / Redo.</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save to file.</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd></td><td>Copy / paste the selection.</td></tr>
+    <tr><td><kbd>Shift</kbd> (held, Pipe tool)</td><td>Free placement: turn off the 15° angle snap.</td></tr>
+    <tr><td>digits then <kbd>Enter</kbd> (Pipe tool)</td><td>Draw a pipe of exactly the typed length, along the bearing the preview points.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="design">2.3 Design</h3>
+<p>In Design you draw the pipework and the plant. Outflows state the flow they need; the program sizes the pump and reports the pressures.</p>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>In Design mode the drawing annotations show the design flow and the design thermal properties.</p>
+</div>
+
+<h4>Pipe</h4>
+<p>PIPE draws a horizontal pipe. Click to start, click to place each point. The bearing snaps to 15°. Hold <kbd>Shift</kbd> for free placement. Type a number and press <kbd>Enter</kbd> to set an exact length.</p>
+<p>RISER draws a vertical pipe to the level in the view direction of the active level.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control (Pipe)</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Tag</td><td>Name of the pipe.</td></tr>
+    <tr><td>Schedule</td><td>The pipe schedule, which sets the bore for each size.</td></tr>
+    <tr><td>Size</td><td>The nominal pipe size.</td></tr>
+    <tr><td>C factor</td><td>The Hazen-Williams roughness coefficient for this pipe.</td></tr>
+    <tr><td>Length</td><td>The drawn length. Changing it moves the far end.</td></tr>
+    <tr><td>Insulation</td><td>Insulation thickness for this pipe. Blank uses the default; 0 is a bare pipe.</td></tr>
+  </tbody>
+</table>
+</div>
+<p>A riser has the same Schedule, Size and C factor controls. A riser's length comes from the level heights and cannot be set by hand.</p>
+
+<h4>Hydraulic</h4>
+<p>These tools place the parts that carry or draw water.</p>
+
+<p><strong>Source.</strong> Places a water source, such as a reservoir, city main or expansion tank. It sets the pressure at that point.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control (Source)</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Static pressure</td><td>The gauge pressure the source holds at its own level.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><strong>Outflow.</strong> Places a water outlet that draws a stated flow at a stated pressure.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control (Outflow)</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Design flow</td><td>The flow the outlet draws.</td></tr>
+    <tr><td>Design pressure</td><td>The pressure the outlet needs.</td></tr>
+    <tr><td>On/Off</td><td>Include the outlet in the calculation, or leave it out.</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>The design flow and design pressure set a K factor for the outlet, from Q = K·√P. Simulate uses that K factor to find the flow the outlet actually draws at the pressure it is given. Other equipment that states a flow and a pressure drop is treated the same way.</p>
+</div>
+
+<p><strong>Pump.</strong> Places a pump. The Sizing control has three modes.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Sizing mode</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Auto</td><td>In Design, the program raises or lowers the head until the worst-served outflow has exactly its required pressure. The duty comes down as well as up.</td></tr>
+    <tr><td>Manual</td><td>You state the design flow and the design head. The program does not change them.</td></tr>
+    <tr><td>Curve</td><td>You enter the pump curve, from the manufacturer. Simulate reads the operating point from this curve.</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The pump panel also has Design flow and Design pressure boxes, a Re-size button in Auto, and buttons to enter or generate a curve.</p>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>A pump must be in Manual or Curve sizing mode to run in Simulate. An Auto pump has no fixed curve for the simulation to read.</p>
+</div>
+<p>To make a pump follow a sensor, link it to a differential-pressure sensor. There are two ways to do this: from the pump's Control section, or in Control mode with ADD CONTROL. In Simulate the program then adjusts the pump speed to hold the sensor setpoint.</p>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>Sync a pump with the other pumps serving the same load. This holds them at a common speed and makes the simulation more stable.</p>
+</div>
+
+<p><strong>Other.</strong> Places adiabatic equipment: pipework with a pressure drop and no thermal behaviour, such as a strainer, a filter or a flow meter.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control (Other)</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Flow</td><td>The rated flow.</td></tr>
+    <tr><td>Pressure drop</td><td>The pressure drop at the rated flow. The drop follows the square of the flow away from the rating.</td></tr>
+  </tbody>
+</table>
+</div>
+<h4>Equipment</h4>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>Heating and cooling capacity refer to adding or removing heat from the water. A chiller removes heat, so its work is cooling. An air handling unit adds heat to the water, so its work is heating.</p>
+</div>
+
+<p><strong>Heat Source/Sink.</strong> A machine that holds a leaving water temperature: a cooling tower, a chiller or a boiler. It holds its setpoint up to the limit of its capacity.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control (Heat Source/Sink)</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Flow</td><td>The rated flow through the machine.</td></tr>
+    <tr><td>Pressure drop</td><td>The pressure drop at the rated flow.</td></tr>
+    <tr><td>Cooling / Heating</td><td>Whether the machine removes or adds heat.</td></tr>
+    <tr><td>Capacity</td><td>The most heat the machine can move.</td></tr>
+    <tr><td>Design LWT</td><td>The leaving water temperature the machine tries to hold.</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>Set the heat source or sink capacity by hand before you run Simulate, so the machine holds a realistic duty.</p>
+</div>
+
+<p><strong>Heat Exchanger.</strong> A machine that states a load: an air handling unit, a fan coil unit or a plate heat exchanger. It holds a pressure drop, which holds its flow and its capacity. The temperature limit is the highest leaving water temperature it can reach; for a cooling coil this is the return air temperature less the coil approach.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control (Heat Exchanger)</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Flow</td><td>The rated flow.</td></tr>
+    <tr><td>Pressure drop</td><td>The pressure drop at the rated flow.</td></tr>
+    <tr><td>Cooling / Heating</td><td>Whether the coil removes or adds heat.</td></tr>
+    <tr><td>Capacity</td><td>The design load.</td></tr>
+    <tr><td>Design ΔT</td><td>The design temperature difference across the coil.</td></tr>
+    <tr><td>Temperature limit</td><td>The highest leaving water temperature the coil can reach.</td></tr>
+    <tr><td>Integrated control valve</td><td>Enable a built-in valve so the coil holds its own ΔT.</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>Enable the integrated control valve for a coil to modulate itself. Without it the coil generates the same amount of heat whatever the flow, so ΔT control is lost.</p>
+</div>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>Sync a coil with the other coils serving the same heat load. This makes the simulation more stable.</p>
+</div>
+
+<h4>Valves</h4>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>Take the valve Kv from the manufacturer's data. The built-in value is derived, not measured.</p>
+</div>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>The Kv at a partial opening is the full-open Kv multiplied by a factor from the valve's flow characteristic. A control valve uses an equal-percentage characteristic. An isolation valve uses a near-linear characteristic. The program interpolates between the tabulated positions of the characteristic.</p>
+</div>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Valve</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Control</td><td>A balancing and control valve, such as a globe valve or a PICV. A controller can drive it. Its Design section sets the Kv (or Cv) and its opening.</td></tr>
+    <tr><td>Isolation</td><td>A gate or butterfly valve, open or shut. It is not for regulating. Its status is Open or Closed.</td></tr>
+    <tr><td>Check</td><td>A non-return valve. It permits flow in one direction only. Its position is not set by hand.</td></tr>
+  </tbody>
+</table>
+</div>
+<h3 id="control">2.4 Control</h3>
+<p>In Control you place sensors and link them to pumps and valves.</p>
+
+<h4>Sensors</h4>
+<p>A sensor reads a quantity on the pipe it sits on, and holds a setpoint. The tools place five kinds.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Sensor</th><th>Measures</th></tr></thead>
+  <tbody>
+    <tr><td>Temperature</td><td>Water temperature at the sensor.</td></tr>
+    <tr><td>Flow</td><td>Flow through the pipe.</td></tr>
+    <tr><td>Pressure</td><td>Gauge pressure at the sensor.</td></tr>
+    <tr><td>Diff. Pressure</td><td>Pressure difference between this pipe and a second pipe you pick.</td></tr>
+    <tr><td>Diff. Temperature</td><td>Temperature difference between this pipe and a second pipe you pick.</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Each sensor has a setpoint box for the quantity it measures.</p>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>The control connection point is on the pipe, not on the differential-pressure indicator.</p>
+</div>
+
+<h4>Add Control</h4>
+<p>ADD CONTROL links a sensor to equipment. Click the pump or control valve, then click the sensor or equipment it should follow.</p>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>Sensors can be linked to pumps and control valves. Heat sources, heat sinks and heat exchangers cannot modulate from a remote sensor. If you need to control from a sensor, connect a control valve to the sensor.</p>
+</div>
+
+<h4>Valves</h4>
+<p>The valve tools are repeated here, so you can add a control valve without leaving Control mode. They are the same tools as in Design.</p>
+
+<h3 id="simulate">2.5 Simulate</h3>
+<p>In Simulate the program solves the system in steady state. Terminals become resistances, pumps read their curves, and controllers modulate.</p>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>In Simulate mode the drawing annotations show the stabilized flow and the stabilized thermal properties.</p>
+</div>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Static</td><td>Freezes the simulation. Nothing re-solves while you look at it, which keeps a large model responsive.</td></tr>
+    <tr><td>Dynamic</td><td>Re-runs the simulation every time you make a change.</td></tr>
+    <tr><td>Run Simulation</td><td>Re-solve the model now. Use this in Static after you change something.</td></tr>
+    <tr><td>Select</td><td>Select any element to read its simulated properties.</td></tr>
+    <tr><td>Probe</td><td>Read pressure, flow and velocity at any point along a pipe. Click to pin the reading; press <kbd>Esc</kbd> to clear it.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="annotation">2.6 Annotation</h3>
+<p>In Annotation you arrange the drawing for print and add drawing elements. Nothing here changes the calculation.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>MOVE</td><td>Move labels, tags, notes, detail lines and control-link nodes into place for printing.</td></tr>
+    <tr><td>TRACE</td><td>Paste or drag in a background drawing and trace over it. Use one image per level. Set the scale, then lock it.</td></tr>
+    <tr><td>ALIGN</td><td>Drag any node to move the whole model at once. Use this to put a key node back on the grid.</td></tr>
+    <tr><td>DISPLAY TAGS</td><td>Choose what is labelled on the drawing and on printed plans.</td></tr>
+    <tr><td>DETAIL</td><td>Draw free lines that are not part of the model, such as room outlines, plant boxes and leaders. Click to place each vertex; press <kbd>Esc</kbd> to finish. Click an existing line to erase it.</td></tr>
+    <tr><td>TEXT BOX</td><td>Place a text note on the drawing.</td></tr>
+    <tr><td>ADD (Link nodes)</td><td>Click a control link or a differential-pressure route to put a bend in it.</td></tr>
+    <tr><td>REMOVE (Link nodes)</td><td>Click a bend on a control link or a differential-pressure route to take it out.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="show">2.7 Show</h3>
+<p>The SHOW group draws information on top of the model. It is available in every mode. LINKS toggles the control links. The others colour the drawing by a value.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>LINKS</td><td>Show the control links.</td></tr>
+    <tr><td>FLOW</td><td>Colour pipes by flow rate.</td></tr>
+    <tr><td>VELOCITY</td><td>Colour pipes by velocity, against the warning limit.</td></tr>
+    <tr><td>PRESSURE</td><td>Colour nodes by gauge pressure.</td></tr>
+    <tr><td>TEMPERATURE</td><td>Colour nodes by temperature.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="misc">2.8 Tools and misc</h3>
+<p><strong>TOOLS</strong> opens a floating window of standalone calculators. They answer a question while you draw, and the drawing stays visible behind the window.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Tool</th><th>What it computes</th></tr></thead>
+  <tbody>
+    <tr><td>Pump curve</td><td>A pump curve from a duty point.</td></tr>
+    <tr><td>Critical radius</td><td>The insulation critical radius.</td></tr>
+    <tr><td>Hydraulic</td><td>Pipe velocity and friction for a flow and a size.</td></tr>
+    <tr><td>Heat transfer</td><td>Q = ṁ·c·ΔT for a flow and a temperature difference.</td></tr>
+    <tr><td>Convert</td><td>Unit conversions for pressure and flow.</td></tr>
+    <tr><td>Find</td><td>Find a pipe or node by tag or id, and go to it.</td></tr>
+    <tr><td>Monitor</td><td>Watch a set of devices from another floor. Add the selection with +, remove the last with −. Each card is the real properties panel for that device.</td></tr>
+  </tbody>
+</table>
+</div>
+<p><strong>RENUMBER</strong> renumbers the nodes in flow order, N1, N2 and so on, starting from the source. In a closed circuit with no source it starts from a pump inlet.</p>
+<p><strong>Zoom to fit</strong> (⤢) fits the whole model in the pane.</p>
+<!-- ========================================================= 3 -->
+<h2 id="plumbing">3. Plumbing discipline</h2>
+<p class="lead">The plumbing discipline sizes domestic cold and hot water from fixture units, using the IPC method. This section describes only what differs from hydronic.</p>
+<p>Switch to plumbing with the discipline chip. A plumbing file uses fixture units, not a flow balance, so the network solver is not used to size it.</p>
+
+<h4>Tabs and tools</h4>
+<ul class="tight">
+  <li>The network tab is named PLUMBING.</li>
+  <li>The THERMAL tab is hidden. There is no thermal calculation in a plumbing file.</li>
+  <li>The Design ribbon has no Heat Source/Sink or Heat Exchanger. Domestic water has no thermal plant.</li>
+  <li>The HYDRAULIC tab adds the IPC tables: the fixture-unit table, the demand curves, and the Table 604.3 fixture flows and pressures. It keeps the fluid properties, the friction method, the pipe schedule, the fitting allowances and the warning limits.</li>
+</ul>
+
+<h4>Outflows are fixtures</h4>
+<p>In a plumbing file an outflow is a plumbing fixture, not a stated flow. Its properties are different.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control (plumbing outflow)</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Outflow type</td><td>Plumbing fixture, or a generic outflow with a stated flow.</td></tr>
+    <tr><td>Fixture</td><td>The fixture, from the IPC table.</td></tr>
+    <tr><td>Variation</td><td>The occupancy and supply control for that fixture.</td></tr>
+    <tr><td>Count</td><td>How many of the fixture are at this outlet.</td></tr>
+    <tr><td>On/Off</td><td>Include the outlet, or leave it out.</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The panel also shows the fixture units, the design flow and the design pressure that the IPC tables give for the fixture.</p>
+
+<h4>Sizing and simulation</h4>
+<ul class="tight">
+  <li><strong>Design</strong> sizes each pipe from the fixture units downstream of it, through the demand curve. A generic outflow adds its flow on top, without diversity.</li>
+  <li>A plumbing network must be a tree: one source, no loops. The program reports a loop, a missing source or several sources, rather than estimating.</li>
+  <li><strong>Simulate</strong> works the same way as hydronic. Each open fixture becomes a pressure-dependent terminal, so it draws more where the pressure is high and less where it is short. Switch fixtures On or Off to set the load case. A booster pump linked to a sensor holds its setpoint.</li>
+</ul>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>The HYDRAULIC tab has a maximum static pressure limit for plumbing. The program warns above it. A fixed-speed booster develops the most head at the lowest draw, so the highest pressure is usually at the quietest hour.</p>
+</div>
+
+<footer>
+  <p>FreePipeCalc — User Manual. The calculation methods are documented separately in Calculation Method. All results must be verified by a qualified professional engineer before use.</p>
+</footer>
+</main>
+</div>
+</body>
+</html>

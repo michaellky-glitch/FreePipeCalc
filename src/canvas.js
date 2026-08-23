@@ -2355,6 +2355,25 @@
     var eq = this.insertInline(w, 'equip', {
       equip: JSON.parse(JSON.stringify(def))
     }, 'equipment');
+
+    /* A HEAT EXCHANGER ARRIVES WITH ITS INTEGRATED CONTROL VALVE ON (Michael,
+     * 2026-08-21). A coil is nearly always valved, so an OFF default made
+     * turning it on the first job after every placement. Kv comes from the bore
+     * the device inherited from the pipe it was dropped into — the same
+     * default the panel switch applies, so a valve made here and a valve made
+     * there are the same valve.
+     *
+     * PLACEMENT ONLY. An existing file is untouched, and so is an item retyped
+     * to Heat Exchanger in the panel: this is what a NEW coil starts as, not a
+     * rule about what a coil must be. */
+    if (eq && def.equipType === 'exchanger') {
+      eq.equip.icv = {
+        kv: FD.valves.defaultKv('globe', M.pipeBore(this.getModel(), eq) * 1000),
+        opening: 100
+      };
+      this.changed();
+    }
+
     if (eq && !eq.tag) {
       eq.tag = this.nextTag(def.equipType === 'adiabatic' ? 'adiabatic' : 'equip');
       this.changed();

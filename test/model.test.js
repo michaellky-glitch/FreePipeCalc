@@ -2173,10 +2173,11 @@ section('A control valve throttling near its seat is called out');
     ok('VALVE_OVERSIZED is raised at 6% open', !!w,
        JSON.stringify((t.res.warnings || []).map(x => x.code)));
     ok('...in Michael\u2019s own words', !!w &&
-       /has insufficient control authority\. Consider reducing size\./.test(w.message),
+       /has insufficient control authority\. Check valve Kv\./.test(w.message),
        w && w.message);
-    ok('...naming the valve and the position',
-       !!w && /CV-01/.test(w.message) && /6% open/.test(w.message), w && w.message);
+    ok('...naming the valve, with the position on the message object',
+       !!w && /CV-01/.test(w.message) && w.opening === 6,
+       w && (w.message + ' opening=' + w.opening));
   }
   {
     const t = rig('globe', 40);

@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreePipeCalc — Tutorial 01: Basics</title>
+<style>
+/* Self-contained: no fonts, no scripts, no network. The page must open from a
+   USB stick with a double-click, which is the same rule the app follows. */
+:root{
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+/* Dark by the reader's own setting when the page stands alone... */
+@media (prefers-color-scheme:dark){ :root{ color-scheme:dark } :root:not([data-theme]){
+    --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+    --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+    --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+    --code-bg:#1e242c;
+} }
+/* ...and by the APP's setting when it is embedded in the DOCUMENTATION tab,
+   which passes ?theme=. An explicit theme wins over the media query in both
+   directions, so a dark app never shows a white page and the reverse. */
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+  --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+  --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+  --code-bg:#1e242c;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+/* Embedded: the page supplies its own margin, so drop the outer one and let the
+   host frame own the scroll edge. */
+:root[data-embed="1"] header.top{padding-top:22px}
+:root[data-embed="1"] .wrap{padding-bottom:40px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.62 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px 80px;display:flex;gap:36px;align-items:flex-start}
+main{flex:1 1 auto;min-width:0;max-width:760px}
+
+/* ---- masthead ---- */
+header.top{border-bottom:1px solid var(--line);margin-bottom:28px;padding:30px 0 18px}
+header.top h1{font-size:27px;line-height:1.2;margin:0 0 6px;letter-spacing:-.2px}
+header.top .sub{color:var(--dim);margin:0;font-size:14.5px}
+header.top .meta{color:var(--mute);font-size:12.5px;margin-top:10px}
+
+/* ---- contents rail ---- */
+nav.toc{
+  position:sticky;top:18px;flex:0 0 232px;align-self:flex-start;
+  font-size:13px;line-height:1.5;max-height:calc(100vh - 40px);overflow:auto;
+  border-left:1px solid var(--line-soft);padding-left:16px
+}
+nav.toc h2{font-size:11px;letter-spacing:.9px;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:s}
+nav.toc > ol > li{counter-increment:s;margin:0 0 3px}
+nav.toc > ol > li > a::before{content:counter(s) ". ";color:var(--mute)}
+nav.toc ol ol{padding-left:16px;margin:2px 0 6px}
+nav.toc ol ol li{margin:0}
+nav.toc a{color:var(--dim);text-decoration:none;display:block;padding:2px 0}
+nav.toc a:hover{color:var(--accent)}
+
+/* ---- headings ---- */
+h2{font-size:21px;margin:44px 0 12px;padding-top:10px;border-top:1px solid var(--line);letter-spacing:-.15px}
+h2:first-of-type{border-top:0;margin-top:0}
+h3{font-size:16.5px;margin:28px 0 8px}
+h4{font-size:14px;margin:20px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 14px;padding-left:22px}
+li{margin:0 0 5px}
+a{color:var(--accent)}
+strong{font-weight:650}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.9em;background:var(--code-bg);padding:1px 5px;border-radius:4px
+}
+
+/* ---- formulae ---- */
+.eq{
+  background:var(--panel);border:1px solid var(--line-soft);border-left:3px solid var(--accent);
+  border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;overflow-x:auto;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:1.75
+}
+.eq .lbl{display:block;font-family:system-ui,sans-serif;font-size:11.5px;
+  text-transform:uppercase;letter-spacing:.7px;color:var(--mute);margin-bottom:7px}
+.eq em{color:var(--mute);font-style:normal}
+.steps{counter-reset:step;list-style:none;padding-left:0;margin:16px 0}
+.steps > li{
+  counter-increment:step;position:relative;padding-left:38px;margin-bottom:14px
+}
+.steps > li::before{
+  content:counter(step);position:absolute;left:0;top:1px;
+  width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;
+  font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center
+}
+
+/* ---- tables ---- */
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th,td{border:1px solid var(--line-soft);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel);font-weight:600;font-size:13px}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto;margin:16px 0}
+.scroll table{margin:0}
+
+/* ---- callouts ---- */
+.note{border-radius:6px;padding:12px 15px;margin:16px 0;border:1px solid var(--line);background:var(--panel)}
+.note p:last-child{margin-bottom:0}
+.note .tag{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.8px;
+  font-weight:700;margin-bottom:6px}
+.note.check{border-left:3px solid var(--ok)} .note.check .tag{color:var(--ok)}
+.note.limit{border-left:3px solid var(--warn)} .note.limit .tag{color:var(--warn)}
+.note.rule{border-left:3px solid var(--accent)} .note.rule .tag{color:var(--accent)}
+
+figure{margin:22px 0}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:13px;color:var(--dim);margin-top:8px}
+
+.lead{font-size:16px;color:var(--dim);margin-bottom:20px}
+footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);
+  font-size:13px;color:var(--mute)}
+
+@media (max-width:1000px){
+  nav.toc{display:none}
+  .wrap{display:block;padding-bottom:50px}
+  main{max-width:none}
+}
+@media print{
+  nav.toc{display:none} .wrap{display:block;max-width:none}
+  body{font-size:10.5pt;color:#000;background:#fff}
+  h2{page-break-after:avoid} .eq,table,figure,.note{page-break-inside:avoid}
+  a{color:#000;text-decoration:none}
+}
+</style><style>
+.ctrl{width:100%;margin:14px 0}.ctrl th,.ctrl td{vertical-align:top}
+.ctrl th:first-child,.ctrl td:first-child{white-space:nowrap;font-weight:600}
+kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;background:var(--code-bg);
+  border:1px solid var(--line);border-radius:4px;padding:1px 6px;white-space:nowrap}
+.tight li{margin-bottom:3px}
+.result{background:var(--panel);border:1px solid var(--line-soft);border-radius:6px;padding:12px 15px;margin:14px 0}
+.result .rh{font-size:11.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--mute);margin-bottom:8px;font-weight:700}
+</style>
+<script>
+/* The ONLY script in this document, and it does one thing: let the app tell the
+   page which theme to draw in. A query string survives file:// where fetch and
+   postMessage-to-an-opaque-origin do not, so this is what works when the app is
+   opened by double-clicking index.html. With no parameter the page falls back to
+   the reader's own prefers-color-scheme, which is what it does when opened on
+   its own. */
+(function () {
+  try {
+    var q = new URLSearchParams(location.search);
+    var t = q.get('theme');
+    if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
+    if (q.get('embed') === '1') document.documentElement.dataset.embed = '1';
+  } catch (e) { /* no parameters, no problem: the media query still applies */ }
+})();
+</script></head>
+<body>
+<div class="wrap">
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#start">Before you start</a></li>
+    <li><a href="#discipline">Set the discipline</a></li>
+    <li><a href="#draw">Draw the pipework</a></li>
+    <li><a href="#source">Place the source</a></li>
+    <li><a href="#pump">Place the pump</a></li>
+    <li><a href="#chiller">Place the chiller</a></li>
+    <li><a href="#ahu">Place the AHU</a></li>
+    <li><a href="#sim1">Simulate</a></li>
+    <li><a href="#sensor">Add the dP sensor</a></li>
+    <li><a href="#sim2">Simulate again</a></li>
+    <li><a href="#calc">Calculation and print</a></li>
+    <li><a href="#autosize">Size the pump automatically</a></li>
+    <li><a href="#copy">Add a second AHU</a></li>
+    <li><a href="#autosize2">Size the pump for both AHUs</a></li>
+  </ol>
+</nav>
+<main>
+<header class="top">
+  <h1>Tutorial 01: Basics</h1>
+  <p class="sub">Build a small chilled-water loop, size it, simulate it, and control the pump from a differential-pressure sensor.</p>
+  <p class="meta">The finished model is <code>examples/Tutorial 01 - Basics.json</code>. Load it to compare your result.</p>
+</header>
+
+<!-- ============================================ -->
+<h2 id="start">1. Before you start</h2>
+<p class="lead">You will build a closed chilled-water loop. It has a source, a pump, a chiller, and one air handling unit. You will then add a differential-pressure sensor and use it to control the pump.</p>
+<p>The loop is about 40 m wide and 10 m deep. All pipe is DN50. The exact lengths change the friction a little, so your numbers may differ from this tutorial by a few percent. To see the exact figures, load the finished file.</p>
+
+<!-- ============================================ -->
+<h2 id="discipline">2. Set the discipline</h2>
+<p>Check that the discipline chip on the top bar reads HYDRONIC. If it reads PLUMBING, click it to switch. Hydronic is the discipline for chilled water and process cooling.</p>
+
+<!-- ============================================ -->
+<h2 id="draw">3. Draw the pipework</h2>
+<p>Open the HYDRONIC tab. Select DESIGN mode, then the PIPE tool.</p>
+<p>Draw a rectangular loop. Click to start a run, click to place each corner, and press <kbd>Esc</kbd> to end the run. Draw the four sides of the loop, then a branch across the middle for the AHU.</p>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>To change the pipe size while you draw, roll the mouse wheel. Roll up for a larger size and down for a smaller size. Hold <kbd>Ctrl</kbd> and roll to zoom instead.</p>
+</div>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>To set an exact length, type the number while you draw and press <kbd>Enter</kbd>. The pipe is drawn along the bearing the preview points, at the length you typed.</p>
+</div>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>The bearing snaps to 15°, which keeps the drawing square. Hold <kbd>Shift</kbd> for free placement.</p>
+</div>
+<p>You do not draw the source, the pump or the equipment as pipe. You place them next, on the pipe you have drawn.</p>
+<!-- ============================================ -->
+<h2 id="source">4. Place the source</h2>
+<p>Select the SOURCE tool and click the left side of the loop. The source is the datum for the closed loop.</p>
+<p>Select the source and open its Design section.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>Set to</th></tr></thead>
+  <tbody>
+    <tr><td>Static pressure</td><td>0 kPa</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>A closed loop has no free surface, so its absolute pressure is arbitrary. The source fixes the datum. 0 kPa gauge at the source is a normal choice.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="pump">5. Place the pump</h2>
+<p>Select the PUMP tool and click the supply pipe, after the source. Select the pump and open its Design section.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>Set to</th></tr></thead>
+  <tbody>
+    <tr><td>Sizing</td><td>Manual</td></tr>
+    <tr><td>Design flow</td><td>2.4 L/s</td></tr>
+    <tr><td>Design pressure</td><td>150 kPa</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The design flow is the flow the AHU needs: 100 kW at a 10 K temperature difference is about 2.4 L/s. The design pressure is the pump head; 150 kPa is a first estimate, a little more than the loop needs. You will correct the extra head later with the sensor.</p>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>This tutorial sizes the pump by hand, so Sizing is Manual. The program can size it for you instead — see step 12. In SIMULATE a pump runs from a curve: Manual and Curve give it one directly, and an Auto pump uses the curve from its last DESIGN sizing.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="chiller">6. Place the chiller</h2>
+<p>Select HEAT SOURCE/SINK and click the supply pipe, after the pump. This is the chiller. Select it and set its properties.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>Set to</th></tr></thead>
+  <tbody>
+    <tr><td>Flow</td><td>20 L/s</td></tr>
+    <tr><td>Pressure drop</td><td>200 kPa</td></tr>
+    <tr><td>Cooling / Heating</td><td>Cooling</td></tr>
+    <tr><td>LWT setpoint</td><td>6 °C</td></tr>
+    <tr><td>ΔT max</td><td>10 K</td></tr>
+    <tr><td>Capacity</td><td>Auto</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The flow and pressure drop are the chiller's own rated evaporator point. In this loop only about 2.4 L/s flows, so the chiller drops much less than 200 kPa here. On Auto capacity the chiller removes whatever heat is needed to hold 6 °C, up to its ΔT limit.</p>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>Cooling and heating refer to the water. A chiller removes heat from the water, so it is Cooling. An air handling unit adds heat to the water, so it is Heating.</p>
+</div>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>Set the heat source or sink capacity by hand before you simulate, so the machine holds a realistic duty. This tutorial leaves it on Auto to keep the steps short.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="ahu">7. Place the AHU</h2>
+<p>Select HEAT EXCHANGER and click the middle branch. This is the air handling unit. Select it and set its properties.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>Set to</th></tr></thead>
+  <tbody>
+    <tr><td>Flow</td><td>2.4 L/s</td></tr>
+    <tr><td>Pressure drop</td><td>50 kPa</td></tr>
+    <tr><td>Cooling / Heating</td><td>Heating</td></tr>
+    <tr><td>Capacity</td><td>100 kW</td></tr>
+    <tr><td>Integrated control valve</td><td>Off</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The AHU adds 100 kW to the water. At its design flow of 2.4 L/s this gives a 10 K temperature difference. With the integrated valve off, the AHU adds the same 100 kW whatever the flow, so its temperature difference changes with the flow. You will see this in the next step.</p>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>A new heat exchanger comes with its integrated control valve on. Set the switch to Off for this tutorial. The valve holds the machine's design temperature difference, and this tutorial shows you what happens without it.</p>
+</div>
+<!-- ============================================ -->
+<h2 id="sim1">8. Simulate</h2>
+<p>Select SIMULATE mode. Leave the mode on DYNAMIC so the model re-solves as you work. Select the pump and the AHU in turn, and read their Actual sections.</p>
+<div class="result">
+  <div class="rh">What you should see</div>
+  <ul class="tight">
+    <li>The pump runs at 100% speed and moves about 2.9 L/s.</li>
+    <li>The differential pressure across the AHU is about 76 kPa.</li>
+    <li>The AHU temperature difference is only about 8 K, below the 10 K design.</li>
+  </ul>
+</div>
+<p>Two things are wrong. The pump is oversized for the loop, so it pushes about 2.9 L/s when the AHU needs 2.4 L/s. The extra flow means the 100 kW load is spread over more water, so the temperature difference falls to about 8 K. A low temperature difference wastes pump energy and returns water to the chiller too cold. You will fix both by controlling the pump from the pressure across the AHU.</p>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>The notification chip may show a warning. Click the chip to open the Messages window and read it.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="sensor">9. Add the differential-pressure sensor</h2>
+<p>Select CONTROL mode.</p>
+<ol class="tight">
+  <li>Select the DIFF. PRESSURE sensor tool.</li>
+  <li>Click the pipe just before the AHU. This is where the sensor sits.</li>
+  <li>Click the pipe just after the AHU. This is the reference the sensor measures against.</li>
+</ol>
+<p>The sensor now reads the pressure difference across the AHU. Select it and set its setpoint.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>Set to</th></tr></thead>
+  <tbody>
+    <tr><td>Pressure setpoint</td><td>50 kPa</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>The control connection point is on the pipe, not on the differential-pressure indicator.</p>
+</div>
+<p>Now link the pump to the sensor. Select ADD CONTROL, click the pump, then click the sensor. In Simulate the pump will change its speed to hold 50 kPa across the AHU.</p>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>You can also link the pump from its own Control section. Both ways set the same link.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="sim2">10. Simulate again</h2>
+<p>Return to SIMULATE mode. If the mode is STATIC, press RUN SIMULATION. Read the pump and the AHU again.</p>
+<div class="result">
+  <div class="rh">What you should see</div>
+  <ul class="tight">
+    <li>The pump slows to about 81% speed and moves about 2.4 L/s.</li>
+    <li>The differential pressure across the AHU is held at 50 kPa.</li>
+    <li>The AHU temperature difference rises to about 10 K, the design value.</li>
+  </ul>
+</div>
+<p>The sensor holds the pressure the AHU needs, and no more. The pump slows, the flow drops to the design value, and the temperature difference returns to 10 K. The pump now uses less energy and the chiller sees a full temperature difference.</p>
+
+<!-- ============================================ -->
+<h2 id="calc">11. Calculation and print</h2>
+<p>Open the CALCULATION tab. The sheet lists every pipe section from the source, with its size, length, flow, velocity, friction and pressure. The critical path section shows the route that sets the pump duty.</p>
+<p>To print, go back to the HYDRONIC tab and press PRINT. The program asks what to print.</p>
+<ul class="tight">
+  <li>Choose the calculation sheet to print the sheet. Collapse any sheet section you do not need first; a collapsed section does not print.</li>
+  <li>Choose the level plans to print the drawing, one page per level.</li>
+</ul>
+
+<!-- ============================================ -->
+<h2 id="autosize">12. Size the pump automatically</h2>
+<p>So far you set the pump head by hand and let the sensor trim it. The program can size the pump for you. Switch to DESIGN mode, select the pump, and open its Design section.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>Set to</th></tr></thead>
+  <tbody>
+    <tr><td>Sizing</td><td>Auto</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Press <strong>Re-size</strong>. The program raises or lowers the pump head until the worst-served point on the loop has exactly the pressure it needs.</p>
+<div class="result">
+  <div class="rh">What DESIGN shows — one AHU</div>
+  <ul class="tight">
+    <li>Design flow: 2.4 L/s, the flow the AHU needs.</li>
+    <li>Pump duty: about 86 kPa (8.8 m) — the head the loop actually needs.</li>
+    <li>The AHU gets its 2.4 L/s at 50 kPa, a 10 K temperature difference.</li>
+  </ul>
+</div>
+<p>The sized duty is about 86 kPa, below the 150 kPa you typed in step 5. 150 kPa was a safe first estimate; the auto-sizer finds the real figure. Set Sizing back to <strong>Manual</strong> and Design pressure back to <strong>150 kPa</strong> before you go on, so the next step starts from the pump you built.</p>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>Do not leave the pump on Auto when you simulate. An Auto pump simulates from the curve of its last DESIGN sizing, frozen at that duty — it does not re-size in SIMULATE, and a pump that has never been sized has no curve at all. Set Sizing to Manual, which keeps the duty just found, or to Curve, so the curve the simulation runs on is the one you intend.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="copy">13. Add a second AHU</h2>
+<p>See how the system responds to more load. Add a second AHU line in parallel with the first.</p>
+<ol class="tight">
+  <li>Select DESIGN mode, then SELECT.</li>
+  <li>Select the AHU and the two pipes on each side of it.</li>
+  <li>Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy them.</li>
+  <li>Press <kbd>Ctrl</kbd>+<kbd>V</kbd>. The copy follows the pointer. Press <kbd>R</kbd> to rotate it if needed, and <kbd>Tab</kbd> to choose which end joins.</li>
+  <li>Drop the copy so it runs in parallel with the first AHU. Place one end on the supply and the other on the return.</li>
+</ol>
+<p>Return to SIMULATE and read the result.</p>
+<div class="result">
+  <div class="rh">What you should see</div>
+  <ul class="tight">
+    <li>The total load is now 200 kW. The chiller removes 200 kW and stays at 6 °C.</li>
+    <li>The pump goes to 100% speed. It cannot hold 50 kPa with two loads, so the pressure across the coils falls to about 29 kPa.</li>
+    <li>Each coil is now starved: it draws less than its 2.4 L/s design flow, so its temperature difference rises above 10 K.</li>
+    <li>The notification chip shows that the pump is at a limit and cannot reach its setpoint.</li>
+  </ul>
+</div>
+<p>This is the system responding to a load the pump was not sized for. A pump sized for one AHU cannot serve two at the same pressure. To serve both, you would size the pump for the larger flow, or add a second pump.</p>
+
+<!-- ============================================ -->
+<h2 id="autosize2">14. Size the pump for both AHUs</h2>
+<p>The pump is starved because it was sized by hand for one AHU. Let the program size it for the load it now carries. Switch to DESIGN mode, select the pump, set Sizing to <strong>Auto</strong>, and press <strong>Re-size</strong>.</p>
+<div class="result">
+  <div class="rh">What DESIGN shows — two AHUs</div>
+  <ul class="tight">
+    <li>Design flow: about 4.7 L/s, roughly twice the single-AHU flow.</li>
+    <li>Pump duty: about 178 kPa (18.1 m), up from 86 kPa for one AHU.</li>
+    <li>Each AHU gets close to its 2.4 L/s at about 50 kPa, a 10 K temperature difference.</li>
+  </ul>
+</div>
+<p>The higher duty is the head both coils need. Set Sizing back to <strong>Manual</strong> — the pump keeps the duty just found — and return to SIMULATE.</p>
+<div class="result">
+  <div class="rh">What you should see</div>
+  <ul class="tight">
+    <li>The pump runs near full speed and holds the pressure across the coils.</li>
+    <li>Each coil draws close to its 2.4 L/s design flow, and its temperature difference returns to about 10 K.</li>
+    <li>The pump-at-limit warning is gone: the pump now has the head both coils need.</li>
+  </ul>
+</div>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>Size on Auto, then lock the pump to Manual before you simulate — the same rule as step 12. Auto sizes the duty; Manual holds it, so the simulation runs on the curve you sized and not on a stale one.</p>
+</div>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>At about 4.7 L/s the DN50 mains run fast, so the calculation sheet flags a high friction rate. In a real design you would upsize the shared supply and return pipe. This tutorial keeps DN50 to show the pump-sizing effect on its own.</p>
+</div>
+
+<footer>
+  <p>FreePipeCalc — Tutorial 01: Basics. The finished model is <code>examples/Tutorial 01 - Basics.json</code>. All results must be verified by a qualified professional engineer before use.</p>
+</footer>
+</main>
+</div>
+</body>
+</html>

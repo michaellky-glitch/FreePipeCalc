@@ -143,10 +143,12 @@
     if (!p) return { ok: false, code: 'NO_PIPE', message: 'Pipe not found.' };
     if (p.kind === 'riser') {
       return { ok: false, code: 'RISER',
-               message: 'Riser length is set by the level altitudes, not here.' };
+               message: 'Riser ' + (p.tag || p.id) + ' length cannot be set ' +
+                        'manually. Change level height to change this length.' };
     }
     if (!(newLength > 0)) {
-      return { ok: false, code: 'BAD_LENGTH', message: 'Length must be greater than zero.' };
+      return { ok: false, code: 'BAD_LENGTH',
+               message: (p.tag || p.id) + ' Length must be greater than zero.' };
     }
 
     var dir = planDir(m, p);
@@ -173,8 +175,8 @@
         ok: false, code: 'LOOP',
         cycle: cycle.map(function (x) { return x.id; }),
         conflict: cycle.map(function (x) { return x.id; }),
-        message: 'Length is locked by a loop — the far end of this pipe is tied ' +
-                 'back to the near end, so it cannot simply move.'
+        message: 'Length ' + (p.tag || p.id) + ' is constrained by a closed ' +
+                 'loop. Disconnect the loop before changing geometry.'
       };
     }
 
@@ -185,8 +187,8 @@
         risers: risers.torn.map(function (r) { return r.id; }),
         conflict: m.pipes.filter(function (x) { return x.kind === 'riser'; })
                          .map(function (x) { return x.id; }),
-        message: 'A riser column is anchored on both sides of this change, so ' +
-                 'moving it would pull the column apart.'
+        message: 'Riser ' + (p.tag || p.id) + ' is constrained by top and ' +
+                 'bottom connections. Disconnect riser before changing geometry.'
       };
     }
 

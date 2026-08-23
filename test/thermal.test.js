@@ -673,7 +673,8 @@ section('Temperatures outside the plausible band are an error');
   const err = hot.errors.find(e => e.code === 'THERMAL_LIMIT');
   ok('...naming the node', !!err.node);
   ok('...and the temperature it reached', err.temperature > 50, String(err.temperature));
-  ok('...and saying the band it broke', /-50 to 50/.test(err.message), err.message);
+  ok('...and saying it is outside the THERMAL limits',
+     /outside the limits set in THERMAL/.test(err.message), err.message);
 
   /* The temperatures are still REPORTED. The answer is not wrong, it is
    * implausible — hiding it would leave nothing to diagnose from. */
@@ -1403,9 +1404,9 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
        String(M.pumpSpeed(t.m, t.pump)));
     ok('...reported as at-max', r.controls.devices[0].state === 'at-max',
        r.controls.devices[0].state);
-    ok('...with a warning saying backing off would not help',
+    ok('...with a CONTROL_AT_LIMIT warning at maximum travel',
        r.warnings.some(w => w.code === 'CONTROL_AT_LIMIT' &&
-                            /not bring it closer/.test(w.message)));
+                            /at maximum/.test(w.message)));
   }
 
   // ---- 6. A GLOBE VALVE is the same problem with a different actuator.
@@ -1624,9 +1625,9 @@ section('Pipe sensor: thermostatic mixing');
        t.vh.valve.opening + '%');
     ok('...reported as at maximum, not hunted for',
        res.controls.devices[0].state === 'at-max', res.controls.devices[0].state);
-    ok('...with a warning that backing off would not help',
+    ok('...with a CONTROL_AT_LIMIT warning at maximum travel',
        res.warnings.some(w => w.code === 'CONTROL_AT_LIMIT' &&
-                              /not bring it closer/.test(w.message)));
+                              /at maximum/.test(w.message)));
   }
 
   // ---- 4. The MIRROR: a setpoint BELOW the mean is held by the hot valve.
@@ -2339,8 +2340,7 @@ section('The heat balance closes, sealed or open');
        JSON.stringify((res.warnings || []).map(x => x.code)));
     near('...quantifying the shortfall', w && w.watts, -20000, 50);
     ok('...saying which way round it is',
-       !!w && /removed at/.test(w.message) && /cooling plant is short/.test(w.message),
-       w && w.message);
+       !!w && /removed at/.test(w.message), w && w.message);
     ok('...and it is a warning, not a defect', w && w.level === 'warning', w && w.level);
 
     /* The temperatures are perfectly plausible — 11 to 14.6 °C — which is

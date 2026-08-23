@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreePipeCalc — Messages</title>
+<style>
+/* Self-contained: no fonts, no scripts, no network. The page must open from a
+   USB stick with a double-click, which is the same rule the app follows. */
+:root{
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+/* Dark by the reader's own setting when the page stands alone... */
+@media (prefers-color-scheme:dark){ :root{ color-scheme:dark } :root:not([data-theme]){
+    --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+    --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+    --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+    --code-bg:#1e242c;
+} }
+/* ...and by the APP's setting when it is embedded in the DOCUMENTATION tab,
+   which passes ?theme=. An explicit theme wins over the media query in both
+   directions, so a dark app never shows a white page and the reverse. */
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+  --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+  --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+  --code-bg:#1e242c;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+/* Embedded: the page supplies its own margin, so drop the outer one and let the
+   host frame own the scroll edge. */
+:root[data-embed="1"] header.top{padding-top:22px}
+:root[data-embed="1"] .wrap{padding-bottom:40px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.62 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px 80px;display:flex;gap:36px;align-items:flex-start}
+main{flex:1 1 auto;min-width:0;max-width:760px}
+
+/* ---- masthead ---- */
+header.top{border-bottom:1px solid var(--line);margin-bottom:28px;padding:30px 0 18px}
+header.top h1{font-size:27px;line-height:1.2;margin:0 0 6px;letter-spacing:-.2px}
+header.top .sub{color:var(--dim);margin:0;font-size:14.5px}
+header.top .meta{color:var(--mute);font-size:12.5px;margin-top:10px}
+
+/* ---- contents rail ---- */
+nav.toc{
+  position:sticky;top:18px;flex:0 0 232px;align-self:flex-start;
+  font-size:13px;line-height:1.5;max-height:calc(100vh - 40px);overflow:auto;
+  border-left:1px solid var(--line-soft);padding-left:16px
+}
+nav.toc h2{font-size:11px;letter-spacing:.9px;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:s}
+nav.toc > ol > li{counter-increment:s;margin:0 0 3px}
+nav.toc > ol > li > a::before{content:counter(s) ". ";color:var(--mute)}
+nav.toc ol ol{padding-left:16px;margin:2px 0 6px}
+nav.toc ol ol li{margin:0}
+nav.toc a{color:var(--dim);text-decoration:none;display:block;padding:2px 0}
+nav.toc a:hover{color:var(--accent)}
+
+/* ---- headings ---- */
+h2{font-size:21px;margin:44px 0 12px;padding-top:10px;border-top:1px solid var(--line);letter-spacing:-.15px}
+h2:first-of-type{border-top:0;margin-top:0}
+h3{font-size:16.5px;margin:28px 0 8px}
+h4{font-size:14px;margin:20px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 14px;padding-left:22px}
+li{margin:0 0 5px}
+a{color:var(--accent)}
+strong{font-weight:650}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.9em;background:var(--code-bg);padding:1px 5px;border-radius:4px
+}
+
+/* ---- formulae ---- */
+.eq{
+  background:var(--panel);border:1px solid var(--line-soft);border-left:3px solid var(--accent);
+  border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;overflow-x:auto;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:1.75
+}
+.eq .lbl{display:block;font-family:system-ui,sans-serif;font-size:11.5px;
+  text-transform:uppercase;letter-spacing:.7px;color:var(--mute);margin-bottom:7px}
+.eq em{color:var(--mute);font-style:normal}
+.steps{counter-reset:step;list-style:none;padding-left:0;margin:16px 0}
+.steps > li{
+  counter-increment:step;position:relative;padding-left:38px;margin-bottom:14px
+}
+.steps > li::before{
+  content:counter(step);position:absolute;left:0;top:1px;
+  width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;
+  font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center
+}
+
+/* ---- tables ---- */
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th,td{border:1px solid var(--line-soft);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel);font-weight:600;font-size:13px}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto;margin:16px 0}
+.scroll table{margin:0}
+/* The Code / Message / Issue tables share one column scheme, so a fixed layout
+   with shared widths keeps the Code column starting at the same position in
+   every table on the page, not just aligned within a single one. */
+table.msg{table-layout:fixed}
+table.msg th:nth-child(1),table.msg td:nth-child(1){width:28%}
+table.msg th:nth-child(2),table.msg td:nth-child(2){width:42%}
+table.msg th:nth-child(3),table.msg td:nth-child(3){width:30%}
+
+/* ---- callouts ---- */
+.note{border-radius:6px;padding:12px 15px;margin:16px 0;border:1px solid var(--line);background:var(--panel)}
+.note p:last-child{margin-bottom:0}
+.note .tag{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.8px;
+  font-weight:700;margin-bottom:6px}
+.note.check{border-left:3px solid var(--ok)} .note.check .tag{color:var(--ok)}
+.note.limit{border-left:3px solid var(--warn)} .note.limit .tag{color:var(--warn)}
+.note.rule{border-left:3px solid var(--accent)} .note.rule .tag{color:var(--accent)}
+
+figure{margin:22px 0}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:13px;color:var(--dim);margin-top:8px}
+
+.lead{font-size:16px;color:var(--dim);margin-bottom:20px}
+footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);
+  font-size:13px;color:var(--mute)}
+
+@media (max-width:1000px){
+  nav.toc{display:none}
+  .wrap{display:block;padding-bottom:50px}
+  main{max-width:none}
+}
+@media print{
+  nav.toc{display:none} .wrap{display:block;max-width:none}
+  body{font-size:10.5pt;color:#000;background:#fff}
+  h2{page-break-after:avoid} .eq,table,figure,.note{page-break-inside:avoid}
+  a{color:#000;text-decoration:none}
+}
+</style>
+<script>
+/* The ONLY script in this document, and it does one thing: let the app tell the
+   page which theme to draw in. A query string survives file:// where fetch and
+   postMessage-to-an-opaque-origin do not, so this is what works when the app is
+   opened by double-clicking index.html. With no parameter the page falls back to
+   the reader's own prefers-color-scheme, which is what it does when opened on
+   its own. */
+(function () {
+  try {
+    var q = new URLSearchParams(location.search);
+    var t = q.get('theme');
+    if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
+    if (q.get('embed') === '1') document.documentElement.dataset.embed = '1';
+  } catch (e) { /* no parameters, no problem: the media query still applies */ }
+})();
+</script>
+</head>
+<body>
+
+<div class="wrap">
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#severity">Severity</a></li>
+    <li><a href="#errors">Errors</a>
+      <ol>
+        <li><a href="#err-hydronic">Hydronic-Thermal</a></li>
+        <li><a href="#err-domestic">Domestic-water</a></li>
+        <li><a href="#err-disconnection">Disconnection</a></li>
+        <li><a href="#err-editing">Editing</a></li>
+      </ol>
+    </li>
+    <li><a href="#defects">Defects</a></li>
+    <li><a href="#warnings">Warnings</a></li>
+    <li><a href="#notices">Notices</a></li>
+    <li><a href="#settings">Settings that drive a threshold</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="top">
+  <h1>Messages</h1>
+  <p class="sub">Every message the app can produce, and what raises it.</p>
+  <p class="meta">Message text may be edited, but message codes are fixed. The placeholder <code>[…]</code> represents runtime values (such as tags, numbers, or units).</p>
+</header>
+
+<!-- ===================================================== 1 -->
+<h2 id="severity">1. Severity</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Level</th><th>Behavior</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><strong>ERROR</strong></td><td>Sets status chip to red and clears <code>converged</code>. Calculated values remain visible.</td><td>Indicates physically impossible network conditions.</td></tr>
+    <tr><td><strong>DEFECT</strong></td><td>Takes priority on the status chip; retains <code>converged</code> state.</td><td>Indicates model setup or geometry errors where calculated results do not match intent.</td></tr>
+    <tr><td><strong>WARNING</strong></td><td>Counted on the chip.</td><td>Indicates valid calculation results that exceed typical engineering parameters.</td></tr>
+    <tr><td><strong>NOTICE</strong></td><td>Grouped last.</td><td>Provides context for specific network conditions (e.g., seated check valves or pinned datums).</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Code classification</h3>
+<ul>
+  <li><strong>Errors:</strong> Values pushed to <code>res.errors</code>.</li>
+  <li><strong>Defects &amp; Notices:</strong> Defined explicitly in <code>DEFECT_CODES</code> and <code>NOTICE_CODES</code> within <code>network.js</code>.</li>
+  <li><strong>Warnings:</strong> All message codes not explicitly listed as errors, defects, or notices.</li>
+</ul>
+
+<h3>Message handling</h3>
+<ul>
+  <li><strong>Engine-level detection:</strong> All message detection occurs in the engine to guarantee identical output across all application views.</li>
+  <li><strong>Visible values:</strong> Calculated values remain visible alongside error messages to assist with troubleshooting.</li>
+  <li><strong>Dismissal rules:</strong> In the MESSAGES window, <strong>warnings</strong> and <strong>notices</strong> can be dismissed. <strong>Errors</strong> and <strong>defects</strong> cannot be dismissed.</li>
+</ul>
+
+<!-- ===================================================== 2 -->
+<h2 id="errors">2. Errors</h2>
+
+<h3 id="err-hydronic">Hydronic-Thermal</h3>
+<div class="scroll">
+<table class="msg">
+  <thead><tr><th>Code</th><th>Message</th><th>Issue / action</th></tr></thead>
+  <tbody>
+    <tr><td><code>NO_CONVERGE</code></td><td>Solver did not converge in [Number] iterations (max head change [Pressure] [Unit], max imbalance [Flow] L/s).</td><td>The GGA hit its 100-iteration cap without meeting both tolerances (1 mm head, 0.01 L/s).</td></tr>
+    <tr><td><code>SINGULAR</code></td><td>No unique solution for pressure. Check for isolated or duplicated nodes.</td><td>The head equations have no unique solution, usually a component with no datum.</td></tr>
+    <tr><td><code>ISLAND_NO_SOURCE</code></td><td>Disconnected section has demand but no source. Check for system disconnects.</td><td>A connected group has demand but no fixed head and no pump — its pressure level is undefined.</td></tr>
+    <tr><td><code>THERMAL_SINGULAR</code></td><td>No unique solution for pressure. Check source and ambient air temperature.</td><td>Give a source a temperature, or let the pipework exchange heat with the room.</td></tr>
+    <tr><td><code>THERMAL_LIMIT</code></td><td>Temperature at [Node] solves to [Temperature] [Unit], outside the limits set in THERMAL. Check the heat balance of the system, or widen the plausibility band in the THERMAL tab if correct.</td><td>A solved temperature is outside <code>thermal.tempMin … tempMax</code> — the runaway guard. The solve is exact; a correct answer can still be absurd.</td></tr>
+    <tr><td><code>SETPOINT_LOST</code></td><td>System is unable to maintain setpoint. Check heat balance. (… → …, limited by … — at full travel and still off setpoint.)</td><td>A controlled device ran out of travel with its setpoint unmet; the actuator is returned to full first. Names what limited the machine where the thermal pass knows it.</td></tr>
+    <tr><td><code>PRESSURE_IMPLAUSIBLE</code></td><td>[Node] is at [dP] [Unit], past the [dP] [Unit] plausibility limit. Check calculation for pressure spikes.</td><td>A component ΔP or pump duty exceeds <code>warn.maxComponentPD</code> (2000 kPa). Shut valves are excluded. Raise the limit on HYDRAULIC if the system really is this high.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="err-domestic">Domestic-water</h3>
+<div class="scroll">
+<table class="msg">
+  <thead><tr><th>Code</th><th>Message</th><th>Issue / action</th></tr></thead>
+  <tbody>
+    <tr><td><code>DW_LOOP</code></td><td>Plumbing loops are not supported. Remove the loop or use generic outflows in Hydronic mode.</td><td>A plumbing component has a cycle, so "downstream" is ambiguous. Diversity sizing is defined only on a tree.</td></tr>
+    <tr><td><code>DW_NO_SOURCE</code></td><td>A plumbing branch has no source. Connect a source to the system or check for disconnects.</td><td>A plumbing component has no source, so there is no root to accumulate downstream fixture units from.</td></tr>
+    <tr><td><code>DW_MULTI_SOURCE</code></td><td>Multiple sources are not supported for plumbing systems. Consider splitting the system or use Hydronic mode.</td><td>A plumbing component has two or more sources, so a pipe's single upstream path — and thus its downstream set — is undefined.</td></tr>
+    <tr><td><code>DW_FIXTURE_SHORT</code></td><td>Insufficient pressure at [Node]. Consider increasing pipe size or source pressure.</td><td>The DESIGN forward pass delivers less residual at the fixture than its Table 604.3 flow pressure. Only raised where there is a pressure origin (a pressurised source or a running booster pump) — with neither, every residual is zero and the check is noise.</td></tr>
+    <tr><td><code>DW_UNSIZED</code></td><td>[Pipe Tag] is not calculated as there are no downstream fixtures. Dismiss this notification if intentional.</td><td><code>plumbingSizing</code> walks only components containing a plumbing fixture. Pipework outside one is absent from the sheet — said out loud rather than dropped silently.</td></tr>
+    <tr><td><code>DW_GENERIC_DEMAND</code></td><td>Generic outflows [Node] add constant [Flow] [Unit] to the design flow. Dismiss this notification if intentional.</td><td>A NOTICE, not a warning: the rule is correct and deliberate. It exists because the number is easy to leave at its default and is added linearly to every pipe upstream — on 20260818-lowrise one such node was a quarter of the building's design flow.</td></tr>
+    <tr><td><code>DW_OVER_PRESSURE</code></td><td>… points exceed the … kPa static-pressure limit, the highest being … at … kPa. A fixed-speed booster runs up its curve as the draw falls, so the worst case is the QUIETEST one. Consider a pressure-reducing valve or a speed-controlled set; the limit is editable on the HYDRAULIC tab.</td><td>Plumbing only. Against <code>settings.warn.maxStatic</code>, default 552 kPa (80 psi — IPC 604.8's threshold for requiring a PRV); 0 disables it. Reported, not corrected: the arithmetic is right and it is the system that needs the valve.</td></tr>
+    <tr><td><code>DW_PUMP_UNSIZED</code></td><td>[Pump Tag] is not connected to a demand. Check for disconnects.</td><td><code>network.plumbingPumpDuty</code> refuses to size a booster the fixture-unit walk never reached — a duty invented for a pump with no downstream fixtures would be a number with nothing behind it.</td></tr>
+    <tr><td><code>DW_PUMP_NO_FIXTURES</code></td><td>[Pump Tag] is not connected to a demand. Check for disconnects.</td><td><code>plumbingPumpDuty</code> with no included demand nodes: there is no required pressure to size to.</td></tr>
+    <tr><td><code>DW_PUMP_MISSING</code></td><td>Not a pump.</td><td><code>plumbingPumpDuty</code> called with an id that is not a pump. A programming guard, not something the user can provoke.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="err-disconnection">Disconnection errors</h3>
+<div class="scroll">
+<table class="msg">
+  <thead><tr><th>Code</th><th>Message</th><th>Issue</th></tr></thead>
+  <tbody>
+    <tr><td><code>ISLAND</code></td><td>[Quantity] node(s) form a separate island with no pipe connecting them to the main network. Connect them to the network or delete.</td><td>The drawing is in two or more pieces that cannot exchange water.</td></tr>
+    <tr><td><code>COINCIDENT_NODES</code></td><td>[Node] and [Node] are in exactly the same place but are not connected. Drag them together to join them.</td><td>Two nodes at one point, unjoined — <strong>the drawing looks continuous and the network is not</strong>, the failure this check exists for.</td></tr>
+    <tr><td><code>NO_RETURN_PATH</code></td><td>Pump/Equipment [Tag] has no path to return or to outflow.</td><td>A device has no path for water to return, so it carries no flow.</td></tr>
+    <tr><td><code>SLOPED_PIPE</code></td><td>Sloped pipes are not supported. Use a riser to change elevation.</td><td>A layout pipe's ends are at different elevations. A layout pipe is LEVEL by rule; only a riser changes height.</td></tr>
+    <tr><td><code>NO_PUMP_CURVE</code></td><td>Pump curve is required to simulate. Change pump sizing mode to Manual or Curve.</td><td>A running pump has no curve in SIMULATION; constant head answers a different question. Rare since the auto-sizer generates the curve — left is a MANUAL pump with no duty, or an auto pump the sizer put at zero head.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="err-editing">Editing errors</h3>
+<div class="scroll">
+<table class="msg">
+  <thead><tr><th>Code</th><th>Message</th><th>Issue</th></tr></thead>
+  <tbody>
+    <tr><td><code>NO_PIPE</code></td><td>Pipe not found.</td><td>The pipe no longer exists.</td></tr>
+    <tr><td><code>RISER</code></td><td>Riser [Pipe Tag] length cannot be set manually. Change level height to change this length.</td><td>A riser's length comes from the floor heights.</td></tr>
+    <tr><td><code>BAD_LENGTH</code></td><td>[Pipe Tag] Length must be greater than zero.</td><td>A length of zero or less.</td></tr>
+    <tr><td><code>NO_DIRECTION</code></td><td>This pipe has no horizontal direction to extend along.</td><td>A degenerate/vertical layout pipe.</td></tr>
+    <tr><td><code>LOOP</code></td><td>Length [Pipe Tag] is constrained by a closed loop. Disconnect the loop before changing geometry.</td><td>The length is constrained by a closed loop.</td></tr>
+    <tr><td><code>RISER_TORN</code></td><td>Riser [Pipe Tag] is constrained by top and bottom connections. Disconnect riser before changing geometry.</td><td>Moving the pipe would tear a riser it anchors.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ===================================================== 3 -->
+<h2 id="defects">3. Defects</h2>
+<div class="scroll">
+<table class="msg">
+  <thead><tr><th>Code</th><th>Message</th><th>Issue / action</th></tr></thead>
+  <tbody>
+    <tr><td><code>ZERO_LENGTH</code></td><td>Pipe [Pipe Tag] has zero length. Recommend to delete and redraw.</td><td>Degenerate pipe; would divide by zero downstream.</td></tr>
+    <tr><td><code>ORPHAN_NODE</code></td><td>[Node] is disconnected from the network. Connect it or delete.</td><td>A node with nothing attached.</td></tr>
+    <tr><td><code>RISER_OPEN_END</code></td><td>[Pipe Tag] has an open connection at [Top/Bottom]. Connect a pipe or delete it.</td><td>A riser's top or bottom attachment carries no other pipe — invisible on a level plan. Ends only; a middle pass-through is fine.</td></tr>
+    <tr><td><code>EQUIP_OFF_RATING</code></td><td>[Tag] is rated for [Flow] [Unit] but is carrying [Flow] [Unit], [%]. Check the design flow, load and rating.</td><td>More than <code>warn.equipFlowRatio</code> (2×) from rated flow; <strong>ΔP goes as the square</strong>. A source/sink below rating is exempt (part load is normal).</td></tr>
+    <tr><td><code>NO_CHARACTERISTIC</code></td><td>Outflow [Tag] has no design point. Provide a rated flow and pressure before simulating.</td><td>An outflow with no design point to derive resistance from.</td></tr>
+    <tr><td><code>REVERSE_BLOCKED</code></td><td>[Tag] flow may be reversed. Check it's direction.</td><td>Equipment is seated against reverse flow; likely drawn the wrong way round.</td></tr>
+    <tr><td><code>CONTROL_NO_SETPOINT</code></td><td>[Control Tag] has no setpoint for [Equipment Tag]. Provide a setpoint.</td><td>A control link points at something that states nothing to hold.</td></tr>
+    <tr><td><code>CONTROL_TARGET_GONE</code></td><td>[Tag] is linked to [Removed Tag], which has been deleted/renamed. Re-link or clear the control.</td><td>The link's target pipe was deleted and the link stayed — silent until 2026-08-08.</td></tr>
+    <tr><td><code>CONTROL_GANGED</code></td><td>Multiple equipment connected to [Sensor Tag] may cause unstable simulation. Connect 1 equipment to the sensor &amp; sync other equipment to that.</td><td>Two or more devices on one sensor. The model still answers (ganged at a common position), but it is not the arrangement to draw.</td></tr>
+    <tr><td><code>TAG_MANGLED</code></td><td>Internal error caused [Tag] to become corrupted. use Repair tags under File to rectify.</td><td>A corrupted tag (e.g. CHWP-0AHU-15AHU-152). Reported every solve because the route that makes it is not yet identified.</td></tr>
+    <tr><td><code>TAG_DUPLICATE</code></td><td>Duplicate tags [Display Tag] for [Internal Tags] will cause solver instability. Provide unique tags.</td><td>Duplicate tags — a real state mid-edit (a floor copied, not yet renumbered), never silent.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ===================================================== 4 -->
+<h2 id="warnings">4. Warnings</h2>
+<div class="scroll">
+<table class="msg">
+  <thead><tr><th>Code</th><th>Message</th><th>Issue</th></tr></thead>
+  <tbody>
+    <tr><td><code>VELOCITY</code></td><td>[Pipe Tag] velocity [Velocity] [Units] exceeds [Velocity Limit] [Units] set in HYDRAULIC.</td><td>Over <code>warn.velocity</code> (2.4 m/s): noise, erosion, the reason pipes get sized up.</td></tr>
+    <tr><td><code>PDM</code></td><td>[Pipe Tag] velocity [PDM] [Units] exceeds [PDM] [Units] set in HYDRAULIC.</td><td>Over <code>warn.pdm</code> (400 Pa/m), the usual sizing criterion.</td></tr>
+    <tr><td><code>LAMINAR</code></td><td>[Pipe Tag] is in laminar flow (Re = [Re]). Hazen-Williams calculation method is not reliable in this region. Consider using Darcy-Weisbach calculation method.</td><td>Re below 2300: the wrong equation, not just imprecise — a warning about the METHOD.</td></tr>
+    <tr><td><code>TRANSITIONAL</code></td><td>[Pipe Tag] is in transitional range (Re = [Re]). Both friction calculations are unreliable in this region. Consider changing pipe size.</td><td>Re 2300–4000; uncertain whatever the method.</td></tr>
+    <tr><td><code>NO_SOURCE</code></td><td>Water source is required.</td><td>Nothing feeds the network — no source node and no running pump. Shown as a hydraulic error on the chip.</td></tr>
+    <tr><td><code>SUPPLY_INSUFFICIENT</code></td><td>Insufficient pressure at [Node] (Short by [Pressure] [Units]. Consider increasing pipe size or pressure.</td><td>The source cannot meet an outflow's required pressure.</td></tr>
+    <tr><td><code>PUMP_DEAD_END</code></td><td>Pump [Tag] has no flow (dead end). Check system arrangement.</td><td>A pump carries no flow because a side is dead-ended; no head fixes it.</td></tr>
+    <tr><td><code>PUMP_NO_FLOW</code></td><td>Pump [Tag] has no flow. Check system arrangement.</td><td>A running pump carries no flow for some other reason.</td></tr>
+    <tr><td><code>PUMP_RUNOUT</code></td><td>Pump [Tag] is running at [Flow] [Units], ([%]% of design flow). Check available NPSH or design flow.</td><td>Over <code>warn.pumpRunout</code> (120%): matters after losing a pump in a parallel set — the survivors ride out along their curves.</td></tr>
+    <tr><td><code>UNREACHABLE</code></td><td>[Tag] is isolated by closed valve or not connected to source. Dismiss this notification if intentional.</td><td>An outflow with no live path to a source.</td></tr>
+    <tr><td><code>OUTFLOW_SHORT</code></td><td>Insufficient pressure at [Node] (Short by [Pressure] [Units]. Consider increasing pipe size or pressure.</td><td>An outflow below the pressure it asked for.</td></tr>
+    <tr><td><code>VALVE_OVERSIZED</code></td><td>[Tag] has insufficient control authority. Check valve Kv.</td><td>A control valve below <code>warn.valveOversized</code> (10%) open — all its movement is near the seat. Isolation/shut valves exempt.</td></tr>
+    <tr><td><code>FITTING_OSCILLATION</code></td><td>Simulation did not stabilize in [number] passes. Flow directions may be marginal somewhere in the network.</td><td>The tee run/branch split did not settle in the pass limit.</td></tr>
+    <tr><td><code>SLOPED_PIPE</code></td><td>see §2 · disconnection warnings share codes with §2 at lower severity.</td><td> </td></tr>
+    <tr><td><code>EQUIP_LIMITED</code></td><td>[Tag] is limited by [Parameter] and is not reaching its setpoint.</td><td>A machine capped by Capacity, Design ΔT, a T limit, or wrong-direction capacity. "…limited by Capacity" is the sentence worth having.</td></tr>
+    <tr><td><code>CONTROL_BUDGET</code></td><td>Controls did not stabilize the simulation after [number] iterations. Results from the last iteration may be usable. Check system for conflicting controls, sync equipment to a single control group, or increase Max Solves in SETTINGS.</td><td>The loop hit <code>control.maxSolves</code>. The ones it did not reach keep their last COMPLETE iteration's position — a truncated search is a no-op, not a random spot.</td></tr>
+    <tr><td><code>CONTROL_AT_LIMIT</code></td><td>[Tag] is unable to maintain setpoint [Setpoint] [Unit] at [Maximum/Minimum] [Control Authority]. Check controls.</td><td>A device on a stop (min speed, min opening, or full travel) with the setpoint still missed.</td></tr>
+    <tr><td><code>CONTROL_NO_FLOW</code></td><td>[Tag] is unable to be controlled as it has no flow.</td><td>The controlled machine has no flow to modulate against.</td></tr>
+    <tr><td><code>CONTROL_UNSETTLED</code></td><td>[Tag] is unable to maintain setpoint [Setpoint] [Unit] (Settled at [Value] [Unit]). Check setpoint, equipment capacity or system heat balance.</td><td>A device came to rest off setpoint: actuator resolution, or the setpoint is out of reach.</td></tr>
+    <tr><td><code>CONTROL_HUNTING</code></td><td>Controls did not stabilize after [number] iterations. [Number] of [Number] devices maintaining setpoint. Results from the last iteration may be usable. Check system for conflicting controls, sync equipment to a single control group, or increase Max Solves in SETTINGS.</td><td>The loop never came fully to rest. Reports the fraction holding setpoint so an engineer can accept, say, 90% while the design is in flux and finish later. Carries <code>holding</code>/<code>total</code>/<code>pct</code>.</td></tr>
+    <tr><td><code>HEAT_IMBALANCE</code></td><td>System heat imbalanced by [Heat] [Units] being [added/removed] at [Node]. Check Thermal Calculations and Source Temperature.</td><td>Over <code>warn.heatBalance</code> (2%) of duty absorbed at a source or pinned datum — usually a fill drawn IN the return line, or a datum that hides a plant shortfall.</td></tr>
+    <tr><td><code>THERMAL_LIMIT_OSCILLATION</code></td><td>Simulation did not stabilize in [number] passes due to thermal oscillation. Two or more devices may be fighting for the same setpoint. Check system for conflicting controls, sync equipment to a single control group, or increase Max Solves in SETTINGS.</td><td>The binding limit never settled.</td></tr>
+    <tr><td><code>NO_THERMAL_REFERENCE</code></td><td>Nothing sets a temperature. Acceptable if the system is adiabatic.</td><td>Nothing states a temperature to work from.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ===================================================== 5 -->
+<h2 id="notices">5. Notices</h2>
+<div class="scroll">
+<table class="msg">
+  <thead><tr><th>Code</th><th>Message</th><th>Issue</th></tr></thead>
+  <tbody>
+    <tr><td><code>CHECK_CLOSED</code></td><td>Check valve [Node] is holding against reverse flow.</td><td>Normal operation, reported so the zero flow is not a puzzle.</td></tr>
+    <tr><td><code>VALVE_SHUT</code></td><td>Valve [Node] is shut.</td><td>A fully-closed valve; its branch passes nothing.</td></tr>
+    <tr><td><code>THERMAL_DATUM</code></td><td>Nothing sets a temperature level in this circuit. … °C has been pinned at the outlet of …, the equipment moving the most heat. Every other temperature is relative to that.</td><td>The temperature field needed a datum; one was pinned. Raised only when the solve actually needed it.</td></tr>
+    <tr><td><code>SOURCE_PRESSURE_MOVED</code></td><td>[Node] static pressure [Pressure] [Units] is stored as [Height] [Units] elevation. A vertical pipe was created. Source …: its … kPa static pressure was stored as a … m elevation, which was stretching every pipe on it. The pressure is unchanged; the node is back at its drawn level.</td><td>Migration on load. A source's static pressure had been stored as the node's ELEVATION.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ===================================================== 6 -->
+<h2 id="settings">6. Settings that drive a threshold</h2>
+<p>All are DEFAULTS a user can change — none is transcribed data. Setting a threshold to <strong>0 disables its check</strong>, except the temperature band, where the band itself is the meaning.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Setting</th><th>Default</th><th>Drives</th><th>Tab</th></tr></thead>
+  <tbody>
+    <tr><td><code>warn.velocity</code></td><td>2.4 m/s</td><td><code>VELOCITY</code></td><td>HYDRAULIC</td></tr>
+    <tr><td><code>warn.pdm</code></td><td>400 Pa/m</td><td><code>PDM</code></td><td>HYDRAULIC</td></tr>
+    <tr><td><code>warn.laminar</code></td><td>on</td><td><code>LAMINAR</code>, <code>TRANSITIONAL</code></td><td>HYDRAULIC</td></tr>
+    <tr><td><code>warn.pumpRunout</code></td><td>120%</td><td><code>PUMP_RUNOUT</code></td><td>HYDRAULIC</td></tr>
+    <tr><td><code>warn.equipFlowRatio</code></td><td>2×</td><td><code>EQUIP_OFF_RATING</code></td><td>HYDRAULIC</td></tr>
+    <tr><td><code>warn.maxComponentPD</code></td><td>2000 kPa</td><td><code>PRESSURE_IMPLAUSIBLE</code></td><td>HYDRAULIC</td></tr>
+    <tr><td><code>warn.valveOversized</code></td><td>10%</td><td><code>VALVE_OVERSIZED</code></td><td>HYDRAULIC</td></tr>
+    <tr><td><code>warn.heatBalance</code></td><td>2%</td><td><code>HEAT_IMBALANCE</code></td><td>HYDRAULIC</td></tr>
+    <tr><td><code>control.maxSolves</code></td><td>0 (auto)</td><td><code>CONTROL_BUDGET</code></td><td>THERMAL</td></tr>
+    <tr><td><code>control.sweeps</code></td><td>6</td><td>how many settling sweeps</td><td>THERMAL</td></tr>
+    <tr><td><code>thermal.tempMin</code> / <code>tempMax</code></td><td>−50 / +50 °C</td><td><code>THERMAL_LIMIT</code></td><td>THERMAL</td></tr>
+    <tr><td><code>control.minSpeed</code></td><td>0.25</td><td><code>CONTROL_AT_LIMIT</code></td><td>THERMAL</td></tr>
+    <tr><td><code>control.minOpening</code></td><td>10%</td><td><code>CONTROL_AT_LIMIT</code></td><td>THERMAL</td></tr>
+    <tr><td><code>control.tol</code></td><td>0.05 K</td><td>the control deadband</td><td>THERMAL</td></tr>
+  </tbody>
+</table>
+</div>
+
+<footer>
+  <p>FreePipeCalc — Messages. Checked against the source in both directions by <code>engine.test.js</code>.</p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>

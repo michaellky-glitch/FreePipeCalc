@@ -7,7 +7,7 @@ I have zero programing knowledge 🤡. My role in this project was directing the
 FreePipeCalc is a Free piping friction loss calculator for Building Services Engineers.
  
 * Draw and simulate Hydronic ~~\& Plumbing~~ pipe networks. 
-* Trace existing drawings in ANNOTATION>TRACE.
+* Trace existing drawings in ANNOTATE > TRACE.
 * FPC calculates Friction \& static losses.
 * Cooling ~~\& Heating~~ (Not tested) loads can be added to the system to simulate typical closed-loop systems.
 * SIMULATION mode models how the system responds to various conditions \& expected VFD/valve positions.
@@ -52,12 +52,12 @@ Friction Loss Calculations use 2 methods from ASHRAE Handbook - Fundamentals, Ch
 Network solver uses the Todini Global Gradient Algorithm (GGA). See Engine Documentation for more details.
  
  
-*(2) - At time of development, the ASHRAE handbook did not contain a list of equivalent lengths for pipe fittings. FPC uses Carrier Design Handbook values by default, with NFPA 13 equivalent lengths as an alternative. However, NFPA 13 (2025) 28.2.4.8.1 (6) states that Losses for straight-through flow in a tee or cross shall not be included. Carrier values for straight-through tees are used instead.*
+*(2) - At time of development, the ASHRAE handbook did not contain a list of equivalent lengths for pipe fittings. FPC uses Carrier Design Handbook values by default, with NFPA 13 equivalent lengths as an alternative. However, NFPA 13 (2019) Table 27.2.3.1.1 has no straight-through tee row, so Carrier values for straight-through tees are used instead.*
  
 
  
 ## A word on trust
-This is free software written to be useful, not a certified design tool. The engine is covered by over 2000 assertions whose expected values are independent hand calculations rather than numbers copied out of the code, and `docs/ENGINE.md` gives worked examples you can check yourself with a calculator.
+This is free software written to be useful, not a certified design tool. The engine is covered by over 2000 assertions whose expected values are independent hand calculations rather than numbers copied out of the code, and `docs/engine.html` gives worked examples you can check yourself with a calculator.
  
  
 That is not the same as being right for your project. **Verify the results.**
@@ -98,7 +98,7 @@ Hazen-Williams without touching the solver.
     styles.css
     data/
       schedules.js      pipe schedules -> inner diameters
-      fittings.js       ASHRAE equivalent lengths
+      fittings.js       Carrier / NFPA 13 equivalent-length tables, plus legacy L/D ratios
       valves.js         valve Kv/Cv data and opening curves
       ktable.js         ASHRAE fitting resistance coefficients K
       pumps.js          pump curves: single-point, 3-point quadratic, fitting
@@ -117,7 +117,7 @@ Hazen-Williams without touching the solver.
       docs.js           DOCUMENTATION tab: renders docs/ in the app
       app.js            shell: toolbar, panels, sheet, settings, persistence
     docs/
-      ENGINE.md         maths, derivation, worked checks
+      engine.html       maths, derivation, worked checks
     examples/
       3-floor-riser-test.pnet.json      3-floor riser + ring main test model
       irrational-source-on-L3.pnet.json source above its demands, dead-ended pump

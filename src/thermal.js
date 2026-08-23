@@ -455,8 +455,7 @@
     if (!Object.keys(ref.sources).length && !ref.datum) {
       warnings.push({
         code: 'NO_THERMAL_REFERENCE',
-        message: 'Nothing sets a temperature: no source and no equipment. ' +
-                 'Temperatures are all at the system flow temperature.'
+        message: 'Nothing sets a temperature. Acceptable if the system is adiabatic.'
       });
     }
 
@@ -779,9 +778,11 @@
     if (!singular && passes >= MAX_SETS) {
       warnings.push({
         code: 'THERMAL_LIMIT_OSCILLATION',
-        message: 'Which equipment limit binds kept changing over ' + MAX_SETS +
-                 ' passes. The last answer is reported; check for two machines ' +
-                 'fighting for the same setpoint.'
+        message: 'Simulation did not stabilize in ' + MAX_SETS + ' passes due ' +
+                 'to thermal oscillation. Two or more devices may be fighting ' +
+                 'for the same setpoint. Check system for conflicting controls, ' +
+                 'sync equipment to a single control group, or increase Max ' +
+                 'Solves in SETTINGS.'
       });
     }
     if (singular) {
@@ -797,9 +798,8 @@
        * indeterminate, and said so only in a warning nobody would read. */
       errors.push({
         code: 'THERMAL_SINGULAR',
-        message: 'The temperature field has no unique solution: nothing sets a ' +
-                 'level and nothing ties the system to ambient. Give a source a ' +
-                 'temperature, or let the pipework exchange heat with the room.'
+        message: 'No unique solution for temperature. Check source and ambient ' +
+                 'air temperature.'
       });
     }
     var converged = !singular;
@@ -981,13 +981,10 @@
           code: 'HEAT_IMBALANCE',
           watts: sourceDuty,
           node: ref.pinned ? ref.pinned.node : null,
-          message: Math.abs(sourceDuty / 1000).toFixed(1) + ' kW is being ' +
-                   (removing ? 'removed at ' : 'added at ') + where +
-                   ' to hold its stated temperature, and nothing in the model ' +
-                   'does that work. Either the ' +
-                   (removing ? 'cooling' : 'heating') + ' plant is short by ' +
-                   'that much, or the stated temperature is wrong. See the ' +
-                   'heat balance on the calculation sheet.'
+          message: 'System heat imbalanced by ' +
+                   Math.abs(sourceDuty / 1000).toFixed(1) + ' kW being ' +
+                   (removing ? 'removed' : 'added') + ' at ' + where +
+                   '. Check Thermal Calculations and Source Temperature.'
         });
       }
     }
@@ -1006,13 +1003,9 @@
       errors.push({
         code: 'THERMAL_LIMIT', node: worst.node, temperature: worst.t,
         message: 'Temperature at ' + worst.node + ' solves to ' +
-                 worst.t.toFixed(1) + ' °C, outside the plausible band ' +
-                 prm.tMin.toFixed(0) + ' to ' + prm.tMax.toFixed(0) + ' °C' +
-                 (outside.length > 1 ? ' (' + outside.length + ' nodes are outside it)' : '') +
-                 '. The heat going in has nowhere to go: check the equipment ' +
-                 'duty, the insulation and whether anything rejects heat. Widen ' +
-                 'the band on the THERMAL tab if this system really does run ' +
-                 'that hot or cold.'
+                 worst.t.toFixed(1) + ' °C, outside the limits set in THERMAL. ' +
+                 'Check the heat balance of the system, or widen the ' +
+                 'plausibility band in the THERMAL tab if correct.'
       });
     }
 

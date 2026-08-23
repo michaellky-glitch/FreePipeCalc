@@ -748,19 +748,14 @@
      * show you. */
     var out = (res.warnings || []).map(function (w) {
       var where = { code: w.code, pipe: w.pipe, node: w.node, nodes: w.nodes };
-      /* Reformatted into the engineer's pressure unit, exactly as PDM is —
-       * the engine states the shortfall in Pa. */
-      if (w.code === 'DW_FIXTURE_SHORT' && w.shortfall !== undefined) {
-        where.message = 'Fixture ' + ((M.node(m, w.node) || {}).tag || w.node) +
-          ' is ' + FD.units.fmtPressure(w.shortfall, d.pressure, true) +
-          ' short of its required ' + FD.units.fmtPressure(w.required, d.pressure, true) +
-          '. Go up a pipe size on its run, or raise the supply pressure.';
-        return where;
-      }
+      /* PDM is reformatted into the engineer's friction-rate unit — the engine
+       * states it in Pa/m. The wording follows docs/MESSAGES.md; `w.pipe` gives
+       * the tag. (DW_FIXTURE_SHORT no longer needs reformatting: its message
+       * carries no unit-bearing value, so the engine text passes through.) */
       if (w.code === 'PDM' && w.pdm !== undefined) {
-        where.message = 'Section ' + w.section + ': friction rate ' +
-          FD.units.fmtPdm(w.pdm, d.pdm, true) + ' exceeds the ' +
-          FD.units.fmtPdm(w.limit, d.pdm, true) + ' limit.';
+        where.message = ((M.pipe(m, w.pipe) || {}).tag || w.pipe) +
+          ' friction rate ' + FD.units.fmtPdm(w.pdm, d.pdm, true) + ' exceeds ' +
+          FD.units.fmtPdm(w.limit, d.pdm, true) + ' set in HYDRAULIC.';
         return where;
       }
       where.level = w.level || 'warning';
@@ -781,15 +776,17 @@
       if (m.discipline === 'plumbing' && n.device.demandType === 'plumbing') return;
       if (isUnreachable(res.pressure[n.id])) {
         out.push({ code: 'UNREACHABLE', node: n.id,
-                   message: 'Outflow ' + n.id + ' cannot be reached — it is isolated by a shut ' +
-                            'valve or not connected to a source.' });
+                   message: (n.tag || n.id) + ' is isolated by closed valve or ' +
+                            'not connected to source. Dismiss this notification ' +
+                            'if intentional.' });
         return;
       }
       var short = res.pressure[n.id] - (n.device.reqPressure || 0);
       if (short < 0) {
         out.push({ code: 'OUTFLOW_SHORT', node: n.id,
-          message: 'Outflow ' + n.id + ' is ' +
-          FD.units.fmtPressure(-short, d.pressure, true) + ' short of its required pressure.' });
+          message: 'Insufficient pressure at ' + (n.tag || n.id) + ' (Short by ' +
+          FD.units.fmtPressure(-short, d.pressure, true) + '). Consider ' +
+          'increasing pipe size or pressure.' });
       }
     });
     return out;
@@ -2650,6 +2647,36 @@
       row.appendChild(el('span', 'level-name', lv.name));
       row.appendChild(el('span', 'level-alt',
         (lv.altitude >= 0 ? '+' : '') + lv.altitude.toFixed(2) + ' m'));
+
+      /* WHICH WAY THIS LEVEL LOOKS, said on the row itself (Michael,
+       * 2026-08-21). View direction decides which neighbouring floor renders
+       * faded and which way a new riser runs from here, and until now it was
+       * only legible inside the level dialog — a property you must open a
+       * dialog to read is a property you forget you set. Both arrows are always
+       * drawn and the ACTIVE one is lit, in the manner of the riser notation:
+       * the row then states the choice and the alternative together, rather
+       * than one glyph you have to know the convention for.
+       *
+       * Clicking an arrow sets that direction, so the common one-field edit no
+       * longer needs the dialog. The dialog keeps the field. */
+      var dir = el('span', 'level-dir');
+      [['up', '▲', 'above'], ['down', '▼', 'below']].forEach(function (o) {
+        var b = el('button', 'level-dir-btn' + (lv.lookDir === o[0] ? ' on' : ''),
+                   o[1]);
+        b.title = 'Look ' + (o[0] === 'up' ? 'Up' : 'Down') + ' — the level ' +
+                  o[2] + ' renders faded, and a new riser runs ' + o[0] +
+                  ' from this level.';
+        b.addEventListener('click', function (e) {
+          e.stopPropagation();
+          if (lv.lookDir === o[0]) return;
+          pushUndo();
+          lv.lookDir = o[0];
+          renderLevels();
+          changed();
+        });
+        dir.appendChild(b);
+      });
+      row.appendChild(dir);
 
       if (M.isLevelLocked(m, lv.id)) {
         var lock = el('span', 'level-lock', '⚿');
@@ -6005,7 +6032,17 @@
        'neighbours.');
 
     // ----------------------------------------------------------- L2 DESIGN
-    var dp = pumpDesignPoint(p);
+    /* A SYNCED PUMP SHOWS ITS LEADER'S DUTY (Michael, 2026-08-23).
+     *
+     * The solve copies the leader's selection onto the follower, so after a
+     * solve these are the same two numbers either way — but the panel reads the
+     * LEADER directly, so a pump synced a moment ago shows the duty it is about
+     * to be given rather than the one it is about to lose. The boxes are greyed
+     * for the same reason the Auto boxes are: they are a readout here, not
+     * yours to type in. */
+    var syncLead = M.pipe(m, M.syncOf(p));
+    if (!syncLead || syncLead.kind !== 'pump' || !syncLead.pump) syncLead = null;
+    var dp = pumpDesignPoint(syncLead || p);
     var des = section(host, 'Design');
 
     /* HOW THE DUTY IS ARRIVED AT. Three ways, and the difference is only WHERE
@@ -6043,7 +6080,7 @@
      * 2026-08-06). Hiding them made the panel change height and shuffle
      * everything below it every time the dropdown moved, and left you unable to
      * read the duty the sizer had chosen without switching to Manual. */
-    var manual = (p.pump.sizing === 'manual');
+    var manual = (p.pump.sizing === 'manual') && !syncLead;
     var mq = el('input'); mq.type = 'text';
     mq.value = dp.q === null ? '' : FD.units.fmtFlow(dp.q, d.flow);
     if (!manual) mq.readOnly = true;
@@ -6056,6 +6093,13 @@
         p.pump.qDesign = FD.units.toSIFlow(v, d.flow);
         regenerateCurve(p); renderProperties(); changed();
       });
+    if (syncLead) {
+      var syncRow = fieldLabel(mq);
+      if (syncRow && syncRow.parentNode) {
+        syncRow.parentNode.appendChild(el('span', 'hint-inline',
+          '(Synced with ' + (syncLead.tag || syncLead.id) + ')'));
+      }
+    }
 
     var mh = el('input'); mh.type = 'text';
     mh.value = dp.h === null ? '' : FD.units.fmtPressure(headToPa(dp.h), d.pressure);
@@ -6958,6 +7002,52 @@
     });
     host.appendChild(clr);
 
+    /* SETPOINT CONTROL. Moved here from the THERMAL tab (Michael, 2026-08-20).
+     * These are settings for the CONTROL LOOP, not for thermal design: a
+     * deadband, a minimum pump speed and a solve budget say how hard the loop
+     * searches and where it is allowed to stop. The loop also runs in a plumbing
+     * file, which has no THERMAL tab — so on the old tab the controls were
+     * unreachable in exactly the discipline that most often uses a
+     * pressure-controlled booster.
+     *
+     * Terse, per the UI rule: the fields, one hint line, the rest behind the 🛈. */
+    var gc = group('Setpoint control');
+    var ctl = m.settings.control || (m.settings.control =
+      { minSpeed: 0.25, minOpening: 10, tol: 0.05 });
+    num(gc, 'Minimum pump speed (%)', Math.round((ctl.minSpeed || 0.25) * 100),
+        function (v) {
+          m.settings.control.minSpeed = Math.min(100, Math.max(1, v)) / 100;
+          renderSettings(); redrawAll();
+        }, '1');
+    num(gc, 'Minimum valve opening (%)', ctl.minOpening,
+        function (v) {
+          m.settings.control.minOpening = Math.min(100, Math.max(1, v));
+          renderSettings(); redrawAll();
+        }, '1');
+    num(gc, 'Deadband (K)', ctl.tol,
+        function (v) { m.settings.control.tol = v; renderSettings(); redrawAll(); },
+        '0.01');
+    num(gc, 'Max control solves (0 = auto)', ctl.maxSolves || 0,
+        function (v) {
+          m.settings.control.maxSolves = Math.max(0, Math.round(v));
+          renderSettings(); redrawAll();
+        }, '1');
+    num(gc, 'Settling iterations (default 6)', ctl.sweeps || 6,
+        function (v) {
+          m.settings.control.sweeps = Math.min(100, Math.max(1, Math.round(v)));
+          renderSettings(); redrawAll();
+        }, '1');
+    var ch = el('p', 'hint', 'SIMULATION only. Sitting on a minimum is reported. ');
+    infoMark(ch, 'In DESIGN the flows are imposed by the demands, so there is ' +
+                 'nothing for a controller to move. Max control solves is how ' +
+                 'much work the loop may do: automatic is 40 + 30 per ' +
+                 'controlled device, capped at 400, and one solve is a few ' +
+                 'milliseconds on a model of a few dozen pipes. Settling ' +
+                 'iterations is how many rounds the devices get to re-settle ' +
+                 'against one another: six suits a first pass, more for a final ' +
+                 'answer that is worth the wait.');
+    host.appendChild(ch);
+
     var g4 = group('Drawing');
     num(g4, 'Floor-to-floor default (m)', m.settings.floorToFloor,
         function (v) { m.settings.floorToFloor = v; redrawAll(); }, '0.1');
@@ -7154,45 +7244,10 @@
       host.appendChild(el('p', 'hint', 'Suits chilled water. LTHW at 80 °C ' +
                                        'flow will trip it — raise the maximum.'));
     }
-    /* SETPOINT CONTROL. Terse, per §17A: three fields, one hint line, the rest
-     * behind the 🛈. */
-    h2('Setpoint control');
-    var ctl = m.settings.control || (m.settings.control =
-      { minSpeed: 0.25, minOpening: 10, tol: 0.05 });
-    var g4 = grid();
-    numField(g4, 'Minimum pump speed', Math.round((ctl.minSpeed || 0.25) * 100),
-      function (v) {
-        m.settings.control.minSpeed = Math.min(100, Math.max(1, v)) / 100;
-        renderThermal(); redrawAll();
-      }, '(%)');
-    numField(g4, 'Minimum valve opening', ctl.minOpening,
-      function (v) {
-        m.settings.control.minOpening = Math.min(100, Math.max(1, v));
-        renderThermal(); redrawAll();
-      }, '(%)');
-    numField(g4, 'Deadband', ctl.tol,
-      function (v) { m.settings.control.tol = v; renderThermal(); redrawAll(); },
-      '(K)');
-    numField(g4, 'Max control solves', ctl.maxSolves || 0,
-      function (v) {
-        m.settings.control.maxSolves = Math.max(0, Math.round(v));
-        renderThermal(); redrawAll();
-      }, '(0 = auto)');
-    numField(g4, 'Settling iterations', ctl.sweeps || 6,
-      function (v) {
-        m.settings.control.sweeps = Math.min(100, Math.max(1, Math.round(v)));
-        renderThermal(); redrawAll();
-      }, '(default 6)');
-    var ch = el('p', 'hint', 'SIMULATION only. Sitting on a minimum is reported. ');
-    infoMark(ch, 'In DESIGN the flows are imposed by the demands, so there is ' +
-                 'nothing for a controller to move. Max control solves is how ' +
-                 'much work the loop may do: automatic is 40 + 30 per ' +
-                 'controlled device, capped at 400, and one solve is a few ' +
-                 'milliseconds on a model of a few dozen pipes. Settling ' +
-                 'iterations is how many rounds the devices get to re-settle ' +
-                 'against one another: six suits a first pass, more for a final ' +
-                 'answer that is worth the wait.');
-    host.appendChild(ch);
+    /* SETPOINT CONTROL MOVED TO SETTINGS (Michael, 2026-08-20). It never
+     * belonged here: a deadband, a minimum pump speed and a solve budget are
+     * settings for the CONTROL LOOP, not thermal design — and the loop runs in a
+     * plumbing file too, where there is no THERMAL tab to reach them from. */
 
     var uh = el('p', 'hint', 'U′ = 1 / [ ln(r₀/rᵢ)/(2πk) + 1/(2πr₀h) ]. ');
     infoMark(uh, 'Insulation and outside film in series. rᵢ is the pipe OD — ' +

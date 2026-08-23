@@ -1,7 +1,7 @@
-# TRACE mode — design
+# TRACE mode
 
-Agreed plan, not yet built. Write-up so the decisions survive the gap between
-planning and building.
+Implemented in `src/trace.js`. This document records how the feature works and why the decisions were made.
+
 
 **Purpose.** Let an engineer drop a screenshot of an existing drawing behind the
 canvas and trace pipework over it. Two workflows drive the design:
@@ -131,10 +131,12 @@ Draw order: trace → grid (if shown) → pipes → labels.
 ## 6. Mode behaviour
 
 **TRACE** is where the image is manipulated: paste, move, scale, calibrate,
-lock, set opacity and invert. It sits alongside EDIT / DRAW PIPE / LAYOUT.
+lock, set opacity and invert. It sits in the **ANNOTATE** ribbon alongside MOVE,
+ALIGN, DETAIL and TEXT BOX.
 
-The image stays visible in **every** mode — you trace in DRAW, not in TRACE.
-TRACE is for getting the image right; DRAW is for drawing over it.
+The image stays visible in **every** mode — you trace over it with the PIPE or
+RISER tool, not with TRACE itself. TRACE is for getting the image right; the
+drawing tools are for drawing over it.
 
 **Locked by default once calibrated.** Nothing is more irritating than nudging
 a calibrated background while drawing over it.
@@ -144,12 +146,10 @@ a calibrated background while drawing over it.
 Grid-along-ray snapping will fight the user when following a drawing: the whole
 point is to follow the lines, not the grid.
 
-Proposal: when a trace is present on the active level, DRAW keeps 15° angle
+When a trace is present on the active level, the drawing tools keep 15° angle
 snapping — most pipework is orthogonal, so this helps rather than hinders — but
-drops grid snapping. Node and pipe snapping stay, since connecting is still
+drop grid snapping. Node and pipe snapping stay, since connecting is still
 connecting.
-
-To be confirmed against real use; it is a one-line change either way.
 
 ## 8. Printing
 
@@ -158,13 +158,13 @@ drawings of the model.
 
 ---
 
-## Open questions for implementation
+## Not implemented
 
 * **Rotation.** Screenshots are usually square-on, so rotation is probably not
   needed. Left out until someone wants it.
-* **Multiple traces per level.** One is assumed. A large floor plate might want
-  two side by side; not built until asked for.
-* **Undo.** Pasting and calibrating should be undoable like any other edit,
-  which means the image data passes through the undo stack. Worth watching for
-  memory pressure with a deep history — snapshots are full model copies. May
-  need to exclude `src` from undo snapshots and hold it separately.
+* **Multiple traces per level.** One trace per level is assumed. A large floor
+  plate might want two side by side; not built until asked for.
+* **Undo.** Pasting and calibrating are not yet undoable. If they are added, the
+  image data will pass through the undo stack. Watch for memory pressure with a
+  deep history — snapshots are full model copies. It may be necessary to exclude
+  `src` from undo snapshots and hold it separately.

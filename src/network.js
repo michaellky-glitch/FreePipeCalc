@@ -323,6 +323,60 @@
        * that fourteen times is what sync exists to avoid. */
       else if (p.kind === 'equip' && p.equip) p.equip.loadPct = x * 100;
     });
+    applySyncedDesign(m);
+  }
+
+  /* ==================================== A SYNC GROUP IS SIZED AS ONE MACHINE
+   *
+   * Michael, 2026-08-23. Copying only the POSITION left a group that was ganged
+   * to run together and yet selected apart: two pumps at one speed could hold
+   * two different duties and two different curves, because `autoSizePumps` sized
+   * every 'auto' pump on its own and a follower left on Manual simply kept the
+   * duty somebody typed. That is not a pump set, it is two pumps that happen to
+   * move together — and the discrepancy is invisible on the drawing.
+   *
+   * So the leader states the SELECTION and the followers take it:
+   *
+   *   pump      sizing mode, design flow and head, the running head, the curve
+   *   exchanger duty, rated flow, rated pressure drop
+   *
+   * Only the leader is sized (`autoSizePumps` skips anything with a sync), and
+   * because this runs at the top of every `build` the followers track the leader
+   * THROUGH the sizing iteration rather than lagging it by a pass.
+   *
+   * A follower switched OFF keeps its own `mode`: standby is a separate decision
+   * from selection, and a synced spare is still a spare.
+   *
+   * SAID IN THE PANEL, NOT IN A MESSAGE (Michael, 2026-08-23). This was a
+   * SYNC_SIZED notice for one version. A notice is the wrong place: it fires on
+   * every solve and describes a relationship the engineer set up deliberately,
+   * which is noise. The pump panel greys the follower's duty boxes, shows the
+   * leader's numbers in them and labels the flow row "(Synced with ...)", so the
+   * answer is where the question is asked. */
+  function applySyncedDesign(m) {
+    m.pipes.forEach(function (p) {
+      var lead = M.pipe(m, M.syncOf(p));
+      if (!lead || lead.id === p.id) return;
+
+      if (p.kind === 'pump' && lead.kind === 'pump' && p.pump && lead.pump) {
+        var f = p.pump, L = lead.pump;
+        f.sizing = M.pumpSizing(lead);
+        if (f.mode !== 'off') f.mode = M.pumpRunMode(lead);
+        if (L.qDesign !== undefined) f.qDesign = L.qDesign;
+        if (L.hDesign !== undefined) f.hDesign = L.hDesign;
+        f.head = L.head || 0;
+        if (L.curve) f.curve = JSON.parse(JSON.stringify(L.curve));
+        else delete f.curve;
+      } else if (p.kind === 'equip' && lead.kind === 'equip' &&
+                 p.equip && lead.equip &&
+                 p.equip.equipType === 'exchanger' &&
+                 lead.equip.equipType === 'exchanger') {
+        var fe = p.equip, Le = lead.equip;
+        if (Le.duty !== undefined) fe.duty = Le.duty;
+        if (Le.qRated !== undefined) fe.qRated = Le.qRated;
+        if (Le.pdRated !== undefined) fe.pdRated = Le.pdRated;
+      }
+    });
   }
 
   function build(m, prev, opts) {
@@ -534,8 +588,7 @@
         if (FD.valves.isClosed(p.valve.type, p.valve.opening)) {
           warnings.push({
             code: 'VALVE_SHUT',
-            message: 'Valve ' + p.id + ' is shut (0 % open). Any demand behind it cannot be ' +
-                     'satisfied, so downstream pressures on this branch are not meaningful.',
+            message: 'Valve ' + p.id + ' is shut.',
             pipe: p.id
           });
         }
@@ -603,8 +656,7 @@
           link._reverseHeld = true;
           warnings.push({
             code: 'REVERSE_BLOCKED',
-            message: 'Equipment ' + (p.tag || p.id) + ' is holding against reverse flow. ' +
-                     'Check its direction — use the ‹ › button to flip it.',
+            message: (p.tag || p.id) + ' flow may be reversed. Check its direction.',
             pipe: p.id
           });
         }
@@ -646,9 +698,8 @@
         if (r === null) {
           warnings.push({
             code: 'NO_CHARACTERISTIC', node: n.id,
-            message: 'Outflow ' + (n.tag || n.id) + ' has no usable design point, so ' +
-                     'its resistance cannot be derived. Give it a flow and a required ' +
-                     'pressure before simulating.'
+            message: 'Outflow ' + (n.tag || n.id) + ' has no design point. ' +
+                     'Provide a rated flow and pressure before simulating.'
           });
           return;
         }
@@ -670,9 +721,7 @@
         warnings.push({
           code: 'ZERO_LENGTH', pipe: l.id,
           message: 'Pipe ' + ((M.pipe(m, l.id) || {}).tag || l.id) +
-                   ' has zero length, so it has no friction and cannot be ' +
-                   'sized. Drag one end apart, or delete it and join the two ' +
-                   'nodes into one.'
+                   ' has zero length. Recommend to delete and redraw.'
         });
       }
     });
@@ -712,9 +761,8 @@
     if (!stable && passes >= maxPasses) {
       res.warnings = (res.warnings || []).concat([{
         code: 'FITTING_OSCILLATION',
-        message: 'Tee run/branch assignment did not settle in ' + maxPasses +
-                 ' passes; the last solution is reported. Flow directions may be ' +
-                 'marginal somewhere in the network.'
+        message: 'Simulation did not stabilize in ' + maxPasses + ' passes. ' +
+                 'Flow directions may be marginal somewhere in the network.'
       }]);
     }
 
@@ -873,11 +921,8 @@
     (M.riserOpenEnds ? M.riserOpenEnds(m) : []).forEach(function (o) {
       res.warnings = (res.warnings || []).concat([{
         code: 'RISER_OPEN_END', node: o.node, riser: o.riser,
-        message: 'Riser ' + o.riser + ' has nothing connected at its ' + o.end +
-                 ' (' + ((M.node(m, o.node) || {}).tag || o.node) + '). The ' +
-                 'column ends in mid-air, so water arriving there has nowhere ' +
-                 'to go. Draw a pipe from that node, or detach the ' + o.end +
-                 ' floor from the column.'
+        message: o.riser + ' has an open connection at ' + o.end +
+                 '. Connect a pipe or delete it.'
       }]);
     });
 
@@ -903,9 +948,8 @@
       res.warnings.push({
         code: 'TAG_MANGLED', pipe: o.a !== undefined ? o.id : undefined,
         node: o.a === undefined ? o.id : undefined,
-        message: o.id + ' is tagged \u201c' + o.tag + '\u201d, which is a tag ' +
-                 'with an automatically generated one appended to it. Use ' +
-                 'Repair tags on the FILE group to put it right.'
+        message: 'Internal error caused ' + o.id + ' to become corrupted. Use ' +
+                 'Repair tags under File to rectify.'
       });
     });
 
@@ -921,10 +965,8 @@
     M.duplicateTags(m).forEach(function (d) {
       res.warnings.push({
         code: 'TAG_DUPLICATE',
-        message: d.ids.length + ' items share the tag \u201c' + d.tag + '\u201d (' +
-                 d.ids.join(', ') + '). Every table on the CALCULATION sheet is ' +
-                 'keyed on the tag, so two rows with this name cannot be told ' +
-                 'apart. Rename all but one.'
+        message: 'Duplicate tags ' + d.tag + ' for ' + d.ids.join(', ') +
+                 ' will cause solver instability. Provide unique tags.'
       });
     });
 
@@ -942,9 +984,8 @@
         res.errors = (res.errors || []).concat(noCurve.map(function (p) {
           return {
             code: 'NO_PUMP_CURVE', pipe: p.id,
-            message: 'Pump curve is required to simulate. If no manufacturer data is ' +
-                     'available, please see the TOOLS tab.' +
-                     ' (' + (p.tag || p.id) + ')'
+            message: 'Pump curve is required to simulate. Change pump sizing ' +
+                     'mode to Manual or Curve.'
           };
         }));
         res.converged = false;
@@ -954,6 +995,11 @@
     res.passes = passes;
     res.pumpSizing = sizing;
     recordDesignPoint(m, res);
+    /* `recordDesignPoint` writes the leader's settled design point and its
+     * curve, and that happens AFTER the last build — so the followers are one
+     * step behind until they are told again. No notice from this call: the
+     * build above has already raised it. */
+    applySyncedDesign(m);
 
     /* WHAT THE SYSTEM WOULD ACTUALLY DELIVER — a second, pressure-driven pass,
      * reported in brackets beside the demanded flows.
@@ -1078,9 +1124,9 @@
         out.push({
           code: 'VELOCITY', pipe: l.id, section: section,
           velocity: v, limit: warn.velocity,
-          message: 'Section ' + section + ': velocity ' + v.toFixed(2) +
-                   ' m/s exceeds the ' + warn.velocity + ' m/s limit. Go up a ' +
-                   'pipe size, or raise the limit on the HYDRAULIC tab.'
+          message: ((M.pipe(m, l.id) || {}).tag || l.id) + ' velocity ' +
+                   v.toFixed(2) + ' m/s exceeds ' + warn.velocity +
+                   ' m/s set in HYDRAULIC.'
         });
       }
 
@@ -1091,9 +1137,9 @@
           out.push({
             code: 'PDM', pipe: l.id, section: section,
             pdm: pdm, limit: warn.pdm,
-            message: 'Section ' + section + ': friction rate ' + pdm.toFixed(0) +
-                     ' Pa/m exceeds the ' + warn.pdm + ' Pa/m limit. Go up a ' +
-                     'pipe size, or raise the limit on the HYDRAULIC tab.'
+            message: ((M.pipe(m, l.id) || {}).tag || l.id) + ' friction rate ' +
+                     pdm.toFixed(0) + ' Pa/m exceeds ' + warn.pdm +
+                     ' Pa/m set in HYDRAULIC.'
           });
         }
       }
@@ -1107,17 +1153,21 @@
         out.push({
           code: 'LAMINAR',
           pipe: l.id,
-          message: 'Section ' + l.from + ' → ' + l.to + ' is in laminar flow (Re ≈ ' +
-                   Math.round(Re) + ', below ' + FD.hydraulics.RE_LAMINAR + ')' +
-                   (usingHW ? ' — Hazen-Williams is a turbulent correlation and does not ' +
-                              'apply here. Use Darcy-Weisbach for this section.' : '.')
+          message: ((M.pipe(m, l.id) || {}).tag || l.id) + ' is in laminar flow (Re = ' +
+                   Math.round(Re) + '). ' +
+                   (usingHW ? 'Hazen-Williams calculation method is not reliable ' +
+                              'in this region. Consider using Darcy-Weisbach ' +
+                              'calculation method.'
+                            : 'Friction loss here is inherently uncertain.')
         });
       } else if (FD.hydraulics.isTransitional(Re)) {
         out.push({
           code: 'TRANSITIONAL',
           pipe: l.id,
-          message: 'Section ' + l.from + ' → ' + l.to + ' is in the transitional range (Re ≈ ' +
-                   Math.round(Re) + '). Friction loss here is inherently uncertain.'
+          message: ((M.pipe(m, l.id) || {}).tag || l.id) + ' is in transitional ' +
+                   'range (Re = ' + Math.round(Re) + '). Both friction ' +
+                   'calculations are unreliable in this region. Consider ' +
+                   'changing pipe size.'
         });
       }
     });
@@ -1168,9 +1218,7 @@
       warnings.push({
         code: 'NO_SOURCE',
         node: nodes[pick].id,
-        message: 'Water source is required. This water source may be a water tank, city ' +
-                 'mains or any other inexhaustible supply for open loop systems, or your ' +
-                 'top up/expansion tank for closed loop systems.',
+        message: 'Water source is required.',
         detail: 'To let the calculation proceed, node ' + nodes[pick].id + ' has been ' +
                 'pinned as a temporary pressure datum (0 kPa gauge at its own level). ' +
                 'Flows and pressure DIFFERENCES are correct, but absolute pressures are ' +
@@ -1218,8 +1266,13 @@
     if (m.settings.calcMode === 'simulation') {
       return { resolved: false, iterations: 0, skipped: true, mode: 'simulation' };
     }
+    /* A SYNCED PUMP IS NOT SIZED ON ITS OWN — it takes the leader's duty
+     * (`applySyncedDesign`). Sizing it here as well would wind two members of
+     * one set against the same shortfall independently, which is the runaway
+     * the frozen anchor above exists to prevent. */
     var autos = m.pipes.filter(function (p) {
-      return p.kind === 'pump' && p.pump && p.pump.mode === 'auto' && !isDeadEnded(m, p);
+      return p.kind === 'pump' && p.pump && p.pump.mode === 'auto' &&
+             !M.syncOf(p) && !isDeadEnded(m, p);
     });
     if (!autos.length) return { resolved: false, iterations: 0, skipped: true };
 
@@ -1577,8 +1630,7 @@
         warnings.push({
           code: 'CONTROL_TARGET_GONE', pipe: p.id,
           message: (p.tag || p.id) + ' is linked to ' + c.equip +
-                   ', which is no longer in the model, so it is not being ' +
-                   'controlled at all. Re-link it or clear the control.'
+                   ', which has been deleted/renamed. Re-link or clear the control.'
         });
         return;
       }
@@ -1598,9 +1650,8 @@
          * link was added to avoid. */
         warnings.push({
           code: 'CONTROL_NO_SETPOINT', pipe: p.id, equip: tgtPipe.id,
-          message: (p.tag || p.id) + ' is linked to ' +
-                   (tgtPipe.tag || tgtPipe.id) + ', which states no setpoint, ' +
-                   'so it has nothing to control to.'
+          message: (p.tag || p.id) + ' has no setpoint for ' +
+                   (tgtPipe.tag || tgtPipe.id) + '. Provide a setpoint.'
         });
         return;
       }
@@ -1671,11 +1722,10 @@
        * right one. */
       warnings.push({
         code: 'CONTROL_GANGED', pipe: lead.act.pipe.id, equip: lead.equip.id,
-        message: 'Multiple equipment connected to a single sensor is not ' +
-                 'supported & is unstable. Instead connect 1 equipment to the ' +
-                 'sensor & connect the others to sync with it. (' +
-                 g.map(function (pr) { return pr.act.pipe.tag || pr.act.pipe.id; })
-                  .join(', ') + ' \u2192 ' + (lead.equip.tag || lead.equip.id) + ')',
+        message: 'Multiple equipment connected to ' +
+                 (lead.equip.tag || lead.equip.id) + ' may cause unstable ' +
+                 'simulation. Connect 1 equipment to the sensor & sync other ' +
+                 'equipment to that.',
         detail: 'Until then they are modulated together at one common ' +
                 lead.act.quantity + ', which is what a common header does — ' +
                 'without that they would settle on an arbitrary split.'
@@ -2461,10 +2511,10 @@
     if (ranOut) {
       warnings.push({
         code: 'CONTROL_BUDGET',
-        message: 'The control loop ran out of solves before every device had ' +
-                 'been settled, so some are holding the position the last ' +
-                 'complete iteration gave them. Raise Max solves in SETTINGS if ' +
-                 'the answer looks unfinished.'
+        message: 'Controls did not stabilize the simulation after ' + solves +
+                 ' iterations. Results from the last iteration may be usable. ' +
+                 'Check system for conflicting controls, sync equipment to a ' +
+                 'single control group, or increase Max Solves in SETTINGS.'
       });
     }
     /* CONTROL_HUNTING is raised AFTER the device report below, so it can say HOW
@@ -2542,34 +2592,37 @@
                ? Math.abs(d.error / 1000).toFixed(1) + ' kPa'
            : Math.abs(d.error).toFixed(1) + ' K') +
           ' ' + (d.error > 0 ? 'above' : 'below');
+      /* Absolute value the machine came to rest at, for CONTROL_UNSETTLED —
+       * the setpoint offset by the residual error, in the setpoint's own unit. */
+      var settledTxt = (d.error === null) ? setTxt
+        : isFlow ? ((pair.target + d.error) * 1000).toFixed(2) + ' L/s'
+        : pair.mode === 'dT' ? (pair.target + d.error).toFixed(1) + ' K ΔT'
+        : (pair.mode === 'pressure' || pair.mode === 'dPdiff')
+            ? ((pair.target + d.error) / 1000).toFixed(1) + ' kPa'
+        : (pair.target + d.error).toFixed(1) + ' °C';
       if (d.state === 'at-min') {
         warnings.push({
           code: 'CONTROL_AT_LIMIT', pipe: d.pipe, equip: d.equip,
-          message: name + ' is at its minimum ' + pair.act.quantity + ' (' +
-                   pair.act.label(d.value) + ') and ' + eqName + ' is still ' +
-                   off + ' its ' + setTxt + ' setpoint.'
+          message: name + ' is unable to maintain setpoint ' + setTxt +
+                   ' at minimum ' + pair.act.quantity + '. Check controls.'
         });
       } else if (d.state === 'at-max') {
         warnings.push({
           code: 'CONTROL_AT_LIMIT', pipe: d.pipe, equip: d.equip,
-          message: name + ' is at full ' + pair.act.quantity + ' and ' + eqName +
-                   ' is ' + off + ' its ' + setTxt +
-                   ' setpoint — backing off would not bring it closer.'
+          message: name + ' is unable to maintain setpoint ' + setTxt +
+                   ' at maximum ' + pair.act.quantity + '. Check controls.'
         });
       } else if (d.state === 'unsettled') {
         warnings.push({
           code: 'CONTROL_UNSETTLED', pipe: d.pipe, equip: d.equip,
-          message: name + ' could not hold ' + eqName + ' at ' + setTxt +
-                   ' — it came to rest ' + off + ' setpoint. Either the ' +
-                   'actuator resolution is the limit, or nothing it can do ' +
-                   'reaches it: check the machine\u2019s capacity and Design ' +
-                   '\u0394T, and whether the setpoint is achievable at all.'
+          message: name + ' is unable to maintain setpoint ' + setTxt +
+                   ' (Settled at ' + settledTxt + '). Check setpoint, ' +
+                   'equipment capacity or system heat balance.'
         });
       } else if (d.state === 'no-flow') {
         warnings.push({
           code: 'CONTROL_NO_FLOW', pipe: d.pipe, equip: d.equip,
-          message: eqName + ' carries no flow, so ' + name + ' has nothing to ' +
-                   'control to.'
+          message: eqName + ' is unable to be controlled as it has no flow.'
         });
       }
       return d;
@@ -2589,11 +2642,11 @@
       warnings.push({
         code: 'CONTROL_HUNTING',
         holding: holding, total: totalDev, pct: pct,
-        message: 'Not fully settled after ' + sweep + ' iterations — ' + holding +
-                 ' of ' + totalDev + ' controlled devices holding setpoint (' +
-                 pct + '%). The last answer is reported. Raise Settling ' +
-                 'iterations in SETTINGS to converge further, or accept it if ' +
-                 'this is close enough.'
+        message: 'Controls did not stabilize after ' + sweep + ' iterations. ' +
+                 holding + ' of ' + totalDev + ' devices maintaining setpoint. ' +
+                 'Results from the last iteration may be usable. Check system ' +
+                 'for conflicting controls, sync equipment to a single control ' +
+                 'group, or increase Max Solves in SETTINGS.'
       });
     }
 
@@ -2717,8 +2770,7 @@
       out.push({
         code: 'VALVE_OVERSIZED', pipe: p.id, opening: open, limit: lim,
         message: (p.tag || p.id) + ' has insufficient control authority. ' +
-                 'Consider reducing size. (' + open + '% open, below the ' +
-                 lim + '% limit.)'
+                 'Check valve Kv.'
       });
     });
     return out;
@@ -2786,13 +2838,9 @@
       out.push({
         code: 'PRESSURE_IMPLAUSIBLE', pipe: worst.id, pressure: worst.pa,
         limit: lim,
-        message: worst.what + ' is at ' + (worst.pa / 1000).toFixed(0) + ' kPa (' +
-                 (worst.pa / 1e5).toFixed(1) + ' bar), past the ' +
-                 (lim / 1000).toFixed(0) + ' kPa plausibility limit. The ' +
-                 'arithmetic is right — something in the model is not. Check ' +
-                 'any equipment carrying far more than its rated flow: its ' +
-                 'pressure drop goes as the SQUARE of the ratio. Raise the ' +
-                 'limit on the HYDRAULIC tab if the system really is this high.'
+        message: worst.what + ' is at ' + (worst.pa / 1000).toFixed(0) +
+                 ' kPa, past the ' + (lim / 1000).toFixed(0) +
+                 ' kPa plausibility limit. Check calculation for pressure spikes.'
       });
     }
     return out;
@@ -2840,12 +2888,9 @@
       out.push({
         code: 'EQUIP_OFF_RATING', pipe: p.id, ratio: ratio,
         message: (p.tag || p.id) + ' is rated for ' + (qr * 1000).toFixed(2) +
-                 ' L/s but is carrying ' + (q * 1000).toFixed(2) + ' L/s (' +
-                 (ratio >= 1 ? ratio.toFixed(1) + '×' : '1/' + (1 / ratio).toFixed(1)) +
-                 ' its rating). Its pressure drop follows the square of that, so ' +
-                 'it is ' + (pd / 1000).toFixed(0) + ' kPa against a rated ' +
-                 ((p.equip.pdRated || 0) / 1000).toFixed(0) + ' kPa. Check its ' +
-                 'design flow, load and ΔT — they are one equation.'
+                 ' L/s but is carrying ' + (q * 1000).toFixed(2) + ' L/s, ' +
+                 (ratio >= 1 ? ratio.toFixed(1) + '\u00d7' : '1/' + (1 / ratio).toFixed(1)) +
+                 '. Check the design flow, load and rating.'
       });
     });
     return out;
@@ -2878,10 +2923,8 @@
         pipe: p.id,
         node: deadEnd[0],
         message: deadEnd.length
-          ? 'Pump ' + p.id + ' carries no flow — node ' + deadEnd[0] + ' is a dead end, so ' +
-            'nothing can pass through the pump. Connect it to a source or to the rest of ' +
-            'the pipework.'
-          : 'Pump ' + p.id + ' carries no flow, so it is having no effect on the system.'
+          ? 'Pump ' + (p.tag || p.id) + ' has no flow (dead end). Check system arrangement.'
+          : 'Pump ' + (p.tag || p.id) + ' has no flow. Check system arrangement.'
       });
     });
 
@@ -2909,11 +2952,10 @@
         sources: sources.map(function (s) { return s.id; }),
         worstNode: worst.node,
         worstShortPa: worst.shortPa,
-        message: 'Source is insufficient for outflow (' +
-                 (worst.available / 1000).toFixed(1) + ' kPa at ' + worst.node + ', short by ' +
-                 (worst.shortPa / 1000).toFixed(1) + ' kPa). ' +
-                 deficient.length + ' outflow' + (deficient.length > 1 ? 's' : '') +
-                 ' cannot be met as drawn.'
+        message: 'Insufficient pressure at ' +
+                 ((M.node(m, worst.node) || {}).tag || worst.node) + ' (Short by ' +
+                 (worst.shortPa / 1000).toFixed(1) + ' kPa). Consider increasing ' +
+                 'pipe size or pressure.'
       });
     }
 
@@ -3210,12 +3252,9 @@
           issues.push({
             code: 'COINCIDENT_NODES', nodes: [a.id, b.id], distance: d,
             severity: 'error',
-            message: 'Nodes ' + (a.tag || a.id) + ' and ' + (b.tag || b.id) +
-                     ' are ' +
-                     (d < 1e-9 ? 'in exactly the same place' :
-                      (d * 1000).toFixed(0) + ' mm apart') +
-                     ' but are not joined. The drawing looks continuous; the ' +
-                     'network is not. Drag one onto the other to join them.'
+            message: (a.tag || a.id) + ' and ' + (b.tag || b.id) +
+                     ' are in exactly the same place but are not connected. ' +
+                     'Drag them together to join them.'
           });
         }
       }
@@ -3226,8 +3265,8 @@
       if (deg[n.id] === 0) {
         issues.push({
           code: 'ORPHAN_NODE', nodes: [n.id], severity: 'warn',
-          message: 'Node ' + (n.tag || n.id) + ' has no pipe connected to it. ' +
-                   'Draw a pipe to it, or delete it.'
+          message: (n.tag || n.id) + ' is disconnected from the network. ' +
+                   'Connect it or delete.'
         });
       }
     });
@@ -3253,11 +3292,8 @@
         issues.push({
           code: 'ISLAND', nodes: c, severity: 'error',
           message: c.length + ' node(s) form a separate island with no pipe ' +
-                   'connecting them to the main network (' +
-                   c.slice(0, 4).map(function (id) {
-                     return (M.node(m, id) || {}).tag || id;
-                   }).join(', ') + (c.length > 4 ? ', …' : '') + '). Draw a pipe ' +
-                   'to join it, or delete it.'
+                   'connecting them to the main network. Connect them to the ' +
+                   'network or delete.'
         });
       });
     }
@@ -3287,10 +3323,7 @@
       issues.push({
         code: 'SLOPED_PIPE', pipe: p.id, nodes: [p.a, p.b], severity: 'error',
         rise: rise,
-        message: 'Pipe ' + p.id + ' (' + p.a + ' → ' + p.b + ') rises ' +
-                 Math.abs(rise).toFixed(3) + ' m between its ends. Pipes in the ' +
-                 'layout must be level — use a riser to change height. Its ' +
-                 'length is being reported as the horizontal distance.'
+        message: 'Sloped pipes are not supported. Use a riser to change elevation.'
       });
     });
 
@@ -3331,9 +3364,7 @@
         issues.push({
           code: 'NO_RETURN_PATH', pipe: p.id, nodes: [p.a, p.b], severity: 'error',
           message: (p.kind === 'pump' ? 'Pump ' : 'Equipment ') + (p.tag || p.id) +
-                   ' has nowhere to discharge: from its outlet (' + p.b + ') there is ' +
-                   'no route back to its inlet (' + p.a + '), and no outflow or source ' +
-                   'to reach. Nothing can flow through it.'
+                   ' has no path to return or to outflow.'
         });
       }
     });
@@ -3544,8 +3575,9 @@
           code: 'PUMP_RUNOUT', pipe: pp.pipe,
           pct: pp.pctOfDesign * 100, limit: runoutPct,
           message: 'Pump ' + (pp.tag || pp.pipe) + ' is running at ' +
-                   (pp.pctOfDesign * 100).toFixed(1) + '% of its design flow, past the ' +
-                   runoutPct + '% limit. Check motor loading and NPSH available at this duty.'
+                   (Math.abs(res.flow[pp.pipe] || 0) * 1000).toFixed(2) + ' L/s, (' +
+                   (pp.pctOfDesign * 100).toFixed(1) + '% of design flow). Check ' +
+                   'available NPSH or design flow.'
         });
       });
     }
@@ -3820,10 +3852,8 @@
           warnings.push({
             code: 'DW_FIXTURE_SHORT', node: n.id,
             shortfall: -short, required: need, available: pressure[n.id],
-            message: 'Fixture ' + (n.tag || n.id) + ' is ' +
-                     Math.round(-short / 1000) + ' kPa short of its required ' +
-                     Math.round(need / 1000) + ' kPa. Go up a pipe size on its ' +
-                     'run, or raise the supply pressure.'
+            message: 'Insufficient pressure at ' + (n.tag || n.id) +
+                     '. Consider increasing pipe size or source pressure.'
           });
         }
       });
@@ -3854,15 +3884,11 @@
         code: 'DW_GENERIC_DEMAND', node: generics[0].id,
         nodes: generics.map(function (n) { return n.id; }),
         total: genTotal, level: 'notice',
-        message: generics.length + ' generic outflow' + (generics.length > 1 ? 's add ' : ' adds ') +
-                 (genTotal * 1000).toFixed(2) + ' L/s to the design flow ' +
-                 'UNDIVERSIFIED (' + generics.slice(0, 5).map(function (n) {
-                   return (n.tag || n.id) + ' ' + (n.device.flow * 1000).toFixed(2) + ' L/s';
-                 }).join(', ') + (generics.length > 5 ? ', …' : '') + '). A generic ' +
-                 'outflow is a continuous draw, not a fixture unit, so it is added ' +
-                 'on top of the fixture-unit flow rather than through the demand ' +
-                 'curve. Check the figure is one you chose — 1.00 L/s is the ' +
-                 'default a new outflow is created with.'
+        message: 'Generic outflows ' + generics.slice(0, 5).map(function (n) {
+                   return (n.tag || n.id);
+                 }).join(', ') + (generics.length > 5 ? ', \u2026' : '') +
+                 ' add constant ' + (genTotal * 1000).toFixed(2) +
+                 ' L/s to the design flow. Dismiss this notification if intentional.'
       });
     }
 
@@ -3878,11 +3904,11 @@
       warnings.push({
         code: 'DW_UNSIZED', pipe: unsized[0],
         pipes: unsized,
-        message: unsized.length + ' pipe' + (unsized.length > 1 ? 's are' : ' is') +
-                 ' not sized (' + unsized.slice(0, 6).join(', ') +
-                 (unsized.length > 6 ? ', …' : '') + '). Fixture-unit sizing only ' +
-                 'reaches pipework on a branch that has a source and at least one ' +
-                 'plumbing fixture, so these are left off the calculation.'
+        message: unsized.slice(0, 6).map(function (id) {
+                   return (M.pipe(m, id) || {}).tag || id;
+                 }).join(', ') + (unsized.length > 6 ? ', \u2026' : '') +
+                 ' is not calculated as there are no downstream fixtures. ' +
+                 'Dismiss this notification if intentional.'
       });
     }
 
@@ -3989,8 +4015,7 @@
     if (rep.flow[pipeId] === undefined) {
       return { ok: false, q: null, h: null,
                error: { code: 'DW_PUMP_UNSIZED', message:
-                 'Pump ' + (p.tag || pipeId) + ' is not on a sized branch, so ' +
-                 'there is no flow to size it for.' } };
+                 (p.tag || pipeId) + ' is not connected to a demand. Check for disconnects.' } };
     }
     /* WHAT THE PUMP MUST DELIVER — Michael's rule, 2026-08-18:
      *
@@ -4045,7 +4070,7 @@
     if (worst === null) {
       return { ok: false, q: null, h: null,
                error: { code: 'DW_PUMP_NO_FIXTURES', message:
-                 'No fixtures to size against — place outflows first.' } };
+                 (p.tag || pipeId) + ' is not connected to a demand. Check for disconnects.' } };
     }
 
     /* The index fixture among those this pump serves (which on a single-source

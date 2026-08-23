@@ -44,8 +44,8 @@ section('Closed circuit gets a pressure datum');
   ok('...naming the pinned node', !!w[0].node);
   ok('...telling the engineer a water source is required',
      /Water source is required/.test(w[0].message), w[0].message);
-  ok('...and mentioning the top up/expansion tank for closed loops',
-     /top up\/expansion tank/.test(w[0].message));
+  ok('...kept terse, per docs/MESSAGES.md',
+     w[0].message === 'Water source is required.', w[0].message);
   ok('...with a detail line explaining the temporary datum',
      /temporary pressure datum/.test(w[0].detail || ''), w[0].detail);
 
@@ -440,6 +440,117 @@ section('A closed circuit is sized on its loads, not on its plant');
        res.pumpSizing.mode === 'flow' &&
        JSON.stringify(res.pumpSizing.sizedOn) === '["ACCH-01"]',
        JSON.stringify(res.pumpSizing.sizedOn));
+  }
+}
+
+/* ===================================================================
+ * SYNC SIZES THE GROUP AS ONE MACHINE (Michael, 2026-08-23)
+ *
+ * A sync used to copy only the POSITION, so two pumps ganged to run together
+ * could still hold two different duties and two different curves — one sized by
+ * the solver, the other holding whatever somebody typed. The leader now states
+ * the selection and the followers take it. It is said in the PUMP PANEL — the
+ * follower's duty boxes are greyed and carry the leader's numbers — and NOT as
+ * a message: a notice that fires on every solve to describe a relationship the
+ * engineer set up on purpose is noise (Michael, 2026-08-23).
+ * =================================================================== */
+section('Sync shares the sizing, not only the position');
+{
+  /* ---- PUMPS: the follower takes mode, duty and curve from the leader ---- */
+  {
+    const m = base();
+    const P = pumps(m);
+    /* Diverge the follower as hard as the panel allows: a different sizing
+     * mode AND a duty nothing would have chosen. */
+    P[1].pump.sizing = 'manual';
+    P[1].pump.mode = 'fixed';
+    P[1].pump.head = 99;
+    P[1].pump.hDesign = 99;
+    P[1].pump.qDesign = 0.001;
+    M.setSync(m, P[1], P[0].id);
+
+    const res = NET.solveModel(m);
+
+    ok('A synced pump takes the leader\u2019s sizing mode',
+       M.pumpSizing(P[1]) === M.pumpSizing(P[0]),
+       M.pumpSizing(P[1]) + ' vs ' + M.pumpSizing(P[0]));
+    near('A synced pump takes the leader\u2019s head',
+         P[1].pump.head, P[0].pump.head, 1e-9);
+    near('...and the leader\u2019s design flow',
+         P[1].pump.qDesign, P[0].pump.qDesign, 1e-12);
+    ok('...and an identical curve',
+       JSON.stringify(P[1].pump.curve) === JSON.stringify(P[0].pump.curve),
+       'follower curve differs from leader');
+    ok('The typed 99 m duty is gone', Math.abs(P[1].pump.head - 99) > 1,
+       String(P[1].pump.head));
+
+    ok('Syncing raises no message — the panel says it instead',
+       code(res, 'SYNC_SIZED').length === 0,
+       String(code(res, 'SYNC_SIZED').length));
+  }
+
+  /* ---- Only the leader is sized ---------------------------------------- */
+  {
+    const m = base();
+    const P = pumps(m);
+    P[1].pump.mode = 'auto';
+    P[1].pump.sizing = 'auto';
+    M.setSync(m, P[1], P[0].id);
+    const res = NET.solveModel(m);
+    ok('A synced pump is not auto-sized on its own',
+       (res.pumpSizing.sizedOn || []).indexOf(P[1].tag) < 0,
+       JSON.stringify(res.pumpSizing.sizedOn));
+  }
+
+  /* ---- A synced STANDBY pump stays standby ------------------------------ */
+  {
+    const m = base();
+    const P = pumps(m);
+    ok('The fixture gives us an off pump to test with',
+       P[1].pump.mode === 'off', P[1].pump.mode);
+    M.setSync(m, P[1], P[0].id);
+    const res = NET.solveModel(m);
+    ok('A synced pump left OFF stays off', P[1].pump.mode === 'off',
+       P[1].pump.mode);
+    near('...and carries no flow', res.flow[P[1].id] || 0, 0, 1e-12);
+    ok('...but still carries the leader\u2019s curve, ready to run',
+       !!P[1].pump.curve, 'no curve');
+  }
+
+  /* ---- HEAT EXCHANGERS: duty and rating follow the leader --------------- */
+  {
+    const m = M.fromJSON(JSON.parse(fs.readFileSync(
+      path.join(__dirname, 'fixtures', 'parallel-branches.pnet.json'), 'utf8')));
+    const ex = m.pipes.filter(p => p.kind === 'equip' &&
+                                   p.equip.equipType === 'exchanger');
+    ok('The fixture has two coils to sync', ex.length >= 2, String(ex.length));
+    const lead = ex[0], follow = ex[1];
+    const want = { duty: lead.equip.duty, q: lead.equip.qRated,
+                   pd: lead.equip.pdRated };
+    follow.equip.duty = 12345;
+    follow.equip.qRated = 0.0011;
+    follow.equip.pdRated = 33333;
+    M.setSync(m, follow, lead.id);
+
+    const res = NET.solveModel(m);
+
+    near('A synced coil takes the leader\u2019s duty', follow.equip.duty,
+         want.duty, 1e-9);
+    near('...its rated flow', follow.equip.qRated, want.q, 1e-12);
+    near('...and its rated pressure drop', follow.equip.pdRated, want.pd, 1e-9);
+
+    ok('A synced coil group raises no message either',
+       code(res, 'SYNC_SIZED').length === 0,
+       String(code(res, 'SYNC_SIZED').length));
+  }
+
+  /* ---- The code is gone from the app entirely -------------------------- */
+  {
+    const fs2 = require('fs');
+    const src = fs2.readFileSync(
+      path.join(__dirname, '..', 'src', 'network.js'), 'utf8');
+    ok('SYNC_SIZED is not emitted anywhere',
+       src.indexOf("code: 'SYNC_SIZED'") < 0, 'still emitted');
   }
 }
 

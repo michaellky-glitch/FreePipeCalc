@@ -1104,7 +1104,7 @@ section('Darcy-Weisbach fittings use the K method');
  *   - two codes are assigned by expression rather than as a literal, so they
  *     are listed here by hand.
  * ----------------------------------------------------------------------- */
-section('docs/MESSAGES.md covers every message the app can emit');
+section('docs_internal/MESSAGES.md covers every message the app can emit');
 {
   const fs = require('fs');
   const path = require('path');
@@ -1121,11 +1121,13 @@ section('docs/MESSAGES.md covers every message the app can emit');
   const computed = ['PUMP_DEAD_END', 'PUMP_NO_FLOW'];
   const codes = [...new Set(literal.concat(computed))].sort();
 
-  const doc = fs.readFileSync(path.join(ROOT, 'docs', 'MESSAGES.md'), 'utf8');
+  /* The catalogue moved to docs_internal/ with the rest of the developer docs
+   * (Michael, 2026-08-23): docs/ is now USER documentation only. */
+  const doc = fs.readFileSync(path.join(ROOT, 'docs_internal', 'MESSAGES.md'), 'utf8');
 
   ok('There are message codes to check', codes.length > 40, String(codes.length));
   const missing = codes.filter(c => doc.indexOf('`' + c + '`') < 0);
-  ok('Every code appears in docs/MESSAGES.md', missing.length === 0,
+  ok('Every code appears in docs_internal/MESSAGES.md', missing.length === 0,
      'undocumented: ' + missing.join(', '));
 
   /* And the other way: nothing in the doc that the app cannot produce, so the

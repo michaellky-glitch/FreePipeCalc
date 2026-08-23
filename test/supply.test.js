@@ -114,7 +114,7 @@ section('Dead-ended pump is reported and not wound up');
   const w = code(res, 'PUMP_DEAD_END');
   ok('PUMP_DEAD_END is raised', w.length === 1, JSON.stringify((res.warnings || []).map(x => x.code)));
   ok('...naming the dead-end node', !!w[0].node, JSON.stringify(w[0]));
-  ok('...and explaining it does nothing', /nothing can pass/.test(w[0].message));
+  ok('...and explaining it does nothing', /dead end/.test(w[0].message), w[0].message);
 
   /* Regression: the auto-sizer used to wind a disconnected pump up to 65 m
    * before giving up, stamping a fictitious duty on the model. */
@@ -133,8 +133,8 @@ section('Supply insufficient — source level with its demands');
      JSON.stringify(w[0].sources));
   ok('...carrying the shortfall in Pa', w[0].worstShortPa > 1e5,
      (w[0].worstShortPa / 1000).toFixed(1) + ' kPa');
-  ok('...and reading "Source is insufficient for outflow"',
-     /Source is insufficient for outflow/.test(w[0].message), w[0].message);
+  ok('...and reading "Insufficient pressure"',
+     /Insufficient pressure/.test(w[0].message), w[0].message);
   ok('...listing every unmet demand', w[0].nodes.length === 5, JSON.stringify(w[0].nodes));
 }
 
@@ -497,8 +497,8 @@ section('Equipment carrying far more than its rating is called out');
     ok('...naming the machine and both flows', !!w &&
        /AHU-1/.test(w.message) && /0\.80 L\/s/.test(w.message) &&
        /20\.00 L\/s/.test(w.message), w && w.message);
-    ok('...and the pressure drop that follows from it',
-       !!w && /125000 kPa/.test(w.message), w && w.message);
+    ok('...and the ratio in words on the message',
+       !!w && /25\.0/.test(w.message), w && w.message);
 
     /* The pump duty really is dominated by that one machine — which is the
      * whole point of the warning. */
@@ -526,7 +526,7 @@ section('Equipment carrying far more than its rating is called out');
     const w = res.warnings.filter(x => x.code === 'EQUIP_OFF_RATING')[0];
     ok('Running well UNDER the rating is called out as well', !!w);
     ok('...and reads as a fraction rather than a multiple',
-       !!w && /1\/5\.0 its rating/.test(w.message), w && w.message);
+       !!w && /1\/5\.0/.test(w.message), w && w.message);
   }
 
   {
@@ -576,10 +576,10 @@ section('A pressure nothing will be built to is an error, not a result');
     const e = (t.res.errors || []).filter(x => x.code === 'PRESSURE_IMPLAUSIBLE')[0];
     ok('PRESSURE_IMPLAUSIBLE is raised', !!e,
        JSON.stringify((t.res.errors || []).map(x => x.code)));
-    ok('...quoting the pressure in bar as well as kPa',
-       !!e && /bar/.test(e.message), e && e.message);
-    ok('...and saying the arithmetic is right, the model is not',
-       !!e && /arithmetic is right/.test(e.message));
+    ok('...quoting the pressure against the plausibility limit',
+       !!e && /plausibility limit/.test(e.message), e && e.message);
+    ok('...and pointing at pressure spikes',
+       !!e && /pressure spikes/.test(e.message), e && e.message);
     ok('The numbers are still reported, not hidden',
        Math.abs(t.res.flow[t.eq.id]) > 0);
     ok('EQUIP_OFF_RATING still names the cause beside it',

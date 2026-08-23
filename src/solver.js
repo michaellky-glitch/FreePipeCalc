@@ -282,7 +282,7 @@
         if (demanding.length) {
           errors.push({
             code: 'ISLAND_NO_SOURCE',
-            message: 'Disconnected section has demand but no source.',
+            message: 'Disconnected section has demand but no source. Check for system disconnects.',
             nodes: demanding.map(function (i) { return nodes[i].id; })
           });
         }
@@ -347,7 +347,7 @@
        * `solveLinear` is the fallback for anything that turns out not to be. */
       var Hnew = solveSPD(A, F) || solveLinear(A, F);
       if (!Hnew) {
-        errors.push({ code: 'SINGULAR', message: 'Solver matrix is singular — check for isolated or duplicated nodes.' });
+        errors.push({ code: 'SINGULAR', message: 'No unique solution for pressure. Check for isolated or duplicated nodes.' });
         return finish(false, iter, Infinity);
       }
 

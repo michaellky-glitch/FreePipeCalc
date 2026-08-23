@@ -370,6 +370,24 @@ table.sheet input.cell-input.est { color: var(--error); }
 .level-alt { color: var(--text-mute); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .level-lock { color: var(--warn); font-size: 12px; }
 
+/* View direction on a level row. Both arrows always show, so the row states
+   the choice and the alternative; the active one is lit and the other sits back
+   far enough to read as the option, not as a second state. */
+.level-dir { display: inline-flex; align-self: center; gap: 1px; }
+.level-dir-btn {
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-mute);
+  opacity: .45;
+  cursor: pointer;
+}
+.level-dir-btn:hover { opacity: .8; }
+.level-dir-btn.on { opacity: 1; color: var(--accent); }
+.level-row.active .level-dir-btn.on { color: var(--text); }
+
 /* property fields */
 #prop-body, #level-list { padding-bottom: 20px; }
 #prop-body { padding: 12px; }
@@ -791,6 +809,29 @@ table.sheet tr.active-row td { background: var(--accent-dim); }
   font-weight: 600;
 }
 .doc-content { flex: 1; min-width: 0; max-width: 80ch; }
+/* AN EMBEDDED HTML DOCUMENT gets the full width — it brings its own measure and
+   its own contents rail, so the 80ch cap meant for raw markdown would waste half
+   the pane. The frame is sized against the VIEWPORT rather than its content: the
+   framed page is a separate opaque origin, so its height cannot be read from
+   here, and it scrolls itself. */
+.doc-content.doc-embed { max-width: none; }
+.doc-frame {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 190px);
+  min-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.doc-open {
+  float: right;
+  font-size: 12.5px;
+  color: var(--accent);
+  text-decoration: none;
+  margin-left: 12px;
+}
+.doc-open:hover { text-decoration: underline; }
 .doc-head { border-bottom: 1px solid var(--line); margin-bottom: 18px; padding-bottom: 10px; }
 .doc-head h2 { margin: 0 0 4px; }
 .doc-body h2 { font-size: 17px; margin: 30px 0 10px; }
