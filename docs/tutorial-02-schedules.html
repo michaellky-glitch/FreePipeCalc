@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreePipeCalc — Tutorial 02: Adding a pipe schedule</title>
+<style>
+/* Self-contained: no fonts, no scripts, no network. The page must open from a
+   USB stick with a double-click, which is the same rule the app follows. */
+:root{
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+/* Dark by the reader's own setting when the page stands alone... */
+@media (prefers-color-scheme:dark){ :root{ color-scheme:dark } :root:not([data-theme]){
+    --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+    --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+    --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+    --code-bg:#1e242c;
+} }
+/* ...and by the APP's setting when it is embedded in the DOCUMENTATION tab,
+   which passes ?theme=. An explicit theme wins over the media query in both
+   directions, so a dark app never shows a white page and the reverse. */
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+  --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+  --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+  --code-bg:#1e242c;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+/* Embedded: the page supplies its own margin, so drop the outer one and let the
+   host frame own the scroll edge. */
+:root[data-embed="1"] header.top{padding-top:22px}
+:root[data-embed="1"] .wrap{padding-bottom:40px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.62 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px 80px;display:flex;gap:36px;align-items:flex-start}
+main{flex:1 1 auto;min-width:0;max-width:760px}
+
+/* ---- masthead ---- */
+header.top{border-bottom:1px solid var(--line);margin-bottom:28px;padding:30px 0 18px}
+header.top h1{font-size:27px;line-height:1.2;margin:0 0 6px;letter-spacing:-.2px}
+header.top .sub{color:var(--dim);margin:0;font-size:14.5px}
+header.top .meta{color:var(--mute);font-size:12.5px;margin-top:10px}
+
+/* ---- contents rail ---- */
+nav.toc{
+  position:sticky;top:18px;flex:0 0 232px;align-self:flex-start;
+  font-size:13px;line-height:1.5;max-height:calc(100vh - 40px);overflow:auto;
+  border-left:1px solid var(--line-soft);padding-left:16px
+}
+nav.toc h2{font-size:11px;letter-spacing:.9px;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:s}
+nav.toc > ol > li{counter-increment:s;margin:0 0 3px}
+nav.toc > ol > li > a::before{content:counter(s) ". ";color:var(--mute)}
+nav.toc ol ol{padding-left:16px;margin:2px 0 6px}
+nav.toc ol ol li{margin:0}
+nav.toc a{color:var(--dim);text-decoration:none;display:block;padding:2px 0}
+nav.toc a:hover{color:var(--accent)}
+
+/* ---- headings ---- */
+h2{font-size:21px;margin:44px 0 12px;padding-top:10px;border-top:1px solid var(--line);letter-spacing:-.15px}
+h2:first-of-type{border-top:0;margin-top:0}
+h3{font-size:16.5px;margin:28px 0 8px}
+h4{font-size:14px;margin:20px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 14px;padding-left:22px}
+li{margin:0 0 5px}
+a{color:var(--accent)}
+strong{font-weight:650}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.9em;background:var(--code-bg);padding:1px 5px;border-radius:4px
+}
+
+/* ---- formulae ---- */
+.eq{
+  background:var(--panel);border:1px solid var(--line-soft);border-left:3px solid var(--accent);
+  border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;overflow-x:auto;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:1.75
+}
+.eq .lbl{display:block;font-family:system-ui,sans-serif;font-size:11.5px;
+  text-transform:uppercase;letter-spacing:.7px;color:var(--mute);margin-bottom:7px}
+.eq em{color:var(--mute);font-style:normal}
+.steps{counter-reset:step;list-style:none;padding-left:0;margin:16px 0}
+.steps > li{
+  counter-increment:step;position:relative;padding-left:38px;margin-bottom:14px
+}
+.steps > li::before{
+  content:counter(step);position:absolute;left:0;top:1px;
+  width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;
+  font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center
+}
+
+/* ---- tables ---- */
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th,td{border:1px solid var(--line-soft);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel);font-weight:600;font-size:13px}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto;margin:16px 0}
+.scroll table{margin:0}
+
+/* ---- callouts ---- */
+.note{border-radius:6px;padding:12px 15px;margin:16px 0;border:1px solid var(--line);background:var(--panel)}
+.note p:last-child{margin-bottom:0}
+.note .tag{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.8px;
+  font-weight:700;margin-bottom:6px}
+.note.check{border-left:3px solid var(--ok)} .note.check .tag{color:var(--ok)}
+.note.limit{border-left:3px solid var(--warn)} .note.limit .tag{color:var(--warn)}
+.note.rule{border-left:3px solid var(--accent)} .note.rule .tag{color:var(--accent)}
+
+figure{margin:22px 0}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:13px;color:var(--dim);margin-top:8px}
+
+.lead{font-size:16px;color:var(--dim);margin-bottom:20px}
+footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);
+  font-size:13px;color:var(--mute)}
+
+@media (max-width:1000px){
+  nav.toc{display:none}
+  .wrap{display:block;padding-bottom:50px}
+  main{max-width:none}
+}
+@media print{
+  nav.toc{display:none} .wrap{display:block;max-width:none}
+  body{font-size:10.5pt;color:#000;background:#fff}
+  h2{page-break-after:avoid} .eq,table,figure,.note{page-break-inside:avoid}
+  a{color:#000;text-decoration:none}
+}
+</style><style>
+.ctrl{width:100%;margin:14px 0}.ctrl th,.ctrl td{vertical-align:top}
+.ctrl th:first-child,.ctrl td:first-child{white-space:nowrap;font-weight:600}
+kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;background:var(--code-bg);
+  border:1px solid var(--line);border-radius:4px;padding:1px 6px;white-space:nowrap}
+.tight li{margin-bottom:3px}
+.result{background:var(--panel);border:1px solid var(--line-soft);border-radius:6px;padding:12px 15px;margin:14px 0}
+.result .rh{font-size:11.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--mute);margin-bottom:8px;font-weight:700}
+</style>
+<script>
+/* The ONLY script in this document, and it does one thing: let the app tell the
+   page which theme to draw in. A query string survives file:// where fetch and
+   postMessage-to-an-opaque-origin do not, so this is what works when the app is
+   opened by double-clicking index.html. With no parameter the page falls back to
+   the reader's own prefers-color-scheme, which is what it does when opened on
+   its own. */
+(function () {
+  try {
+    var q = new URLSearchParams(location.search);
+    var t = q.get('theme');
+    if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
+    if (q.get('embed') === '1') document.documentElement.dataset.embed = '1';
+  } catch (e) { /* no parameters, no problem: the media query still applies */ }
+})();
+</script></head>
+<body>
+<div class="wrap">
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#which">Which way to add one</a></li>
+    <li><a href="#inapp">The in-app way</a></li>
+    <li><a href="#file">The file way</a></li>
+    <li><a href="#anatomy">What a schedule is</a></li>
+    <li><a href="#add">Add your schedule</a></li>
+    <li><a href="#cache">Make the change appear</a></li>
+    <li><a href="#check">Check your work</a></li>
+    <li><a href="#wrong">When it goes wrong</a></li>
+    <li><a href="#data">Where the numbers come from</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="top">
+  <h1>Tutorial 02: Adding a pipe schedule</h1>
+  <p class="sub">Add a pipe material that the program does not include. You can do this in the app, or in the data file.</p>
+  <p class="meta">The file is <code>data/schedules.js</code>. Use any text editor to change it. The program has no build step.</p>
+</header>
+
+<!-- ============================================ -->
+<h2 id="which">1. Which way to add one</h2>
+<p>There are two ways to add a schedule. Each way has a different use.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Question</th><th>In the app</th><th>In the file</th></tr></thead>
+  <tbody>
+    <tr><td>Where it lives</td><td>In the model file, and in this browser</td><td>In the program</td></tr>
+    <tr><td>Who gets it</td><td>Anyone you send the model to</td><td>Anyone you send the program to</td></tr>
+    <tr><td>Survives a new copy of the program</td><td>Yes, it is in the model</td><td>No, you copy the file across</td></tr>
+    <tr><td>Available in every new model</td><td>No</td><td>Yes</td></tr>
+    <tr><td>Needs a text editor</td><td>No</td><td>Yes</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>Use the app if you must add a schedule for one model. Use the file if your office uses the material on all models. Copper is an example, because the program does not include it.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="inapp">2. The in-app way</h2>
+<p>You do not have to change a file to add a schedule for one model.</p>
+<ol class="tight">
+  <li>Open the HYDRAULIC tab.</li>
+  <li>Press <strong>Copy Current Schedule</strong> to start with the sizes of the schedule on display. Press <strong>Add schedule</strong> to start with an empty schedule.</li>
+  <li>Paste your size table. The columns are the label, the bore in mm, and the outside diameter in mm. The program accepts tabs, commas, semicolons and spaced columns. Thus you can paste directly from a spreadsheet.</li>
+  <li>The program ignores a heading row. If the program cannot read a line, it tells you. It does not remove the line without a message.</li>
+</ol>
+<p>The program saves the schedule in the model. The schedule goes with the file to other users. The remainder of this tutorial shows the other way.</p>
+
+<!-- ============================================ -->
+<h2 id="file">3. The file way</h2>
+<p>Open <code>data/schedules.js</code> in any text editor. The file is plain JavaScript. The program reads the file as it is. You do not compile it.</p>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>Make a copy of the file before you change it. If one comma or one bracket is missing, the program does not start. The window is then empty.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="anatomy">4. What a schedule is</h2>
+<p>A schedule is a name, a default C factor, and a list of sizes.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Field</th><th>What it is</th></tr></thead>
+  <tbody>
+    <tr><td><code>key</code></td><td>The short name in quotes, such as <code>'sch40'</code>. A saved model records this, so choose it once and do not change it later.</td></tr>
+    <tr><td><code>name</code></td><td>What the user sees in the schedule list.</td></tr>
+    <tr><td><code>defaultC</code></td><td>The Hazen-Williams C factor a new model starts with for this material. About 120 for steel and about 150 for plastic and copper.</td></tr>
+    <tr><td><code>sizes</code></td><td>The list of pipe sizes.</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Each size carries three things.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Field</th><th>What it is</th></tr></thead>
+  <tbody>
+    <tr><td><code>label</code></td><td>The nominal designation, such as <code>DN50</code> or <code>110 mm</code>. It is a name, not a dimension.</td></tr>
+    <tr><td><code>id_mm</code></td><td>The <strong>bore</strong>, in millimetres. The friction calculation uses this value. No other value changes the friction. Make sure that it is correct.</td></tr>
+    <tr><td><code>od_mm</code></td><td>The <strong>outside diameter</strong>, in millimetres. The thermal module uses it for the insulation surface area.</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>The nominal label and the bore are different numbers. HDPE “110 mm” is an outside diameter with a bore near 90 mm. The program looks fittings up on the label and calculates friction on the bore, so both must be right.</p>
+</div>
+<p>You do not have to work the bore out yourself. Two helpers accept whichever form your published table is printed in:</p>
+<div class="eq">
+fromWall([ [label, outside diameter, wall thickness], … ])<br>
+fromBore([ [label, bore, outside diameter], … ])
+</div>
+<p><code>fromWall</code> derives the bore as <code>od − 2 × wall</code>, which is how nearly every pipe table is printed. <code>fromBore</code> takes the bore directly; its outside diameter is optional.</p>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>If you do not give the outside diameter, the program uses the bore in its place. The pipe is then too small in the thermal calculation. The area of the insulation is too small, and the calculated heat loss is too low. Give the outside diameter if you know it.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="add">5. Add your schedule</h2>
+<p>Find the block <strong>YOUR OWN SCHEDULES</strong> at the end of the <code>SCHEDULES</code> table. The block contains two templates.</p>
+<ol class="tight">
+  <li>Copy the template block.</li>
+  <li>Remove the <code>/*</code> and <code>*/</code> that comment it out.</li>
+  <li>Put a comma after the closing brace of the entry above yours, or the file will not load.</li>
+  <li>Replace each placeholder with a value from your published table. The placeholders are <code>&lt;od&gt;</code> and <code>&lt;wall&gt;</code>. They are not numbers. Thus the program stops immediately if you forget to replace them. This prevents the use of incorrect pipe data.</li>
+  <li>Choose your <code>key</code> and your <code>name</code>.</li>
+  <li>Save the file.</li>
+</ol>
+<p>A completed schedule has this form. Use your own values:</p>
+<div class="eq">
+,'copper_x': {<br>
+&nbsp;&nbsp;name: 'Copper EN 1057 X',<br>
+&nbsp;&nbsp;defaultC: 150,<br>
+&nbsp;&nbsp;sizes: fromWall([<br>
+&nbsp;&nbsp;&nbsp;&nbsp;// [ label, outside diameter mm, wall thickness mm ]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;['15 mm', 15.00, 0.70],<br>
+&nbsp;&nbsp;&nbsp;&nbsp;['22 mm', 22.00, 0.90]<br>
+&nbsp;&nbsp;])<br>
+}
+</div>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>The two rows above show the form of a schedule. They are not copper data. Take each dimension from the published standard for your pipe.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="cache">6. Make the change appear</h2>
+<p>Save the file. Then reload the program. If your schedule is not in the list, the browser uses the copy that it kept.</p>
+<p>Each script in <code>index.html</code> carries a version token:</p>
+<div class="eq">&lt;script src="data/schedules.js?v=0.18.10"&gt;&lt;/script&gt;</div>
+<p>The browser keeps a file that has the same token. Change the number at the end of that line. Then reload the program. The browser then reads your changed file.</p>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>This is the usual cause when a change has no effect. Examine the token before you examine your change. A hard reload also reads the changed file one time. To do a hard reload, press <code>Ctrl</code>+<code>Shift</code>+<code>R</code>.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="check">7. Check your work</h2>
+<ol class="tight">
+  <li>Open the HYDRAULIC tab. Your schedule is in the Current schedule list, under the name you gave it.</li>
+  <li>Select it. The table below shows every size with its bore, outside diameter and wall.</li>
+  <li>Compare the bore with your source table. The friction calculation uses this value.</li>
+  <li>Draw one pipe. Give the pipe a flow. Then read the velocity on the calculation sheet. The program calculates the velocity from the bore. If the velocity is incorrect, the bore is incorrect.</li>
+</ol>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>Examine the largest size and the smallest size. Do not examine only a size in the middle. If a column is one row out of position, you see this most easily at the two ends.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="wrong">8. When it goes wrong</h2>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>What you see</th><th>What it usually is</th></tr></thead>
+  <tbody>
+    <tr><td>The window opens blank</td><td>The file has a syntax error. A comma between two schedules is missing, or a bracket is not closed. Use your copy of the file. Then make the change again in smaller steps.</td></tr>
+    <tr><td>Your schedule is not in the list</td><td>The cached file. Change the <code>?v=</code> token, see step 6.</td></tr>
+    <tr><td>The placeholders are still there</td><td>You removed the comment characters, but you did not replace the placeholders. The template stops the program for this reason.</td></tr>
+    <tr><td>An old model picks the wrong schedule</td><td>You changed the <code>key</code>. If a model has a key that does not exist, the program uses Schedule 40 in its place. It does not give a message. Use the old key again.</td></tr>
+    <tr><td>Friction looks wrong for the size</td><td>You put a nominal label in the bore. These are different values. Refer to step 4.</td></tr>
+    <tr><td>Heat loss looks low</td><td>The outside diameter is missing. The program used the bore in its place.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============================================ -->
+<h2 id="data">9. Where the numbers come from</h2>
+<p>Use the published standard for your pipe. The program includes ASME Schedule 10, 40 and 80, EN 10255 Medium and Heavy, PPR to EN ISO 15874, and HDPE PE100 to EN 12201. It does not include copper. Copper is thus the usual first addition.</p>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>Do not estimate a dimension that you cannot find. Do not calculate a dimension from a size near to it. The program cannot identify an incorrect row. It calculates a result from that row in the usual way, and the sheet does not show a warning. If you cannot find a value, do not include the size.</p>
+</div>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>A schedule that you add is your data. This program does not verify it. Examine the schedule before you issue a calculation that uses it.</p>
+</div>
+
+<footer>
+  <p>FreePipeCalc — Tutorial 02: Adding a pipe schedule. The file is <code>data/schedules.js</code>. All results must be verified by a qualified professional engineer before use.</p>
+</footer>
+</main>
+</div>
+</body>
+</html>

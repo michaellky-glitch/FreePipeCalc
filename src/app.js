@@ -223,6 +223,23 @@
     });
   }
 
+  /* A SPREADSHEET TREATS A LEADING = + - @ AS A FORMULA, not as text.
+   *
+   * Tags and project fields come out of the model, so a .pnet.json from someone
+   * else can put `=cmd|'/c ...'!A1` in a tag; Excel and LibreOffice offer to run
+   * it when the exported sheet is opened. Prefixing an apostrophe makes the cell
+   * text, which is what it always was.
+   *
+   * A NUMBER IS LEFT ALONE. `-5.2` legitimately starts with a minus, and quoting
+   * it would turn a figure into a string in every spreadsheet that opened it —
+   * so the guard applies only where the cell is not a plain number. */
+  function csvSafe(t) {
+    if (!t) return t;
+    if (!/^[=+\-@\t\r]/.test(t)) return t;
+    if (/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(t)) return t;   // a real number
+    return "'" + t;
+  }
+
   /* `bom` prepends a UTF-8 byte-order mark. Excel opens a .csv as the system
    * ANSI code page unless it finds one, which is why Michael's export read
    * "# Project: â€”" and "N3 â†’ N1" — an em dash and an arrow, correctly encoded
@@ -2371,7 +2388,7 @@
     var d = m.settings.display;
     function num(v) { var t = String(v); return dec === ',' ? t.replace('.', ',') : t; }
     function field(v) {
-      var t = String(v);
+      var t = csvSafe(String(v));
       return (t.indexOf(delim) >= 0 || t.indexOf('"') >= 0)
         ? '"' + t.replace(/"/g, '""') + '"' : t;
     }
@@ -2555,7 +2572,7 @@
       return dec === ',' ? s.replace('.', ',') : s;
     }
     function field(v) {
-      var s = String(v);
+      var s = csvSafe(String(v));
       return (s.indexOf(delim) >= 0 || s.indexOf('"') >= 0)
         ? '"' + s.replace(/"/g, '""') + '"' : s;
     }
@@ -3719,6 +3736,21 @@
       noAutofill(control);
     }
     return control;
+  }
+
+  /* A <thead> built from DATA, not from a string of HTML.
+   *
+   * Anything that reaches a table header from the model — a schedule name, a
+   * display unit — is written by whoever wrote the file, so it must go in as
+   * text. `el()` uses textContent, so markup in a name is shown, not run. */
+  function theadRow(cols) {
+    var thead = document.createElement('thead');
+    var tr = document.createElement('tr');
+    cols.forEach(function (c) {
+      tr.appendChild(el('th', c.cls || '', c.text === undefined ? '' : String(c.text)));
+    });
+    thead.appendChild(tr);
+    return thead;
   }
 
   /* The <label> of a field, for hanging an info marker on. `field` returns the
@@ -7282,8 +7314,16 @@
     var insTbl = m.settings.thermal.insulation;
     var gThick = FD.thermal.defaultThicknessMm(m);
     var tbl = el('table', 'sheet editable');
-    tbl.innerHTML = '<thead><tr><th class="txt">' + curS.name + '</th>' +
-                    '<th>Insulation (mm)</th><th>Loss (W/m·K)</th></tr></thead>';
+    /* THE SCHEDULE NAME IS DATA, SO IT IS SET AS TEXT, NEVER AS MARKUP.
+     * `customSchedules` is read straight out of the .pnet.json, so the name is
+     * whoever wrote the file — and concatenating it into innerHTML made a shared
+     * model able to run script in the app (found 2026-08-23). Building the row
+     * with `el()` puts it through textContent, where markup is inert. */
+    tbl.appendChild(theadRow([
+      { text: curS.name, cls: 'txt' },
+      { text: 'Insulation (mm)' },
+      { text: 'Loss (W/m\u00b7K)' }
+    ]));
     var tb = el('tbody');
     curS.sizes.forEach(function (sz) {
       var t = FD.thermal.thicknessMmForSize(m, sz.label);

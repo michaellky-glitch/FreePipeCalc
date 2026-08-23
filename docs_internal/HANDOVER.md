@@ -10,7 +10,7 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **v0.18.6 (beta), 2026-08-23.** Ten test suites, **2241 assertions**, all
+State: **v0.18.10 (beta), 2026-08-23.** Ten test suites, **2241 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
@@ -171,6 +171,78 @@ file; the catalogue check follows the file to `docs_internal/MESSAGES.md`.
   is the User Manual. Verified in-app: the nav shows exactly those eight and the
   tutorial frame renders the two new sections.
 * **`engine_backup.html` moved** `docs/` → `docs_internal/` (Michael).
+
+**DONE 2026-08-23 (v0.18.9) — equipment tags, SECURITY REVIEW, schedules tutorial.**
+
+1. **Equipment tags say what the machine is, and are two digits.**
+   `TAG_PREFIX` (`src/canvas.js`) split `equip: 'AHU'` into **`exchanger: 'HX'`**
+   and **`heatsource: 'HS'`**; `equipClick` picks by `equipType`. `nextTag` now
+   zero-pads below 10 — **HX-01, HS-01, STR-01** — and past 99 it just grows
+   (HX-100). The pad lives in `nextTag`, so PUMPS AND SENSORS GOT IT TOO
+   (PMP-01, PS-01): consistent, and flagged to Michael. `AHU` is deliberately
+   NOT reused, so an old file's AHU-1 and a new HX-01 never collide and each
+   numbers independently — verified, along with gap reuse (HX-01 + HX-03 → HX-02).
+   `AHU|HX|HS` added to the four mangled-tag regexes in `model.js`.
+
+2. **SECURITY REVIEW — `docs_internal/SECURITY-REVIEW.md`.** Three real findings,
+   all REPRODUCED in the running app and re-tested after fixing:
+   * **HIGH, fixed — stored XSS via a pipe-schedule name.** `m.customSchedules`
+     comes straight out of the .pnet.json and the THERMAL tab concatenated
+     `curS.name` into `innerHTML`. A crafted model file ran script on opening the
+     tab. It PERSISTED: custom schedules are written to `localStorage` on the
+     next save, so it re-fired every launch. (Test payload cleaned out of
+     Michael's browser storage afterwards.)
+   * **HIGH, fixed — stored XSS via a display unit** (`settings.display.flow`)
+     into the TOOLS table header, same class.
+   * **MEDIUM, fixed — CSV formula injection.** A tag of `=cmd|'/c …'!A1`
+     exported as a live formula cell. `csvSafe()` prefixes an apostrophe —
+     **but deliberately never to a number**, or `-5.2` would stop being numeric.
+   * Fixes are output encoding, not input filtering: `theadRow()` in `app.js` and
+     `tools.js` builds headers through `textContent`. **The rule: anything out of
+     a model file is DATA — into the DOM as text, never as markup.**
+   * Found sound: **no network egress at all** (no fetch/XHR/WebSocket/beacon/CDN
+     — the app cannot phone home), no `eval`/`Function`/`document.write`, no
+     prototype pollution, printer.js builds SVG via `createElementNS`+`textContent`,
+     dxf.js sanitises to ASCII.
+
+3. **`docs/tutorial-02-schedules.html`** — adding a pipe schedule, both the
+   in-app Custom route and editing `data/schedules.js`. Registered in `docs.js`
+   (nine entries now). **`data/schedules.js` was made easier to edit**: a signposted
+   header, a new **`fromBore([[label, bore, od], …])`** helper beside `fromWall`,
+   and a **YOUR OWN SCHEDULES** block at the end of the table with a commented
+   template. The template's placeholders are `<od>`/`<wall>`, NOT numbers, so
+   uncommenting it without editing fails loudly instead of shipping invented
+   data. **The tutorial was executed literally** — added a schedule by its own
+   steps, confirmed 15.00/0.70 → bore 13.6 mm, then restored the file.
+
+**STE PASS 2026-08-23 (v0.18.10), Michael: "When putting in notes for the user
+to follow in the schedules, please remember to use our STE approach."** The
+instructional comments I first wrote in `data/schedules.js` were in the project's
+DEVELOPER voice — long sentences, figurative wording ("fails loudly", "quietly
+shipping a made-up pipe", "falls back ... without saying so"), headline openers
+("ADDING YOUR OWN SCHEDULE?"). Those comments are read by a USER who is editing
+the file, so they take the doc house style, not the code one. Rewritten:
+
+* `data/schedules.js` — the header, both helper comments and the YOUR OWN
+  SCHEDULES block. Numbered imperative steps, one instruction per sentence,
+  active voice, no idiom. Warnings carry the same `IMPORTANT:` tag the HTML docs
+  use. The two templates are now labelled TEMPLATE 1 / TEMPLATE 2 by which
+  published table the reader has.
+* `docs/tutorial-02-schedules.html` — 31 sentences rewritten. One prose sentence
+  over 22 words remains and it is a list of standard names. No idiom left.
+
+**The rule for next time: developer comments keep the project voice; anything a
+USER is expected to follow is STE, wherever it physically lives.** A `.js` file
+is not automatically developer text.
+
+Re-verified after the rewrite by following the new steps literally: added a
+schedule from TEMPLATE 1, confirmed 15.00/0.70 gives bore 13.6 mm, restored the
+file.
+
+**NOTE FOR NEXT TIME — the cache bit me.** I bumped to 0.18.7, THEN edited
+app.js, and the browser served the pre-fix file: the XSS retest reported "still
+vulnerable" against a file that was already fixed. Bump AFTER the last edit, or
+re-bump. §0 says this; it is easy to do in the wrong order.
 
 ---
 

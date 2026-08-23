@@ -2806,13 +2806,14 @@
    * the point of entry; `repairTags` puts existing ones right, and says which
    * it touched rather than editing a drawing behind the user's back.
    *
-   * The prefixes are exactly the ones `nextTag` can produce. A tag that is
-   * ITSELF a generated one is left alone — `PMP-1` is a perfectly good tag; it
-   * is `<something>PMP-1` that cannot have been typed. */
-  var GENERATED_TAG = /(?:PMP|AHU|TS|PS|FS|DPS|DTS|SRC|OF|STR)-\d+/;
-  var TRAILING_GENERATED = /^(.+?)((?:(?:PMP|AHU|TS|PS|FS|DPS|DTS|SRC|OF|STR)-\d+)+)$/;
-  var PLAIN_GENERATED = /^(?:PMP|AHU|TS|PS|FS|DPS|DTS|SRC|OF|STR)-\d+$/;
-  var GENERATED_G = /(?:PMP|AHU|TS|PS|FS|DPS|DTS|SRC|OF|STR)-\d+/g;
+   * The prefixes are exactly the ones `nextTag` can produce, plus `AHU`, which
+   * it no longer produces but every file written before 2026-08-23 is full of.
+   * A tag that is ITSELF a generated one is left alone — `PMP-1` is a perfectly
+   * good tag; it is `<something>PMP-1` that cannot have been typed. */
+  var GENERATED_TAG = /(?:PMP|AHU|HX|HS|TS|PS|FS|DPS|DTS|SRC|OF|STR)-\d+/;
+  var TRAILING_GENERATED = /^(.+?)((?:(?:PMP|AHU|HX|HS|TS|PS|FS|DPS|DTS|SRC|OF|STR)-\d+)+)$/;
+  var PLAIN_GENERATED = /^(?:PMP|AHU|HX|HS|TS|PS|FS|DPS|DTS|SRC|OF|STR)-\d+$/;
+  var GENERATED_G = /(?:PMP|AHU|HX|HS|TS|PS|FS|DPS|DTS|SRC|OF|STR)-\d+/g;
 
   /* ============================== WHAT THE MANGLING ACTUALLY LOOKS LIKE
    *

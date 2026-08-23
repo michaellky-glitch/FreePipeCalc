@@ -1,17 +1,47 @@
-/* Friction Drop — built-in pipe schedules
+/* FreePipeCalc — built-in pipe schedules
  *
- * Every schedule is a list of sizes: { label, id_mm }
- *   label  — nominal designation shown in the UI
- *   id_mm  — inner diameter in millimetres (the only value the hydraulics needs)
- *   od_mm  — outer diameter, informational (used by nothing in v1)
+ * ===========================================================================
+ * TO ADD YOUR OWN SCHEDULE:
+ *   1. Find the block "YOUR OWN SCHEDULES" at the end of the SCHEDULES table.
+ *   2. Use the template in that block.
+ * For the full procedure, read docs/tutorial-02-schedules.html.
+ * ===========================================================================
+ *
+ * Each schedule has a list of sizes. Each size has three values:
+ *
+ *   label   The name of the size. The program shows this name to the user.
+ *           Examples: 'DN50', '110 mm'.
+ *
+ *   id_mm   The bore, in millimetres. The friction calculation uses this value.
+ *           No other value changes the friction. Make sure that it is correct.
+ *
+ *   od_mm   The outside diameter, in millimetres. The thermal calculation uses
+ *           this value to find the area of the insulation. If you do not give
+ *           this value, the program uses the bore. The calculated heat loss is
+ *           then too low.
+ *
+ * Two functions make the list of sizes. Use the function that agrees with your
+ * published table:
+ *
+ *   fromWall([[label, od, wall], ...])   Use this if the table gives the
+ *                                        outside diameter and the wall.
+ *   fromBore([[label, bore, od], ...])   Use this if the table gives the bore.
+ *                                        The outside diameter is optional.
  *
  * Spec §9: ASME Sch 10/40/80 steel, EN 10255 Medium & Heavy, PPR (EN ISO 15874),
- * HDPE PE100 (EN 12201). Copper is deliberately absent — add via Custom.
+ * HDPE PE100 (EN 12201). The program does not include copper. This is a
+ * decision, not an omission. To add copper, use this file or make a Custom
+ * schedule on the HYDRAULIC tab.
  */
 (function (FD) {
   'use strict';
 
-  // Helper: build size rows from [label, od, wall] triples.
+  /* Makes size rows from [label, outside diameter, wall thickness].
+   *
+   * Most published pipe tables give these three values. Thus you can copy the
+   * numbers directly. You do not have to calculate the bore.
+   *
+   * This function calculates the bore:  bore = od - (2 x wall) */
   function fromWall(rows) {
     return rows.map(function (r) {
       return {
@@ -19,6 +49,23 @@
         od_mm: r[1],
         id_mm: Math.round((r[1] - 2 * r[2]) * 100) / 100
       };
+    });
+  }
+
+  /* Makes size rows from [label, bore, outside diameter].
+   *
+   * Use this function if your table gives the bore. You do not have to
+   * calculate a value.
+   *
+   * The outside diameter is optional. If you do not give it, the program uses
+   * the bore in its place. The thermal calculation then uses a pipe that is too
+   * small, and the calculated heat loss is too low. Give the outside diameter
+   * if you know it. */
+  function fromBore(rows) {
+    return rows.map(function (r) {
+      var bore = r[1];
+      var od = (r.length > 2 && r[2] > bore) ? r[2] : bore;
+      return { label: r[0], id_mm: bore, od_mm: od };
     });
   }
 
@@ -125,6 +172,63 @@
         ['280 mm', 280.0, 16.6], ['315 mm', 315.0, 18.7]
       ])
     }
+
+    /* =====================================================================
+     * YOUR OWN SCHEDULES
+     * =====================================================================
+     *
+     * To add a schedule, do these steps:
+     *
+     *   1. Copy one of the two templates that follow.
+     *   2. Remove the comment characters from your copy.
+     *   3. Put a comma after the schedule above your new schedule.
+     *   4. Replace each placeholder with a value from your published table.
+     *   5. Replace the key and the name.
+     *   6. Save the file.
+     *   7. Change the version number in index.html. Then reload the program.
+     *
+     * For the full procedure, read docs/tutorial-02-schedules.html.
+     *
+     * IMPORTANT: The key is the text in quotes, for example 'copper_x'. A saved
+     * model records the key. Do not change the key after you use it. If you
+     * change it, a model that has the old key uses Schedule 40 in its place.
+     * The program does not give a message.
+     *
+     * IMPORTANT: There must be a comma between each schedule and the next
+     * schedule. If a comma is missing, the program does not start. The window
+     * is empty.
+     *
+     * IMPORTANT: The placeholders are not pipe data. They are not numbers. If
+     * you remove the comment characters but do not replace the placeholders,
+     * the program does not start. This prevents the use of incorrect pipe data.
+     * Take each value from the published standard for your pipe.
+     */
+
+    /* TEMPLATE 1. Use this if your table gives the outside diameter and the
+     * wall thickness.
+    ,'copper_x': {
+      name: 'Copper EN 1057 X',
+      defaultC: 150,
+      sizes: fromWall([
+        // [ label, outside diameter mm, wall thickness mm ]
+        ['<label>', <od>, <wall>],
+        ['<label>', <od>, <wall>]
+      ])
+    }
+    */
+
+    /* TEMPLATE 2. Use this if your table gives the bore.
+     * The outside diameter is optional, but give it if you know it.
+    ,'my_schedule': {
+      name: 'My schedule',
+      defaultC: 120,
+      sizes: fromBore([
+        // [ label, bore mm, outside diameter mm ]
+        ['<label>', <bore>, <od>],
+        ['<label>', <bore>, <od>]
+      ])
+    }
+    */
   };
 
   /* Parse a pasted size table.

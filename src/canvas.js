@@ -2183,7 +2183,19 @@
    * and in practice that step gets skipped. The number is the next free one for
    * that prefix, so deleting PMP-2 and drawing another gives PMP-2 back rather
    * than climbing forever. */
-  var TAG_PREFIX = { source: 'SRC', demand: 'OF', pump: 'PMP', equip: 'AHU',
+  /* EQUIPMENT IS TAGGED BY WHAT IT IS (Michael, 2026-08-23). Every piece of
+   * equipment used to come out as AHU-n, whatever it was — a chiller placed with
+   * the HEAT SOURCE/SINK tool read as an air handling unit on the drawing and in
+   * the schedule, which is the same fault the sensor prefixes fixed. The two
+   * thermal types now say which they are:
+   *
+   *   HX   heat exchanger — AHU, FCU, plate
+   *   HS   heat source / sink — chiller, boiler, tower
+   *
+   * `AHU` is deliberately NOT reused, so an old file's AHU-1 and a new HX-01
+   * never collide and the numbering of each runs on its own. */
+  var TAG_PREFIX = { source: 'SRC', demand: 'OF', pump: 'PMP',
+                     exchanger: 'HX', heatsource: 'HS',
                      adiabatic: 'STR', sensor: 'TS' };
   /* A SENSOR'S TAG SAYS WHAT IT MEASURES. Michael, 2026-08-09: a ΔP sensor came
    * out as TS-1, which reads as a thermostat on the drawing and in the
@@ -2208,7 +2220,12 @@
     m.nodes.forEach(function (n) { note(n.tag); });
     var i = 1;
     while (used[i]) i++;
-    return prefix + '-' + i;
+    /* TWO DIGITS (Michael, 2026-08-23): HX-01, not HX-1. Equipment schedules are
+     * written that way, and a plain run of numbers sorts 1, 10, 11, 2 in every
+     * tool that reads the export as text. Past 99 the number simply grows —
+     * HX-100 — rather than being truncated to fit. The scan above parses the
+     * digits, so an existing HX-1 still counts as 1 and is not handed out twice. */
+    return prefix + '-' + (i < 10 ? '0' + i : String(i));
   };
 
   View.prototype.deviceClick = function (w) {
@@ -2375,7 +2392,9 @@
     }
 
     if (eq && !eq.tag) {
-      eq.tag = this.nextTag(def.equipType === 'adiabatic' ? 'adiabatic' : 'equip');
+      eq.tag = this.nextTag(def.equipType === 'adiabatic' ? 'adiabatic'
+                          : def.equipType === 'source' ? 'heatsource'
+                          : 'exchanger');
       this.changed();
     }
   };

@@ -28,6 +28,17 @@
     return e;
   }
 
+  /* A <thead> built from DATA, not from a string of HTML — the same rule as the
+   * app's own `theadRow`. A display unit comes out of the model file, so it is
+   * whoever wrote that file; put through textContent, markup in it is inert. */
+  function theadRow(labels) {
+    var thead = document.createElement('thead');
+    var tr = document.createElement('tr');
+    labels.forEach(function (t) { tr.appendChild(el('th', '', String(t))); });
+    thead.appendChild(tr);
+    return thead;
+  }
+
   function field(host, label, ctrl, hint) {
     var wrap = el('div', 'field');
     wrap.appendChild(el('label', '', label));
@@ -211,8 +222,7 @@
     });
 
     var t = el('table', 'sheet');
-    t.innerHTML = '<thead><tr><th>% of design</th><th>Flow (' + fu + ')</th>' +
-                  '<th>Head (' + pu + ')</th></tr></thead>';
+    t.appendChild(theadRow(['% of design', 'Flow (' + fu + ')', 'Head (' + pu + ')']));
     var tb = el('tbody');
     r.rows.forEach(function (row) {
       var tr = el('tr');
