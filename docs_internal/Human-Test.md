@@ -10,7 +10,7 @@ those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-24 (v0.18.12)
+Last updated: 2026-08-24 (v0.18.13)
 
 **THE CURRENT BATCH IS DIRECTLY BELOW**, before anything historical — Michael
 2026-08-09, having gone looking for it and found it buried under two years of
@@ -40,17 +40,17 @@ reader of the manual.
 
 ---
 
-# WAITING ON YOU — v0.18.12 (2026-08-24)
+# WITHDRAWN — v0.18.12 (2026-08-24)
 
-One item, and it is purely a matter of what the drawing should look like. The
-two engine fixes in v0.18.12 are asserted in the suites; this is not.
-
-| # | Status | What to look at |
+| # | Status | What it was |
 |---|---|---|
-| HT.v18-1 | ⬜ | **Two riser rings stack at a pass-through floor.** A column that continues past a floor has a segment BELOW that floor and a segment ABOVE it, and both meet the same node — so `drawRiserGlyph` draws a ring for each, at the same screen point. On `debug/20260824-debug.json` that is P8 and P31 on node N9 at L1, which is what you saw as "50 mm vertical pipes overlapping the risers". They are not extra pipes; they are the column's own segments. **Question for you: should a pass-through floor draw ONE ring rather than two?** The two segments can legitimately differ (size, schedule, C), so drawing one ring means choosing which to show — probably the one carrying the most water, or the larger bore. Nothing is changed until you say. |
+| HT.v18-1 | ✅ | **Two riser rings at a pass-through floor.** Raised as a possible drawing defect; withdrawn the same day. Michael: "that's what the `\|>.` `>>` `>\|` and `\|<.` `<<` `<\|` (rotated sideways) glyphs are for. To indicate flows to above and to below." The notation already says which way the column runs at each floor, and a column that continues past a floor SHOULD show both directions. Nothing to change. |
 
-Note also that the segments only became VISIBLE when the PDM warning highlighted
-them. That part is working as intended.
+Nothing else is waiting on you from v0.18.12 or v0.18.13 — both engine fixes in
+each are asserted in the suites. The open question from v0.18.13 is an
+engineering decision, not a look-at-it, and it is in `HANDOVER.md` §0: should a
+DESIGN calculation use the control valves' last SIMULATED positions, or open
+them to a design position?
 
 ---
 

@@ -10,12 +10,108 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **v0.18.12 (beta), 2026-08-24.** Ten test suites, **2308 assertions**, all
-passing (`for f in test/*.test.js; do node $f; done`).
+State: **v0.18.13 (beta), 2026-08-24.** Ten test suites, **2324 assertions**, all
+passing in about 15 s (`for f in test/*.test.js; do node $f; done`).
 
 ---
 
-## 0. LATEST — v0.18.12, three findings from Michael's test (2026-08-24)
+## 0. LATEST — v0.18.13, the second pass over the same test (2026-08-24)
+
+Michael re-tested v0.18.12. He had already repaired the risers in his own file
+(they are R2/R3 now, DN100 throughout, so the v0.18.12 inheritance fix is
+confirmed on a real model). Three things came back.
+
+**1. THE CRITICAL PATH STOPPED HALFWAY ON A BIG MODEL.** On
+`examples/Data Hall & Yard.json` — four cooling-tower trains on a common header
+— the path ended at the coil. The supply half came up PWP-04's train; the return
+half, taking the biggest flow at each junction, went back to the plant and into
+**PWP-02's** train instead, then stalled on the supply header at N223 where both
+remaining exits were pipes the supply half had already used. `back.end !== cur`,
+so the whole return half was discarded: 27 sections and a tally **46.5 m adrift**
+from what the pumps develop. A valid return route existed the whole time — 17
+links, ending on P299 into PWP-04's suction.
+
+This is the §4 trap for the THIRD time. Following the flow (v0.18.11) made it
+impossible to dead-end in a single loop, which was the fix that was needed then;
+a plant with parallel trains has junctions where the biggest branch is simply
+not the way home. **`walk` now backtracks** — depth-first, biggest flow first,
+unwinding when a branch cannot finish, with a `dead` set so it stays linear
+rather than exponential. Highest-flow-first means an unobstructed trace takes
+exactly the route the greedy walk took, so the dominant circuit is unchanged
+wherever the greedy walk worked; the search only does something different where
+it used to give up. If nothing finishes, the DEEPEST attempt is returned.
+
+Every closed model now reconciles exactly: Data Hall 44 sections, HighRise 36,
+the tower 23, Tutorial 01 12 — friction + static = pump head to 1e-7 m or better.
+
+**2. THE DEADBAND — TRACED, AND IT WAS NOT THE DEADBAND.** Michael: "any way to
+trace this down? Otherwise make the default 0.5 K." **The default stays at
+0.05 K.** It was a period-2 limit cycle. At 0.05 K the tower ran all 100 sweeps
+and 4554 solves, took 20 s and still reported `CONTROL_HUNTING`; from sweep 6 the
+plant alternated between exactly two states — PMP-01 at 71.10% with the coils at
+56/57/57/57, and PMP-01 at 71.70% with them at 56/56/56/56 — for ever.
+
+**One percent of valve travel, the actuator's entire resolution, is worth about
+a tenth of a kelvin on these coils.** AHU-L2 read -0.040 K at 57% and +0.056 K at
+56%, so a 0.05 K deadband is finer than the valve can resolve and neither
+position is ever "on setpoint". The coils then moved the differential by more
+than the pump's 275 Pa band, the pump re-settled, and that moved the coils again.
+
+`floorErr` (`seek`, `src/network.js`) exists to stop precisely this, and it was
+recording `|best.e|` — the error at the BETTER of the two positions either side
+of the setpoint, which is the one number there that cannot be a resolution limit,
+because the search had just achieved it. It now records the **worst error seen
+within one actuator step of where the search landed**. The tower settles in **6
+sweeps / 197 solves / 1 s** at the default deadband; 0.5 K was never the fix, it
+was a band coarse enough to hide the problem.
+
+**3. THE INDEX IS AHU-L3-N01, AND THAT IS CORRECT.** Michael expected the top
+floor. It is not, and the pipework says why. Circuit friction, ICVs equalised:
+
+| circuit | branch pipework | risers below | total |
+|---|---|---|---|
+| L1 | 0.573 m | 0.147 m | 0.720 m |
+| L2 | 0.567 m | 0.242 m | 0.810 m |
+| **L3** | 0.565 m | 0.287 m | **0.852 m** |
+| L4 | 0.438 m | 0.303 m | 0.741 m |
+
+L4's extra riser segment is worth 0.016 m and its floor pipework is 0.127 m
+cheaper, so it is NOT the index. The floors are all 10.50 m of pipe — the
+difference is FITTINGS. On L1/L2/L3 the riser passes through, so the floor return
+tees into it: P12 is charged `TBRANCH_CONV + E90`, 4.57 m of equivalent length on
+a 5 m pipe. **On L4 the riser terminates**, so the return is charged `E90` alone,
+1.52 m. The top floor sits at the END of the column, not on a branch off it, and
+that is genuinely cheaper. `flow / qRated` ranks the four in exactly the order
+the friction tally does. Checked separately that splitting a straight run (the
+DP sensor sits in L4's return) does not change its friction — one 5 m pipe and
+the same run split in three give 0.68232 m either way.
+
+**BUT THE DESIGN-MODE ANSWER IS DECIDED BY LEFTOVER VALVE POSITIONS, and that is
+a real question for Michael.** In DESIGN the control loop does not run, so each
+ICV is a fixed resistance at whatever the last SIMULATION left on it — in his
+file L1 100%, L2 100%, L3 54%, L4 58%. The true hydraulic spread between the four
+floors is 0.7%; the valve positions swamp it, which is why design mode reports
+L3 at ratio 1.05 against L1 at 1.41 while simulation reports L1 as the index.
+The index is L3 either way once the valves are equal, but in design mode it is
+right for the wrong reason. **Should a DESIGN calculation use the control
+valves' last simulated positions, or open them to their design position?**
+
+**Also this run:**
+* `test/fixtures/datahall-yard.pnet.json` and `test/fixtures/tower-five-level.pnet.json`
+  frozen — copies of `examples/Data Hall & Yard.json` and Michael's
+  `debug/20260824-debug.json` (that one is gitignored, so the fixture is the only
+  copy in the repo). Both are asserted against; see `test/fixtures/README.md`.
+* The Data Hall takes **47 s** to solve in SIMULATION — 5 sweeps, 634 core
+  solves, settling cleanly with no hunting. That is the size of the model, not
+  the control loop: about 75 ms per solve on 520 pipes. Not chased. The suite
+  asserts it in DESIGN mode (125 ms) for that reason.
+* The riser-glyph question in `Human-Test.md` is **withdrawn** — Michael:
+  "that's what the glyphs are for. To indicate flows to above and to below."
+  The notation already says which way the column runs at each floor.
+
+---
+
+## 0B1. v0.18.12 — three findings from Michael's test (2026-08-24)
 
 Michael built `debug/20260824-debug.json` — a five-level tower, drawn L0 then L1
 then **copied upward to L2/L3/L4**, with a second chiller added at step 4. Three

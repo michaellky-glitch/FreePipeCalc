@@ -2092,8 +2092,12 @@
        * puts the boundary. */
       var best = { x: x0, e: e0, c: cur };
       var bracketed = false;
+      /* Every position this search tried, so the end of it can ask what one
+       * step of the actuator is actually WORTH here. See `floorErr` below. */
+      var samples = [];
       function record(x, e, c) {
         if (e === null) return;
+        samples.push({ x: x, e: e });
         if (metBy(e, e0, pair)) bracketed = true;
         var d = Math.abs(e) - Math.abs(best.e);
         if (d < -1e-12 || (Math.abs(d) <= 1e-12 && x > best.x)) {
@@ -2308,7 +2312,41 @@
        * rather than a failure to control. A globe valve set in whole percent
        * cannot land a mixed temperature more finely than about a tenth of a
        * kelvin, and demanding more would report a working control as broken. */
-      if (bracketed) pair.floorErr = Math.abs(best.e) * 1.0001;
+      /* WHAT ONE STEP OF THE ACTUATOR IS WORTH, measured — not the residual
+       * that happened to be best.
+       *
+       * `floorErr` exists so a device is not asked to hold a setpoint more
+       * finely than its actuator can resolve. It recorded `|best.e|`, which is
+       * the error at the BETTER of the two positions either side of the
+       * setpoint — and that is the one number here that cannot be a resolution
+       * limit, because the search just achieved it.
+       *
+       * Michael, 2026-08-24: the four coils on `debug/20260824-debug.json`
+       * would not settle until the deadband went to 0.5 K. They were in a
+       * period-2 limit cycle, and the trace is unambiguous — from sweep 6 the
+       * plant alternates between exactly two states, PMP-01 at 71.10% with the
+       * coils at 56/57/57/57 and PMP-01 at 71.70% with them at 56/56/56/56,
+       * for ever. AHU-L2 read -0.040 K at 57% and +0.056 K at 56%: ONE PERCENT
+       * of valve travel is worth about a tenth of a kelvin, so a 0.05 K
+       * deadband is finer than the valve can resolve and neither position is
+       * ever "on setpoint". `floorErr` was 0.040 — the good end — so the next
+       * sweep found the device outside its own floor and moved it back. The
+       * coils then shifted the differential by more than the pump's 275 Pa
+       * band, the pump re-settled, and that shifted the coils again.
+       *
+       * So take the WORST error seen within one step of where the search
+       * landed. That is what the actuator's resolution costs at this operating
+       * point, and a controller that has straddled the setpoint is holding it
+       * as well as it can be held. */
+      if (bracketed) {
+        var reach = 0;
+        for (var sIdx = 0; sIdx < samples.length; sIdx++) {
+          if (Math.abs(samples[sIdx].x - best.x) <= act.step + 1e-12) {
+            reach = Math.max(reach, Math.abs(samples[sIdx].e));
+          }
+        }
+        pair.floorErr = Math.max(Math.abs(best.e), reach) * 1.0001;
+      }
       return { state: (Math.abs(best.e) <= band || bracketed) ? 'on' : 'unsettled',
                x: best.x, error: best.e,
                moved: Math.abs(best.x - x0) > 1e-9 };
@@ -3271,46 +3309,95 @@
      * sets the pressure; it does not terminate the water. Only an OPEN system
      * — where the water genuinely leaves at a terminal and a fixed head is
      * where it came from — still ends on one. */
+    /* AND A GREEDY WALK STILL CANNOT FIND ITS WAY HOME — Michael, 2026-08-24:
+     * "the critical path there only seemed to be halfway."
+     *
+     * `examples/Data Hall & Yard.json` is four cooling-tower trains on a common
+     * header. The supply half came up PWP-04's train; the return half, taking
+     * the biggest flow at each junction, went back to the plant and into
+     * PWP-02's train instead — and stalled on the supply header at N223, where
+     * both remaining exits were pipes the supply half had already used. It
+     * never reached PWP-04's suction, so the whole return half was discarded
+     * and the path stopped at the coil. A valid return route EXISTED the whole
+     * time (17 links, ending on P299 into that suction); the walk simply could
+     * not go back and take the other branch.
+     *
+     * That is the §4 trap for the third time — a greedy walk is not a
+     * path-finder. Following the flow made it impossible to dead-end in a
+     * SINGLE loop, which is what v0.18.11 needed, but a plant with parallel
+     * trains has junctions where the biggest branch is not the way home.
+     *
+     * So the walk BACKTRACKS: depth-first, biggest flow first, unwinding a step
+     * when a branch cannot finish. Highest-flow-first means an unobstructed
+     * trace takes exactly the route the greedy walk took, so the dominant
+     * circuit is still the dominant circuit — the search only does something
+     * different where the greedy walk used to give up. `dead` remembers nodes
+     * already proven unable to finish, which is what keeps it linear rather
+     * than exponential on a meshed model.
+     *
+     * If nothing finishes, the DEEPEST attempt is returned. The caller already
+     * checks where a walk ended, so a trace that cannot close still reports
+     * what it found rather than nothing at all. */
     function walk(startNode, up, block, usedLinks, stopAtPump, stopNode, useOrigins) {
-      var out = [], seen = {}, cur = startNode, guard = 0;
-      seen[cur] = true;
-      if (block) seen[block] = true;
-      while (!(useOrigins && origins[cur]) && cur !== stopNode && guard++ < 500) {
-        var best = null;
-        (adj[cur] || []).forEach(function (l) {
+      function finished(node, viaLink) {
+        if (stopNode) return node === stopNode;
+        if (stopAtPump) return !!(viaLink && viaLink.kind === 'pump');
+        return !!(useOrigins && origins[node]);
+      }
+      if (finished(startNode, null)) return { sections: [], end: startNode };
+
+      /* The steps out of a node that the water actually takes, biggest first.
+       * `up` wants what FEEDS the node; down wants what it feeds. */
+      function options(node, onPath) {
+        var list = [];
+        (adj[node] || []).forEach(function (l) {
           if (blockedLinks[l.id]) return;
           if (usedLinks && usedLinks[l.id]) return;
-          var other = (l.from === cur) ? l.to : l.from;
-          if (seen[other]) return;
-          /* FOLLOW THE WATER, not the head gradient.
-           *
-           * The gradient walk was greedy, and a greedy walk can step into a
-           * branch whose only way out it has already visited — on the HighRise
-           * it dead-ended at N28 while the datum was N143, so the path never
-           * closed and its "static" was just the riser it happened to stop on.
-           *
-           * Flow direction cannot dead-end like that: continuity says whatever
-           * leaves the plant comes back to it, so tracing upstream from a load
-           * always reaches the pump, and downstream always returns to it. At a
-           * junction the branch carrying the most water is the main — which is
-           * what makes this the DOMINANT circuit rather than merely a circuit. */
+          var other = (l.from === node) ? l.to : l.from;
+          if (onPath[other]) return;
           var q = res.flow[l.id];
           if (q === undefined) return;
-          var leavesCur = (l.from === cur) ? (q > 0) : (q < 0);
-          // upstream trace wants what feeds `cur`; downstream wants what it feeds
-          if (up === leavesCur) return;
-          var score = Math.abs(q);
-          if (!best || score > best.score) best = { link: l, other: other, score: score };
+          var leavesNode = (l.from === node) ? (q > 0) : (q < 0);
+          if (up === leavesNode) return;
+          list.push({ link: l, other: other, score: Math.abs(q) });
         });
-        if (!best) break;
-        if (up) out.unshift({ link: best.link.id, from: best.other, to: cur });
-        else out.push({ link: best.link.id, from: cur, to: best.other });
-        seen[best.other] = true;
-        cur = best.other;
-        /* Came up through a pump: this is the head of the circuit. */
-        if (stopAtPump && best.link.kind === 'pump') break;
+        list.sort(function (a, b) { return b.score - a.score; });
+        return list;
       }
-      return { sections: out, end: cur };
+
+      var onPath = {}, dead = {}, path = [], deepest = null, guard = 0;
+      onPath[startNode] = true;
+      /* The return half must not step back through the load it just left. */
+      if (block) onPath[block] = true;
+
+      var stack = [{ node: startNode, opts: options(startNode, onPath), i: 0 }];
+      while (stack.length && guard++ < 200000) {
+        var top = stack[stack.length - 1];
+        if (top.i >= top.opts.length) {
+          /* Exhausted: this node cannot finish from here. */
+          dead[top.node] = true;
+          stack.pop();
+          var undo = path.pop();
+          if (undo) delete onPath[undo.node];
+          continue;
+        }
+        var step = top.opts[top.i++];
+        if (dead[step.other]) continue;
+        path.push({ link: step.link, from: top.node, to: step.other, node: step.other });
+        onPath[step.other] = true;
+        if (!deepest || path.length > deepest.length) deepest = path.slice();
+        if (finished(step.other, step.link)) { deepest = path.slice(); break; }
+        stack.push({ node: step.other, opts: options(step.other, onPath), i: 0 });
+      }
+
+      var route = (stack.length && deepest) ? deepest : (deepest || []);
+      /* An upstream trace is discovered load-first and reported plant-first. */
+      var out = route.map(function (st) {
+        return up ? { link: st.link.id, from: st.to, to: st.from }
+                  : { link: st.link.id, from: st.from, to: st.to };
+      });
+      if (up) out.reverse();
+      return { sections: out, end: route.length ? route[route.length - 1].node : startNode };
     }
 
     /* THE SUPPLY HALF: datum → plant → load. */

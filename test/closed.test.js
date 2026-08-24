@@ -780,4 +780,62 @@ section('Critical path: a source on the run does not truncate the circuit');
 }
 
 
+/* ==================================================================
+ * A GREEDY WALK CANNOT FIND ITS WAY HOME — Michael, 2026-08-24: "the
+ * critical path there only seemed to be halfway."
+ *
+ * `test/fixtures/datahall-yard.pnet.json` is four cooling-tower trains on a
+ * common header. The supply half came up one train; the return half, taking
+ * the biggest flow at each junction, went back to the plant and into a
+ * DIFFERENT train, then stalled on the supply header where both remaining
+ * exits were pipes the supply half had already used. It never reached the
+ * suction it was aiming at, so the entire return half was thrown away and the
+ * path stopped at the coil — 27 sections and a tally 46.5 m adrift from what
+ * the pumps develop. A valid return route existed the whole time.
+ *
+ * The walk now backtracks. The identity is the assertion: what the circuit
+ * loses is what the pumps on it develop, and nothing else in a model this size
+ * reconciles by accident.
+ *
+ * DESIGN mode deliberately — the control loop takes the better part of a
+ * minute here and has nothing to do with the trace.
+ * ================================================================== */
+section('Critical path: a big model closes the circuit, not half of it');
+{
+  const file = path.join(__dirname, 'fixtures', 'datahall-yard.pnet.json');
+  const dm = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
+  dm.settings.calcMode = 'design';
+  const res = NET.solveModel(dm);
+  const c = res.critical;
+
+  ok('the data hall has a critical path', !!c);
+  ok('...through a load', !!c.targetLink, String(c.targetLink));
+
+  const load = M.pipe(dm, c.targetLink);
+  ok('the index load is on the path', !!c.linkIds[load.id]);
+
+  /* IT IS A CIRCUIT. The failure looked like a path — it had sections, a
+   * friction total and a static figure — so the test cannot be "did it return
+   * something". Both sides of the index load have to be on it. */
+  const at = id => dm.pipes.filter(p => p.id !== load.id &&
+                                        (p.a === id || p.b === id));
+  const inlet = at(load.a).filter(p => c.linkIds[p.id]);
+  const outlet = at(load.b).filter(p => c.linkIds[p.id]);
+  ok('the pipework INTO the index load is on the path', inlet.length > 0,
+     at(load.a).map(p => p.id).join(','));
+  ok('the pipework OUT of the index load is on the path', outlet.length > 0,
+     at(load.b).map(p => p.id).join(','));
+
+  /* THE IDENTITY. Under the greedy walk this was 46.51 m out. */
+  near('friction + static equals the head developed on the path',
+       c.frictionHead + c.staticHead, c.pumpHead, 1e-5);
+
+  /* And it really is a walk home, not a lucky short one. */
+  ok('the path crosses at least one pump',
+     dm.pipes.some(p => p.kind === 'pump' && c.linkIds[p.id]));
+  ok('the path is a substantial circuit, not the supply half alone',
+     c.sections.length > 40, String(c.sections.length));
+}
+
+
 report();

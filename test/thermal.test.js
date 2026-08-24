@@ -3509,6 +3509,69 @@ section('Integrated control valve and capacity override');
  * branch is taken BEFORE the "a synced device is not a controller" return, so
  * a synced coil still gets a loop of its own.
  * ================================================================== */
+/* ==================================================================
+ * A DEADBAND FINER THAN THE ACTUATOR IS A LIMIT CYCLE.
+ *
+ * Michael, 2026-08-24: the five-level tower "was unable to stabilize until I
+ * changed the deadband to 0.5 K."
+ *
+ * Traced. At the default 0.05 K it ran all 100 sweeps and 4554 solves, took 20
+ * seconds and still reported CONTROL_HUNTING, and from sweep 6 the plant
+ * alternated between exactly two states — PMP-01 at 71.10% with the coils at
+ * 56/57/57/57, and PMP-01 at 71.70% with them at 56/56/56/56 — for ever.
+ *
+ * ONE PERCENT of valve travel, which is the actuator's whole resolution, is
+ * worth about a tenth of a kelvin on these coils: AHU-L2 read -0.040 K at 57%
+ * and +0.056 K at 56%. A 0.05 K deadband is therefore finer than the valve can
+ * resolve, so neither position is ever "on setpoint". `floorErr` exists to stop
+ * exactly this, and it recorded the error at the BETTER of the two positions —
+ * the one number here that cannot be a resolution limit. It now records the
+ * worst error within one step of where the search landed.
+ *
+ * 0.5 K was never the fix; it was a deadband coarse enough to hide the problem.
+ * The default stays at 0.05 K and the model settles in six sweeps.
+ * ================================================================== */
+section('A control loop settles at the default deadband');
+{
+  const file = path.join(__dirname, 'fixtures', 'tower-five-level.pnet.json');
+  const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
+  m.settings.calcMode = 'simulation';
+  m.settings.control.tol = 0.05;          // the DEFAULT, which is the point
+  m.settings.control.maxSolves = 0;       // no budget cap hiding the answer
+
+  const res = NET.solveModel(m);
+  const hunting = (res.warnings || []).filter(w => w.code === 'CONTROL_HUNTING');
+  const rep = res.controls || {};
+
+  ok('the model solves', res.converged, JSON.stringify(res.errors || []));
+  ok('there are five devices to settle', (rep.devices || []).length === 5,
+     String((rep.devices || []).length));
+  ok('the controls settle at the DEFAULT 0.05 K deadband', hunting.length === 0,
+     hunting.length ? hunting[0].message : '');
+  ok('...and quickly — it used to run all 100 sweeps', rep.sweeps <= 20,
+     'sweeps ' + rep.sweeps + ', solves ' + rep.solves);
+  ok('no setpoint is reported lost',
+     (res.errors || []).filter(e => e.code === 'SETPOINT_LOST').length === 0,
+     JSON.stringify((res.errors || []).map(e => e.code)));
+
+  /* EVERY DEVICE IS HOLDING, not merely "not moving". A limit cycle also stops
+   * when the sweep budget runs out, and that must not read as settled. */
+  const holding = (rep.devices || []).filter(d => d.state === 'on');
+  ok('every device is holding its setpoint', holding.length === 5,
+     (rep.devices || []).map(d => (d.tag || d.pipe) + '=' + d.state).join(', '));
+
+  /* AND IT IS A FIXED POINT. Solving the settled model again must not move it —
+   * the limit cycle would step straight back to the other state. */
+  const before = m.pipes.filter(p => p.kind === 'equip' && p.equip && p.equip.icv)
+                        .map(p => p.equip.icv.opening);
+  NET.solveModel(m);
+  const after = m.pipes.filter(p => p.kind === 'equip' && p.equip && p.equip.icv)
+                       .map(p => p.equip.icv.opening);
+  ok('re-solving the settled model does not move the valves',
+     before.join(',') === after.join(','), before.join(',') + ' -> ' + after.join(','));
+}
+
+
 section('Syncing heat exchangers does not sync their control valves');
 {
   const m = M.fromJSON(JSON.parse(fs.readFileSync(
