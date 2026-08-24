@@ -15,7 +15,7 @@ passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
 
-## 0A. v0.18.11 — CRITICAL PATH REWRITTEN (2026-08-23)
+## 0. LATEST — v0.18.11, critical path rewritten (2026-08-23)
 
 **The critical path was wrong in the closed-circuit (equipment) case, and it was
 making the pump sizing wrong with it.** Michael flagged it critical. Four faults
@@ -75,7 +75,7 @@ logic is untouched. UI: a MIN/MAX/SET selector beside each setpoint.
 
 ---
 
-## 0. Current phase — PROGRAM CHANGES (2026-08-22/23)
+## 0B. Earlier in this run — v0.18.3 to v0.18.10 (2026-08-20/23)
 
 **STANDING RULES NOW, from Michael (2026-08-23): BOTH freezes are LIFTED.** Bump
 the `?v=` token and `FD.VERSION` together as normal, and push — he tests off
@@ -128,6 +128,24 @@ headline sentences.
   (WORKLIST / task backlog).
 * **Possible anomaly to check:** `PUMP_RUNOUT` fires on `Tutorial 01 - Basics`
   at ~99% of design flow (limit is 120%). Not chased.
+
+**OPEN AT THE END OF THIS RUN (2026-08-23) — read with §0:**
+* **MIN/MAX/SET on setpoints — designed, NOT built.** See §0. This is the next
+  substantial piece of engine work and Michael has already framed the use case
+  (holding a minimum flow through chillers at low load).
+* **`docs_internal/Draft/` and `docs_internal/Fixed/` are UNTRACKED.** They are
+  Michael's own in-progress documentation; they were deliberately left out of the
+  v0.18.11 commit rather than bundled into it. Ask before committing them.
+* **The naming convention applies FORWARD ONLY** — to equipment placed from now
+  on and to a floor when it is copied. Existing tags are untouched by design.
+  There is no "re-tag the whole model" action; `M.retagLevelEquipment(m, levelId)`
+  exists and would be the building block if Michael wants one.
+* **The naming preview on SETTINGS always shows the GROUND floor.** It builds a
+  throwaway model so the preview cannot drift from the real result, which means
+  it cannot show how L3 would number. Deliberate; say so if it is raised.
+* **HighRise is now a frozen fixture** at `test/fixtures/highrise-variable-primary.pnet.json`.
+  It is a VARIABLE PRIMARY system — PMP-1 and PMP-2 duty, PMP-3 standby. Do not
+  read it as primary/secondary; that misreading cost most of a session.
 
 **DONE 2026-08-22 (v0.18.3) — the two program changes Michael asked for:**
 1. **A new Heat Exchanger arrives with its Integrated Control Valve ON.**
@@ -490,6 +508,28 @@ source in BOTH directions by `engine.test.js`. Add a code, document it.
 ---
 
 ## 4. Traps that have bitten, more than once
+
+**A GREEDY WALK IS NOT A PATH-FINDER.** `criticalPath` traced the index circuit
+by repeatedly stepping to the neighbouring node with the highest head. That is a
+greedy walk, and a greedy walk can step into a branch whose only exit it has
+already marked as visited — it then simply stops, wherever it happens to be. On
+`20260910-HighRise` it stopped at N28 while the datum was N143, and the result
+looked plausible: a path, a friction total, a static figure. Nothing said the
+path had not arrived. **If a trace must reach a specific place, check that it
+GOT there** (`origins[end]`), and prefer a rule that cannot dead-end —
+following the flow works because continuity guarantees the water returns to the
+plant (v0.18.11).
+
+**A METRIC READ AT THE SOLVED FLOW CANNOT RANK THINGS THAT SHARE A HEAD.** The
+index load was picked by the largest pressure drop across the equipment. Parallel
+branches settle at the SAME head difference between headers, so that number is
+equal for all of them by construction — and because it is read at the ACTUAL
+flow, a starved branch reports a SMALLER drop than one that is over-flowing. The
+metric pointed at the best-served load while claiming to find the worst. **Rank
+by how badly a machine is SERVED (`flow / qRated`), not by what it drops**, and
+use the same criterion in the sizer so the sheet and the pump cannot disagree
+(v0.18.11).
+
 
 These are not hypothetical. Each cost a session or a user-visible bug.
 
