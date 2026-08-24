@@ -2271,7 +2271,17 @@
    * so it gets its own inlet and outlet nodes while the runs either side keep
    * their own lengths, sizes and C factors. Returns the new device pipe, or
    * null with a message if it could not be placed. */
-  View.prototype.insertInline = function (w, kind, extra, label) {
+  /* `alignToFlow` orients the new device the way the water is already going.
+   *
+   * Michael, 2026-08-21: "If there is already a pump on the pipe, align new
+   * heat exchangers, heat source/sinks in the direction of flow by default."
+   * A device inherits the drawn direction of the pipe it is dropped into, and a
+   * return leg is usually drawn back towards the plant — so a coil placed on it
+   * came out facing upstream and had to be reversed by hand.
+   *
+   * Only when the flow is KNOWN and negative: with no pump there is no flow to
+   * align to and the drawn direction is the only information there is. */
+  View.prototype.insertInline = function (w, kind, extra, label, alignToFlow) {
     var m = this.getModel();
     var hit = this.pipeAt(w.x, w.y, DEVICE_SNAP_PX);
     if (!hit) {
@@ -2306,10 +2316,21 @@
       wa.x + ux * (t + half) - lv.dx, wa.y + uy * (t + half) - lv.dy);
     var aId = p.a, bId = p.b;
 
+    /* Read the flow BEFORE the pipe is removed — it is keyed on the pipe id
+     * that is about to stop existing. */
+    var flipped = false;
+    if (alignToFlow && this.results && this.results.flow) {
+      var q = this.results.flow[p.id];
+      if (q !== undefined && q < 0) flipped = true;   // water runs b → a
+    }
+
     M.removePipe(m, p.id);
     M.addPipe(m, aId, n1.id, opts);
-    var device = M.addPipe(m, n1.id, n2.id,
-      Object.assign({ kind: kind, schedule: p.schedule, size: p.size, C: p.C }, extra));
+    var device = flipped
+      ? M.addPipe(m, n2.id, n1.id,
+          Object.assign({ kind: kind, schedule: p.schedule, size: p.size, C: p.C }, extra))
+      : M.addPipe(m, n1.id, n2.id,
+          Object.assign({ kind: kind, schedule: p.schedule, size: p.size, C: p.C }, extra));
     M.addPipe(m, n2.id, bId, opts);
 
     this.selection = [{ kind: 'pipe', id: device.id }];
@@ -2371,7 +2392,7 @@
     var def = EQUIP_DEFAULT[this.toolVariant] || EQUIP_DEFAULT.exchanger;
     var eq = this.insertInline(w, 'equip', {
       equip: JSON.parse(JSON.stringify(def))
-    }, 'equipment');
+    }, 'equipment', true);
 
     /* A HEAT EXCHANGER ARRIVES WITH ITS INTEGRATED CONTROL VALVE ON (Michael,
      * 2026-08-21). A coil is nearly always valved, so an OFF default made
@@ -2392,9 +2413,14 @@
     }
 
     if (eq && !eq.tag) {
-      eq.tag = this.nextTag(def.equipType === 'adiabatic' ? 'adiabatic'
-                          : def.equipType === 'source' ? 'heatsource'
-                          : 'exchanger');
+      /* A HEAT EXCHANGER OR A HEAT SOURCE/SINK IS NAMED BY THE CONVENTION set
+       * on the SETTINGS tab (Michael, 2026-08-21), so a drawing carries the
+       * office standard rather than this program's habit. An adiabatic item has
+       * no convention of its own and keeps the built-in tag. */
+      var et = def.equipType;
+      eq.tag = (et === 'source' || et === 'exchanger')
+        ? M.equipmentTag(this.getModel(), et, this.getModel().activeLevel)
+        : this.nextTag('adiabatic');
       this.changed();
     }
   };
@@ -4384,9 +4410,13 @@
            * Michael, 2026-08-08. A device that actually does something thermal
            * still gets both, because there the two differ and the difference is
            * the point. */
+          /* EWT/LWT, WITH A SLASH (Michael, 2026-08-21). The arrow read as a
+           * transition — "this became that" — where the pair is really two
+           * named readings of one machine, entering and leaving. A slash is how
+           * they are written on a schedule. */
           var sameT = Math.abs(tl.tOut - tl.tIn) < 0.05;
           lines.push(sameT ? tl.tIn.toFixed(1) + '\u00b0C'
-                           : tl.tIn.toFixed(1) + ' → ' + tl.tOut.toFixed(1) + '\u00b0C');
+                           : tl.tIn.toFixed(1) + '/' + tl.tOut.toFixed(1) + '\u00b0C');
         }
         if (flags.dT) lines.push('ΔT ' + (tl.dT >= 0 ? '+' : '') + tl.dT.toFixed(1) + ' K');
         if (flags.duty) {

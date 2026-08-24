@@ -554,4 +554,158 @@ section('Sync shares the sizing, not only the position');
   }
 }
 
+/* ==================================================================
+ * CRITICAL PATH IN A CLOSED CIRCUIT — Michael, 2026-08-21.
+ *
+ * Three faults, all in the equipment (no-demand) branch of criticalPath:
+ *   1. the return pipework was not on the path, so friction never
+ *      reconciled with the pump duty;
+ *   2. the index was chosen by the equipment's own pressure drop, which
+ *      is identical for parallel branches and is read at the ACTUAL flow —
+ *      so it pointed at the best-served load, not the worst;
+ *   3. the greedy head-walk threaded several loads in a headered system.
+ *
+ * Expectations here are hand-derived: in a closed loop with one pump the
+ * pump head IS the friction around the loop, by definition.
+ * ================================================================== */
+section('Critical path: a closed loop includes the return to the pump');
+{
+  const m = M.create();
+  m.settings.calcMode = 'simulation';
+  const lv = m.levels[0].id;
+  const n0 = M.addNode(m, lv, 0, 0), n1 = M.addNode(m, lv, 2, 0);
+  const n2 = M.addNode(m, lv, 40, 0), n3 = M.addNode(m, lv, 40, 10);
+  const pump = M.addPipe(m, n0.id, n1.id, { size: 'DN50' });
+  pump.kind = 'pump'; pump.tag = 'PMP';
+  pump.pump = { mode: 'fixed', head: 20, sizing: 'manual', speed: 1,
+    curve: { H0: 28, a: 70000, b: 1.55, source: 'generated', Qd: 0.0024, Hd: 20,
+      points: [{ q: 0, h: 28 }, { q: 0.0024, h: 20 }, { q: 0.0036, h: 13 }] } };
+  M.addPipe(m, n1.id, n2.id, { size: 'DN50' });          // supply
+  const ahu = M.addPipe(m, n2.id, n3.id, { size: 'DN50' });
+  ahu.kind = 'equip'; ahu.tag = 'AHU';
+  ahu.equip = { qRated: 0.0024, pdRated: 50000, qOut: 0.02,
+                equipType: 'exchanger', duty: 100000, lastEdited: ['qRated', 'duty'] };
+  const ret = M.addPipe(m, n3.id, n0.id, { size: 'DN50' });   // return
+
+  const res = NET.solveModel(m);
+  const c = res.critical;
+  ok('a closed loop has a critical path', !!c);
+  ok('...ending at the load', c.target === n3.id, c.target);
+
+  /* THE RETURN PIPE IS ON IT. This is the whole bug: the walk used to stop at
+   * the datum reached through the pump, leaving the return side off. */
+  ok('the return pipe is on the critical path', !!c.linkIds[ret.id],
+     Object.keys(c.linkIds).join(','));
+  ok('...and so is the pump', !!c.linkIds[pump.id]);
+
+  /* AND IT RECONCILES. In a closed loop with one pump, friction + static
+   * around the circuit equals the head the pump develops. Hand-checked:
+   * supply 2.81 m + coil 11.00 m + return 3.16 m = 16.97 m. */
+  const developed = M.pumpHead(m, pump, Math.abs(res.flow[pump.id]));
+  near('friction + static reconciles with the pump head',
+       c.frictionHead + c.staticHead, developed, 1e-6);
+}
+
+section('Critical path: the index is the worst-served load, not the nearest');
+{
+  /* Two identical coils in parallel, one on a much longer run. The long one
+   * is starved, so it is the index — and because parallel branches settle at
+   * the SAME head difference, the old "largest pressure drop" rule could not
+   * tell them apart and took whichever it found first. */
+  const m = M.create();
+  m.settings.calcMode = 'simulation';
+  const lv = m.levels[0].id;
+  const s = M.addNode(m, lv, 0, 0), d = M.addNode(m, lv, 2, 0);
+  const h = M.addNode(m, lv, 6, 0), r = M.addNode(m, lv, 6, 20);
+  const pump = M.addPipe(m, s.id, d.id, { size: 'DN50' });
+  pump.kind = 'pump'; pump.tag = 'PMP';
+  pump.pump = { mode: 'fixed', head: 25, sizing: 'manual', speed: 1,
+    curve: { H0: 35, a: 90000, b: 1.55, source: 'generated', Qd: 0.0048, Hd: 25,
+      points: [{ q: 0, h: 35 }, { q: 0.0048, h: 25 }, { q: 0.0072, h: 16 }] } };
+  M.addPipe(m, d.id, h.id, { size: 'DN50' });
+  function coil(tag, pts) {
+    let prev = h.id;
+    pts.forEach(function (pt, i) {
+      const n = M.addNode(m, lv, pt[0], pt[1]);
+      if (i === pts.length - 1) {
+        const e = M.addPipe(m, prev, n.id, { size: 'DN50' });
+        e.kind = 'equip'; e.tag = tag;
+        e.equip = { qRated: 0.0024, pdRated: 50000, qOut: 0.02,
+                    equipType: 'exchanger', duty: 100000, lastEdited: ['qRated', 'duty'] };
+        prev = n.id;
+        return;
+      }
+      M.addPipe(m, prev, n.id, { size: 'DN50' });
+      prev = n.id;
+    });
+    M.addPipe(m, prev, r.id, { size: 'DN50' });
+  }
+  coil('AHU-NEAR', [[10, 4], [14, 4]]);                    // short branch
+  coil('AHU-FAR',  [[10, 40], [60, 40], [64, 40]]);        // long branch
+  M.addPipe(m, r.id, s.id, { size: 'DN50' });
+
+  const res = NET.solveModel(m);
+  const near_ = m.pipes.filter(function (p) { return p.tag === 'AHU-NEAR'; })[0];
+  const far = m.pipes.filter(function (p) { return p.tag === 'AHU-FAR'; })[0];
+  const qn = Math.abs(res.flow[near_.id]), qf = Math.abs(res.flow[far.id]);
+  ok('the far coil really is the starved one', qf < qn, qf + ' vs ' + qn);
+
+  const c = res.critical;
+  ok('the critical path takes the FAR coil', !!c.linkIds[far.id],
+     'near=' + !!c.linkIds[near_.id] + ' far=' + !!c.linkIds[far.id]);
+  ok('...and not the near one', !c.linkIds[near_.id]);
+  /* ONE LOAD, ONCE. A headered system used to let the walk hop through a
+   * second coil on its way back. */
+  ok('exactly one load is on the path',
+     (!!c.linkIds[near_.id] ? 1 : 0) + (!!c.linkIds[far.id] ? 1 : 0) === 1);
+}
+
+section('Critical path: the circuit closes at the pump on a real model');
+{
+  /* The HighRise is a VARIABLE PRIMARY system (Michael, 2026-08-21): PMP-1 and
+   * PMP-2 on duty, PMP-3 in standby. Its datum is pinned on a node the main run
+   * does not pass through, which is what exposed the real fault — the trace
+   * terminated on `origins` and simply dead-ended when it never met one.
+   *
+   * A closed circuit ends at the PUMP, not at a fixed head. With that rule the
+   * identity below holds exactly, and it is the strongest statement available
+   * about a critical path: what the circuit loses is what the pump develops. */
+  const fs2 = require('fs');
+  const path2 = require('path');
+  const file = path2.join(__dirname, 'fixtures', 'highrise-variable-primary.pnet.json');
+  if (fs2.existsSync(file)) {
+    const hm = M.fromJSON(JSON.parse(fs2.readFileSync(file, 'utf8')));
+    hm.settings.calcMode = 'design';
+    const hres = NET.solveModel(hm);
+    const hc = hres.critical;
+    ok('the model has a critical path', !!hc);
+
+    /* ONE load, and it is the worst-served one. */
+    const loads = hm.pipes.filter(function (p) {
+      return p.kind === 'equip' && p.equip && p.equip.qRated > 0 &&
+             p.equip.equipType !== 'source' && p.equip.equipType !== 'adiabatic';
+    });
+    const onPath = loads.filter(function (p) { return hc.linkIds[p.id]; });
+    ok('exactly one load is on the critical path', onPath.length === 1,
+       onPath.map(function (p) { return p.tag; }).join(','));
+    const ranked = loads.map(function (p) {
+      return { tag: p.tag, r: Math.abs(hres.flow[p.id] || 0) / p.equip.qRated };
+    }).sort(function (a, b) { return a.r - b.r; });
+    ok('...and it is the worst-served load', onPath[0].tag === ranked[0].tag,
+       onPath[0].tag + ' vs worst ' + ranked[0].tag);
+
+    /* Only ONE pump: a standby machine and the parallel duty machines are not
+     * all in series, so a circuit crosses one of them. */
+    const pumpsOn = hm.pipes.filter(function (p) {
+      return p.kind === 'pump' && hc.linkIds[p.id];
+    });
+    ok('the circuit crosses exactly one pump', pumpsOn.length === 1,
+       pumpsOn.map(function (p) { return p.tag; }).join(','));
+
+    /* THE IDENTITY. */
+    near('friction + static equals the pump head developed',
+         hc.frictionHead + hc.staticHead, hc.pumpHead, 1e-6);
+  }
+}
+
 report();

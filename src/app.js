@@ -2794,8 +2794,8 @@
       message: 'Everything drawn on ' + lv.name + ' is copied to the target level at the ' +
                'same coordinates. Riser columns touching this floor are extended to the ' +
                'target so the stack stays connected.\n\n' +
-               'Tags come across as they are, so the new floor can be renumbered ' +
-               'deliberately rather than guessed at.',
+               'Equipment tags are re-numbered on the new floor to follow the ' +
+               'naming convention set on the SETTINGS tab.',
       fields: [{
         key: 'to', label: 'Copy to', type: 'select',
         value: NEW,
@@ -2814,13 +2814,19 @@
           altitude: lv.altitude + (m.settings.floorToFloor || 3.5)
         });
         var rn = M.copyLevel(m, lv.id, made.id);
+        /* THE COPIES ARRIVE WEARING THE OLD FLOOR'S TAGS, which is the one
+         * thing about a duplicated floor that is never right (Michael,
+         * 2026-08-21). Re-tag the equipment to the naming convention so the new
+         * floor is numbered for where it IS. */
+        var rt = M.retagLevelEquipment(m, made.id);
         m.activeLevel = made.id;
         renderLevels();
         changed();
         toast('Created ' + made.name + ' and copied ' + rn.nodes + ' nodes and ' +
               rn.pipes + ' pipes to it' +
               (rn.risers ? ', extending ' + rn.risers + ' riser column' +
-                           (rn.risers > 1 ? 's' : '') : '') + '.');
+                           (rn.risers > 1 ? 's' : '') : '') +
+              (rt ? ', re-tagging ' + rt + ' item' + (rt > 1 ? 's' : '') : '') + '.');
         return;
       }
       var dst = M.level(m, v.to);
@@ -2828,11 +2834,13 @@
       var go = function () {
         pushUndo();
         var r = M.copyLevel(m, lv.id, v.to);
+        var rt2 = M.retagLevelEquipment(m, v.to);
         renderLevels();
         changed();
         toast('Copied ' + r.nodes + ' nodes and ' + r.pipes + ' pipes to ' + dst.name +
               (r.risers ? ', extended ' + r.risers + ' riser column' +
-                          (r.risers > 1 ? 's' : '') : '') + '.');
+                          (r.risers > 1 ? 's' : '') : '') +
+              (rt2 ? ', re-tagging ' + rt2 + ' item' + (rt2 > 1 ? 's' : '') : '') + '.');
       };
       if (existing) {
         FD.dialog.confirm({
@@ -7043,6 +7051,64 @@
      * pressure-controlled booster.
      *
      * Terse, per the UI rule: the fields, one hint line, the rest behind the 🛈. */
+    /* ================================================ NAMING CONVENTION
+     * Michael, 2026-08-21. Two halves, each a prefix and a number, joined by a
+     * dash that disappears when the second half says nothing. Hydronic only:
+     * a plumbing fixture is tagged from its IPC prefix, a different rule. */
+    if (m.discipline !== 'plumbing') {
+      host.appendChild(el('h2', '', 'Equipment naming'));
+      m.settings.naming = m.settings.naming || {};
+      var PREFIX_OPTS = [['none', 'None'], ['tag', 'Tag']];
+      var NUMBER_OPTS = [['none', 'None'], ['floor', 'Floor'], ['seq', 'Sequence']];
+
+      [['exchanger', 'Heat exchangers'], ['source', 'Heat sources / sinks']]
+        .forEach(function (row) {
+          var kind = row[0];
+          var f = M.namingFor(m, kind);
+          m.settings.naming[kind] = f;
+          host.appendChild(el('h3', 'sub', row[1]));
+          var g = group2();
+          function commitNaming() {
+            renderSettings();
+            redrawAll();
+          }
+          function prefixPair(key, textKey, label) {
+            sel(g, label, PREFIX_OPTS, f[key], function (v) {
+              f[key] = v; commitNaming();
+            });
+            /* The tag text may contain and END WITH spaces — "AHU " with a
+             * floor number after it reads "AHU 1" — so it is never trimmed. */
+            if (f[key] === 'tag') {
+              text(g, label + ' text', f[textKey], function (v) { f[textKey] = v; });
+            }
+          }
+          prefixPair('p1', 'p1Text', 'Prefix 1');
+          sel(g, 'Number 1', NUMBER_OPTS, f.n1, function (v) { f.n1 = v; commitNaming(); });
+          prefixPair('p2', 'p2Text', 'Prefix 2');
+          sel(g, 'Number 2', NUMBER_OPTS, f.n2, function (v) { f.n2 = v; commitNaming(); });
+
+          /* A live example, built by the same function that names a real
+           * device, so the preview cannot drift from the result. */
+          var demo = M.create();
+          demo.settings.naming = {}; demo.settings.naming[kind] = f;
+          M.addLevel(demo, { name: 'L1', altitude: 3.5 });
+          var lvlDemo = demo.levels.filter(function (l) { return l.altitude === 0; })[0];
+          var ex = [];
+          for (var i = 0; i < 2; i++) {
+            var na = M.addNode(demo, lvlDemo.id, i, 0), nb = M.addNode(demo, lvlDemo.id, i + 0.5, 0);
+            var ep = M.addPipe(demo, na.id, nb.id, { size: 'DN50' });
+            ep.kind = 'equip';
+            ep.equip = { qRated: 0.01, pdRated: 50000, equipType: kind, duty: 10000 };
+            ep.tag = M.equipmentTag(demo, kind, lvlDemo.id);
+            ex.push(ep.tag);
+          }
+          host.appendChild(el('p', 'hint', 'On the ground floor: ' + ex.join(', ')));
+        });
+      host.appendChild(el('p', 'hint',
+        'Applies to equipment placed from now on, and to a floor when it is ' +
+        'copied. Existing tags are left alone.'));
+    }
+
     var gc = group('Setpoint control');
     var ctl = m.settings.control || (m.settings.control =
       { minSpeed: 0.25, minOpening: 10, tol: 0.05 });

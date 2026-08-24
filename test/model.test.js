@@ -3374,4 +3374,108 @@ section('pathBetween: the shortest run of pipework');
   ok('A missing pipe is null, not a crash', M.pathBetween(m, run[0].id, 'P999') === null);
 }
 
+section('Equipment naming convention');
+{
+  /* Michael, 2026-08-21: [Prefix 1][Number 1]-[Prefix 2][Number 2], each prefix
+   * None or a typed Tag, each number None, Floor or Sequence. The worked
+   * example he gave is the first assertion. */
+  function rig(fmt) {
+    const m = M.create();
+    M.addLevel(m, { name: 'Level 1', altitude: 4 });
+    M.addLevel(m, { name: 'Level 2', altitude: 8 });
+    M.addLevel(m, { name: 'Level 3', altitude: 12 });
+    m.settings.naming = { exchanger: fmt };
+    const byAlt = {};
+    m.levels.forEach(function (l) { byAlt[l.altitude] = l.id; });
+    return { m: m, byAlt: byAlt };
+  }
+  function place(m, lv) {
+    const a = M.addNode(m, lv, Math.random(), 0), b = M.addNode(m, lv, Math.random() + 1, 0);
+    const e = M.addPipe(m, a.id, b.id, { size: 'DN50' });
+    e.kind = 'equip';
+    e.equip = { qRated: 0.01, pdRated: 50000, equipType: 'exchanger', duty: 10000 };
+    e.tag = M.equipmentTag(m, 'exchanger', lv);
+    return e.tag;
+  }
+
+  const r = rig({ p1: 'tag', p1Text: 'L', n1: 'floor',
+                  p2: 'tag', p2Text: 'AHU', n2: 'seq' });
+  const got = [r.byAlt[0], r.byAlt[0], r.byAlt[4], r.byAlt[4], r.byAlt[8], r.byAlt[12]]
+    .map(function (lv) { return place(r.m, lv); });
+  ok('[L][Floor]-[AHU][Sequence] gives his worked example',
+     got.join(',') === 'L0-AHU01,L0-AHU02,L1-AHU01,L1-AHU02,L2-AHU01,L3-AHU01',
+     got.join(','));
+
+  /* The sequence counts within one floor and restarts on the next, because the
+   * floor is part of the stem it counts against. */
+  ok('the sequence restarts per floor', got[2] === 'L1-AHU01', got[2]);
+
+  /* THE SEPARATOR DISAPPEARS when the second half says nothing. */
+  const r2 = rig({ p1: 'tag', p1Text: 'AHU', n1: 'seq',
+                   p2: 'none', p2Text: '', n2: 'none' });
+  const t2 = place(r2.m, r2.byAlt[0]);
+  ok('no trailing dash when Prefix 2 and Number 2 are None', t2 === 'AHU01', t2);
+
+  /* ...and there is no LEADING dash either. */
+  const r3 = rig({ p1: 'none', p1Text: '', n1: 'none',
+                   p2: 'tag', p2Text: 'FCU', n2: 'seq' });
+  const t3 = place(r3.m, r3.byAlt[0]);
+  ok('no leading dash when the first half is None', t3 === 'FCU01', t3);
+
+  /* A TRAILING SPACE IN THE TAG IS KEPT — "[AHU ][Floor]" reads "AHU 1". */
+  const r4 = rig({ p1: 'tag', p1Text: 'AHU ', n1: 'floor',
+                   p2: 'none', p2Text: '', n2: 'none' });
+  const t4 = place(r4.m, r4.byAlt[4]);
+  ok('a trailing space in the tag survives', t4 === 'AHU 1', JSON.stringify(t4));
+
+  /* The floor number is the level's POSITION in the stack, not its name and not
+   * its altitude. */
+  const r5 = rig({ p1: 'tag', p1Text: 'L', n1: 'floor', p2: 'none', p2Text: '', n2: 'none' });
+  ok('floor number counts from the bottom of the stack',
+     M.levelNumber(r5.m, r5.byAlt[12]) === 3, String(M.levelNumber(r5.m, r5.byAlt[12])));
+}
+
+section('Copying a floor re-tags its equipment');
+{
+  /* The copies arrive carrying the source floor's tags, which is the one thing
+   * about a duplicated floor that is never right. */
+  const m = M.create();
+  m.settings.naming = { exchanger: { p1: 'tag', p1Text: 'L', n1: 'floor',
+                                     p2: 'tag', p2Text: 'AHU', n2: 'seq' } };
+  const ground = m.levels[0].id;
+  [0, 1].forEach(function (i) {
+    const a = M.addNode(m, ground, i * 4, 0), b = M.addNode(m, ground, i * 4 + 1, 0);
+    const e = M.addPipe(m, a.id, b.id, { size: 'DN50' });
+    e.kind = 'equip';
+    e.equip = { qRated: 0.01, pdRated: 50000, equipType: 'exchanger', duty: 10000 };
+    e.tag = M.equipmentTag(m, 'exchanger', ground);
+  });
+  const up = M.addLevel(m, { name: 'Level 1', altitude: 3.5 });
+  M.copyLevel(m, ground, up.id);
+
+  /* Before re-tagging the copies are duplicates of the originals. */
+  const before = m.pipes.filter(function (p) {
+    const n = M.node(m, p.a);
+    return p.kind === 'equip' && n && n.level === up.id;
+  }).map(function (p) { return p.tag; });
+  ok('the copies land wearing the old floor\'s tags',
+     before.join(',') === 'L0-AHU01,L0-AHU02', before.join(','));
+
+  const n = M.retagLevelEquipment(m, up.id);
+  ok('two items are re-tagged', n === 2, String(n));
+  const after = m.pipes.filter(function (p) {
+    const nd = M.node(m, p.a);
+    return p.kind === 'equip' && nd && nd.level === up.id;
+  }).map(function (p) { return p.tag; }).sort();
+  ok('...to the new floor\'s numbers', after.join(',') === 'L1-AHU01,L1-AHU02',
+     after.join(','));
+
+  /* And the ground floor is untouched. */
+  const ge = m.pipes.filter(function (p) {
+    const nd = M.node(m, p.a);
+    return p.kind === 'equip' && nd && nd.level === ground;
+  }).map(function (p) { return p.tag; }).sort();
+  ok('the original floor keeps its tags', ge.join(',') === 'L0-AHU01,L0-AHU02', ge.join(','));
+}
+
 report();

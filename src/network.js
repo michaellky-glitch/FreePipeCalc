@@ -1385,21 +1385,51 @@
    * magnitude for a circuit built around it. */
   function autoSizeForFlow(m, res, autos, equips) {
     var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
-    var target = Math.max.apply(null, equips.map(function (e) { return e.equip.qRated; }));
     var cur = res, i;
 
+    /* THE DUTY IS SET BY THE WORST-SERVED MACHINE, not the best-served one.
+     *
+     * This drove the LARGEST actual flow up to the LARGEST rated flow. On
+     * parallel loads that stops the moment the EASIEST branch reaches its
+     * rating, leaving every harder branch below rated — an undersized pump, and
+     * exactly the "auto sizing being slightly wrong" Michael reported
+     * (2026-08-21). Two branches at different heights make it plain: the low
+     * one reaches rated, the high one never does, and the search stops anyway.
+     *
+     * The metric is `flow / qRated` and the target is the SMALLEST of them: the
+     * duty is right when the machine that is hardest to reach has its rated
+     * flow. Comparing ratios rather than flows also handles a circuit whose
+     * machines carry different ratings, which comparing raw flows never could.
+     *
+     * It is the same criterion `criticalPath` picks the index load with, so the
+     * calculation sheet and the pump agree about which machine governs. */
+    function worstServed(state) {
+      var w = null;
+      equips.forEach(function (e) {
+        var rated = Number(e.equip.qRated);
+        if (!(rated > 0)) return;
+        var q = Math.abs(state.flow[e.id] || 0);
+        var ratio = q / rated;
+        if (!w || ratio < w.ratio) w = { ratio: ratio, q: q, rated: rated, pipe: e };
+      });
+      return w;
+    }
+
+    var w = worstServed(cur);
+    var target = w ? w.rated : Math.max.apply(null, equips.map(function (e) { return e.equip.qRated; }));
+
     for (i = 0; i < 25; i++) {
-      var q = Math.max.apply(null, equips.map(function (e) {
-        return Math.abs(cur.flow[e.id] || 0);
-      }));
-      if (q > 0 && Math.abs(q - target) / target < 1e-4) break;
+      w = worstServed(cur);
+      if (!w) break;
+      target = w.rated;
+      if (w.q > 0 && Math.abs(w.ratio - 1) < 1e-4) break;
 
       var head;
-      if (!(q > FD.hydraulics.Q_MIN)) {
+      if (!(w.q > FD.hydraulics.Q_MIN)) {
         // standing start — seed from the equipment's rated drop
         head = (equips[0].equip.pdRated || 1e5) / (rho * 9.81) * 1.5;
       } else {
-        var ratio = Math.pow(target / q, 1.9);
+        var ratio = Math.pow(1 / w.ratio, 1.9);
         // damp the step so an over-correction cannot oscillate
         ratio = Math.max(0.25, Math.min(4, ratio));
         head = (autos[0].pump.head || 0) * ratio;
@@ -2882,7 +2912,15 @@
        * v0.12.1 the sizer deliberately leaves it at part load. Over-flow is
        * still called out for everything, because that is the square-law trap
        * this check exists for. */
-      if (ratio < 1 && p.equip.equipType === 'source') return;
+      /* AN ADIABATIC ITEM BELOW ITS RATING IS ALSO NORMAL (Michael,
+       * 2026-08-21). A strainer, a filter or a flow meter states a pressure
+       * drop at a rated flow; it is pipework, not a load, and it makes no claim
+       * about what flow the circuit ought to be carrying. Below rating it is
+       * simply dropping less, which is the square law behaving. Over-flow is
+       * still reported for everything, because that is the trap this check
+       * exists for. */
+      if (ratio < 1 && (p.equip.equipType === 'source' ||
+                        p.equip.equipType === 'adiabatic')) return;
 
       var pd = (p.equip.pdRated || 0) * ratio * ratio;
       out.push({
@@ -3102,18 +3140,54 @@
     });
 
     if (!target) {
-      // closed circuit: the heaviest piece of equipment is the index terminal
-      var worst = null;
-      net.links.forEach(function (l) {
-        if (l.kind !== 'equip') return;
-        var q = res.flow[l.id];
-        if (q === undefined) return;
-        var dp = Math.abs(FD.hydraulics.linkLoss(l, q));
-        if (!worst || dp > worst.dp) worst = { dp: dp, link: l };
+      /* CLOSED CIRCUIT — the index is the WORST-SERVED LOAD, not the heaviest.
+       *
+       * It used to be the equipment with the largest pressure drop, which is
+       * wrong twice over. Parallel branches settle at the SAME head difference
+       * between the headers, so "largest drop" cannot tell them apart and the
+       * first one found won — on Michael's two-floor model (an AHU on L1,
+       * the floor duplicated to L2) it always reported L1. And the drop is read
+       * at the ACTUAL flow, so the branch that is starved reports a SMALLER
+       * drop than the branch that is over-flowing: the metric pointed at the
+       * easiest load rather than the hardest.
+       *
+       * Worst-served is `flow / qRated`. It is a physical statement — this is
+       * the machine the circuit fails to supply — and it is the SAME criterion
+       * `autoSizeForFlow` sizes against, so the calculation sheet and the pump
+       * cannot disagree about which load governs.
+       *
+       * Plant and adiabatic items are not loads (a chiller's rated flow is a
+       * selection figure, a strainer states nothing), so they are considered
+       * only when there is nothing else — the same rule `autoSizePumps` uses. */
+      var cands = net.links.filter(function (l) {
+        return l.kind === 'equip' && res.flow[l.id] !== undefined;
       });
+      var loadLinks = cands.filter(function (l) {
+        var mp = M.pipe(m, l.id);
+        var t = mp && mp.equip && mp.equip.equipType;
+        return t !== 'source' && t !== 'adiabatic';
+      });
+      var pool = loadLinks.length ? loadLinks : cands;
+
+      var worst = null;
+      pool.forEach(function (l) {
+        var mp = M.pipe(m, l.id);
+        var rated = (mp && mp.equip) ? Number(mp.equip.qRated) : 0;
+        if (!(rated > 0)) return;
+        var ratio = Math.abs(res.flow[l.id] || 0) / rated;
+        if (!worst || ratio < worst.ratio) worst = { ratio: ratio, link: l };
+      });
+      /* Nothing states a rated flow — fall back to the old "heaviest" rule so
+       * a model that predates rated flows still reports something. */
+      if (!worst) {
+        pool.forEach(function (l) {
+          var dp = Math.abs(FD.hydraulics.linkLoss(l, res.flow[l.id]));
+          if (!worst || dp > worst.dp) worst = { dp: dp, ratio: null, link: l };
+        });
+      }
       if (worst) {
-        target = { node: worst.link.to, residual: null, kind: 'equipment',
-                   link: worst.link.id };
+        target = { node: worst.link.to, inlet: worst.link.from, residual: null,
+                   kind: 'equipment', link: worst.link.id, served: worst.ratio };
       }
     }
     if (!target) return null;
@@ -3143,21 +3217,120 @@
       (adj[l.to] = adj[l.to] || []).push(l);
     });
 
-    var sections = [], seen = {}, cur = target.node, guard = 0;
-    seen[cur] = true;
-    while (!origins[cur] && guard++ < 500) {
-      var best = null;
-      (adj[cur] || []).forEach(function (l) {
-        var other = (l.from === cur) ? l.to : l.from;
-        if (seen[other]) return;
-        var dh = (res.head[other] === undefined || res.head[cur] === undefined)
-          ? -Infinity : res.head[other] - res.head[cur];
-        if (!best || dh > best.dh) best = { link: l, other: other, dh: dh };
-      });
-      if (!best) break;
-      sections.unshift({ link: best.link.id, from: best.other, to: cur });
-      seen[best.other] = true;
-      cur = best.other;
+    /* ONE WALK, RUN TWICE. `up` follows the head gradient UPWARDS, which from a
+     * terminal leads back through the plant to the datum — the supply half.
+     * `up = false` follows it downwards, which is the direction the water goes
+     * — the return half. `block` keeps the return walk from stepping back
+     * through the load it just came out of. */
+    /* ONE LOAD ON THE PATH, AND ONLY ONE.
+     *
+     * The walk is greedy on head, and in a headered system every load outlet
+     * sits at a similar head — so from the return header the steepest step can
+     * be INTO another branch, and the trace then threads a second coil and
+     * climbs its supply. On the HighRise it reported five pieces of equipment
+     * across 43 sections; on the data centre, four. An index circuit passes
+     * through the machine it is the index FOR, once.
+     *
+     * Plant is not blocked: a primary/secondary system legitimately routes the
+     * return through the chiller it shares, and a chiller is not a load. */
+    var blockedLinks = {};
+    net.links.forEach(function (l) {
+      if (l.kind !== 'equip' || l.id === target.link) return;
+      var mp = M.pipe(m, l.id);
+      var t = mp && mp.equip && mp.equip.equipType;
+      if (t !== 'source' && t !== 'adiabatic') blockedLinks[l.id] = true;
+    });
+
+    /* WHERE A CIRCUIT ENDS.
+     *
+     * An OPEN system ends at a fixed head — a source. A CLOSED circuit has no
+     * such thing on its main run: the pinned datum is a bookkeeping node and on
+     * a real model it can sit on a dead leg (an expansion connection), which is
+     * why the HighRise trace ran past it and dead-ended at N136. Tracing
+     * upstream around a closed loop does not terminate on its own — it circles.
+     *
+     * The pump is the terminator. The circuit is load → return → PUMP → supply
+     * → load, so the supply half stops the moment it has come up through a
+     * pump, and the return half stops when it arrives back at that pump's
+     * suction. That is "the piping back to the pumps" stated as a rule. */
+    function walk(startNode, up, block, usedLinks, stopAtPump, stopNode) {
+      var out = [], seen = {}, cur = startNode, guard = 0;
+      seen[cur] = true;
+      if (block) seen[block] = true;
+      while (!origins[cur] && cur !== stopNode && guard++ < 500) {
+        var best = null;
+        (adj[cur] || []).forEach(function (l) {
+          if (blockedLinks[l.id]) return;
+          if (usedLinks && usedLinks[l.id]) return;
+          var other = (l.from === cur) ? l.to : l.from;
+          if (seen[other]) return;
+          /* FOLLOW THE WATER, not the head gradient.
+           *
+           * The gradient walk was greedy, and a greedy walk can step into a
+           * branch whose only way out it has already visited — on the HighRise
+           * it dead-ended at N28 while the datum was N143, so the path never
+           * closed and its "static" was just the riser it happened to stop on.
+           *
+           * Flow direction cannot dead-end like that: continuity says whatever
+           * leaves the plant comes back to it, so tracing upstream from a load
+           * always reaches the pump, and downstream always returns to it. At a
+           * junction the branch carrying the most water is the main — which is
+           * what makes this the DOMINANT circuit rather than merely a circuit. */
+          var q = res.flow[l.id];
+          if (q === undefined) return;
+          var leavesCur = (l.from === cur) ? (q > 0) : (q < 0);
+          // upstream trace wants what feeds `cur`; downstream wants what it feeds
+          if (up === leavesCur) return;
+          var score = Math.abs(q);
+          if (!best || score > best.score) best = { link: l, other: other, score: score };
+        });
+        if (!best) break;
+        if (up) out.unshift({ link: best.link.id, from: best.other, to: cur });
+        else out.push({ link: best.link.id, from: cur, to: best.other });
+        seen[best.other] = true;
+        cur = best.other;
+        /* Came up through a pump: this is the head of the circuit. */
+        if (stopAtPump && best.link.kind === 'pump') break;
+      }
+      return { sections: out, end: cur };
+    }
+
+    /* THE SUPPLY HALF: datum → plant → load. */
+    var closedCircuit = (target.kind === 'equipment');
+    var supply = walk(target.node, true, null, null, closedCircuit, null);
+    var sections = supply.sections;
+    var cur = supply.end;
+
+    /* THE RETURN HALF — the piece that was missing.
+     *
+     * Michael, 2026-08-21: "It is not calculating a loop, it seems to end at
+     * the equipment... ensure the Simulation includes piping back to the pumps."
+     * He is right. The walk terminated the moment it reached the datum, and in
+     * a closed circuit the datum IS the pump suction, reached by going UP
+     * through the pump — so the pipework carrying the water BACK to the pump
+     * was never on the path. On a minimal loop the pump develops 16.97 m
+     * (supply 2.81 + coil 11.00 + return 3.16) and the critical path reported
+     * 13.81 m: the return side, exactly.
+     *
+     * Only a closed circuit has one. In an open system the water leaves at the
+     * terminal and there is nothing to come back. */
+    if (target.kind === 'equipment') {
+      /* A CIRCUIT DOES NOT USE THE SAME PIPE TWICE. Without this the return
+       * half re-traverses the plant the supply half already went through — on
+       * the HighRise both halves crossed PMP-2 and WCCH-02, so the reported
+       * duty was two pumps for a circuit containing one. Blocking the links the
+       * supply half consumed forces a simple circuit, which is what an index
+       * circuit is.
+       *
+       * If the return cannot reach the datum without re-using one of them there
+       * is no second half to draw — the supply trace stands on its own, as it
+       * does in an open system. */
+      var used = {};
+      sections.forEach(function (sec) { used[sec.link] = true; });
+      var back = walk(target.node, false, target.inlet, used, false, cur);
+      if (back.end === cur || origins[back.end]) {
+        sections = sections.concat(back.sections);
+      }
     }
 
     var ids = {};
@@ -3176,6 +3349,9 @@
     return {
       target: target.node,
       targetKind: target.kind,
+      /* Which load governs, and how badly it is served (flow / rated). */
+      targetLink: target.link || null,
+      served: target.served === undefined ? null : target.served,
       residual: target.residual,
       origin: cur,
       sections: sections,
@@ -3289,8 +3465,24 @@
     if (components.length > 1) {
       components.sort(function (x, y) { return y.length - x.length; });
       components.slice(1).forEach(function (c) {
+        /* MARK THE OPEN ENDS, NOT EVERY NODE.
+         *
+         * Michael, 2026-08-21: after pasting a pump "the disconnect does not
+         * show at the end of pipe, but at the pump (not helpful)". Reporting
+         * every node in the island put a glyph on both of the pump's own nodes,
+         * half a metre apart, so the warning stacked on the device itself and
+         * said nothing about where to join it up.
+         *
+         * The useful place is where the island RUNS OUT — its loose ends, the
+         * nodes with one pipe or none. That is where a pipe has to be drawn to.
+         * The `nodes` list is also what a message click navigates to, so this
+         * takes you to the end that needs connecting.
+         *
+         * A ring-shaped island has no loose end; then every node is as good as
+         * any other and the whole component is reported, as before. */
+        var ends = c.filter(function (id) { return (deg[id] || 0) <= 1; });
         issues.push({
-          code: 'ISLAND', nodes: c, severity: 'error',
+          code: 'ISLAND', nodes: ends.length ? ends : c, severity: 'error',
           message: c.length + ' node(s) form a separate island with no pipe ' +
                    'connecting them to the main network. Connect them to the ' +
                    'network or delete.'

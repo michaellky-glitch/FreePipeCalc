@@ -629,4 +629,73 @@ section('A pressure nothing will be built to is an error, not a result');
   }
 }
 
+section('An adiabatic item below its rating is not a defect');
+{
+  /* Michael, 2026-08-21: "Strainers (Hydraulic-Other) should not generate a
+   * Defect when below design conditions." A strainer states a pressure drop at
+   * a rated flow. It is pipework, not a load, and it makes no claim about the
+   * flow the circuit ought to carry — below rating it simply drops less, which
+   * is the square law behaving. Plant already had this exemption; adiabatic
+   * items did not. */
+  const m = M.create();
+  m.settings.calcMode = 'design';
+  const lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 5, 0);
+  const c = M.addNode(m, lv, 10, 0), d = M.addNode(m, lv, 15, 0);
+  M.setSource(m, a.id, 300000);
+  const str = M.addPipe(m, b.id, c.id, { size: 'DN50' });
+  str.kind = 'equip'; str.tag = 'STR-1';
+  str.equip = { qRated: 0.02, pdRated: 50000, qOut: 0.02, equipType: 'adiabatic' };
+  M.addPipe(m, a.id, b.id, { size: 'DN50' });
+  M.addPipe(m, c.id, d.id, { size: 'DN50' });
+  M.setDemand(m, d.id, 0.002, 100000);          // a tenth of the rated flow
+
+  const res = NET.solveModel(m);
+  const off = (res.warnings || []).filter(function (w) {
+    return w.code === 'EQUIP_OFF_RATING' && w.pipe === str.id;
+  });
+  ok('a strainer at a tenth of its rating raises nothing', off.length === 0,
+     off.map(function (w) { return w.message; }).join(' | '));
+
+  /* OVER-flow is still reported: that is the square-law trap the check exists
+   * for, and it applies to a strainer as much as to anything else. */
+  M.node(m, d.id).device.flow = 0.2;            // ten times the rating
+  const res2 = NET.solveModel(m);
+  const over = (res2.warnings || []).filter(function (w) {
+    return w.code === 'EQUIP_OFF_RATING' && w.pipe === str.id;
+  });
+  ok('...but over its rating it still does', over.length === 1,
+     String(over.length));
+}
+
+section('A disconnected island is flagged at its open ends');
+{
+  /* Michael, 2026-08-21: after pasting a pump "the disconnect does not show at
+   * the end of pipe, but at the pump (not helpful)". Every node in the island
+   * was reported, so the glyph stacked on the device instead of marking where a
+   * pipe has to be drawn to. */
+  const m = M.create();
+  const lv = m.levels[0].id;
+  let prev = M.addNode(m, lv, 0, 0).id;
+  for (let i = 1; i < 6; i++) {                 // the main network, largest
+    const n = M.addNode(m, lv, i * 3, 0);
+    M.addPipe(m, prev, n.id, { size: 'DN50' });
+    prev = n.id;
+  }
+  const e1 = M.addNode(m, lv, 20, 10), p1 = M.addNode(m, lv, 25, 10);
+  const p2 = M.addNode(m, lv, 25.5, 10), e2 = M.addNode(m, lv, 30, 10);
+  M.addPipe(m, e1.id, p1.id, { size: 'DN50' });
+  const pu = M.addPipe(m, p1.id, p2.id, { size: 'DN50' });
+  pu.kind = 'pump'; pu.tag = 'PMP-X';
+  pu.pump = { mode: 'fixed', head: 10, sizing: 'manual' };
+  M.addPipe(m, p2.id, e2.id, { size: 'DN50' });
+
+  const iss = NET.disconnections(m).filter(function (i) { return i.code === 'ISLAND'; });
+  ok('the pasted fragment is an island', iss.length === 1, String(iss.length));
+  const got = iss[0].nodes.slice().sort().join(',');
+  ok('it is flagged at the two OPEN ENDS', got === [e1.id, e2.id].sort().join(','), got);
+  ok('...and not on the pump itself',
+     iss[0].nodes.indexOf(p1.id) < 0 && iss[0].nodes.indexOf(p2.id) < 0);
+}
+
 report();

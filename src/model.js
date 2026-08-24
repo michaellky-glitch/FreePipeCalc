@@ -1287,6 +1287,118 @@
     return base + ' copy';
   }
 
+  /* ===================================================== NAMING CONVENTION
+   *
+   * Michael, 2026-08-21. Equipment tags follow a format the engineer sets, so a
+   * drawing matches the office standard instead of the program's own habit.
+   *
+   *     [Prefix 1][Number 1]-[Prefix 2][Number 2]
+   *
+   * Each PREFIX is 'none' or 'tag' — 'tag' meaning the text the engineer typed,
+   * which may contain and end with spaces: "[AHU ][Floor]" gives "AHU 1".
+   * Each NUMBER is 'none', 'floor' or 'seq'.
+   *
+   *   floor — the level's own number, taken from its position in the stack.
+   *   seq   — counts up within everything that shares the same rest-of-tag, so
+   *           two coils on one floor are 01 and 02 and the count restarts on
+   *           the next floor. That is what makes L0-AHU01 / L1-AHU01 work.
+   *
+   * The separator is dropped when the second half says nothing, so a format of
+   * [AHU][Sequence] with nothing after it gives "AHU01", not "AHU01-".
+   *
+   * Held per model and per equipment kind, so a chiller and a coil can be named
+   * differently. `hydronic` only: a plumbing fixture is tagged from its own IPC
+   * prefix, which is a different rule with a different reason. */
+  var NAMING_DEFAULT = {
+    exchanger: { p1: 'none', p1Text: '', n1: 'none',
+                 p2: 'tag',  p2Text: 'HX', n2: 'seq' },
+    source:    { p1: 'none', p1Text: '', n1: 'none',
+                 p2: 'tag',  p2Text: 'HS', n2: 'seq' }
+  };
+
+  function namingFor(m, kind) {
+    var all = (m.settings && m.settings.naming) || {};
+    var d = NAMING_DEFAULT[kind] || NAMING_DEFAULT.exchanger;
+    return Object.assign({}, d, all[kind] || {});
+  }
+
+  /* The floor NUMBER of a level: its index in the stack, counting from the
+   * bottom. Not the name — a level called "Ground" still sits at 0 — and not
+   * the altitude, which is a length. */
+  function levelNumber(m, levelId) {
+    var order = m.levels.map(function (lv) { return lv; })
+      .sort(function (a, b) { return (a.altitude || 0) - (b.altitude || 0); });
+    for (var i = 0; i < order.length; i++) {
+      if (order[i].id === levelId) return i;
+    }
+    return 0;
+  }
+
+  function pad2(n) { return n < 10 ? '0' + n : String(n); }
+
+  /* Build one half of a tag. `seq` is filled in by the caller. */
+  function namePart(prefixMode, prefixText, numberMode, floorNo, seqNo) {
+    var out = (prefixMode === 'tag') ? String(prefixText || '') : '';
+    if (numberMode === 'floor') out += String(floorNo);
+    else if (numberMode === 'seq') out += (seqNo === null ? '' : pad2(seqNo));
+    return out;
+  }
+
+  /* The tag a new piece of equipment of `kind` on `levelId` should carry.
+   *
+   * `seq` counts only within tags that match everything else in the format, so
+   * the sequence restarts per floor when the floor is part of the name and runs
+   * continuously when it is not. */
+  function equipmentTag(m, kind, levelId) {
+    var f = namingFor(m, kind);
+    var floorNo = levelNumber(m, levelId);
+    var left  = namePart(f.p1, f.p1Text, f.n1, floorNo, null);
+    var right = namePart(f.p2, f.p2Text, f.n2, floorNo, null);
+    var joiner = (left && right) ? '-' : '';
+
+    /* Nothing counts up — the format is a fixed string, so it is the tag. */
+    if (f.n1 !== 'seq' && f.n2 !== 'seq') return left + joiner + right;
+
+    /* Otherwise find the lowest free number for this stem. */
+    var used = {};
+    var reLeft  = left.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var reRight = right.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var re = (f.n1 === 'seq')
+      ? new RegExp('^' + reLeft + '(\\d+)' + (right ? '-' + reRight : '') + '$')
+      : new RegExp('^' + (left ? reLeft + '-' : '') + reRight + '(\\d+)$');
+    m.pipes.forEach(function (p) {
+      if (!p.tag) return;
+      var mm = String(p.tag).match(re);
+      if (mm) used[parseInt(mm[1], 10)] = true;
+    });
+    var i = 1;
+    while (used[i]) i++;
+
+    left  = namePart(f.p1, f.p1Text, f.n1, floorNo, i);
+    right = namePart(f.p2, f.p2Text, f.n2, floorNo, i);
+    return left + ((left && right) ? '-' : '') + right;
+  }
+
+  /* Re-tag every piece of equipment on a level to the current convention.
+   *
+   * Used after a floor is copied: the copies arrive carrying the tags of the
+   * floor they came from, which is the one thing about a duplicated floor that
+   * is never right. Equipment only — a pump, valve or sensor keeps its own tag,
+   * and so does anything the convention has nothing to say about. */
+  function retagLevelEquipment(m, levelId) {
+    var done = 0;
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'equip' || !p.equip) return;
+      var t = p.equip.equipType;
+      if (t !== 'exchanger' && t !== 'source') return;
+      var host = node(m, p.a);
+      if (!host || host.level !== levelId) return;
+      var next = equipmentTag(m, t, levelId);
+      if (next && next !== p.tag) { p.tag = next; done++; }
+    });
+    return done;
+  }
+
   function copyLevel(m, fromLevelId, toLevelId) {
     var src = level(m, fromLevelId), dst = level(m, toLevelId);
     if (!src || !dst || src.id === dst.id) return null;
@@ -3128,6 +3240,9 @@
     riserOpenEnds: riserOpenEnds, riserNotation: riserNotation,
     removeRiser: removeRiser, setRiserProps: setRiserProps,
     copyLevel: copyLevel,
+    namingFor: namingFor, levelNumber: levelNumber,
+    equipmentTag: equipmentTag, retagLevelEquipment: retagLevelEquipment,
+    NAMING_DEFAULT: NAMING_DEFAULT,
     MIN_OUTFLOW_PRESSURE: MIN_OUTFLOW_PRESSURE,
     outflowResistance: outflowResistance,
     setTrace: setTrace, clearTrace: clearTrace, calibrateTrace: calibrateTrace,

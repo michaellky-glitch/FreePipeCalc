@@ -10,17 +10,77 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **v0.18.10 (beta), 2026-08-23.** Ten test suites, **2241 assertions**, all
+State: **v0.18.11 (beta), 2026-08-23.** Ten test suites, **2270 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
+
+---
+
+## 0A. v0.18.11 — CRITICAL PATH REWRITTEN (2026-08-23)
+
+**The critical path was wrong in the closed-circuit (equipment) case, and it was
+making the pump sizing wrong with it.** Michael flagged it critical. Four faults
+in `criticalPath` (`src/network.js`), all in the branch that runs when there are
+no demand nodes. The open-system/demand branch was correct and is untouched.
+
+1. **The return pipework was not on the path.** The trace climbed to the pinned
+   datum, and in a closed loop it reached that datum *up through the pump* — so
+   the pipe carrying water BACK to the pump was never included.
+2. **The index load was chosen by its own ΔP.** Parallel branches settle at the
+   same head difference so that cannot separate them, and it is read at ACTUAL
+   flow, so a starved branch reports a SMALLER drop than one over-flowing. It
+   pointed at the best-served load. Now the index is the **worst-served** load,
+   `flow / qRated`.
+3. **The walk threaded several loads** (5 on the HighRise, 4 on the DC). Other
+   loads are now blocked, and the return half may not re-use a supply link.
+4. **The walk could DEAD-END.** A greedy head-gradient walk can step into a
+   branch whose only exit it has already visited — on the HighRise it stopped at
+   N28 while the datum was N143. Two changes: it now **follows the flow**
+   (continuity cannot dead-end), and a closed circuit **terminates at the pump**,
+   not at a fixed head — the pinned datum can sit on a dead leg, which is what
+   the HighRise does.
+
+`autoSizeForFlow` drove the LARGEST flow to the LARGEST rating, so it stopped
+once the EASIEST branch reached rating — an undersized pump. It now drives the
+**worst-served ratio** to 1, the same criterion the critical path uses, so the
+sheet and the pump agree on which machine governs.
+
+**Verified:** minimal loop 16.9692 = 16.9692; a two-floor copy reports L2 not L1;
+HighRise (variable primary — PMP-1/2 duty, PMP-3 standby) and both DC models each
+give ONE load, ONE pump, and **friction + static = pump head exactly (delta
+0.000 m)**. `test/fixtures/highrise-variable-primary.pnet.json` is frozen and the
+IDENTITY is asserted, not a hard-coded duty.
+
+**Also in v0.18.11:**
+* EWT/LWT on the info panel is a slash, not an arrow.
+* A strainer (adiabatic) below its rating no longer raises `EQUIP_OFF_RATING`;
+  plant already had that exemption. Over-rating is still reported for everything.
+* A disconnected island is flagged at its **open ends** (degree ≤ 1), not on every
+  node — a pasted pump used to stack the glyph on the device itself.
+* New heat exchangers / heat sources are **oriented to the flow** when the pipe
+  already carries some (`insertInline(..., alignToFlow)`).
+* **Equipment naming convention** — `[Prefix1][Number1]-[Prefix2][Number2]`,
+  prefix None|Tag, number None|Floor|Sequence, per equipment kind, on SETTINGS.
+  Trailing spaces kept; the dash disappears when the second half is empty.
+  `M.equipmentTag` / `M.retagLevelEquipment` / `M.levelNumber` in `model.js`.
+  **Copying a floor now re-tags its equipment.** Michael's worked example
+  (L0-AHU01 … L3-AHU01) is asserted.
+
+**STILL OPEN — the MIN/MAX/SET discussion.** How to support control schemes other
+than "hold a value" (e.g. minimum flow through chillers at low load). Proposal,
+not built: add a comparator to a setpoint — SET (current behaviour), MIN (act
+only when the reading is below target), MAX (only when above). The bracketed
+search is already one-sided, so the change is to clamp the error to one side
+(`err = max(0, target − reading)` for MIN); the direction-agnostic perturbation
+logic is untouched. UI: a MIN/MAX/SET selector beside each setpoint.
 
 ---
 
 ## 0. Current phase — PROGRAM CHANGES (2026-08-22/23)
 
-**STANDING RULES NOW, from Michael (2026-08-22): the version freeze is LIFTED —
-bump the `?v=` token and `FD.VERSION` together, as normal. The PUSH freeze
-STANDS: do NOT push to GitHub until he says so.** Commit locally if you like;
-nothing goes to the remote.
+**STANDING RULES NOW, from Michael (2026-08-23): BOTH freezes are LIFTED.** Bump
+the `?v=` token and `FD.VERSION` together as normal, and push — he tests off
+GitHub Pages. CI (`.github/workflows/pages.yml`) gates the deploy on the test
+suite, so a red suite means the site does not update.
 
 Because the token now moves with the edit, a UI change is verifiable by opening
 `index.html` normally. `styles.css` edited AFTER a bump within the same session
