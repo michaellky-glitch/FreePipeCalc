@@ -3491,6 +3491,80 @@ section('Integrated control valve and capacity override');
 /* =====================================================================
  * SYNC — the answer to "multiple equipment on one sensor".
  * ===================================================================== */
+/* ==================================================================
+ * SYNC IS ABOUT SELECTION, NOT ABOUT WHERE A VALVE CAME TO REST.
+ *
+ * Michael, 2026-08-24: "check if syncing heat exchangers also syncs their
+ * control valves. They should not, only sync capacities."
+ *
+ * They do not, and this is what holds it that way. A sync says two machines
+ * were chosen as one — duty, rated flow, rated pressure drop — and an
+ * integrated control valve is not part of that choice: its opening is where
+ * the loop has come to rest holding ITS OWN coil's ΔT. Two identical coils on
+ * branches of different length need DIFFERENT openings to do the same duty,
+ * which is the whole reason a control valve is fitted. Copying the leader's
+ * position would hold one of them off setpoint on purpose.
+ *
+ * This depends on an order in `runControlsGen` that is easy to break: the ICV
+ * branch is taken BEFORE the "a synced device is not a controller" return, so
+ * a synced coil still gets a loop of its own.
+ * ================================================================== */
+section('Syncing heat exchangers does not sync their control valves');
+{
+  const m = M.fromJSON(JSON.parse(fs.readFileSync(
+    path.join(__dirname, 'fixtures', 'parallel-branches.pnet.json'), 'utf8')));
+  m.settings.calcMode = 'simulation';
+  const ex = m.pipes.filter(p => p.kind === 'equip' &&
+                                 p.equip.equipType === 'exchanger');
+  ok('The fixture has two coils to sync', ex.length >= 2, String(ex.length));
+  const lead = ex[0], follow = ex[1];
+  [lead, follow].forEach(function (p) {
+    p.equip.icv = { kv: FD.valves.defaultKv('globe', M.pipeBore(m, p) * 1000),
+                    opening: 100 };
+  });
+  M.setSync(m, follow, lead.id);
+  const res = NET.solveModel(m);
+
+  /* The CAPACITY followed, which is the part that should. */
+  near('The synced coil takes the leader’s duty',
+       follow.equip.duty, lead.equip.duty, 1e-9);
+
+  /* The VALVE did not. Both were started wide open, so each one is settled by
+   * its own loop rather than handed a position. */
+  const devs = (res.controls && res.controls.devices) || [];
+  const dLead = devs.filter(d => d.pipe === lead.id)[0];
+  const dFollow = devs.filter(d => d.pipe === follow.id)[0];
+  ok('The leader’s valve is a controlled device', !!dLead,
+     JSON.stringify(devs.map(d => d.pipe)));
+  ok('The FOLLOWER’s valve is a controlled device of its own', !!dFollow,
+     JSON.stringify(devs.map(d => d.pipe)));
+  ok('...holding its OWN coil, not the leader’s',
+     !!dFollow && dFollow.equip === follow.id, dFollow && dFollow.equip);
+  ok('...on that coil’s ΔT', !!dFollow && dFollow.setpointOf === 'dT',
+     dFollow && dFollow.setpointOf);
+  ok('...and not ganged to the leader',
+     !!dFollow && !dFollow.gangedWith,
+     JSON.stringify(dFollow && dFollow.gangedWith));
+
+  /* Nothing copies a position across, in either direction. */
+  const before = lead.equip.icv.opening;
+  follow.equip.icv.opening = 33;
+  NET.solveModel(m);
+  ok('Moving the follower’s valve does not move the leader’s',
+     lead.equip.icv.opening === before ||
+     lead.equip.icv.opening !== follow.equip.icv.opening,
+     'lead ' + before + ' -> ' + lead.equip.icv.opening +
+     ', follow ' + follow.equip.icv.opening);
+
+  /* And the Kv — the valve's own SELECTION — is not copied either. Sync takes
+   * duty, rated flow and rated pressure drop, and stops there. */
+  lead.equip.icv.kv = 77;
+  NET.solveModel(m);
+  ok('The follower keeps its own valve Kv', follow.equip.icv.kv !== 77,
+     String(follow.equip.icv.kv));
+}
+
+
 section('A synced pump holds its leader\u2019s speed');
 {
   const m = M.create();

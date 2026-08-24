@@ -708,4 +708,76 @@ section('Critical path: the circuit closes at the pump on a real model');
   }
 }
 
+/* ==================================================================
+ * A SOURCE ON THE CIRCUIT DOES NOT END IT — Michael, 2026-08-24:
+ * "if the source was located along the critical path, hydraulic
+ * calculation stopped at source."
+ *
+ * A pressurisation / make-up connection pins a fixed head, and the walk
+ * terminated on ANY fixed head before it could terminate on the pump.
+ * Where the tee sat then decided the answer:
+ *
+ *   on the return leg   the path looked complete and quietly dropped the
+ *                       pipe beyond the tee
+ *   on the load inlet   the supply half collapsed to the coil alone; the
+ *                       pump was not on the path at all
+ *   on the load outlet  the path came back EMPTY — friction 0, static 0
+ *
+ * The circuit is the same circuit whatever the drawing does about
+ * pressurisation, so the test is that every placement gives the SAME path
+ * as no source at all, and that the identity holds in each.
+ * ================================================================== */
+section('Critical path: a source on the run does not truncate the circuit');
+{
+  /* a =pump= b — s1 — c =coil= d — s2 — a.  `s1` and `s2` are plain junctions
+   * on the supply and return legs; the source is moved onto each node in turn. */
+  function circuit(sourceAt) {
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    const lv = m.levels[0].id;
+    const at = {
+      a: M.addNode(m, lv, 0, 0), b: M.addNode(m, lv, 2, 0),
+      s1: M.addNode(m, lv, 20, 0), c: M.addNode(m, lv, 40, 0),
+      d: M.addNode(m, lv, 40, 10), s2: M.addNode(m, lv, 20, 10)
+    };
+    const pump = M.addPipe(m, at.a.id, at.b.id, { size: 'DN50' });
+    pump.kind = 'pump'; pump.tag = 'PMP';
+    pump.pump = { mode: 'fixed', head: 20, sizing: 'manual', speed: 1,
+      curve: { H0: 28, a: 70000, b: 1.55, source: 'generated', Qd: 0.0024, Hd: 20,
+        points: [{ q: 0, h: 28 }, { q: 0.0024, h: 20 }, { q: 0.0036, h: 13 }] } };
+    M.addPipe(m, at.b.id, at.s1.id, { size: 'DN50' });
+    M.addPipe(m, at.s1.id, at.c.id, { size: 'DN50' });
+    const ahu = M.addPipe(m, at.c.id, at.d.id, { size: 'DN50' });
+    ahu.kind = 'equip'; ahu.tag = 'AHU';
+    ahu.equip = { qRated: 0.0024, pdRated: 50000, qOut: 0.02,
+                  equipType: 'exchanger', duty: 100000, lastEdited: ['qRated', 'duty'] };
+    M.addPipe(m, at.d.id, at.s2.id, { size: 'DN50' });
+    M.addPipe(m, at.s2.id, at.a.id, { size: 'DN50' });
+    if (sourceAt) at[sourceAt].device = { kind: 'source', pressure: 300000 };
+    return { m, pump };
+  }
+
+  const baseRun = circuit(null);
+  const baseRes = NET.solveModel(baseRun.m);
+  const baseIds = Object.keys(baseRes.critical.linkIds).sort().join(',');
+  ok('the un-pressurised circuit is the whole loop',
+     baseRes.critical.sections.length === 6, String(baseRes.critical.sections.length));
+
+  ['s1', 's2', 'b', 'c', 'd'].forEach(function (where) {
+    const run = circuit(where);
+    const res = NET.solveModel(run.m);
+    const c = res.critical;
+    ok('source on ' + where + ': a critical path is found', !!c);
+    if (!c) return;
+    ok('source on ' + where + ': the path is the same circuit',
+       Object.keys(c.linkIds).sort().join(',') === baseIds,
+       Object.keys(c.linkIds).sort().join(',') + ' vs ' + baseIds);
+    ok('source on ' + where + ': the pump is on the path', !!c.linkIds[run.pump.id]);
+    const developed = M.pumpHead(run.m, run.pump, Math.abs(res.flow[run.pump.id]));
+    near('source on ' + where + ': friction + static equals the pump head',
+         c.frictionHead + c.staticHead, developed, 1e-6);
+  });
+}
+
+
 report();

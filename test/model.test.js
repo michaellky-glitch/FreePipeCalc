@@ -490,6 +490,100 @@ section('Model — riser size inheritance (spec §7.2)');
   ok('A level in two risers has a locked offset', M.isLevelLocked(m, top.id) === true);
 }
 
+/* ==================================================================
+ * A COLUMN IS ONE SIZE, NOT ONE SIZE PER SEGMENT — Michael, 2026-08-24:
+ * "flow seems to be going through 50 mm vertical pipes... fluid should be
+ * following risers, which are 100 mm."
+ *
+ * Inheritance used to read only the horizontals at a segment's OWN two ends.
+ * The plantroom header sits on the bottom attachment, and nothing above it
+ * does — the floors are DN50 branches — so the bottom segment came out DN100
+ * and every segment added above it came out DN50. Copying a floor is not a
+ * decision to reduce the riser.
+ * ================================================================== */
+section('Model — a riser column inherits one size for the whole column');
+{
+  /* Plant header DN100 on the bottom level, DN50 branches on four floors. */
+  function tower(levels) {
+    const m = M.create();
+    while (m.levels.length < levels) M.addLevel(m);
+    const r = M.addRiser(m, 25, 25);
+    m.levels.forEach(function (L, i) {
+      const n = M.addNode(m, L.id, 25, 25);
+      const far = M.addNode(m, L.id, 35, 25);
+      // `m.levels` runs top-first, so the LAST entry is the plantroom.
+      M.addPipe(m, n.id, far.id, { size: i === m.levels.length - 1 ? 'DN100' : 'DN50' });
+      M.attachRiser(m, r.id, L.id, n.id);
+    });
+    return { m, r };
+  }
+
+  const t = tower(5);
+  M.riserPipes(t.m);
+  const segs = t.m.pipes.filter(p => p.kind === 'riser' && p.riser === t.r.id);
+  ok('every floor gets a segment', segs.length === 4, String(segs.length));
+  ok('...and every segment is the largest size on the column',
+     segs.every(p => p.size === 'DN100'), segs.map(p => p.size).join(','));
+
+  /* ORDER MUST NOT MATTER. Attachments run top-down, so resolving per segment
+   * as they are created would have inherited from the TOP floor's branch. */
+  const t2 = tower(5);
+  const bottom = t2.m.levels[t2.m.levels.length - 1];
+  // Materialise the plantroom segment first, then the rest, as adding floors does.
+  M.riserPipes(t2.m);
+  ok('the column is the same size whichever segment was made first',
+     t2.m.pipes.filter(p => p.kind === 'riser').every(p => p.size === 'DN100'),
+     t2.m.pipes.filter(p => p.kind === 'riser').map(p => p.size).join(','));
+  ok('the plantroom is the level carrying the DN100 header',
+     !!t2.m.pipes.find(p => p.kind !== 'riser' && p.size === 'DN100' &&
+                       (M.node(t2.m, p.a) || {}).level === bottom.id));
+
+  /* A FLOOR ADDED LATER TAKES THE COLUMN, not its own DN50 branch. This is
+   * Michael's sequence: draw the plant, draw a floor, copy the floor upward. */
+  const t3 = (function () {
+    const m = M.create();
+    const plant = m.levels[0];
+    const floor = M.addLevel(m);
+    const r = M.addRiser(m, 25, 25);
+    [[plant, 'DN100'], [floor, 'DN50']].forEach(function (pair) {
+      const n = M.addNode(m, pair[0].id, 25, 25);
+      const far = M.addNode(m, pair[0].id, 35, 25);
+      M.addPipe(m, n.id, far.id, { size: pair[1] });
+      M.attachRiser(m, r.id, pair[0].id, n.id);
+    });
+    M.riserPipes(m);              // the first segment exists at DN100
+    return { m, r, plant };
+  })();
+  ok('the first segment is DN100',
+     t3.m.pipes.filter(p => p.kind === 'riser').every(p => p.size === 'DN100'),
+     t3.m.pipes.filter(p => p.kind === 'riser').map(p => p.size).join(','));
+
+  const added = M.addLevel(t3.m);
+  const an = M.addNode(t3.m, added.id, 25, 25);
+  const af = M.addNode(t3.m, added.id, 35, 25);
+  M.addPipe(t3.m, an.id, af.id, { size: 'DN50' });     // a DN50 floor branch
+  M.attachRiser(t3.m, t3.r.id, added.id, an.id);
+  M.riserPipes(t3.m);
+  const all = t3.m.pipes.filter(p => p.kind === 'riser');
+  ok('a floor added later does not step the column down',
+     all.length === 2 && all.every(p => p.size === 'DN100'),
+     all.map(p => p.id + '=' + p.size).join(','));
+
+  /* AND A SIZE SOMEBODY SET IS STILL THEIRS. Only NEW segments are computed,
+   * and the column override still beats inheritance outright. */
+  const t4 = tower(3);
+  M.riserPipes(t4.m);
+  const first = t4.m.pipes.find(p => p.kind === 'riser');
+  first.size = 'DN65';
+  M.riserPipes(t4.m);
+  ok('an existing segment is never re-inherited', first.size === 'DN65', first.size);
+  M.setRiserProps(t4.m, t4.r.id, { size: 'DN150' });
+  ok('a pinned column overrides inheritance everywhere',
+     t4.m.pipes.filter(p => p.kind === 'riser').every(p => p.size === 'DN150'),
+     t4.m.pipes.filter(p => p.kind === 'riser').map(p => p.size).join(','));
+}
+
+
 section('Model — device direction (flip, and which devices have one)');
 {
   /* Flipping is a swap of the pipe's own endpoints, because every

@@ -3252,12 +3252,30 @@
      * The pump is the terminator. The circuit is load → return → PUMP → supply
      * → load, so the supply half stops the moment it has come up through a
      * pump, and the return half stops when it arrives back at that pump's
-     * suction. That is "the piping back to the pumps" stated as a rule. */
-    function walk(startNode, up, block, usedLinks, stopAtPump, stopNode) {
+     * suction. That is "the piping back to the pumps" stated as a rule.
+     *
+     * AND A FIXED HEAD DOES NOT END A CLOSED CIRCUIT — Michael, 2026-08-24:
+     * "if the source was located along the critical path, hydraulic calculation
+     * stopped at source." The rule above was only half applied. `stopAtPump`
+     * was added, but the loop still stopped at ANY fixed head first, so a
+     * pressurisation or make-up connection tee'd into the main run cut the
+     * trace off wherever it happened to be drawn. It is not a bookkeeping
+     * detail: with the source on the load INLET the supply half collapses to
+     * the coil alone and the pump vanishes from the path, and with it on the
+     * load OUTLET the path comes back EMPTY — friction 0, static 0, and a
+     * calculation sheet that reconciles with nothing. On the return leg it is
+     * quieter and worse: the path looks complete and simply omits the pipe
+     * beyond the tee.
+     *
+     * So `useOrigins` is OFF for a closed circuit. A source on a closed system
+     * sets the pressure; it does not terminate the water. Only an OPEN system
+     * — where the water genuinely leaves at a terminal and a fixed head is
+     * where it came from — still ends on one. */
+    function walk(startNode, up, block, usedLinks, stopAtPump, stopNode, useOrigins) {
       var out = [], seen = {}, cur = startNode, guard = 0;
       seen[cur] = true;
       if (block) seen[block] = true;
-      while (!origins[cur] && cur !== stopNode && guard++ < 500) {
+      while (!(useOrigins && origins[cur]) && cur !== stopNode && guard++ < 500) {
         var best = null;
         (adj[cur] || []).forEach(function (l) {
           if (blockedLinks[l.id]) return;
@@ -3297,7 +3315,7 @@
 
     /* THE SUPPLY HALF: datum → plant → load. */
     var closedCircuit = (target.kind === 'equipment');
-    var supply = walk(target.node, true, null, null, closedCircuit, null);
+    var supply = walk(target.node, true, null, null, closedCircuit, null, !closedCircuit);
     var sections = supply.sections;
     var cur = supply.end;
 
@@ -3327,8 +3345,14 @@
        * does in an open system. */
       var used = {};
       sections.forEach(function (sec) { used[sec.link] = true; });
-      var back = walk(target.node, false, target.inlet, used, false, cur);
-      if (back.end === cur || origins[back.end]) {
+      var back = walk(target.node, false, target.inlet, used, false, cur, false);
+      /* Arriving back at the pump suction is the only acceptance. It used to
+       * also accept "ended on a fixed head", which was the pre-`stopAtPump`
+       * rule; with the walk no longer stopping at one, that clause can only
+       * fire where the trace STALLED to happen to be standing on a source —
+       * and splicing a return half that never got home is the truncation this
+       * fix exists to remove. */
+      if (back.end === cur) {
         sections = sections.concat(back.sections);
       }
     }

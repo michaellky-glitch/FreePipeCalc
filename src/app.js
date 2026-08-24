@@ -3551,10 +3551,12 @@
   }
 
   /* Riser column properties. A column materialises one or more vertical pipes
-   * between the floors it joins; by default they inherit the size of the
-   * largest horizontal pipe they connect to. This panel lets the size, schedule
-   * and C be pinned explicitly — the reason a riser needs to be selectable at
-   * all. */
+   * between the floors it joins; by default they all take ONE inherited size,
+   * the largest bore anywhere on the column (v0.18.12 — per-segment inheritance
+   * stepped a riser down to the branch size as soon as a floor was copied above
+   * it). This panel lets the size, schedule and C be pinned explicitly — the
+   * reason a riser needs to be selectable at all, and the way to re-size a
+   * column whose segments were materialised under the old rule. */
   function renderRiserProps(host, r) {
     if (!r) return;
     var m = app.model;
@@ -3571,7 +3573,7 @@
 
     host.appendChild(el('p', 'hint',
       'Connects ' + r.attachments.length + ' level' + (r.attachments.length === 1 ? '' : 's') +
-      (r.size ? '. Size pinned.' : '. Size inherited from the largest connected pipe.')));
+      (r.size ? '. Size pinned.' : '. Size inherited from the largest pipe on the column.')));
 
     // schedule
     var schSel = el('select');

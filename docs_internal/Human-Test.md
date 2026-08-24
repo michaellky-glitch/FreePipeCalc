@@ -10,7 +10,7 @@ those off.
 
 **Status key** — ✅ passed · ⚠️ passed with a note · ❌ failed · ⬜ not tested yet
 
-Last updated: 2026-08-10 (v0.16.19)
+Last updated: 2026-08-24 (v0.18.12)
 
 **THE CURRENT BATCH IS DIRECTLY BELOW**, before anything historical — Michael
 2026-08-09, having gone looking for it and found it buried under two years of
@@ -37,6 +37,20 @@ reader of the manual.
 | EQ.6 | **Two K values that did not survive cross-checking.** | Threaded 45° elbow: both copies of the ASHRAE table returned a column identical to the 90° elbow, which is physically wrong — shipped as 0.53 × the 90° value (Crane TP-410 L/D ratio) and marked `derived`. Threaded 2 in tee-branch: copies disagreed, 1.4 vs 1.6; 1.4 used because it keeps the column monotonic. **Both need a third source, or your acceptance.** |
 | EQ.7 | **Propylene glycol properties are unverified.** | Still `verified: false` in `data/fluids.js`. Specific heat scales every thermal duty linearly. Not mentioned in `engine.html` beyond a general note that unverified fluids are flagged in the interface. |
 | EQ.8 | **The static-pressure limit.** | `settings.warn.maxStatic` defaults to 552 kPa (80 psi), the figure at which IPC 604.8 calls for a pressure-reducing valve. Confirmed by you on 2026-08-19. Recorded here because the default is a code figure and other codes differ. |
+
+---
+
+# WAITING ON YOU — v0.18.12 (2026-08-24)
+
+One item, and it is purely a matter of what the drawing should look like. The
+two engine fixes in v0.18.12 are asserted in the suites; this is not.
+
+| # | Status | What to look at |
+|---|---|---|
+| HT.v18-1 | ⬜ | **Two riser rings stack at a pass-through floor.** A column that continues past a floor has a segment BELOW that floor and a segment ABOVE it, and both meet the same node — so `drawRiserGlyph` draws a ring for each, at the same screen point. On `debug/20260824-debug.json` that is P8 and P31 on node N9 at L1, which is what you saw as "50 mm vertical pipes overlapping the risers". They are not extra pipes; they are the column's own segments. **Question for you: should a pass-through floor draw ONE ring rather than two?** The two segments can legitimately differ (size, schedule, C), so drawing one ring means choosing which to show — probably the one carrying the most water, or the larger bore. Nothing is changed until you say. |
+
+Note also that the segments only became VISIBLE when the PDM warning highlighted
+them. That part is working as intended.
 
 ---
 

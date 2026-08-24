@@ -10,12 +10,101 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **v0.18.11 (beta), 2026-08-23.** Ten test suites, **2270 assertions**, all
+State: **v0.18.12 (beta), 2026-08-24.** Ten test suites, **2308 assertions**, all
 passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
 
-## 0. LATEST — v0.18.11, critical path rewritten (2026-08-23)
+## 0. LATEST — v0.18.12, three findings from Michael's test (2026-08-24)
+
+Michael built `debug/20260824-debug.json` — a five-level tower, drawn L0 then L1
+then **copied upward to L2/L3/L4**, with a second chiller added at step 4. Three
+reports came out of it. Two were bugs and are fixed; the third was already
+correct and now has tests holding it that way.
+
+**1. A SOURCE ON THE CIRCUIT ENDED THE CRITICAL PATH.** Michael: "if the source
+was located along the critical path, hydraulic calculation stopped at source."
+v0.18.11 established that *a closed circuit terminates at the pump, not at a
+fixed head* — but only half applied it. `stopAtPump` was added to `walk` while
+the loop condition `while (!origins[cur] ...)` was left in place, so ANY fixed
+head still won the race. A pressurisation or make-up connection tee'd into the
+main run then decided the answer by where it was drawn:
+
+| source sits on | what came back |
+|---|---|
+| the return leg | a path that LOOKS complete, quietly missing the pipe past the tee |
+| the load inlet | the coil alone — the pump is not on the path at all |
+| the load outlet | **nothing**: 0 sections, friction 0, static 0 |
+
+`walk` now takes `useOrigins`, and it is **off for a closed circuit**. A source
+on a closed system sets the pressure; it does not terminate the water. Only an
+open system still ends on a fixed head. The return half's acceptance is now
+`back.end === cur` alone — the old `|| origins[back.end]` could only fire where
+the trace had STALLED to be standing on a source, which is the truncation being
+removed. Five source placements around one loop now all give the identical
+circuit and the identity holds in each (`test/closed.test.js`).
+
+**2. A RISER STEPPED DOWN TO THE BRANCH SIZE WHEN A FLOOR WAS COPIED.** Michael:
+"flow seems to be going through 50 mm vertical pipes... fluid should be following
+risers, which are 100 mm." It *was* following the risers — P31/P32/P47/P48 are
+segments of R0/R1, not stray pipes. `inheritRiserSize` read only the horizontals
+at a segment's OWN two ends; the plant header sits on the bottom attachment and
+nothing above it does, so R0 came out **DN100 from L0→L1 and DN50 for the other
+four floors** — the whole building's flow through 50 mm, with a PDM warning as
+the only sign. Adding a floor is not a decision to reduce the riser.
+
+`inheritRiserSize(m, r)` now takes the RISER and returns **one size for the whole
+column**: the largest bore among the horizontals at every attachment *and* the
+column's existing segments. `riserPipes` resolves it **once per column, before
+any segment is made** — resolving per segment made the answer depend on creation
+order, and attachments run top-down, so a column materialised in one go would
+have inherited the TOP floor's branch all the way to the plant.
+
+Only NEW segments are ever computed, so a deliberate taper (per segment, or via
+the column override) is untouched. **This does not repair a file drawn under the
+old rule** — the DN50 segments already exist. The fix for `20260824-debug.json`
+is to select R0, set Size to DN100, and the same for R1; `setRiserProps` pushes
+it onto every segment. The panel hint now says "largest pipe on the column".
+
+**3. SYNCED HEAT EXCHANGERS DO NOT SYNC THEIR CONTROL VALVES** — checked, and
+they never did. `applySyncs` copies `loadPct`; `applySyncedDesign` copies `duty`,
+`qRated`, `pdRated`. Nothing touches `equip.icv`. On the debug file, four coils
+synced to AHU-L4-N01 and all forced to 100% still settle at 57 / 62 / 100 / 100.
+
+The reason it works is an ORDER in `runControlsGen` that is easy to break: the
+ICV branch is taken **before** the "a synced device is not a controller" return,
+so a synced coil still gets a loop of its own. A new section in
+`test/thermal.test.js` asserts the follower is its own controlled device, on its
+own coil's ΔT, unganged from the leader, and that neither its opening nor its Kv
+is copied. Two identical coils on runs of different length NEED different
+openings to do the same duty — that is what the valve is for.
+
+**STILL OPEN from this test — Michael's own list, not chased:**
+* **The L4 copy would not stabilize until the deadband went to 0.5 K.** The file
+  as saved gives `CONTROL_HUNTING` + `SETPOINT_LOST` on AHU-L4-N01 at the default
+  `tol` 0.05, and converges cleanly at 0.5. Michael said not to spend cycles
+  until he can reproduce it. **It reproduces from the file every time** — that is
+  the repro, whenever it is wanted. Note `debug/` is in `.gitignore`, so the file
+  lives only on Michael's machine; freeze it into `test/fixtures/` first if this
+  is ever picked up, the way the HighRise was.
+* **The critical path runs through ACCH-L0-N02**, the chiller added at step 4,
+  not N01. Michael noticed and set it aside. The walk follows the largest flow at
+  each junction, so it is reporting a real split; worth confirming the split is
+  right rather than the reporting.
+* **Two riser glyphs stack at a pass-through floor.** On L1 both P8 (below) and
+  P31 (above) meet node N9, so `drawRiserGlyph` draws a ring for each at the same
+  point — which is what "overlapping the risers" looks like. Cosmetic; logged in
+  `Human-Test.md` for Michael to judge.
+
+**Also noticed, not fixed:** `M.setSync` collapses a sync CHAIN by walking
+`head.pump` / `head.valve` and never `head.equip`, so an exchanger synced to an
+exchanger that is itself a follower is not re-pointed at the head of the chain.
+`applySyncedDesign` reads one level of `syncOf`, so the second follower would
+copy a follower. No model has hit it yet.
+
+---
+
+## 0A. v0.18.11 — critical path rewritten (2026-08-23)
 
 **The critical path was wrong in the closed-circuit (equipment) case, and it was
 making the pump sizing wrong with it.** Michael flagged it critical. Four faults

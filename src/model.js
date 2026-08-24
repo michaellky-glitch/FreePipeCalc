@@ -631,6 +631,12 @@
   function riserPipes(m) {
     var out = [];
     m.risers.forEach(function (r) {
+      /* ONE size for the whole column, resolved before any segment is made.
+       * Doing it per segment made the answer depend on the order the segments
+       * happened to be created in — attachments run top-down, so a column
+       * materialised in one go would have inherited from the TOP floor's
+       * branch and carried that all the way to the plant. */
+      var inherited = null;
       for (var i = 0; i < r.attachments.length - 1; i++) {
         var top = r.attachments[i], bot = r.attachments[i + 1];
         var existing = m.pipes.find(function (p) {
@@ -647,9 +653,10 @@
           if (r.C !== undefined && r.C !== null) existing.C = r.C;
           out.push(existing); continue;
         }
+        if (!r.size && inherited === null) inherited = inheritRiserSize(m, r);
         var p = addPipe(m, top.node, bot.node, {
           kind: 'riser', riser: r.id,
-          size: r.size || inheritRiserSize(m, top.node, bot.node),
+          size: r.size || inherited,
           schedule: r.schedule, C: r.C
         });
         out.push(p);
@@ -775,14 +782,41 @@
     });
   }
 
-  function inheritRiserSize(m, aId, bId) {
+  /* ============================ A COLUMN IS INHERITED FROM, NOT JUST A SEGMENT
+   *
+   * Michael, 2026-08-24: "flow seems to be going through 50 mm vertical pipes...
+   * fluid should be following risers, which are 100 mm."
+   *
+   * It was following the risers. A new segment took the largest bore of the
+   * horizontals at its OWN two ends, and nothing above the plantroom has a
+   * DN100 horizontal on it — the floors are DN50 branches. So the L0→L1 segment
+   * came out DN100 (the plant header is on it) and every segment copied above
+   * it came out DN50: a five-storey column carrying the whole building's flow
+   * through 50 mm, silently, with a PDM warning as the only sign. Adding a
+   * floor is not a decision to reduce the riser.
+   *
+   * The column's own segments are now part of what a new segment inherits
+   * from, so a riser keeps the size it was established at as floors are added
+   * on top. Largest bore still wins, which is the rule the panel already
+   * states, applied to the COLUMN rather than to one link of it.
+   *
+   * Only NEW segments are computed — `riserPipes` never re-inherits one that
+   * exists — so a taper somebody set deliberately, per segment or with the
+   * column override, is untouched. */
+  function inheritRiserSize(m, r) {
     var best = null, bestBore = -1;
-    [aId, bId].forEach(function (id) {
-      pipesAt(m, id).forEach(function (p) {
+    var consider = function (size, schedule) {
+      var bore = FD.schedules.size(schedule, size, m.customSchedules).id_mm;
+      if (bore > bestBore) { bestBore = bore; best = size; }
+    };
+    r.attachments.forEach(function (att) {
+      pipesAt(m, att.node).forEach(function (p) {
         if (p.kind === 'riser') return;
-        var bore = FD.schedules.size(p.schedule, p.size, m.customSchedules).id_mm;
-        if (bore > bestBore) { bestBore = bore; best = p.size; }
+        consider(p.size, p.schedule);
       });
+    });
+    m.pipes.forEach(function (p) {
+      if (p.kind === 'riser' && p.riser === r.id) consider(p.size, p.schedule);
     });
     /* A free-standing riser with nothing horizontal attached yet has nothing to
      * inherit from — fall back to the schedule default rather than the smallest
