@@ -2446,17 +2446,39 @@
     if (!canSync(p, lead)) return null;
     /* A device cannot sync to something that is itself syncing, or a chain
      * could close on itself and there would be no position to copy. Follow the
-     * chain to its head and sync THAT — which is what the user means anyway. */
-    var seen = {}, head = lead;
+     * chain to its head and sync THAT — which is what the user means anyway.
+     *
+     * THROUGH `syncOf`, which knows all three kinds. This read `head.pump` and
+     * `head.valve` and never `head.equip`, so a chain of EXCHANGERS was not
+     * collapsed: sync coil C to coil B while B already follows A, and C was
+     * left pointing at B. `applySyncedDesign` resolves exactly one level of
+     * `syncOf`, so C then copied B's duty in the same pass that B was copying
+     * A's — a follower following a follower, one build behind, which is the
+     * ganged-set discrepancy sync exists to remove. Pumps and valves were
+     * always collapsed correctly; only equipment fell through. */
+    /* AND A CHAIN THAT LEADS BACK HERE IS REFUSED, not joined.
+     *
+     * The walk detected both ways a group can close on itself — the chain
+     * arriving back at `p`, and a cycle already in the file — and then broke
+     * out and assigned the sync anyway. So syncing the HEAD of a chain to its
+     * TAIL built exactly the cycle this code exists to prevent: A leads B, sync
+     * A to B, and now A follows B while B follows A. Nothing settles — every
+     * build copies each one's position onto the other — and `autoSizePumps`
+     * skips anything with a sync, so NEITHER machine gets sized. Refusing is
+     * the honest answer: there is no head to this group, so there is no
+     * position to copy. */
+    var seen = {}, head = lead, closes = false;
     while (head) {
-      var hh = (head.kind === 'pump') ? head.pump : head.valve;
-      if (!hh || !hh.sync || seen[head.id]) break;
+      var nextId = syncOf(head);
+      if (!nextId) break;
+      if (seen[head.id]) { closes = true; break; }
       seen[head.id] = true;
-      var nxt = pipe(m, hh.sync);
-      if (!nxt || nxt.id === p.id) break;
+      var nxt = pipe(m, nextId);
+      if (!nxt) break;
+      if (nxt.id === p.id) { closes = true; break; }
       head = nxt;
     }
-    if (head.id === p.id) return null;
+    if (closes || head.id === p.id) return null;
     host.sync = head.id;
     /* A synced device follows a position; it cannot also chase a setpoint. */
     delete host.control;
@@ -3183,8 +3205,29 @@
      * saved file and the UI agree about what was used. */
     if (m.settings.frictionMethod === 'ASHRAE') m.settings.frictionMethod = 'HW';
     migrateEquipThermal(m);
+    migrateControlIterations(m);
     m.migrations = migrateSourcePressure(m);
     return m;
+  }
+
+  /* `control.sweeps` became `control.iterations` (WORKLIST SW.2).
+   *
+   * The user-facing wording changed to "iteration" back in v0.16.x — Michael,
+   * 2026-08-12 — and only the internals were left saying sweep. Renaming the
+   * SAVED key is the part that needs care, because a file written before this
+   * carries the old one and a bare rename would silently reset everybody's
+   * settling count to the default of six. This moves it.
+   *
+   * The new key wins if both are present: a file round-tripped through this
+   * version and then opened in an older one would come back carrying both, and
+   * the value the current app wrote is the one the user last chose. */
+  function migrateControlIterations(m) {
+    var c = m.settings && m.settings.control;
+    if (!c) return;
+    if (c.iterations === undefined && c.sweeps !== undefined) {
+      c.iterations = c.sweeps;
+    }
+    delete c.sweeps;
   }
 
   /* Files written before v0.7.7-dev carry a source's static pressure in the
@@ -3329,6 +3372,7 @@
     flowForDutyAndDT: flowForDutyAndDT,
     migrateEquipThermal: migrateEquipThermal,
     migrateSourcePressure: migrateSourcePressure,
+    migrateControlIterations: migrateControlIterations,
 
     toJSON: toJSON, fromJSON: fromJSON
   };

@@ -2618,7 +2618,7 @@ section('A fill on a dead leg absorbs nothing; one in the return line does');
  *
  * 2. PARK-AT-FULL RAN INSIDE THE SWEEP. Parallel branches interact: closing one
  *    pushes flow to the others, so a device can report `at-max` on one pass and
- *    settle happily on the next. Slamming it back to full mid-sweep threw away
+ *    settle happily on the next. Slamming it back to full mid-iteration threw away
  *    the iteration. It is judged once, at the end.
  *
  * 3. THE DIRECTION PROBE READ NOISE. A 5% nudge on an equal-percentage valve
@@ -2858,9 +2858,9 @@ section('A source at the end of a branch is unchanged');
 /* =====================================================================
  * A DEVICE MAY NEED TO OPEN, AND THE SEARCH ONLY CLOSES.
  *
- * `runControls` settles one device at a time and sweeps. The search is a
+ * `runControls` settles one device at a time and iterations. The search is a
  * DESCENT from full travel, which is fine on the first pass — everything
- * starts at full — but a later sweep begins wherever the last one finished. A
+ * starts at full — but a later iteration begins wherever the last one finished. A
  * device that now needs to go UP has nowhere to look, reports `at-max` at
  * mid-travel, is counted as a lost setpoint, and gets parked at 100%.
  *
@@ -2877,7 +2877,7 @@ section('A source at the end of a branch is unchanged');
  * Six interacting controllers. Sweep 1 settled every one of them — valves at
  * 32–35%, PMP-01 holding its dP to within 44 Pa. But the valves settled while
  * the pump was still at full, the pump then dropped to 34.7% and starved them
- * by 25%, and sweep 2 found four valves needing to OPEN, could not open any,
+ * by 25%, and iteration 2 found four valves needing to OPEN, could not open any,
  * and threw the answer away: everything back to 100%.
  * ===================================================================== */
 section('Economizer + trim: six controllers that must settle together');
@@ -2974,7 +2974,7 @@ section('Economizer + trim: six controllers that must settle together');
  * S4 — THE SURVIVORS MUST RE-SETTLE BEHIND A PARKED DEVICE.
  *
  * Parking a device that has lost its setpoint at full MOVES THE PLANT, and the
- * other controllers settled during the sweeps against the plant BEFORE that
+ * other controllers settled during the iterations against the plant BEFORE that
  * move. Judged once and left there, their final positions describe a plant that
  * no longer exists (WORKLIST S4, recorded v0.16.4).
  *
@@ -2984,7 +2984,7 @@ section('Economizer + trim: six controllers that must settle together');
  * speed: PMP-02 walks to its floor, finds it no better, and is PARKED AT FULL.
  * That parking opens the whole chiller branch back up — and the four coil
  * valves, which had throttled to hold their rated flow against the starved plant
- * PMP-02 produced mid-sweep, are now passing too much, while PMP-01 is left tens
+ * PMP-02 produced mid-iteration, are now passing too much, while PMP-01 is left tens
  * of kPa off the differential it was holding.
  *
  * Before the re-settle pass this test was RED: PMP-02 parked correctly, but
@@ -3053,59 +3053,98 @@ section('S4: survivors re-settle behind a device parked at full');
 }
 
 /* =====================================================================
- * THE NUMBER OF SETTLING SWEEPS IS THE USER'S TO SET (v0.16.18).
+ * THE NUMBER OF SETTLING ITERATIONS IS THE USER'S TO SET (v0.16.18).
  *
- * Michael, 2026-08-10: a first pass is happy with the six sweeps the loop has
+ * Michael, 2026-08-10: a first pass is happy with the six iterations the loop has
  * always done, but a final answer may want ten or more and can afford to wait.
- * `control.sweeps` bounds the outer loop, and the solve budget scales with it so
- * the extra sweeps are actually taken rather than capped out by a ceiling meant
+ * `control.iterations` bounds the outer loop, and the solve budget scales with it so
+ * the extra iterations are actually taken rather than capped out by a ceiling meant
  * for six.
  *
  * Exercised on a HUNTING model — ACCH-1 undersized so the loop never settles —
- * because only there does the sweep count bite: a model that converges stops
+ * because only there does the iteration count bite: a model that converges stops
  * early whatever the ceiling, which is the other half of the contract.
  * ===================================================================== */
-section('Settling sweeps are configurable');
+section('Settling iterations are configurable');
 {
   const raw = fs.readFileSync(
     path.join(__dirname, 'fixtures', 'economizer-trim.pnet.json'), 'utf8');
-  function runSweeps(sweeps) {
+  function runIterations(iterations) {
     const m = M.fromJSON(JSON.parse(raw));
     m.settings.calcMode = 'simulation';
     m.pipes.filter(p => p.tag === 'ACCH-1')[0].equip.qMax = -140000;  // hunts
-    if (sweeps !== undefined) {
+    if (iterations !== undefined) {
       m.settings.control = m.settings.control || {};
-      m.settings.control.sweeps = sweeps;
+      m.settings.control.iterations = iterations;
     }
     return NET.solveModel(m).controls;
   }
 
-  const def = runSweeps(undefined);
-  ok('The default is six sweeps', def.sweeps === 6, String(def.sweeps));
+  const def = runIterations(undefined);
+  ok('The default is six iterations', def.iterations === 6, String(def.iterations));
 
-  const few = runSweeps(2);
-  ok('A lower setting stops the loop sooner', few.sweeps === 2, String(few.sweeps));
+  const few = runIterations(2);
+  ok('A lower setting stops the loop sooner', few.iterations === 2, String(few.iterations));
   ok('...and costs fewer solves for it', few.solves < def.solves,
      `${few.solves} vs ${def.solves}`);
 
-  const many = runSweeps(12);
-  ok('A higher setting runs every sweep asked for', many.sweeps === 12,
-     String(many.sweeps));
-  /* THE BUDGET SCALED WITH IT. If the solve ceiling had stayed at its six-sweep
-   * value the loop would have run out long before the twelfth sweep; that it
+  const many = runIterations(12);
+  ok('A higher setting runs every iteration asked for', many.iterations === 12,
+     String(many.iterations));
+  /* THE BUDGET SCALED WITH IT. If the solve ceiling had stayed at its six-iteration
+   * value the loop would have run out long before the twelfth iteration; that it
    * reaches twelve is the scaling doing its job. */
   ok('...which the solve budget grew to allow', many.solves > def.solves,
      `${many.solves} vs ${def.solves}`);
 
   /* A CONVERGING MODEL IS NOT DRAGGED OUT TO THE CEILING. Raise the limit high
-   * and the untouched economizer, which settles in a couple of sweeps, still
+   * and the untouched economizer, which settles in a couple of iterations, still
    * stops early — the setting is a ceiling, not a quota. */
   const m2 = M.fromJSON(JSON.parse(raw));
   m2.settings.calcMode = 'simulation';
-  m2.settings.control = { sweeps: 50 };
+  m2.settings.control = { iterations: 50 };
   const conv = NET.solveModel(m2).controls;
-  ok('A model that settles early ignores a high ceiling', conv.sweeps < 50,
-     `${conv.sweeps} sweeps`);
+  ok('A model that settles early ignores a high ceiling', conv.iterations < 50,
+     `${conv.iterations} iterations`);
+
+  /* ---- THE SAVED KEY WAS RENAMED, AND OLD FILES KEEP THEIR VALUE.
+   *
+   * WORKLIST SW.2: the user-facing wording became "iteration" in v0.16.x and
+   * the internals were left saying sweep, including the SAVED setting
+   * `control.sweeps`. A bare rename would have silently reset every existing
+   * file's settling count to the default of six, which is exactly the kind of
+   * change nobody notices until an answer moves. */
+  {
+    const old = M.fromJSON(JSON.parse(raw));
+    old.settings.control = { sweeps: 11, tol: 0.05 };
+    const back = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(old))));
+    ok('An old file’s sweep count arrives as an iteration count',
+       back.settings.control.iterations === 11,
+       JSON.stringify(back.settings.control));
+    ok('...and the old key is gone', back.settings.control.sweeps === undefined,
+       JSON.stringify(back.settings.control));
+    ok('...with the rest of the control settings untouched',
+       back.settings.control.tol === 0.05, String(back.settings.control.tol));
+
+    /* A file carrying BOTH — round-tripped through this version and then opened
+     * in an older one — keeps what the current app wrote. */
+    const both = M.fromJSON(JSON.parse(JSON.stringify(
+      Object.assign(M.toJSON(old), {
+        settings: Object.assign({}, old.settings, { control: { sweeps: 3, iterations: 9 } })
+      }))));
+    ok('When both keys are present the new one wins',
+       both.settings.control.iterations === 9,
+       JSON.stringify(both.settings.control));
+
+    /* And a file that never had either still gets the default. */
+    const none = M.fromJSON(JSON.parse(raw));
+    none.settings.calcMode = 'simulation';
+    ok('A file with no setting is unaffected',
+       none.settings.control === undefined ||
+       none.settings.control.iterations === undefined ||
+       none.settings.control.iterations > 0,
+       JSON.stringify(none.settings.control));
+  }
 }
 
 /* =====================================================================
@@ -3291,7 +3330,7 @@ section('A mixing circuit: the response falls, then rises');
  *
  * N controllers chasing ONE measured quantity is degenerate: any split that
  * gives the right reading satisfies all of them, so settling them one at a time
- * picks whichever split the sweep order reaches first.
+ * picks whichever split the iteration order reaches first.
  *
  * Michael, 2026-08-08, four primary pumps on one differential: 100%, 85.8%,
  * 25%, 25% — the last two on their floor carrying NO FLOW, held shut by the
@@ -3515,8 +3554,8 @@ section('Integrated control valve and capacity override');
  * Michael, 2026-08-24: the five-level tower "was unable to stabilize until I
  * changed the deadband to 0.5 K."
  *
- * Traced. At the default 0.05 K it ran all 100 sweeps and 4554 solves, took 20
- * seconds and still reported CONTROL_HUNTING, and from sweep 6 the plant
+ * Traced. At the default 0.05 K it ran all 100 iterations and 4554 solves, took 20
+ * seconds and still reported CONTROL_HUNTING, and from iteration 6 the plant
  * alternated between exactly two states — PMP-01 at 71.10% with the coils at
  * 56/57/57/57, and PMP-01 at 71.70% with them at 56/56/56/56 — for ever.
  *
@@ -3529,7 +3568,7 @@ section('Integrated control valve and capacity override');
  * worst error within one step of where the search landed.
  *
  * 0.5 K was never the fix; it was a deadband coarse enough to hide the problem.
- * The default stays at 0.05 K and the model settles in six sweeps.
+ * The default stays at 0.05 K and the model settles in six iterations.
  * ================================================================== */
 section('A control loop settles at the default deadband');
 {
@@ -3548,14 +3587,14 @@ section('A control loop settles at the default deadband');
      String((rep.devices || []).length));
   ok('the controls settle at the DEFAULT 0.05 K deadband', hunting.length === 0,
      hunting.length ? hunting[0].message : '');
-  ok('...and quickly — it used to run all 100 sweeps', rep.sweeps <= 20,
-     'sweeps ' + rep.sweeps + ', solves ' + rep.solves);
+  ok('...and quickly — it used to run all 100 iterations', rep.iterations <= 20,
+     'iterations ' + rep.iterations + ', solves ' + rep.solves);
   ok('no setpoint is reported lost',
      (res.errors || []).filter(e => e.code === 'SETPOINT_LOST').length === 0,
      JSON.stringify((res.errors || []).map(e => e.code)));
 
   /* EVERY DEVICE IS HOLDING, not merely "not moving". A limit cycle also stops
-   * when the sweep budget runs out, and that must not read as settled. */
+   * when the iteration budget runs out, and that must not read as settled. */
   const holding = (rep.devices || []).filter(d => d.state === 'on');
   ok('every device is holding its setpoint', holding.length === 5,
      (rep.devices || []).map(d => (d.tag || d.pipe) + '=' + d.state).join(', '));

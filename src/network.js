@@ -851,7 +851,7 @@
    * non-control work on top. One `evaluate()` is about 100 ms, which is a
    * frame's worth of jank rather than a hung page.
    *
-   * The yielded value is progress, never state: `{ solves, sweep, device,
+   * The yielded value is progress, never state: `{ solves, iteration, device,
    * fraction }`. Nothing is expected to be done with it, and the driver may
    * ignore it entirely. */
   function solveModel(m, maxPasses, opts) {
@@ -1697,7 +1697,7 @@
      *
      * N controllers chasing ONE measured quantity is degenerate: any split that
      * produces the right reading satisfies all of them, and settling them one
-     * at a time picks whichever split the sweep order happens to reach first.
+     * at a time picks whichever split the iteration order happens to reach first.
      *
      * `debug/20260807-DC-broken.json` (Michael, 2026-08-08) is four primary
      * pumps on one differential. Settled individually they landed at 100%,
@@ -1801,7 +1801,7 @@
      *
      * Per-device, with a ceiling so a pathological model still reports rather
      * than hangs. A device needs roughly 10-15 solves to bracket and bisect,
-     * and the sweep may revisit it.
+     * and the iteration may revisit it.
      *
      * MEASURED, so the ceiling is a judgement rather than a guess: on
      * `debug/20260805-4.json` — 33 nodes, 36 pipes, five controllers — one
@@ -1816,39 +1816,39 @@
      * every device takes at least its first probe before the check can bite.
      * With five controllers the floor is about ten solves whatever is asked
      * for. It bounds the work; it does not hit a number exactly. */
-    /* HOW MANY SWEEPS the outer loop may take. Six by default — enough for the
+    /* HOW MANY ITERATIONS the outer loop may take. Six by default — enough for the
      * parallel branches on every model of Michael's that converges to settle
      * against each other. A rough first pass may be happy with fewer and a final
-     * answer may want more, so it is a setting (`control.sweeps`), clamped to a
+     * answer may want more, so it is a setting (`control.iterations`), clamped to a
      * sane range. It bounds the OUTER loop; the solve budget below is scaled to
-     * match, so asking for more sweeps actually buys them rather than running
+     * match, so asking for more iterations actually buys them rather than running
      * into a ceiling meant for six. */
-    var cfgSweeps = Number((m.settings.control || {}).sweeps);
-    var MAX_SWEEPS = (isFinite(cfgSweeps) && cfgSweeps >= 1)
-      ? Math.min(100, Math.round(cfgSweeps)) : 6;
+    var cfgIterations = Number((m.settings.control || {}).iterations);
+    var MAX_ITERATIONS = (isFinite(cfgIterations) && cfgIterations >= 1)
+      ? Math.min(100, Math.round(cfgIterations)) : 6;
 
     var cfgSolves = Number((m.settings.control || {}).maxSolves);
     var MAX_SOLVES = (isFinite(cfgSolves) && cfgSolves > 0)
       ? cfgSolves
       /* SCALES WITH THE WORK. The old cap of 400 was chosen when a big model
        * had three controllers; Michael's data centre has five, each needing a
-       * probe, a descent and a bisection every sweep. 20 solves per controller
-       * per sweep is roughly what one full search costs — so at the default six
-       * sweeps this is the same 120·devices as before, and raising the sweep
-       * count raises the budget with it instead of capping the extra sweeps out.
+       * probe, a descent and a bisection every iteration. 20 solves per controller
+       * per iteration is roughly what one full search costs — so at the default six
+       * iterations this is the same 120·devices as before, and raising the iteration
+       * count raises the budget with it instead of capping the extra iterations out.
        * An explicit `control.maxSolves` still overrides the lot. */
-      : Math.max(400, 20 * pairs.length * MAX_SWEEPS);
+      : Math.max(400, 20 * pairs.length * MAX_ITERATIONS);
     var solves = 0;
     /* WHERE THE LOOP HAS GOT TO. Declared up here because `evaluate` reports
      * it on every yield, and a `var` hoisted from two hundred lines below reads
      * as a bug even when hoisting saves it. */
-    var sweep = 0, doneUnits = 0, curDevice = null;
-    /* The worst case: every device settled on every one of the six sweeps.
-     * Declared with the rest of the progress state rather than beside the sweep
+    var iteration = 0, doneUnits = 0, curDevice = null;
+    /* The worst case: every device settled on every one of the six iterations.
+     * Declared with the rest of the progress state rather than beside the iteration
      * loop, because `evaluate` divides by it on the very first yield — and a
      * hoisted `var` read before its assignment is `undefined`, which would have
      * made every fraction NaN. */
-    var totalUnits = Math.max(1, searchPairs.length * MAX_SWEEPS);
+    var totalUnits = Math.max(1, searchPairs.length * MAX_ITERATIONS);
 
     /* ONE NETWORK SOLVE, AND THE ONLY PLACE THIS LOOP YIELDS.
      *
@@ -1857,7 +1857,7 @@
      * of progress. The yield happens AFTER the solve, so a driver that pauses
      * here is pausing on a consistent state with the newest numbers in hand.
      *
-     * `sweep` and `curDevice` are read at yield time rather than passed in, so
+     * `iteration` and `curDevice` are read at yield time rather than passed in, so
      * adding a caller cannot forget to report where it is. */
     function* evaluate() {
       solves++;
@@ -1867,14 +1867,14 @@
        *
        * The loop cannot say how many solves a search will need, so `fraction`
        * is DEVICES SETTLED out of the worst case — every device, every one of
-       * the six sweeps. It is monotonic and it never overstates, which means a
-       * model that converges in two sweeps finishes with the bar at a third.
+       * the six iterations. It is monotonic and it never overstates, which means a
+       * model that converges in two iterations finishes with the bar at a third.
        * That is not a bar that broke: it is a bar that was never told the
        * answer would come early, and the alternative is a number that goes
-       * backwards or lies. `sweep` is yielded beside it so the caller can say
-       * "sweep 2 of 6" and let the reader draw the right conclusion. */
+       * backwards or lies. `iteration` is yielded beside it so the caller can say
+       * "iteration 2 of 6" and let the reader draw the right conclusion. */
       yield {
-        solves: solves, sweep: sweep, sweeps: MAX_SWEEPS, device: curDevice,
+        solves: solves, iteration: iteration, iterations: MAX_ITERATIONS, device: curDevice,
         done: doneUnits, total: totalUnits,
         fraction: Math.min(1, doneUnits / Math.max(1, totalUnits))
       };
@@ -2001,7 +2001,7 @@
       /* The deadband can never be finer than the ACTUATOR can resolve. A globe
        * valve is set in whole percent, so a mixed temperature lands on a grid
        * about a tenth of a kelvin apart; asking for 0.05 K then means the
-       * device is never "on setpoint", and the next sweep hunts again from a
+       * device is never "on setpoint", and the next iteration hunts again from a
        * position that was already the best available. `floorErr` is what a
        * bracketed search actually achieved, discovered rather than assumed. */
       var band = Math.max(tolFor(pair), pair.floorErr || 0);
@@ -2055,7 +2055,7 @@
         /* --- ALREADY ON THE FLOOR, AND THE SEARCH ONLY DESCENDS.
          *
          * The mirror of the `at-max` case below, and it costs exactly the same
-         * bug. A device that walked to its floor on an earlier sweep is asked
+         * bug. A device that walked to its floor on an earlier iteration is asked
          * again on the next one — by which time the OTHER devices have moved
          * the plant out from under it, and what was unreachable may now be one
          * step above where it stands. There is nowhere below to probe, so the
@@ -2063,12 +2063,12 @@
          * lost-setpoint rule read that as "nothing in its range holds the
          * setpoint", and slammed it to 100%.
          *
-         * `economizer-trim` with ACCH-1's real capacity, 2026-08-09. Sweep 1
+         * `economizer-trim` with ACCH-1's real capacity, 2026-08-09. Iteration 1
          * put PMP-02 on its 25% floor honestly: with all four valves still wide
-         * open the mix was 12 K below setpoint at EVERY speed. Sweeps 2 and 3
+         * open the mix was 12 K below setpoint at EVERY speed. Iterations 2 and 3
          * then measured +2.4 K at that same floor — the valves had throttled,
          * the response had turned, and the root was sitting at about 28% — and
-         * both sweeps reported `at-min` and moved nothing.
+         * both iterations reported `at-min` and moved nothing.
          *
          * So restart from FULL, which is the only direction this search can
          * travel from, under the same one-shot guard: from full travel there is
@@ -2182,16 +2182,16 @@
          *
          * This is a DESCENT from full travel. That is fine on the first pass,
          * where `runControls` has just put every device at full — but a later
-         * sweep starts wherever the previous one finished, and a device that
+         * iteration starts wherever the previous one finished, and a device that
          * now needs to OPEN has nowhere to look from here. It reported
          * `at-max` at 35% open, which then counted as a lost setpoint and
          * parked it at 100%.
          *
-         * `debug/20260807-1.json`, Michael, 2026-08-07. Sweep 1 settled every
+         * `debug/20260807-1.json`, Michael, 2026-08-07. Iteration 1 settled every
          * device beautifully — four valves at 32-35%, PMP-01 at 34.7% holding
          * its dP to within 44 Pa. But the valves settled while the pump was
          * still at full, and the pump then dropped to 34.7% and starved them by
-         * 25%. Sweep 2 found four valves needing to open, could not open any of
+         * 25%. Iteration 2 found four valves needing to open, could not open any of
          * them, called all four lost, and threw the whole answer away: pump and
          * valves all back to 100%. He reported it as "PMP-01 ramping up to full
          * speed" and "the CVs also stopped working" — one cause, both symptoms.
@@ -2207,7 +2207,7 @@
           var again = yield* seek(pair);
           pair.reseeking = false;
           /* It MOVED — from x0 to wherever this landed — even if the search
-           * itself reports otherwise, or the sweep would stop while devices
+           * itself reports otherwise, or the iteration would stop while devices
            * were still being repositioned. */
           if (Math.abs(again.x - x0) > 1e-9) again.moved = true;
           return again;
@@ -2224,7 +2224,7 @@
        * because a chiller at quarter flow does not hold its leaving
        * temperature.
        *
-       * `debug/20260808-DC-broken.json` (Michael, 2026-08-08): five sweeps
+       * `debug/20260808-DC-broken.json` (Michael, 2026-08-08): five iterations
        * settled all four chilled-water pumps to within 0.02 K, and the sixth
        * ran out of solves. Every one of them was left at 25% carrying errors of
        * 669, 1317 and 1629 K, judged `unsettled`, and then parked at 100%. He
@@ -2323,14 +2323,14 @@
        *
        * Michael, 2026-08-24: the four coils on `debug/20260824-debug.json`
        * would not settle until the deadband went to 0.5 K. They were in a
-       * period-2 limit cycle, and the trace is unambiguous — from sweep 6 the
+       * period-2 limit cycle, and the trace is unambiguous — from iteration 6 the
        * plant alternates between exactly two states, PMP-01 at 71.10% with the
        * coils at 56/57/57/57 and PMP-01 at 71.70% with them at 56/56/56/56,
        * for ever. AHU-L2 read -0.040 K at 57% and +0.056 K at 56%: ONE PERCENT
        * of valve travel is worth about a tenth of a kelvin, so a 0.05 K
        * deadband is finer than the valve can resolve and neither position is
        * ever "on setpoint". `floorErr` was 0.040 — the good end — so the next
-       * sweep found the device outside its own floor and moved it back. The
+       * iteration found the device outside its own floor and moved it back. The
        * coils then shifted the differential by more than the pump's 275 Pa
        * band, the pump re-settled, and that shifted the coils again.
        *
@@ -2352,9 +2352,9 @@
                moved: Math.abs(best.x - x0) > 1e-9 };
     }
 
-    /* Several controllers are settled in turn and the sweep repeated, because
+    /* Several controllers are settled in turn and the iteration repeated, because
      * one device's modulation moves every other device's inlet temperature.
-     * Two or three sweeps in practice; if it is still moving after that, say so
+     * Two or three iterations in practice; if it is still moving after that, say so
      * rather than reporting a number that is still travelling. */
     /* Worth trying the NEXT setpoint on the list. */
     function failed(st) {
@@ -2364,7 +2364,7 @@
 
     /* Ran out of solves. NOT a failure of the plant and NOT a lost setpoint —
      * the search simply did not get to run. It keeps whatever position the last
-     * complete sweep gave it, which is the best answer available. */
+     * complete iteration gave it, which is the best answer available. */
     function outOfBudget(st) { return st === 'budget'; }
 
     /* THE SETPOINT IS GENUINELY LOST — a stronger statement than `failed`, and
@@ -2381,7 +2381,7 @@
      * next setpoint (nothing was tried) and must not be parked at full (the
      * position it has came from a search that DID finish). */
 
-    /* Six sweeps rather than four. Parallel branches balancing against each
+    /* Six iterations rather than four. Parallel branches balancing against each
      * other need a few passes to settle, and the budget now allows them. */
     var acted = false, moving = true;
     /* PROGRESS, and a chance to breathe.
@@ -2390,14 +2390,14 @@
      * drive a bar and — because this is single-threaded and the app must run
      * from file://, where Workers are blocked — to decide when to hand the
      * browser back. Returning `false` from it ABANDONS the loop and keeps
-     * whatever the last complete sweep produced, which is a valid answer.
+     * whatever the last complete iteration produced, which is a valid answer.
      *
      * Michael, 2026-08-08: "Users can accept a progress bar, but not a browser
      * freeze." */
     var onProgress = (opts && opts.onProgress) || null;
 
     /* SETTLE ONE PAIR: the search, plus the priority fall-back to the next
-     * setpoint when the first cannot be reached. Pulled out of the sweep loop
+     * setpoint when the first cannot be reached. Pulled out of the iteration loop
      * because the re-settle pass after parking (S4, below) runs exactly this
      * body — and a second hand-copied fall-back would drift out of step with
      * this one the first time either was touched. */
@@ -2406,7 +2406,7 @@
       /* FALL BACK. "LWT first, then ΔT" is a priority, not a blend: if the
        * first setpoint cannot be reached — the actuator on a stop, or backing
        * off making it worse — chase the next one instead of sitting on a
-       * result nobody asked for. Only once per sweep, so a device cannot
+       * result nobody asked for. Only once per iteration, so a device cannot
        * cycle through its options forever. */
       while (failed(r.state) && pair.optIndex + 1 < pair.options.length) {
         pair.optIndex++;
@@ -2451,8 +2451,8 @@
     /* A `for` LOOP, NOT `forEach` — a callback cannot yield, and every `seek`
      * in here is now a `yield*`. That is the only reason this shape changed;
      * the body below is the same body. */
-    while (moving && sweep < MAX_SWEEPS && solves < MAX_SOLVES) {
-      moving = false; sweep++;
+    while (moving && iteration < MAX_ITERATIONS && solves < MAX_SOLVES) {
+      moving = false; iteration++;
       var abandoned = false;
       for (var si2 = 0; si2 < searchPairs.length; si2++) {
         var pair = searchPairs[si2];
@@ -2467,7 +2467,7 @@
           var keepGoing = onProgress({
             done: doneUnits, total: totalUnits,
             fraction: Math.min(1, doneUnits / totalUnits),
-            sweep: sweep, solves: solves,
+            iteration: iteration, solves: solves,
             device: curDevice
           });
           if (keepGoing === false) { abandoned = true; moving = false; }
@@ -2478,7 +2478,7 @@
     }
     curDevice = null;
 
-    /* PARK AT FULL WHEN THE SETPOINT IS LOST — AFTER the sweeps, never during
+    /* PARK AT FULL WHEN THE SETPOINT IS LOST — AFTER the iterations, never during
      * (Michael, 2026-08-04 for the rule; moved out of the loop 2026-08-05).
      *
      * `debug/20260804-3.json`: a 110 kW coil against a 100 kW chiller. The loop
@@ -2492,7 +2492,7 @@
      * DOING IT INSIDE THE SWEEP WAS WRONG. Four valves balancing four parallel
      * branches interact — closing one pushes flow to the others — so a device
      * can report `at-max` on one pass and settle happily on the next. Slamming
-     * it back to full travel mid-sweep threw away the iteration's progress and
+     * it back to full travel mid-iteration threw away the iteration's progress and
      * made the answer depend on which pass a transient landed in. On
      * `debug/20260805-4.json` it left a valve at 100% that had been perfectly
      * capable of holding its branch. Judged once, at the end, on the state the
@@ -2504,7 +2504,7 @@
      * (Recorded while migrating the `20260805-4` tests, v0.16.4; fixed here.)
      *
      * Parking a lost device at full MOVES THE PLANT. Every survivor settled
-     * during the sweeps did so against the plant BEFORE that move — so once a
+     * during the iterations did so against the plant BEFORE that move — so once a
      * device is parked, the others are holding positions they chose against a
      * plant that no longer exists, and the final positions no longer describe
      * the final answer. On `economizer-trim` with ACCH-1 given a capacity it
@@ -2519,9 +2519,9 @@
      * move — so re-park whatever now finishes lost and go round again, the rest
      * settling behind IT. The lost set only grows (a parked device is never
      * un-parked), so this terminates; `parkRound` bounds it hard for the same
-     * reason the sweeps are bounded.
+     * reason the iterations are bounded.
      *
-     * PARKING STILL HAPPENS ONLY BETWEEN CONVERGED SWEEP-SETS, never mid-sweep
+     * PARKING STILL HAPPENS ONLY BETWEEN CONVERGED SWEEP-SETS, never mid-iteration
      * — the invariant the 2026-08-05 move out of the loop established. Each
      * round settles the survivors to rest FIRST, then judges parking on the
      * state they actually finished in.
@@ -2529,17 +2529,17 @@
      * ENTERED WHENEVER ANYTHING IS LOST, not only when the parking pass moved
      * an actuator. A lost valve that finished at-max is already at full, so
      * parking it moves nothing — but the survivors may still have settled on an
-     * earlier sweep, before it reached full, and are stale against the plant it
-     * now holds. One more survivor sweep makes the answer describe itself. */
+     * earlier iteration, before it reached full, and are stale against the plant it
+     * now holds. One more survivor iteration makes the answer describe itself. */
     var anyLost = searchPairs.some(function (pr) {
       return pr.result && pr.result.lost;
     });
     var parkRound = 0;
     while (anyLost && parkRound < 4 && solves < MAX_SOLVES) {
       parkRound++;
-      var reMoving = true, reSweep = 0, reAbandoned = false;
-      while (reMoving && reSweep < MAX_SWEEPS && solves < MAX_SOLVES) {
-        reMoving = false; reSweep++;
+      var reMoving = true, reIteration = 0, reAbandoned = false;
+      while (reMoving && reIteration < MAX_ITERATIONS && solves < MAX_SOLVES) {
+        reMoving = false; reIteration++;
         for (var ri = 0; ri < searchPairs.length; ri++) {
           var rpair = searchPairs[ri];
           if (rpair.result && rpair.result.lost) continue;   // pinned at full
@@ -2552,7 +2552,7 @@
             var reKeep = onProgress({
               done: doneUnits, total: totalUnits,
               fraction: Math.min(1, doneUnits / totalUnits),
-              sweep: sweep, solves: solves,
+              iteration: iteration, solves: solves,
               device: curDevice
             });
             if (reKeep === false) { reAbandoned = true; reMoving = false; }
@@ -2562,7 +2562,7 @@
         if (reAbandoned) break;
       }
       curDevice = null;
-      /* The survivors would not come to rest either — the sweep never settling
+      /* The survivors would not come to rest either — the iteration never settling
        * is the hunting condition, wherever it happens. */
       if (reMoving) moving = true;
       if (reAbandoned) break;
@@ -2612,7 +2612,7 @@
          * over from the search result.
          *
          * `r.error` is whatever the last probe of that device's search saw. The
-         * sweep then moves on and settles OTHER devices, which changes the
+         * iteration then moves on and settles OTHER devices, which changes the
          * plant underneath it — so by the time the answer is reported the two
          * can disagree badly. On `20260808-DC-broken` CHWP-01 reported an error
          * of −0.086 K against a measured 32.76 °C on a 30 °C setpoint: the
@@ -2636,7 +2636,7 @@
       };
       /* AND THE STATE FOLLOWS THE MEASUREMENT. A device reported as `on` while
        * its sensor is nearly three kelvin out is the same lie the stale error
-       * was — the search finished happily, and then the rest of the sweep moved
+       * was — the search finished happily, and then the rest of the iteration moved
        * the plant out from under it. If the final answer is outside the
        * deadband it is not holding, whatever the search concluded. */
       if (d.state === 'on' && d.error !== null &&
@@ -2696,7 +2696,7 @@
       return d;
     });
 
-    /* STILL HUNTING, WITH A METRIC. The sweep never came to rest, so instead of
+    /* STILL HUNTING, WITH A METRIC. The iteration never came to rest, so instead of
      * a flat "still moving" it reports how far it got — devices holding their
      * setpoint out of the total, as a percentage. An engineer can then accept,
      * say, 90% while the design is in flux and raise Settling iterations to
@@ -2710,7 +2710,7 @@
       warnings.push({
         code: 'CONTROL_HUNTING',
         holding: holding, total: totalDev, pct: pct,
-        message: 'Controls did not stabilize after ' + sweep + ' iterations. ' +
+        message: 'Controls did not stabilize after ' + iteration + ' iterations. ' +
                  holding + ' of ' + totalDev + ' devices maintaining setpoint. ' +
                  'Results from the last iteration may be usable. Check system ' +
                  'for conflicting controls, sync equipment to a single control ' +
@@ -2750,7 +2750,7 @@
       errors: errors,
       core: cur,
       warnings: warnings,
-      report: { devices: devices, sweeps: sweep, solves: solves, tol: tol }
+      report: { devices: devices, iterations: iteration, solves: solves, tol: tol }
     };
   }
 
@@ -3713,7 +3713,7 @@
 
     var had = Object.prototype.hasOwnProperty.call(p.pump, 'speed');
     var saved = p.pump.speed;
-    /* A control link would fight the speed being imposed here, so the sweep
+    /* A control link would fight the speed being imposed here, so the iteration
      * calls solveCore directly — it runs the hydraulics and nothing else. */
     var pts = [];
     function probe(n) {
@@ -3728,13 +3728,13 @@
       pts.push({ q: q, h: h, speed: n });
     }
 
-    var sweep = speeds || SYSTEM_SWEEP;
-    sweep.forEach(probe);
+    var iteration = speeds || SYSTEM_SWEEP;
+    iteration.forEach(probe);
 
-    /* REFINE when the coarse sweep came back thin.
+    /* REFINE when the coarse iteration came back thin.
      *
      * Against a STATIC LIFT the pump passes nothing at all until it can raise
-     * the head, so most of a linear speed sweep lands on zero flow and is
+     * the head, so most of a linear speed iteration lands on zero flow and is
      * discarded — 25 m of lift left only four points of thirteen. Four points
      * is a polygon, not a curve. So the range that DID work is swept again at
      * full resolution. Nothing is interpolated; every point is still a solve. */
@@ -3835,12 +3835,17 @@
       var q = Math.abs(res.flow[p.id] || 0);
       /* The curve AS RUN, not as rated. At part speed those are different, and
        * reporting the rated one here would have the sheet and the panel
-       * disagreeing with the solver about the same pump.
+       * disagreeing with the solver about the same pump. `head`, `maxFlow`,
+       * `shutoff` and `beyondCurve` are all statements about the machine as it
+       * is running, so they all read this one.
        *
-       * `pctOfDesign` follows the scaled duty point deliberately: runout is
-       * about where on its own curve a pump is sitting, and at reduced speed
-       * that curve is the scaled one. */
+       * `pctOfDesign` does NOT — see below. */
       var curve = M.pumpCurve(m, p);
+      /* THE SELECTION, which is the nameplate duty and does not move when a
+       * controller changes the speed. */
+      var rated = (p.pump && p.pump.curve) || null;
+      var ratedQd = rated && rated.Qd > 0 ? rated.Qd
+                  : (p.pump && p.pump.qDesign > 0 ? p.pump.qDesign : 0);
       var off = !p.pump || p.pump.mode === 'off';
       var row = { pipe: p.id, tag: p.tag || null, mode: p.pump && p.pump.mode,
                   speed: p.pump ? M.pumpSpeed(m, p) : 1,
@@ -3854,7 +3859,26 @@
       if (curve && !off) {
         row.maxFlow = FD.pumps.maxFlow(curve);
         row.shutoff = FD.pumps.shutoffHead(curve);
-        row.pctOfDesign = curve.Qd > 0 ? q / curve.Qd : null;
+        /* AGAINST THE RATED DUTY, NOT THE SCALED ONE — the anomaly Michael
+         * left open on 2026-08-23: `PUMP_RUNOUT` fired on the app's own
+         * `Tutorial 01 - Basics` while the pump was at 99% of design flow and
+         * the limit was 120%.
+         *
+         * It divided by the SCALED curve's Qd. PMP-01 carries 2.3789 L/s
+         * against a 2.4001 L/s design — 99.1% — but the control loop had it at
+         * 81.3% speed, so the scaled duty point is 0.813 x 2.4001 = 1.9513 L/s
+         * and 2.3789 / 1.9513 = 121.9%. The warning was right about the flow it
+         * printed and wrong about the percentage beside it.
+         *
+         * Runout is a statement about the MACHINE against its SELECTION — that
+         * is what "check available NPSH or design flow" asks the reader to go
+         * and look at, and it is why the threshold is a selection judgement.
+         * A pump delivering LESS than its design flow is not in runout, whatever
+         * speed it is turning at, so any controlled pump that slowed down used
+         * to raise this. `beyondCurve` is the scaled-curve statement and is
+         * unchanged: past the end of the curve AS RUN the operating point is
+         * one the pump cannot deliver at this speed. */
+        row.pctOfDesign = ratedQd > 0 ? q / ratedQd : null;
         /* Past the end of the curve the head would go negative, which no real
          * pump can do — the operating point is outside what this pump can
          * deliver, not a very small head. */

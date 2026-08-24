@@ -584,7 +584,42 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 
 <h4>Step 2 — solve</h4>
 <p>The solver converges in <strong>3 iterations</strong>, to a remaining imbalance of 1.9×10⁻¹⁶ m³/s.</p>
-<p>The ring is symmetrical. You can check the flows without a solver. Total demand is 3 L/s. Both sides have the same resistance, so each carries <strong>1.5 L/s</strong>. The middle outflow sits at the meeting point. It takes <strong>0.5 L/s from each side</strong>. The solver returns exactly this.</p>
+<p>The ring is symmetrical. You can check the flows without a solver. Total demand is 3 L/s. Both sides have the same resistance, so each carries <strong>1.5 L/s</strong>. The middle outflow sits at the meeting point. It takes <strong>0.5 L/s from each side</strong>. The solver returns this.</p>
+
+<h4>The iterations, one by one</h4>
+<p>Every link starts at a seed flow of 0.1 L/s, because the linearisation needs a point to take the slope at and any non-zero flow will do. Nothing about that guess is close to the answer. The table below is what the solver actually reports at the end of each iteration.</p>
+<div class="scroll">
+<table>
+  <thead>
+    <tr>
+      <th>Iteration</th>
+      <th class="num">Largest head change (m)</th>
+      <th class="num">Largest flow change (L/s)</th>
+      <th class="num">Largest imbalance (L/s)</th>
+      <th class="num">Ring leg N1→N2 (L/s)</th>
+      <th class="num">Feed to OF-1 (L/s)</th>
+      <th class="num">Head at OF-1 (m)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td class="num">10.75</td><td class="num">2.90</td><td class="num">1.6×10⁻¹²</td><td class="num">1.545939</td><td class="num">0.545939</td><td class="num">10.678355</td></tr>
+    <tr><td>2</td><td class="num">0.4640</td><td class="num">4.597×10⁻²</td><td class="num">4.9×10⁻¹³</td><td class="num">1.499965</td><td class="num">0.499965</td><td class="num">10.214349</td></tr>
+    <tr><td>3</td><td class="num">2.409×10⁻⁴</td><td class="num">2.200×10⁻⁶</td><td class="num">1.9×10⁻¹³</td><td class="num">1.499967</td><td class="num">0.499967</td><td class="num">10.214108</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Three things in that table are worth reading carefully.</p>
+<p><strong>Continuity is satisfied from the first iteration.</strong> The imbalance column is at round-off from the start and stays there. That is not the solver converging — it is a property of the method. Continuity is a <em>linear</em> constraint, so the linear system solved at each step enforces it exactly; only the energy equation is non-linear, and only it has to be iterated. A GGA run whose imbalance is <em>not</em> negligible on the first iteration is reporting a singular or disconnected network, not a solve in progress.</p>
+<p><strong>The convergence is quadratic.</strong> Each step is a Newton step, so the error is roughly squared each time. The largest flow change falls 2.90 → 0.046 → 0.0000022 L/s: five orders of magnitude across two iterations. This is why the iteration cap of 100 is generous rather than tight — a network that has not converged in a dozen iterations usually has something wrong with it rather than something difficult about it.</p>
+<p><strong>The first iteration overshoots.</strong> The ring leg reaches 1.545939 L/s before settling back to 1.499967. Starting from a seed flow three orders of magnitude below the answer, the linearised slope at that point is far too steep, and the first correction goes past. That is normal and self-correcting; it is also why the flow-change test exists rather than judging on head alone.</p>
+
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>The split settles at 1.499967 / 1.500033 L/s rather than exactly 1.5 / 1.5. Each leg is 33 nL/s off the nominal 1.5, and the two meeting points differ in head by 1.8×10⁻⁵ m — 55 times finer than the 1 mm the head test accepts. It is convergence residue, not an asymmetry in the ring. A solver stops when further work cannot change the answer by anything an engineer would act on, and that is what these tolerances state.</p>
+</div>
+
+<p>The tolerances the run above was judged against are the ones in section 6.2: a largest head change below 1 mm, a nodal imbalance below 0.01 L/s, and a flow change below either 10⁻⁸ m³/s or 0.01% of the largest flow in the network. Iteration 3 meets all three; iteration 2 fails the head test at 0.464 m, which is why it does not stop there.</p>
 
 <h4>Step 3 — read the result</h4>
 <div class="scroll">

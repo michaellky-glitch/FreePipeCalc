@@ -10,12 +10,112 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **v0.18.13 (beta), 2026-08-24.** Ten test suites, **2324 assertions**, all
+State: **v0.18.14 (beta), 2026-08-24.** Ten test suites, **2366 assertions**, all
 passing in about 15 s (`for f in test/*.test.js; do node $f; done`).
 
 ---
 
-## 0. LATEST — v0.18.13, the second pass over the same test (2026-08-24)
+## 0. LATEST — v0.18.14, the handover's open list, worked down (2026-08-24)
+
+Michael, 2026-08-24, having accepted the AHU-L3 finding: *"Design calculation
+should assume design flow through each equipment. I think we will need to
+separate out Design Calculation & Simulation Calculation like is done in
+Plumbing. We can leave those two for now and clean up assertions later. We can
+proceed with the leftover items from the handover."*
+
+### TWO DECISIONS TAKEN AND DEFERRED — do not re-derive these
+
+1. **A DESIGN calculation assumes DESIGN FLOW through each piece of equipment.**
+   It does not use whatever position the last SIMULATION left the control valves
+   in. That is the answer to the question v0.18.13 raised, and it is settled;
+   what is not built is the change. Today an ICV in design mode is a fixed
+   resistance at its stored `opening`, which is why the four floors of the tower
+   ranked by leftover valve positions (L1 100%, L2 100%, L3 54%, L4 58%) instead
+   of by a 0.7% hydraulic spread.
+2. **DESIGN and SIMULATION should be separated the way PLUMBING already does
+   it.** The plumbing discipline computes a design sizing pass and a K-terminal
+   simulation as two distinct calculations rather than one solve reading a mode
+   flag. Hydronic should follow. **Michael's instruction is to leave both for
+   now and clean up the assertions afterwards**, so nothing here has been built
+   towards them. `WORKLIST.md` carries them as **DS.1** and **DS.2**.
+
+### DONE — five items off the open list
+
+* **`PUMP_RUNOUT` on `Tutorial 01 - Basics` at ~99% of design flow** (open since
+  2026-08-23). Real bug. `pctOfDesign` divided by the SPEED-SCALED curve's `Qd`.
+  PMP-01 carries 2.3789 L/s against a 2.4001 L/s design — **99.1%** — but the
+  control loop had it at 81.3% speed, so the scaled duty point is
+  0.813 × 2.4001 = 1.9513 L/s and 2.3789 / 1.9513 = **121.9%**, over the 120%
+  limit. The warning quoted the right FLOW and a wrong percentage beside it, and
+  **every controlled pump that slowed down raised a runout it was nowhere near.**
+  Runout is a statement about the machine against its SELECTION — which is what
+  "check available NPSH or design flow" sends the reader to look at — so it now
+  divides by the RATED duty. `beyondCurve` is the scaled-curve statement and is
+  unchanged. Tutorial 01 is clean.
+
+* **The four stale `docs/*.md` paths were ALREADY FIXED** — by Michael, in
+  v0.18.10 (`ce05a11`), when the registry was rewritten to user-facing HTML
+  only. Every one of the nine entries resolves. The handover item was stale.
+  What was missing is a guard, so `test/tools.test.js` now asserts that every
+  file in `FD.docs.list` is on disk, that the DEFAULT is (it was `HANDOVER.md`,
+  which 404'd on every single load of the tab), that each entry has a title and
+  a blurb, and that every `.html` entry is marked `html: true` — without that
+  flag a document is handed to the markdown renderer and fails silently from
+  `file://`.
+
+* **`M.setSync` — TWO bugs, one function.**
+  1. The chain-collapse walk read `head.pump` and `head.valve` and never
+     `head.equip`, so a chain of EXCHANGERS was not collapsed: sync coil C to
+     coil B while B already follows A, and C stayed pointing at B.
+     `applySyncedDesign` resolves exactly one level of `syncOf`, so C then
+     copied B's duty in the same pass B was copying A's — a follower following a
+     follower, one build behind, which is the in-group discrepancy sync exists
+     to remove. Now goes through `syncOf`, which knows all three kinds.
+  2. **Found while testing the first:** the walk DETECTED a chain closing on
+     itself and then assigned the sync anyway. Syncing the HEAD of a chain to
+     its TAIL built the cycle the code exists to prevent — A follows C while C
+     follows A. Nothing settles (every build copies each one's position onto the
+     other) and `autoSizePumps` skips anything with a sync, so **neither machine
+     gets sized**. It applied to pumps and valves too. Now refused.
+
+* **WORKLIST SW.2 — the sweep → iteration rename is finished.** `sweep`,
+  `MAX_SWEEPS`, `reSweep`, `cfgSweeps` and `report.sweeps` are gone from
+  `network.js`; `app.js` reads `p.iteration` / `p.iterations` and writes
+  `control.iterations`. The saved key is migrated at load by
+  `M.migrateControlIterations` — a bare rename would have silently reset every
+  existing file's settling count to the default six. The new key wins if a file
+  somehow carries both. Three `sweep`s remain in the source and all three are
+  the unrelated sense (a spatial sweep in `canvas.js`, sweeping a pump's speed
+  in `network.js`, and the migration itself).
+
+* **`docs/engine.html` §6.3 — the GGA iteration values**, requested "later" and
+  now written. A per-iteration table for the worked example: largest head
+  change, largest flow change, largest imbalance, the ring-leg flow and the head
+  at the index terminal, for all three iterations, with the three things worth
+  reading in it — continuity is satisfied from iteration 1 because it is the
+  LINEAR half of the problem and only the energy equation is iterated;
+  convergence is quadratic (largest flow change 2.90 → 0.046 → 0.0000022 L/s);
+  and the first iteration OVERSHOOTS from the 0.1 L/s seed. The claim that the
+  ring splits "exactly" 1.5/1.5 is softened to what the solver actually returns,
+  1.499967 / 1.500033, with a note putting that 33 nL/s residue against the
+  tolerances. Values captured from the engine, not estimated.
+
+### STILL OPEN
+
+* **MIN/MAX/SET on setpoints — designed by Michael, NOT built, NOT started.**
+  It is the largest item on the list and the standing instruction is to confirm
+  the design with him before building it. "Proceed with the leftover items" is
+  not that confirmation, so it was left. Everything else on the list is done or
+  belongs to him.
+* **`user-manual.html` vs Michael's own `tutorial-*.html` set** — the overlap on
+  the Piping Network ribbon. His call, unchanged.
+* **DS.1 / DS.2** above.
+* The Data Hall takes **47 s** in SIMULATION — the size of the model (~75 ms per
+  core solve on 520 pipes), not the control loop. Not chased.
+
+---
+
+## 0A1. v0.18.13 — the second pass over the same test (2026-08-24)
 
 Michael re-tested v0.18.12. He had already repaired the risers in his own file
 (they are R2/R3 now, DN100 throughout, so the v0.18.12 inheritance fix is

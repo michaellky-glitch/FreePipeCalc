@@ -1086,4 +1086,89 @@ section('Equipment is reported as a terminal');
   ok('Total design flow is non-zero', res.simulation.totalDesign > 0);
 }
 
+/* ==================================================================
+ * RUNOUT IS MEASURED AGAINST THE SELECTION, NOT AGAINST THE SPEED.
+ *
+ * Michael left this open on 2026-08-23: `PUMP_RUNOUT` fired on the app's own
+ * `Tutorial 01 - Basics` while the pump was at about 99% of design flow and
+ * the limit was 120%.
+ *
+ * `pctOfDesign` divided by the SCALED curve's Qd. A pump held at part speed by
+ * a controller has a scaled duty point below its rated one, so the same flow
+ * reads as a larger fraction of it — PMP-01 carried 2.3789 L/s against a
+ * 2.4001 L/s design (99.1%), the loop had it at 81.3% speed, and
+ * 2.3789 / (0.813 x 2.4001) = 121.9%. Every controlled pump that slowed down
+ * raised a runout it was nowhere near.
+ *
+ * A pump delivering LESS than its design flow is not in runout, whatever speed
+ * it is turning at. `beyondCurve` is the scaled-curve statement and stays that
+ * way: past the end of the curve AS RUN, the point cannot be delivered at this
+ * speed.
+ * ================================================================== */
+section('Pump runout is measured against the rated duty, not the scaled one');
+{
+  /* One pump, one terminal, and the pump deliberately run SLOW so the rated
+   * and scaled duty points are far apart. */
+  function rig(speed) {
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    m.settings.warn.pumpRunout = 120;
+    const lv = m.levels[0];
+    const a = M.addNode(m, lv, 0, 0);
+    const b = M.addNode(m, lv, 1, 0);
+    const c = M.addNode(m, lv, 2, 0);
+    a.device = { kind: 'source', head: 0 };
+    c.device = { kind: 'demand', flow: 0.020, reqPressure: 200e3 };
+    const pump = M.addPipe(m, a.id, b.id, { kind: 'pump', tag: 'PMP-01' });
+    pump.pump = { mode: 'fixed', head: 30, sizing: 'manual', speed: speed,
+                  qDesign: 0.020, hDesign: 30, curve: P.singlePoint(30, 0.020) };
+    M.addPipe(m, b.id, c.id, { size: 'DN100', schedule: 'sch40' });
+    return { m, pump };
+  }
+
+  const slow = rig(0.6);
+  const res = NET.solveModel(slow.m);
+  const row = (res.simulation.pumps || []).filter(p => p.pipe === slow.pump.id)[0];
+  ok('the pump row is reported', !!row);
+
+  const q = Math.abs(res.flow[slow.pump.id] || 0);
+  const ratedQd = slow.pump.pump.curve.Qd;
+  near('percent of design is measured against the RATED duty',
+       row.pctOfDesign, q / ratedQd, 1e-12);
+
+  /* And it is NOT the scaled figure, which is what the bug reported. The two
+   * differ by exactly the speed, so this is a real distinction on this rig. */
+  const scaled = q / (ratedQd * row.speed);
+  ok('...which is not the scaled-curve figure', Math.abs(row.pctOfDesign - scaled) > 0.1,
+     'rated ' + row.pctOfDesign.toFixed(4) + ' vs scaled ' + scaled.toFixed(4));
+
+  /* THE POINT OF THE WHOLE THING: a pump below its design flow is never in
+   * runout, however slowly it is being asked to turn. */
+  ok('the pump is below its design flow', row.pctOfDesign < 1,
+     (row.pctOfDesign * 100).toFixed(2) + '%');
+  ok('...and raises no runout',
+     !(res.warnings || []).some(w => w.code === 'PUMP_RUNOUT'),
+     JSON.stringify((res.warnings || []).filter(w => w.code === 'PUMP_RUNOUT')));
+
+  /* The warning still WORKS — this is not a fix that just switched it off.
+   * At full speed the same circuit takes the pump out past 120%. */
+  const fast = rig(1);
+  fast.m.settings.warn.pumpRunout = 100;
+  const fres = NET.solveModel(fast.m);
+  const frow = (fres.simulation.pumps || []).filter(p => p.pipe === fast.pump.id)[0];
+  ok('at full speed the pump is past its design flow', frow.pctOfDesign > 1,
+     (frow.pctOfDesign * 100).toFixed(2) + '%');
+  ok('...and the runout warning fires',
+     (fres.warnings || []).some(w => w.code === 'PUMP_RUNOUT'));
+
+  /* The message must quote the SAME number it judged on — that discrepancy is
+   * what made the original report so hard to believe. */
+  const w = (fres.warnings || []).filter(x => x.code === 'PUMP_RUNOUT')[0];
+  near('the warning quotes the percentage it judged on',
+       w.pct, frow.pctOfDesign * 100, 1e-9);
+  ok('...and the message text agrees with it',
+     w.message.indexOf(w.pct.toFixed(1) + '% of design flow') >= 0, w.message);
+}
+
+
 report();

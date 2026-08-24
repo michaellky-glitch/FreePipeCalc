@@ -3189,6 +3189,41 @@ section('Heat exchangers sync their part load');
   const src = M.addPipe(m, a.id, b.id, { kind: 'equip' });
   src.equip = { qRated: 0.004, pdRated: 80e3, equipType: 'source', tSet: 6 };
   ok('A source/sink is not offered it', !M.canSync(src, lead));
+
+  /* ---- A CHAIN COLLAPSES TO ITS HEAD, for coils as for everything else.
+   *
+   * `setSync` follows a chain so that syncing to a follower syncs to the head
+   * instead — nothing can end up copying a device that is itself copying. It
+   * read `head.pump` and `head.valve` and never `head.equip`, so EXCHANGERS
+   * fell straight through and a coil synced to a follower stayed pointed at it.
+   * `applySyncedDesign` resolves exactly one level of `syncOf`, so the second
+   * follower then copied a follower's duty in the same pass that the follower
+   * was copying the leader's — one build behind, which is precisely the
+   * discrepancy inside a ganged set that sync exists to remove. */
+  const third = coil();
+  ok('A coil can sync to one that is already following', !!M.setSync(m, third, follow.id));
+  ok('...and is re-pointed at the HEAD of the chain, not the follower',
+     M.syncOf(third) === lead.id,
+     M.syncOf(third) + ' (lead ' + lead.id + ', follower ' + follow.id + ')');
+  ok('...leaving the follower where it was', M.syncOf(follow) === lead.id);
+
+  /* Nothing in the chain may point at the device being synced, or the group
+   * closes on itself and there is no position to copy. The walk DETECTED that
+   * and then assigned the sync anyway, so syncing the head of a chain to its
+   * tail built the cycle: A follows C while C follows A, nothing settles
+   * because every build copies each one's position onto the other, and
+   * `autoSizePumps` skips anything with a sync so NEITHER gets sized. */
+  ok('The head cannot then be synced to the tail', !M.setSync(m, lead, third.id));
+  ok('...and the head is still leading nothing', !M.syncOf(lead), M.syncOf(lead));
+
+  /* The same refusal for PUMPS — `setSync` is one code path for all three
+   * kinds, and a ganged pump set is where an unsized machine actually hurts. */
+  const p2 = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+  p2.pump = { mode: 'auto', head: 10 };
+  ok('A pump can sync a pump', !!M.setSync(m, p2, pump.id));
+  ok('...and the leader cannot then sync back to it', !M.setSync(m, pump, p2.id));
+  ok('...leaving no cycle', !M.syncOf(pump) && M.syncOf(p2) === pump.id,
+     M.syncOf(pump) + ' / ' + M.syncOf(p2));
 }
 
 section('zRoute: one shape, one degree of freedom');

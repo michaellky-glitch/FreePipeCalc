@@ -14,7 +14,7 @@ const { load, ok, near, section, report } = require('./harness');
 
 /* tools.js touches `document` only inside its render functions, so a stub is
  * enough to let the module define itself. */
-const FD = load(['src/model.js', 'src/tools.js']);
+const FD = load(['src/model.js', 'src/tools.js', 'src/docs.js']);
 const M = FD.model, T = FD.tools;
 
 const RHO = 998, CP = 4187, G = 9.81;
@@ -244,5 +244,58 @@ section('Convert: the factors are the printed ones');
   ok('...and NOT 41, which is what one shared row would have given',
      Math.abs(dToF(5) - cToF(5)) > 30);
 }
+
+/* ==================================================================
+ * EVERY DOCUMENT IN THE REGISTRY EXISTS.
+ *
+ * `src/docs.js` lists the files the DOCUMENTATION tab offers, by path, and
+ * nothing checks them. When the developer docs moved to `docs_internal/` the
+ * registry kept pointing at `docs/HANDOVER.md`, `docs/PUBLISHING.md`,
+ * `docs/Human-Test.md`, `docs/piping-friction-loss-spec.md` and a
+ * `docs/ROADMAP.md` that had never existed — five dead entries, and because
+ * HANDOVER was the DEFAULT it 404'd on every single load of the tab. Michael
+ * cleaned the list out by hand in v0.18.10.
+ *
+ * A registry of paths that nothing verifies will rot again the next time a file
+ * is renamed, and the failure is invisible until somebody opens the tab. This
+ * is the cheapest possible guard against that.
+ * ================================================================== */
+section('Documentation registry — every listed file is on disk');
+{
+  const fs = require('fs');
+  const path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const list = (FD.docs && FD.docs.list) || [];
+
+  ok('the registry is not empty', list.length > 0, String(list.length));
+
+  list.forEach(function (doc) {
+    ok('exists: ' + doc.file, fs.existsSync(path.join(ROOT, doc.file)),
+       'listed as "' + doc.title + '" but not on disk');
+  });
+
+  /* The DEFAULT is the one that 404'd on every load, so it gets said out loud
+   * rather than left to the loop above. */
+  ok('the DEFAULT document exists',
+     list.length > 0 && fs.existsSync(path.join(ROOT, list[0].file)),
+     list.length ? list[0].file : '(no documents)');
+
+  /* Every entry needs a title and a blurb — the tab renders both, and a blank
+   * button is not something anybody would notice in review. */
+  ok('every entry has a title', list.every(d => !!d.title),
+     list.filter(d => !d.title).map(d => d.file).join(','));
+  ok('every entry has a blurb', list.every(d => !!d.blurb),
+     list.filter(d => !d.blurb).map(d => d.file).join(','));
+
+  /* An HTML document is FRAMED, not fetched, which is the only reason the tab
+   * works from file://. A .html entry that forgot the flag would be handed to
+   * the markdown renderer and fail silently on disk. */
+  list.forEach(function (doc) {
+    if (!/\.html$/i.test(doc.file)) return;
+    ok('framed, not parsed: ' + doc.file, doc.html === true,
+       'a .html document must be marked html:true');
+  });
+}
+
 
 report();

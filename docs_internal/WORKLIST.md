@@ -9,8 +9,9 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-19, after **v0.18.2 (beta)** — SIMULATE is the GGA on a
-K-terminal copy again: Q = K·√P, and controlled pumps hold setpoint.
+Updated 2026-08-24, after **v0.18.14 (beta)** — the handover's open list worked
+down: pump runout, the docs registry guard, two `setSync` bugs, the sweep →
+iteration rename (SW.2, closed), and the GGA iteration values in `engine.html`.
 
 ---
 
@@ -39,7 +40,8 @@ The likeliest things to come back:
 | # | Item | Notes |
 |---|---|---|
 | DW.MOD | **Domestic Water module — RE-ARCHITECTED to a separate discipline (2026-08-16)** | Michael pivoted to DE-RISK the GGA (Option A, one app): **a file is one discipline**, `m.discipline` = `hydronic` (default) \| `plumbing`. In a plumbing file the GGA is NEVER invoked. The DISCIPLINE lives a layer ABOVE the tab bar via the **repurposed loop-type chip** (`#system-chip` → HYDRONIC/PLUMBING, click toggles, **confirm warning** "Changing an existing model between Hydronic and Plumbing may break it"). The network tab is relabelled per discipline (HYDRONIC — was "PIPING NETWORK" — or PLUMBING); plumbing shows its own reduced tab set (PLUMBING + plumbing CALCULATION + SETTINGS + DOCS, no THERMAL/HYDRAULIC). Canvas + drawing tools + save file are shared. Plumbing solved only by `M.plumbingSizing`. Full spec + phases A/B/C in `docs/DW-MODULE.md` → **Architecture v2**. **Built already (reusable):** `data/plumbing.js` (IPC E103.3(2) with per-fixture variations, `verified:false`), `M.outflowFU`, `M.plumbingSizing` (tree accumulation + `DW_LOOP`/`DW_NO_SOURCE`/`DW_MULTI_SOURCE`). **To do:** ~~Phase A scaffold~~ **DONE v0.16.33**; ~~Phase B plumbing HYDRAULIC tab + editable IPC tables + sizing sheet~~ **MOSTLY DONE v0.17.0** (Design ribbon drops thermal tools; HYDRAULIC tab kept in plumbing with editable fixture-FU + FU→flow tables, per-model overrides that feed `plumbingSizing`; plumbing CALCULATION sheet: per-pipe downstream FU → diversity flow → velocity). **Status (v0.17.12): functionally COMPLETE.** Discipline scaffold, editable IPC tables (E103.3(2)/(3) + 604.3, merged fixtures table), design sizing + friction + residual pass, K-terminal SIMULATE, per-fixture 604.3 mapping with red estimates, calc sheet with All Pipes/Critical Path (Design) + Critical Path (Simulation), outflow tags/templates/multi-select, and Michael's IPC sign-off (`FD.plumbing.verified` all true). **Only remaining:** a per-pipe diversity-flow readout drawn on the CANVAS itself (numbers already on the sheet + pipe panel). |
-| SW.2 | **Finish the sweep → iteration rename (internal)** | Michael, 2026-08-12. The USER-FACING text now says "iteration" (progress bar, the Settling-iterations field, CONTROL_HUNTING / CONTROL_BUDGET messages). The INTERNALS still say sweep: the `sweep`/`MAX_SWEEPS`/`reSweep` variables in `network.js`, `report.sweeps`, and the saved setting key `control.sweeps`. Renaming `control.sweeps` needs a load-time migration so old files keep their value, so it was left for a dedicated pass. Cosmetic, no behaviour change. |
+| DS.1 | **A DESIGN calculation must assume DESIGN FLOW through each piece of equipment** | Michael, 2026-08-24, and it is DECIDED — what is missing is the change, which he asked to leave for now. Today an integrated control valve in design mode is a fixed resistance at whatever `opening` the last SIMULATION left on it, because the control loop does not run in design. On `test/fixtures/tower-five-level.pnet.json` that put the four floors at 100 / 100 / 54 / 58% and ranked them by valve position instead of by a 0.7% hydraulic spread — the design-mode index was right for the wrong reason. See `HANDOVER.md` §0. |
+| DS.2 | **Separate Design Calculation from Simulation Calculation, as PLUMBING already does** | Michael, 2026-08-24: "I think we will need to separate out Design Calculation & Simulation Calculation like is done in Plumbing." The plumbing discipline runs a design sizing pass and a K-terminal simulation as two distinct calculations rather than one solve reading `settings.calcMode`. Hydronic should follow. **Deferred by him**, together with DS.1; the assertions get cleaned up after. |
 | MSG.2 | **Trim the verbose messages** | `docs/MESSAGES.md` §7 proposes shorter forms for 8 messages; awaiting Michael's yes/no per line, then apply to source. (CONTROL_HUNTING already reworded in v0.16.26.) |
 | DX.1 | Does the DXF open in real CAD? | Untested; nothing in this environment can check it. |
 
@@ -48,6 +50,18 @@ The likeliest things to come back:
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
+
+* **v0.18.14 (BETA), 2026-08-24 — SW.2 CLOSED, plus four more off the handover's
+  open list.** The sweep → iteration rename is finished: `sweep`, `MAX_SWEEPS`,
+  `reSweep`, `cfgSweeps` and `report.sweeps` are gone from `network.js`, `app.js`
+  reads and writes `iterations`, and the saved key is migrated at load by
+  `M.migrateControlIterations` so no existing file loses its settling count.
+  Also: `PUMP_RUNOUT` measured against the SCALED curve so every controlled pump
+  that slowed down raised a false runout (Tutorial 01 at 99% of design flow, over
+  a 120% limit); `M.setSync` did not collapse a chain of EXCHANGERS, and would
+  build a cycle when the head of a chain was synced to its tail; a guard on the
+  `src/docs.js` registry so a renamed document cannot 404 in the tab unnoticed;
+  and the GGA iteration values written into `docs/engine.html` §6.3.
 
 * **CI, 2026-08-19** — GitHub Pages is now published by
   `.github/workflows/pages.yml` on every push to `master`, gated on the test

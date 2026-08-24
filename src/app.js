@@ -429,7 +429,7 @@
            * settles quickly. The sentence explains the bar; without it a run
            * that stops at a third looks like something went wrong. */
           showSolveProgress(p.fraction || 0,
-            'Simulating\u2026 iteration ' + (p.sweep || 1) + ' of ' + (p.sweeps || 6) +
+            'Simulating\u2026 iteration ' + (p.iteration || 1) + ' of ' + (p.iterations || 6) +
             (p.device ? ' \u00b7 ' + p.device : ''));
         } catch (e3) { /* the bar is not worth failing the solve for */ }
         setTimeout(step, 0);
@@ -7132,9 +7132,9 @@
           m.settings.control.maxSolves = Math.max(0, Math.round(v));
           renderSettings(); redrawAll();
         }, '1');
-    num(gc, 'Settling iterations (default 6)', ctl.sweeps || 6,
+    num(gc, 'Settling iterations (default 6)', ctl.iterations || 6,
         function (v) {
-          m.settings.control.sweeps = Math.min(100, Math.max(1, Math.round(v)));
+          m.settings.control.iterations = Math.min(100, Math.max(1, Math.round(v)));
           renderSettings(); redrawAll();
         }, '1');
     var ch = el('p', 'hint', 'SIMULATION only. Sitting on a minimum is reported. ');
