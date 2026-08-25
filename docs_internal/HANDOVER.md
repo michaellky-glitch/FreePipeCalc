@@ -17,6 +17,38 @@ passing in about 15 s (`for f in test/*.test.js; do node $f; done`).
 
 ## 0. LATEST — v0.18.21, DS.2 done cheaply, and THE FREEZE (2026-08-25)
 
+### THE 44 SECONDS IS REAL COMPUTE, AND MICHAEL HAS ACCEPTED IT
+
+**Michael, 2026-08-25, after seeing the breakdown: "Eh not necessary. As long as
+it's ongoing compute and not a program error. Right now prioritize accuracy."**
+
+So the solver is NOT to be optimised. Do not re-open this without him. Where the
+44 s goes, measured on `Data Hall & Yard.json` (278 links, 252 unknown heads):
+
+| per core solve | cost |
+|---|---|
+| `build` — fittings and resistances, all 278 links | 5.3 ms |
+| GGA solve | 15.6 ms |
+| thermal solve | 3.6 ms |
+
+634 control solves, and `solveCore` repeats *build + GGA* up to 5 times each
+until the flow directions settle — at 2–3 passes average that is the 44 s, all
+of it real work. Three consecutive re-solves give identical answers.
+
+The three levers, if it is ever wanted: patch the ONE link an actuator changed
+instead of rebuilding all 278 (biggest, but it reaches into the direction
+settling the pass loop exists for, and that is the §18 frozen-active-set trap);
+reuse the solver's dense 252×252 matrix buffers, which are reallocated every
+Newton iteration (safe, no numerical change, maybe 20–40% of the GGA's 9.9 s);
+or cut the 634 solves, which means touching the bracketing and `floorErr` work
+that stopped the hunting — leave that alone.
+
+**ACCURACY IS THE PRIORITY, HIS WORDS.** After this session's engine changes,
+every published and asserted number was re-verified and none moved:
+`crosscheck.test.js` (Hardy Cross, three independent networks) 15/15; the seven
+values printed in `engine.html` §6.3 to six decimals; and friction + static =
+pump head on all four frozen models, worst delta 1.8e-7 m.
+
 ### THE SHEET WAS SOLVING. That is the whole of the "convergence" report.
 
 **Michael:** *"the data hall... was converging simulations nicely before but the
