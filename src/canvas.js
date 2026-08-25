@@ -101,6 +101,7 @@
     this.showControl = true;
     this.controlPick = null;          // {pipeId} while picking a target
     this.refPick = null;              // {pipeId} while picking a differential's 2nd pipe
+    this.pathPick = null;             // {a} while picking the two ends of a manual critical path
     this.selection = [];             // [{kind,id}]
     this.marquee = null;
     this.conflict = null;          // pipe ids highlighted red by a geometry conflict
@@ -748,6 +749,40 @@
        * canvas in a mode the user cannot see. */
       /* Picking the SECOND pipe for a differential sensor — same gesture as a
        * control link, and cancelled the same way. */
+      /* PICKING THE TWO ENDS OF A MANUAL CRITICAL PATH. Nodes, not pipes, and
+       * one of them has to be on a pump — a friction tally only means something
+       * as a circuit, out along the run and back to the machine driving it.
+       * Cancelled by Escape or by clicking nothing, like every other pick. */
+      if (self.pathPick) {
+        var pn = self.nodeAt(w.x, w.y, ENDPOINT_PX);
+        if (!pn) {
+          self.pathPick = null;
+          self.onMessage('Selection cancelled. The critical path is automatic.', 'error');
+          self.changed(); return;
+        }
+        if (!self.pathPick.a) {
+          self.pathPick.a = pn.id;
+          self.onMessage('Now select the second node.');
+          self.render(); return;
+        }
+        if (pn.id === self.pathPick.a) {
+          self.onMessage('Select a different node for the other end.', 'error');
+          self.render(); return;
+        }
+        var firstId = self.pathPick.a;
+        self.pathPick = null;
+        if (!M.nodeOnPump(m0, firstId) && !M.nodeOnPump(m0, pn.id)) {
+          self.onMessage('One of the nodes must be a pump. The critical path is automatic.', 'error');
+          self.changed(); return;
+        }
+        self.onBeforeEdit();
+        var setRes = M.setCriticalManual(m0, firstId, pn.id);
+        self.onMessage(setRes
+          ? 'Critical path set from ' + setRes.a + ' to ' + setRes.b + '.'
+          : 'Selection cancelled. The critical path is automatic.', setRes ? undefined : 'error');
+        self.changed();
+        return;
+      }
       if (self.refPick) {
         var refHit = (self.pipeAt(w.x, w.y) || {}).pipe;
         var refSrc = M.pipe(m0, self.refPick.pipeId);
@@ -1793,6 +1828,16 @@
           self.pasting = null;
           self.onMessage('Paste cancelled.'); self.render();
         }
+        /* ESCAPE DURING A PATH PICK REVERTS TO AUTOMATIC — Michael, 2026-08-25.
+         * Half a selection is not a path, and leaving the previous manual pair
+         * in place would mean Escape had quietly done nothing. */
+        else if (self.pathPick) {
+          self.pathPick = null;
+          self.onBeforeEdit();
+          M.setCriticalManual(self.getModel(), null, null);
+          self.onMessage('Critical path is automatic.');
+          self.changed();
+        }
         else if (self.controlPick || self.refPick) {
           self.controlPick = null; self.refPick = null;
           self.onMessage('Cancelled.'); self.render();
@@ -2830,6 +2875,9 @@
   View.prototype.vizScale = function () {
     var m = this.getModel(), res = this.results;
     if (!this.viz || !res) return null;
+    /* CAL PATH has no scale — a pipe is on the path or it is not. A non-null
+     * marker, because `drawPipes` only asks for a colour when there is one. */
+    if (this.viz === 'critical') return { kind: 'pipe', min: 0, max: 1 };
     var d = m.settings.display;
     var vals = [];
 
@@ -2896,6 +2944,15 @@
 
   /* The colour a link should take under the active visualiser, or null. */
   View.prototype.vizPipeColour = function (p, scale) {
+    /* CAL PATH: the calculation path in red, and everything else left alone.
+     * Michael, 2026-08-25. It is not a scale like the others — there is nothing
+     * to grade, a pipe is either on the path or it is not — so it answers
+     * before the scale is consulted. Automatic or manual, whichever the sheet
+     * is reporting: one drawing of one path, so the two cannot disagree. */
+    if (this.viz === 'critical') {
+      var cr = this.results && this.results.critical;
+      return (cr && cr.linkIds && cr.linkIds[p.id]) ? this.theme.error : null;
+    }
     if (!scale || scale.kind !== 'pipe') return null;
     var res = this.results;
     var q = res && res.flow ? res.flow[p.id] : undefined;

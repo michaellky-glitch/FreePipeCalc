@@ -990,4 +990,130 @@ section('Design: a controlled valve is at full travel, a balancing valve is not'
 }
 
 
+/* ==================================================================
+ * THE CRITICAL PATH, CHOSEN BY HAND.
+ *
+ * Michael, 2026-08-25: "we will need to allow the user to select calculating
+ * between 2 points (and back) in addition to the current auto method.
+ * Otherwise non-obvious things may trip up the users and they will be unable
+ * to verify."
+ *
+ * Two node ids. One of them must sit on a pump, because the tally only means
+ * something as a circuit — out along the run and back to the machine driving
+ * it. The identity is the check that it IS a circuit.
+ * ================================================================== */
+section('Critical path: two ends chosen by hand');
+{
+  function rig() {
+    const m = M.create();
+    m.settings.calcMode = 'design';
+    const lv = m.levels[0].id;
+    const N = (x, y) => M.addNode(m, lv, x, y);
+    const a = N(0, 0), b = N(2, 0), h = N(6, 0), r = N(6, 40);
+    const pump = M.addPipe(m, a.id, b.id, { size: 'DN50', kind: 'pump', tag: 'PMP' });
+    pump.pump = { mode: 'fixed', head: 25, sizing: 'manual', speed: 1,
+      curve: { H0: 35, a: 90000, b: 1.55, source: 'generated', Qd: 0.0048, Hd: 25,
+        points: [{ q: 0, h: 35 }, { q: 0.0048, h: 25 }, { q: 0.0072, h: 16 }] } };
+    M.addPipe(m, b.id, h.id, { size: 'DN50' });
+    function coil(tag, pts) {
+      let prev = h.id, made = null;
+      pts.forEach(function (pt, i) {
+        const n = N(pt[0], pt[1]);
+        if (i === pts.length - 1) {
+          made = M.addPipe(m, prev, n.id, { size: 'DN50', kind: 'equip', tag: tag });
+          made.equip = { qRated: 0.0024, pdRated: 50000, qOut: 0.02,
+                         equipType: 'exchanger', duty: 100000,
+                         lastEdited: ['qRated', 'duty'] };
+          prev = n.id; return;
+        }
+        M.addPipe(m, prev, n.id, { size: 'DN50' });
+        prev = n.id;
+      });
+      M.addPipe(m, prev, r.id, { size: 'DN50' });
+      return made;
+    }
+    const near_ = coil('AHU-NEAR', [[10, 4], [14, 4]]);
+    const far = coil('AHU-FAR', [[10, 60], [70, 60], [74, 60]]);
+    M.addPipe(m, r.id, a.id, { size: 'DN50' });
+    return { m, pump, near_, far };
+  }
+
+  /* ---- WHICH NODES MAY BE PICKED. */
+  {
+    const t = rig();
+    ok('a pump end is on a pump', M.nodeOnPump(t.m, t.pump.a) === true);
+    ok('a coil outlet is not', M.nodeOnPump(t.m, t.near_.b) === false);
+    ok('two nodes with no pump between them are refused',
+       M.setCriticalManual(t.m, t.near_.b, t.far.b) === null);
+    ok('...and nothing is stored', M.criticalManual(t.m) === null);
+    ok('the same node twice is refused',
+       M.setCriticalManual(t.m, t.pump.a, t.pump.a) === null);
+  }
+
+  /* ---- THE PUMP END IS STORED FIRST, whichever order it was clicked. Asking
+   * the reader to click them in a set order would be a rule with no reason. */
+  {
+    const t = rig();
+    const fwd = M.setCriticalManual(t.m, t.pump.a, t.near_.b);
+    ok('pump first stays first', fwd.a === t.pump.a && fwd.b === t.near_.b,
+       JSON.stringify(fwd));
+    const t2 = rig();
+    const rev = M.setCriticalManual(t2.m, t2.near_.b, t2.pump.a);
+    ok('pump second is put first', rev.a === t2.pump.a && rev.b === t2.near_.b,
+       JSON.stringify(rev));
+  }
+
+  /* ---- IT OVERRIDES THE SEARCH. The automatic index here is the FAR coil;
+   * naming the NEAR one has to give the near one, or the button does nothing. */
+  {
+    const auto = rig();
+    const autoRes = NET.solveModel(auto.m);
+    ok('the automatic index is the far coil',
+       autoRes.critical.targetLink === auto.far.id,
+       (M.pipe(auto.m, autoRes.critical.targetLink) || {}).tag);
+
+    const t = rig();
+    M.setCriticalManual(t.m, t.pump.a, t.near_.b);
+    const res = NET.solveModel(t.m);
+    const c = res.critical;
+    ok('a manual path reports as manual', c.targetKind === 'manual', c.targetKind);
+    ok('...ending where it was told', c.target === t.near_.b, c.target);
+    ok('...starting at the pump node it was told', c.origin === t.pump.a, c.origin);
+    ok('...through the NEAR coil, not the automatic index',
+       !!c.linkIds[t.near_.id] && !c.linkIds[t.far.id],
+       'near=' + !!c.linkIds[t.near_.id] + ' far=' + !!c.linkIds[t.far.id]);
+    ok('...and across the pump', !!c.linkIds[t.pump.id]);
+
+    /* AND IT IS STILL A CIRCUIT — out and back. */
+    near('friction + static equals the head developed on the manual path',
+         c.frictionHead + c.staticHead, c.pumpHead, 1e-6);
+    ok('the path has both halves', c.sections.length > 4, String(c.sections.length));
+  }
+
+  /* ---- CLEARING GOES BACK TO AUTOMATIC. */
+  {
+    const t = rig();
+    M.setCriticalManual(t.m, t.pump.a, t.near_.b);
+    ok('set', !!M.criticalManual(t.m));
+    M.setCriticalManual(t.m, null, null);
+    ok('cleared', M.criticalManual(t.m) === null);
+    const res = NET.solveModel(t.m);
+    ok('and the search is back in charge',
+       res.critical.targetKind === 'equipment' &&
+       res.critical.targetLink === t.far.id,
+       res.critical.targetKind + ' ' + (M.pipe(t.m, res.critical.targetLink) || {}).tag);
+  }
+
+  /* ---- A STALE PAIR IS IGNORED. A node deleted after the pair was stored
+   * must not leave the sheet reporting a path between things that are gone. */
+  {
+    const t = rig();
+    M.setCriticalManual(t.m, t.pump.a, t.near_.b);
+    t.m.nodes = t.m.nodes.filter(n => n.id !== t.near_.b);
+    ok('a pair naming a deleted node reads as unset',
+       M.criticalManual(t.m) === null);
+  }
+}
+
+
 report();

@@ -2124,6 +2124,51 @@
    * it. Sparse, and absent means SET, so no file needs migrating. */
   var COMPARATORS = ['set', 'min', 'max'];
 
+  /* ==================== THE CRITICAL PATH, CHOSEN BY HAND INSTEAD OF FOUND
+   *
+   * Michael, 2026-08-25: "to fully resolve the Design calculation issue, we
+   * will need to allow the user to select calculating between 2 points (and
+   * back) in addition to the current auto method. Otherwise non-obvious things
+   * may trip up the users and they will be unable to verify."
+   *
+   * That is the real argument for it. The automatic index is a defensible
+   * choice made from numbers the reader cannot see, and on a model with
+   * fourteen near-identical circuits the difference between first and last is
+   * under a percent. An engineer who wants to check a specific run against a
+   * hand calculation has to be able to NAME it.
+   *
+   * Stored as two node ids. One of them must sit on a pump, because the tally
+   * only means anything as a circuit: out along the run and back to the
+   * machine that drives it. Absent means automatic, which is the default and
+   * what every existing file does. */
+  function criticalManual(m) {
+    var c = m && m.settings && m.settings.criticalManual;
+    if (!c || !c.a || !c.b) return null;
+    if (!node(m, c.a) || !node(m, c.b)) return null;
+    return { a: c.a, b: c.b };
+  }
+
+  /* Is this node an end of a pump? The rule the picker enforces and the sheet
+   * states, in one place so they cannot disagree. */
+  function nodeOnPump(m, nodeId) {
+    return m.pipes.some(function (p) {
+      return p.kind === 'pump' && (p.a === nodeId || p.b === nodeId);
+    });
+  }
+
+  function setCriticalManual(m, aId, bId) {
+    if (!aId || !bId || aId === bId) { delete m.settings.criticalManual; return null; }
+    if (!node(m, aId) || !node(m, bId)) return null;
+    /* The PUMP end is stored first, whichever the user clicked first — the
+     * trace runs from the pump out to the far point and back, and asking the
+     * reader to click them in a particular order would be a rule with no
+     * reason behind it. */
+    var pumpFirst = nodeOnPump(m, aId);
+    if (!pumpFirst && !nodeOnPump(m, bId)) return null;
+    m.settings.criticalManual = pumpFirst ? { a: aId, b: bId } : { a: bId, b: aId };
+    return m.settings.criticalManual;
+  }
+
   function setpointCmp(p, key) {
     if (!p) return 'set';
     var c = null;
@@ -3450,6 +3495,8 @@
     syncedPosition: syncedPosition,
     COMPARATORS: COMPARATORS,
     setpointCmp: setpointCmp, setSetpointCmp: setSetpointCmp,
+    criticalManual: criticalManual, setCriticalManual: setCriticalManual,
+    nodeOnPump: nodeOnPump,
     icvMode: icvMode, icvOpening: icvOpening, icvActive: icvActive,
     addDetail: addDetail, addNote: addNote,
     removeDetail: removeDetail, removeNote: removeNote,

@@ -1769,7 +1769,8 @@
     var rows = sheetRows(res);
 
     // ============================================================ 1. ALL PIPES
-    var secAll = calcSection('All Pipes');
+    var secAll = calcSection('All Pipes (' +
+      (m.settings.calcMode === 'simulation' ? 'Simulation' : 'Design') + ')');
     /* Tag only earns a column when something in the model actually has one —
      * an empty column on every row of a plain pipe network is just noise. */
     var anyTag = rows.some(function (r) { return r.tag; });
@@ -1815,9 +1816,53 @@
     // ========================================================= 2. CRITICAL PATH
     if (res && res.critical && res.critical.sections.length) {
       var ix2 = res.critical;
-      var secCrit = calcSection('Critical Path');
+      var manualPath = M.criticalManual(m);
+      /* NAMED FOR WHAT IT ACTUALLY IS, and in Plumbing's words (Michael,
+       * 2026-08-25: "be consistent in wording with Plumbing"). The sheet
+       * reports the mode the model was solved in, so the heading has to say
+       * which — a section headed DESIGN while showing a simulated path is the
+       * kind of quiet mismatch this project keeps paying for. */
+      var critMode = (m.settings.calcMode === 'simulation') ? 'Simulation' : 'Design';
+      var secCrit = calcSection('Critical Path (' + critMode + ')',
+        { note: manualPath ? 'Manual' : 'Auto' });
+      /* PICK THE TWO ENDS YOURSELF — Michael, 2026-08-25: "we will need to
+       * allow the user to select calculating between 2 points (and back) in
+       * addition to the current auto method. Otherwise non-obvious things may
+       * trip up the users and they will be unable to verify."
+       *
+       * One button, toggling. Pressed with a manual path already set it goes
+       * straight back to automatic; pressed otherwise it sends the reader to
+       * the drawing to name the two ends. Escape on the drawing does the same
+       * as pressing it again. */
+      var pathBtn = el('button', 'btn tiny', manualPath ? '[Auto]' : '[Manual]');
+      pathBtn.title = manualPath
+        ? 'Return to the automatic critical path'
+        : 'Choose the two ends of the critical path on the drawing';
+      pathBtn.addEventListener('click', function () {
+        if (M.criticalManual(m)) {
+          pushUndo();
+          M.setCriticalManual(m, null, null);
+          toast('Critical path is automatic.');
+          changed();
+          return;
+        }
+        app.view.pathPick = { a: null };
+        app.setUIMode('design');
+        app.showTab('pane-network');
+        toast('Select 2 nodes to calculate the friction drop between. ' +
+              'One of the nodes must be a pump.');
+        app.view.render();
+      });
+
       secCrit.appendChild(el('p', 'notice-head',
         'Critical Path from ' + ix2.origin + ' to ' + ix2.target));
+      secCrit.lastChild.appendChild(pathBtn);
+      if (manualPath) {
+        secCrit.appendChild(el('p', 'hint',
+          'These two ends were chosen by hand. The automatic path finds the ' +
+          'circuit that uses the most head to reach its equipment. Press ' +
+          '[Auto] to go back to it.'));
+      }
 
       /* The critical-path sections are repeated here in full, deliberately.
        * They duplicate rows from All Pipes, which is the point: this is the

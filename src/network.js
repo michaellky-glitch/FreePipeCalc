@@ -3418,6 +3418,16 @@
                    available: worst.avail };
       }
     }
+    /* ---- CHOSEN BY HAND. Overrides the search entirely: the reader has named
+     * the two ends, and the job is to report the circuit between them, not to
+     * argue about which one governs. Other loads are NOT blocked — whatever is
+     * actually on the route the user picked belongs on the tally. */
+    var manual = M.criticalManual(m);
+    if (manual) {
+      target = { node: manual.b, inlet: null, residual: null, kind: 'manual',
+                 link: null, served: null, available: null, from: manual.a };
+    }
+
     if (!target) return null;
 
     /* The path runs back to a FIXED-HEAD node — a source, or the synthetic
@@ -3462,12 +3472,14 @@
      * Plant is not blocked: a primary/secondary system legitimately routes the
      * return through the chiller it shares, and a chiller is not a load. */
     var blockedLinks = {};
-    net.links.forEach(function (l) {
-      if (l.kind !== 'equip' || l.id === target.link) return;
-      var mp = M.pipe(m, l.id);
-      var t = mp && mp.equip && mp.equip.equipType;
-      if (t !== 'source' && t !== 'adiabatic') blockedLinks[l.id] = true;
-    });
+    if (target.kind !== 'manual') {
+      net.links.forEach(function (l) {
+        if (l.kind !== 'equip' || l.id === target.link) return;
+        var mp = M.pipe(m, l.id);
+        var t = mp && mp.equip && mp.equip.equipType;
+        if (t !== 'source' && t !== 'adiabatic') blockedLinks[l.id] = true;
+      });
+    }
 
     /* WHERE A CIRCUIT ENDS.
      *
@@ -3590,9 +3602,16 @@
       return { sections: out, end: route.length ? route[route.length - 1].node : startNode };
     }
 
-    /* THE SUPPLY HALF: datum → plant → load. */
-    var closedCircuit = (target.kind === 'equipment');
-    var supply = walk(target.node, true, null, null, closedCircuit, null, !closedCircuit);
+    /* THE SUPPLY HALF: datum → plant → load.
+     *
+     * A MANUAL path terminates at the node the reader named rather than at the
+     * first pump the trace happens to cross — that is the whole point of
+     * naming it. */
+    var closedCircuit = (target.kind === 'equipment' || target.kind === 'manual');
+    var supply = walk(target.node, true, null, null,
+                      target.kind === 'equipment',
+                      target.kind === 'manual' ? target.from : null,
+                      !closedCircuit);
     var sections = supply.sections;
     var cur = supply.end;
 
@@ -3609,7 +3628,7 @@
      *
      * Only a closed circuit has one. In an open system the water leaves at the
      * terminal and there is nothing to come back. */
-    if (target.kind === 'equipment') {
+    if (closedCircuit) {
       /* A CIRCUIT DOES NOT USE THE SAME PIPE TWICE. Without this the return
        * half re-traverses the plant the supply half already went through — on
        * the HighRise both halves crossed PMP-2 and WCCH-02, so the reported
