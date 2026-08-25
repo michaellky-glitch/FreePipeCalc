@@ -2436,6 +2436,49 @@
     return false;
   }
 
+  /* ============================ AN INTEGRATED CONTROL VALVE IS AUTO OR MANUAL
+   *
+   * Michael, 2026-08-25: "I do want to have a way for the user to do manual
+   * balancing if they so wish. Repurpose the ICV toggle to be Manual/Auto. Auto
+   * works as it currently does, Manual unlocks (at 100% treat as no valve)."
+   *
+   *   AUTO    the machine's own controller holds its Design ΔT. The position is
+   *           an OUTPUT — the loop writes it in SIMULATION, and DESIGN charges
+   *           the valve at full travel (DS.1). The slider is read-only.
+   *   MANUAL  a balancing valve set by hand. The position is an INPUT and is
+   *           read in BOTH modes, exactly like a drawn valve with no control
+   *           link. AT FULL TRAVEL IT IS TREATED AS NO VALVE AT ALL, which is
+   *           what the old on/off switch's "off" meant.
+   *
+   * That last rule is what makes this backward compatible without a migration.
+   * A file with no `icv` at all is manual-at-100 by definition: no valve, no
+   * resistance, nothing to control. A file WITH an `icv` and no `mode` is the
+   * behaviour that shipped, which is Auto. Both read correctly with no data
+   * change, so an old file opened here and saved again is unchanged. */
+  function icvMode(p) {
+    var icv = p && p.equip && p.equip.icv;
+    if (!icv) return 'manual';
+    return icv.mode === 'manual' ? 'manual' : 'auto';
+  }
+
+  /* The opening a MANUAL valve is set to, defaulting to full travel. */
+  function icvOpening(p) {
+    var icv = p && p.equip && p.equip.icv;
+    if (!icv) return 100;
+    var o = Number(icv.opening);
+    return isFinite(o) ? Math.max(0, Math.min(100, o)) : 100;
+  }
+
+  /* Is there a valve in the circuit at all? A manual valve at full travel is
+   * not one — see above. Auto always is: DESIGN charges it at full travel and
+   * that is a real resistance, deliberately. */
+  function icvActive(p) {
+    var icv = p && p.equip && p.equip.icv;
+    if (!icv || !(icv.kv > 0)) return false;
+    if (icvMode(p) !== 'manual') return true;
+    return icvOpening(p) < 100;
+  }
+
   function setSync(m, p, leaderId) {
     var host = (p.kind === 'pump') ? p.pump
              : (p.kind === 'valve') ? p.valve
@@ -3350,6 +3393,7 @@
     looksMangled: looksMangled, repairedTag: repairedTag, repairTags: repairTags,
     canSync: canSync, setSync: setSync, syncOf: syncOf,
     syncedPosition: syncedPosition,
+    icvMode: icvMode, icvOpening: icvOpening, icvActive: icvActive,
     addDetail: addDetail, addNote: addNote,
     removeDetail: removeDetail, removeNote: removeNote,
     DETAIL_COLOURS: DETAIL_COLOURS,

@@ -3636,6 +3636,100 @@ section('A control loop settles at the default deadband');
 }
 
 
+/* ==================================================================
+ * AN INTEGRATED CONTROL VALVE IS AUTO OR MANUAL.
+ *
+ * Michael, 2026-08-25: "I do want to have a way for the user to do manual
+ * balancing if they so wish. Repurpose the ICV toggle to be Manual/Auto. Auto
+ * works as it currently does, Manual unlocks (at 100% treat as no valve)."
+ *
+ *   AUTO    the machine's own controller. The position is an OUTPUT — the loop
+ *           writes it in SIMULATION, DESIGN charges full travel (DS.1).
+ *   MANUAL  a balancing valve set by hand. An INPUT, read in BOTH modes, and at
+ *           full travel it is not a valve at all — which is exactly what the
+ *           old on/off switch's "off" state meant.
+ *
+ * That last rule is what makes this need no migration: a file with no `icv` is
+ * manual-at-100 by definition, and a file with an `icv` and no `mode` is the
+ * behaviour that shipped, which is Auto.
+ * ================================================================== */
+section('An integrated control valve is Auto or Manual');
+{
+  function rig(icv) {
+    const m = M.create();
+    m.settings.calcMode = 'design';
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 2, 0);
+    const c = M.addNode(m, lv, 20, 0), d = M.addNode(m, lv, 20, 10);
+    const pump = M.addPipe(m, a.id, b.id, { size: 'DN50', kind: 'pump', tag: 'PMP' });
+    pump.pump = { mode: 'fixed', head: 25, sizing: 'manual', speed: 1,
+      curve: { H0: 34, a: 80000, b: 1.55, source: 'generated', Qd: 0.0024, Hd: 25,
+        points: [{ q: 0, h: 34 }, { q: 0.0024, h: 25 }, { q: 0.0036, h: 16 }] } };
+    M.addPipe(m, b.id, c.id, { size: 'DN50' });
+    const coil = M.addPipe(m, c.id, d.id, { size: 'DN50', kind: 'equip', tag: 'AHU' });
+    coil.equip = { qRated: 0.0024, pdRated: 50000, qOut: 0.02, equipType: 'exchanger',
+                   duty: 100000, lastEdited: ['qRated', 'duty'] };
+    if (icv) coil.equip.icv = icv;
+    M.addPipe(m, d.id, a.id, { size: 'DN50' });
+    return { m, coil };
+  }
+  const flow = (t) => Math.abs(NET.solveModel(t.m).flow[t.coil.id]);
+
+  /* ---- THE MODE IS DERIVED, so an old file reads correctly with no change. */
+  ok('no valve at all reads as Manual', M.icvMode(rig(null).coil) === 'manual');
+  ok('a valve with no mode reads as Auto — the behaviour that shipped',
+     M.icvMode(rig({ kv: 12, opening: 60 }).coil) === 'auto');
+  ok('mode:manual reads as Manual',
+     M.icvMode(rig({ kv: 12, opening: 60, mode: 'manual' }).coil) === 'manual');
+
+  /* ---- MANUAL AT FULL TRAVEL IS NO VALVE. This is the old "off" state, and
+   * it has to be indistinguishable from having no valve object at all. */
+  const bare = flow(rig(null));
+  const man100 = flow(rig({ kv: 12, opening: 100, mode: 'manual' }));
+  near('Manual at 100% is exactly the same as no valve', man100, bare, bare * 1e-12);
+  ok('...and the model agrees it is not active',
+     M.icvActive(rig({ kv: 12, opening: 100, mode: 'manual' }).coil) === false);
+
+  /* ---- MANUAL BELOW FULL TRAVEL IS A REAL BALANCING VALVE, in BOTH modes.
+   * That is the whole point of the mode: DS.1 makes DESIGN ignore an AUTO
+   * valve's position, and manual balancing would be pointless if it did the
+   * same here. */
+  const man60 = rig({ kv: 12, opening: 60, mode: 'manual' });
+  const qMan60d = flow(man60);
+  ok('Manual at 60% throttles the DESIGN solve', qMan60d < bare * 0.95,
+     (bare * 1000).toFixed(4) + ' -> ' + (qMan60d * 1000).toFixed(4) + ' L/s');
+
+  man60.m.settings.calcMode = 'simulation';
+  const qMan60s = Math.abs(NET.solveModel(man60.m).flow[man60.coil.id]);
+  ok('...and the SIMULATION solve too', qMan60s < bare * 0.95,
+     (qMan60s * 1000).toFixed(4) + ' L/s');
+  ok('...and nothing moved it off 60%', man60.coil.equip.icv.opening === 60,
+     String(man60.coil.equip.icv.opening));
+
+  /* ---- A MANUAL VALVE IS NOT A CONTROLLER. There is nothing to search. */
+  const auto = rig({ kv: 12, opening: 100 });
+  auto.m.settings.calcMode = 'simulation';
+  const autoRes = NET.solveModel(auto.m);
+  const autoDev = ((autoRes.controls || {}).devices || [])
+    .filter(d => d.pipe === auto.coil.id);
+  ok('an AUTO valve is a controlled device', autoDev.length === 1,
+     JSON.stringify(((autoRes.controls || {}).devices || []).map(d => d.pipe)));
+
+  const manDev = ((NET.solveModel(man60.m).controls || {}).devices || [])
+    .filter(d => d.pipe === man60.coil.id);
+  ok('a MANUAL valve is not', manDev.length === 0, JSON.stringify(manDev));
+
+  /* ---- AUTO IS UNCHANGED at both ends: DS.1 in design, the loop in
+   * simulation. Two hand-set positions must give one design answer. */
+  const a40 = flow(rig({ kv: 12, opening: 40 }));
+  const a90 = flow(rig({ kv: 12, opening: 90 }));
+  near('an AUTO valve’s position does not change the DESIGN solve', a40, a90,
+       a90 * 1e-9);
+  ok('...and it is still charged for, at full travel', a40 < bare,
+     (bare * 1000).toFixed(4) + ' without a valve, ' + (a40 * 1000).toFixed(4) + ' with');
+}
+
+
 section('Syncing heat exchangers does not sync their control valves');
 {
   const m = M.fromJSON(JSON.parse(fs.readFileSync(

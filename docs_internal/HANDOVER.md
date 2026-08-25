@@ -10,12 +10,88 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **v0.18.15 (beta), 2026-08-25.** Ten test suites, **2380 assertions**, all
+State: **v0.18.16 (beta), 2026-08-25.** Ten test suites, **2392 assertions**, all
 passing in about 15 s (`for f in test/*.test.js; do node $f; done`).
 
 ---
 
-## 0. LATEST — v0.18.15, DS.1 built: a design calculation is at design conditions (2026-08-25)
+## 0. LATEST — v0.18.16, the ICV is Auto or Manual (2026-08-25)
+
+**Michael, 2026-08-25:** *"I was just thinking about that slider. It should be
+greyed out in simulate. But I do want to have a way for the user to do manual
+balancing if they so wish. Repurpose the ICV toggle to be Manual/Auto. Auto works
+as it currently does, Manual unlocks (at 100% treat as no valve)."*
+
+Built. The on/off switch is gone; the row is a **Control valve: Auto | Manual**
+select, matching the pump's Sizing row (a switch says on/off, and these are two
+ways of working).
+
+|  | position is | DESIGN reads | SIMULATION reads | slider |
+|---|---|---|---|---|
+| **Auto** | an OUTPUT | full travel (DS.1) | where the loop settles | disabled |
+| **Manual** | an INPUT | as set | as set | live |
+
+**MANUAL AT FULL TRAVEL IS NO VALVE**, which is exactly what the old switch's
+"off" meant — so both states the switch offered are still reachable.
+
+**NO MIGRATION, BY CONSTRUCTION.** `M.icvMode` DERIVES the mode: no `icv` object
+at all is manual-at-100 by definition (no valve, no resistance, nothing to
+control), and an `icv` with no `mode` is the behaviour that shipped, which is
+Auto. An old file opened here and saved again is byte-identical in this respect.
+`M.icvOpening` and `M.icvActive` are the other two helpers; `icvActive` is what
+the build asks, and it is false for a manual valve at full travel.
+
+A MANUAL valve is **not a controller** — `actuatorFor` and the ICV branch of
+`runControlsGen` both gate on `M.icvMode(p) === 'auto'`, so there is nothing for
+the loop to search and it does not appear in `res.controls.devices`.
+
+`docs/engine.html` §8.1 carries the Auto/Manual rule beside the DS.1 table.
+Michael is REMOTE off GitHub Pages and cannot read `docs_internal/`.
+
+### A NOTE ON THE `?v=` TOKEN, because it cost time again
+
+The node suites read from disk and passed while the BROWSER served
+`model.js?v=0.18.15` — a token already spent earlier in the session — so
+`M.icvMode` was `undefined` in the app and every properties panel threw. §4 says
+this. What §4 does not say, and now does: **navigating to the same URL does not
+re-fetch `index.html` either.** Bump the token AND load `index.html?nc=<n>`.
+
+### MIN/MAX/SET — STARTED, NOT BUILT, AND THE DESIGN IS UNDER-SPECIFIED
+
+Michael cleared it to proceed ("simulate seems to be working as expected. So
+please proceed with the MIN/MAX controls"). Reading the search before writing it
+turned up a real problem with the one-line design in §0 of the old handover
+("the change is to clamp the error to one side"). **Clamping alone does not
+work, and the reason is worth keeping:**
+
+With `err = min(0, reading − target)` for MIN, a device at full travel that
+already meets the minimum has `e0 = 0`. `seek` then takes the ALREADY ON
+SETPOINT early return and parks it at full travel without searching at all. Even
+with that return suppressed, the floor branch and `best`'s tie-break both prefer
+the HIGHER setting — and for a one-sided setpoint EVERY satisfied position has
+`|e| = 0`, so "closest to zero, ties to the higher x" is full travel again. The
+answer wanted is the **boundary** of the satisfied region, and for MIN that is
+the LOWEST setting that still meets it — the opposite end from the one the
+bisection is written to take.
+
+**And underneath that is a semantic question only Michael can settle**, which is
+why nothing was written:
+
+* **(A) MIN as a LIMIT that settles on the boundary** — throttle down, but not
+  past the point where the reading falls below target; comes to rest at
+  reading = target. This is what a real minimum-flow controller does. But it
+  gives the SAME answer as SET in the normal case, differing only at the edges,
+  which makes the feature nearly redundant.
+* **(B) MIN as a CONSTRAINT that does nothing until violated** — if the reading
+  is at or above target, do not move at all. This is what his own wording says
+  ("act only when the reading is below target"), and it only earns its keep
+  ALONGSIDE another setpoint, via the existing priority list.
+
+Put to him with that evidence. Do not guess: the two produce different plant.
+
+---
+
+## 0A3. v0.18.15 — DS.1 built: a design calculation is at design conditions (2026-08-25)
 
 **Michael, 2026-08-25, on `examples/Data Hall & Yard.json`:** *"logic would say
 the most remote should be AHU-12 or 13, or one of the others along that line.
@@ -889,6 +965,14 @@ These are not hypothetical. Each cost a session or a user-visible bug.
 
 **Bump the `?v=` token in `index.html` after editing any module — INCLUDING
 `styles.css`.** The browser serves stale code otherwise. It is not a build step.
+
+**AND A TOKEN IS SPENT ONCE.** Editing a module AFTER bumping, within the same
+session, leaves the browser on the old copy — the node suites read from disk and
+go green while the app runs the previous file. On 2026-08-25 that made
+`M.icvMode` `undefined` in the browser and every properties panel threw, against
+a fully passing suite. **Navigating to the same URL does not re-fetch
+`index.html` either**, so bumping alone is not enough once the page is loaded:
+bump the token AND load `index.html?nc=<n>`.
 
 The stylesheet had **no token at all** until v0.16.10, so every CSS change since
 the project began has shipped stale to anyone with the page cached. It cost half

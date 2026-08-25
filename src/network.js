@@ -655,10 +655,17 @@
          *
          * Series resistances ADD, which is the whole reason it can live on the
          * same link rather than needing a link of its own. */
+        /* AUTO or MANUAL (`M.icvMode`). An AUTO valve is the machine's own
+         * controller and its position is an output — full travel in DESIGN
+         * (DS.1), the loop's answer in SIMULATION. A MANUAL valve is somebody's
+         * balancing decision and is read as set in BOTH modes, and at full
+         * travel it is not a valve at all. */
         var icv = p.equip.icv;
-        if (icv && icv.kv > 0) {
-          link.r += FD.valves.resistance('globe', icv.kv,
-                                         actuatorOpening(simulating, icv.opening));
+        if (M.icvActive(p)) {
+          var icvOpen = (M.icvMode(p) === 'manual')
+            ? M.icvOpening(p)
+            : actuatorOpening(simulating, icv.opening);
+          link.r += FD.valves.resistance('globe', icv.kv, icvOpen);
           link.icv = true;
         }
       } else if (method.fittingMode === 'K') {
@@ -1568,7 +1575,7 @@
     /* AN INTEGRATED CONTROL VALVE is an actuator on the EQUIPMENT link. Same
      * resolution and floor as a drawn globe valve, because it is one — the only
      * difference is that it lives on the machine instead of beside it. */
-    if (p.kind === 'equip' && p.equip && p.equip.icv) {
+    if (p.kind === 'equip' && p.equip && p.equip.icv && M.icvMode(p) === 'auto') {
       var le = Number(cfg.minOpening);
       le = (isFinite(le) && le > 0 && le < 100) ? le : CTRL_DEFAULTS.minOpening;
       return {
@@ -1676,7 +1683,10 @@
       /* AN INTEGRATED CONTROL VALVE IS LINKED BY EXISTING, to its own machine's
        * ΔT. There is nothing for the user to draw or pick: a valve built into a
        * coil holds that coil's ΔT and could not sensibly hold anything else. */
-      if (p.kind === 'equip' && p.equip && p.equip.icv && !p.equip.off) {
+      /* A MANUAL valve is not a controller — it is a balancing valve somebody
+       * set, and there is nothing for the loop to search. */
+      if (p.kind === 'equip' && p.equip && p.equip.icv && !p.equip.off &&
+          M.icvMode(p) === 'auto') {
         var iAct = actuatorFor(m, p);
         var iOpts = M.controlOptions(m, p.id).filter(function (o) {
           return o.mode === 'dT';

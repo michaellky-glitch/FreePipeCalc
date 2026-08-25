@@ -755,7 +755,9 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 <p>Equipment that is switched <strong>off</strong> is omitted from the network entirely — a genuine break, not a bypass.</p>
 
 <h4 id="cv-position">Which opening the two modes use</h4>
-<p>A control valve is in the circuit in both modes and is charged for in both. The <strong>opening</strong> is where they differ, and the rule is the same for an integrated valve and for a drawn globe valve carrying a control link.</p>
+<p>An integrated valve is <strong>Auto</strong> or <strong>Manual</strong>.</p>
+<p><strong>Manual</strong> is a balancing valve you set yourself. Its position is an input and is read in both modes, exactly like a drawn valve with no control link. At <strong>100% it is treated as no valve at all</strong>, so a coil you do not want a valve on is a manual valve left at full travel.</p>
+<p><strong>Auto</strong> is a control valve built into the machine, modulating to hold that machine's own design ΔT. It is in the circuit in both modes and is charged for in both. The <strong>opening</strong> is where they differ, and the rule is the same for an integrated valve and for a drawn globe valve carrying a control link.</p>
 <div class="scroll">
 <table>
   <thead><tr><th>Mode</th><th>Opening used</th><th>Why</th></tr></thead>
@@ -773,7 +775,7 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   </tbody>
 </table>
 </div>
-<p>A valve with <strong>no control link</strong> is a balancing valve. Its position is a decision somebody made, so it is read in both modes exactly as set.</p>
+<p>A valve with <strong>no control link</strong> — a drawn valve you have not linked, or an integrated valve set to Manual — is a balancing valve. Its position is a decision somebody made, so it is read in both modes exactly as set.</p>
 <div class="note rule">
   <span class="tag">NOTE:</span>
   <p>This matters most when identifying the index circuit. On a run of identical terminals, each holding its own setpoint, every terminal is driven to design flow and the small differences left between them are the valves' one-percent travel resolution rather than the pipework. Ranking such a system by how well each terminal is served would report whichever valve happened to round down, which can be the <em>least</em> remote terminal on the run. With the valves at full travel the design ranking is the pipework, which is what an index circuit is.</p>

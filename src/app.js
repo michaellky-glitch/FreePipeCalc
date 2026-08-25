@@ -5076,27 +5076,46 @@
       }
     }
 
-    /* ---- INTEGRATED CONTROL VALVE ------------------------------------- */
-    var hasICV = !!e.icv;
-    switchRow(sec.box, 'Integrated control valve', hasICV, function (on) {
+    /* ---- INTEGRATED CONTROL VALVE -------------------------------------
+     *
+     * AUTO or MANUAL, not on or off — Michael, 2026-08-25: "I do want to have a
+     * way for the user to do manual balancing if they so wish. Repurpose the
+     * ICV toggle to be Manual/Auto. Auto works as it currently does, Manual
+     * unlocks (at 100% treat as no valve)."
+     *
+     * The old switch had no way to say "there is a valve here and I am setting
+     * it myself", which is the whole of manual balancing. It does now, and
+     * MANUAL AT FULL TRAVEL is what "off" used to mean — so the two states the
+     * switch offered are both still reachable and every existing file reads
+     * unchanged. A select rather than a switch, matching the pump's Sizing row:
+     * a switch says on/off, and these are two ways of working. */
+    var icvMode = e.icv ? M.icvMode(p) : 'manual';
+    var modeSel = el('select');
+    [['auto', 'Auto'], ['manual', 'Manual']].forEach(function (o) {
+      var opt = el('option', '', o[1]); opt.value = o[0];
+      if (o[0] === icvMode) opt.selected = true;
+      modeSel.appendChild(opt);
+    });
+    field(sec.box, 'Control valve', modeSel);
+    infoMark(fieldLabel(modeSel),
+             'Auto: a control valve built into the machine, modulating to hold ' +
+             'this machine\u2019s own Design \u0394T. Manual: a balancing valve you ' +
+             'set yourself, read in both DESIGN and SIMULATION \u2014 at 100% there ' +
+             'is no valve.');
+    modeSel.addEventListener('change', function () {
       pushUndo();
-      if (on) {
+      if (!e.icv) {
         /* Same defaults a drawn control valve gets, so the two behave
          * identically — this is a placement convenience, not a second kind of
          * valve with its own rules. */
         e.icv = { kv: FD.valves.defaultKv('globe', M.pipeBore(m, p) * 1000),
                   opening: 100 };
-      } else {
-        delete e.icv;
       }
+      e.icv.mode = modeSel.value;
       changed(); renderProperties();
     });
+    var hasICV = !!e.icv;
     if (hasICV) {
-      infoMark(sec.box.lastChild,
-               'A globe valve built into the machine, holding this machine\u2019s ' +
-               'own Design ΔT. Equivalent to drawing a control valve in the ' +
-               'branch and linking it here — it just saves doing that on every ' +
-               'coil.');
       var useCv = (m.settings.display.valveCoef === 'Cv');
       var kvIn = el('input'); kvIn.type = 'text';
       kvIn.value = useCv ? FD.valves.kvToCv(e.icv.kv).toFixed(1) : String(e.icv.kv);
@@ -5108,18 +5127,31 @@
           e.icv.kv = useCv ? Math.round(FD.valves.cvToKv(val) * 10) / 10 : val;
           changed(); renderProperties();
         }));
-      /* An integrated valve is a control valve, so it follows the same rule as a
-       * drawn one at BOTH ends: the loop writes it in simulation, and design
-       * does not read it at all (v0.18.15, WORKLIST DS.1). Saying so, because a
-       * slider that changes no number is worse than no slider. */
-      pctSlider(sec.box, 'Valve position (%)',
+      /* THE POSITION: an OUTPUT on Auto, an INPUT on Manual.
+       *
+       * On Auto it follows the same rule a drawn control valve does at both
+       * ends — the loop writes it in SIMULATION, and DESIGN does not read it at
+       * all (v0.18.15, WORKLIST DS.1) — so the control is DISABLED rather than
+       * merely annotated. That is the 2026-08-04 rule: leaving it live invites
+       * setting a number the next solve overwrites, which reads as the app
+       * ignoring you. On Manual it is yours in both modes. */
+      var icvAuto = (icvMode === 'auto');
+      var pos = pctSlider(sec.box, 'Valve position (%)',
                 e.icv.opening === undefined ? 100 : e.icv.opening,
                 function (n) { pushUndo(); e.icv.opening = n; changed(); renderProperties(); },
-                (m.settings.calcMode === 'simulation')
-                  ? 'Held by the machine\u2019s own \u0394T in SIMULATION — the solve writes it.'
-                  : 'Not used in DESIGN — the valve is charged at full travel. ' +
-                    'This is where the last simulation left it.');
-      sec.ro('Holding', 'Design \u0394T of ' + (p.tag || p.id));
+                !icvAuto
+                  ? (M.icvOpening(p) >= 100
+                       ? 'Full travel \u2014 no valve. Close it to balance the branch.'
+                       : 'Set by hand. Read in DESIGN and in SIMULATION.')
+                  : (m.settings.calcMode === 'simulation')
+                    ? 'Held by the machine\u2019s own \u0394T in SIMULATION \u2014 the solve writes it.'
+                    : 'Not used in DESIGN \u2014 the valve is charged at full travel. ' +
+                      'This is where the last simulation left it.');
+      if (icvAuto) {
+        pos.slider.disabled = true; pos.box.disabled = true;
+        pos.slider.parentNode.classList.add('is-disabled');
+      }
+      if (icvAuto) sec.ro('Holding', 'Design \u0394T of ' + (p.tag || p.id));
     }
 
     /* ---- PART LOAD ----------------------------------------------------

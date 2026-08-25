@@ -9,9 +9,8 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-25, after **v0.18.15 (beta)** — DS.1 built: a design calculation
-charges a controlled valve at full travel, so the index circuit is the pipework
-and not the last simulation's valve positions.
+Updated 2026-08-25, after **v0.18.16 (beta)** — the integrated control valve is
+Auto or Manual, so manual balancing is possible without giving up DS.1.
 
 ---
 
@@ -50,6 +49,18 @@ The likeliest things to come back:
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
+
+* **v0.18.16 (BETA), 2026-08-25 — the integrated control valve is AUTO or
+  MANUAL.** Auto is the machine's own controller (position is an output; full
+  travel in DESIGN per DS.1, the loop's answer in SIMULATION; slider disabled).
+  Manual is a balancing valve set by hand, read in both modes, and AT FULL
+  TRAVEL IT IS NO VALVE — which is what the old on/off switch's "off" meant, so
+  no migration is needed and no existing file changes.
+
+* **v0.18.15 (BETA), 2026-08-25 — DS.1.** A design calculation charges a
+  CONTROLLED valve at full travel, so the index circuit is the pipework and not
+  the last simulation's valve positions. The data hall's design index moved from
+  AHU-4 (least remote) to AHU-13 (most remote).
 
 * **v0.18.14 (BETA), 2026-08-24 — SW.2 CLOSED, plus four more off the handover's
   open list.** The sweep → iteration rename is finished: `sweep`, `MAX_SWEEPS`,
