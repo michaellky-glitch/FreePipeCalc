@@ -10,12 +10,70 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **v0.18.18 (beta), 2026-08-25.** Ten test suites, **2418 assertions**, all
+State: **v0.18.20 (beta), 2026-08-25.** Ten test suites, **2437 assertions**, all
 passing in about 15 s (`for f in test/*.test.js; do node $f; done`).
 
 ---
 
-## 0. LATEST — v0.18.18, the index circuit, in both modes (2026-08-25)
+## 0. LATEST — v0.18.19/.20, a critical path you can name, and the docs (2026-08-25)
+
+**Michael, 2026-08-25:** *"to fully resolve the Design calculation issue, we
+will need to allow the user to select calculating between 2 points (and back) in
+addition to the current auto method. Otherwise non-obvious things may trip up
+the users and they will be unable to verify."*
+
+That is the right argument, and it is the one to keep: the automatic index is a
+defensible choice made from numbers the reader cannot see, and on the data hall
+the difference between first and last of fourteen is under a percent. An
+engineer checking a run by hand has to be able to NAME it.
+
+**BUILT (v0.18.19):**
+* `m.settings.criticalManual` — two node ids; absent means automatic, which is
+  what every existing file does. **One must sit on a pump**, because the tally
+  only means something as a circuit. The pump end is stored FIRST whichever
+  order it was clicked. A pair naming a deleted node reads as unset.
+* `criticalPath` honours it and terminates at the named node instead of the
+  first pump crossed. Other loads are NOT blocked in manual mode — whatever is
+  on the route the reader picked belongs on the tally. The
+  friction + static = pump head identity holds, which is the check that it is a
+  circuit and not half of one.
+* **The button toggles.** With a manual path set it goes straight back to Auto.
+  Otherwise it switches to HYDRONIC with the toast *"Select 2 nodes to calculate
+  the friction drop between. One of the nodes must be a pump."* Escape during
+  the pick does the same as pressing it again (`View.pathPick`, `canvas.js`).
+* **CAL PATH** in SHOW: the calculation path in red, automatic or manual,
+  whichever the sheet reports. Not a scale — a pipe is on the path or it is not.
+* **TEMPERATURE → TEMP.** The hydronic sheet now uses Plumbing's wording —
+  `All Pipes (…)` and `Critical Path (…)` — **named for the mode actually
+  solved**, so a section headed DESIGN cannot show a simulated path.
+
+**DOCS (v0.18.20), ASD-STE100 as house style asks (§4 records it):**
+`user-manual.html` gains §2.6 *Calculation sheet and the critical path* (how the
+automatic path is chosen, the four-step manual procedure, CAL PATH), *Setpoint
+limits* under Control (SET/MIN/MAX with the chiller bypass worked through and
+an IMPORTANT against using SET for it), the Auto/Manual control-valve rows, and
+the CAL PATH / TEMP ribbon entries. `engine.html` gains *Choosing the path by
+hand* beside the index-circuit rule. Sections renumbered 2.6→2.9; the contents
+list and every anchor check out in the browser.
+
+### NOT DONE — and this is the one to read
+
+**Michael asked for "2 Calculations in Hydronic — Design & Simulation", both
+presented at once as PLUMBING does. Only the WORDING was aligned.** The sheet
+still shows ONE path: the mode you solved in, correctly labelled. Showing both
+together needs two solves per render, and on `Data Hall & Yard.json` a
+simulation solve is **44 s** against 134 ms for design. Plumbing gets away with
+it because its sizing is arithmetic, not a GGA.
+
+The cheap half is available: a DESIGN solve is milliseconds even on the data
+hall, so the sheet could always carry the design path and add the simulation one
+when the model is in SIMULATE. That was not built because `solveModel` mutates
+the model (valve positions, sizing) and running a second pass behind the user's
+back needs its own think. **This is DS.2 and it is still open.**
+
+---
+
+## 0A6. v0.18.18 — the index circuit, in both modes (2026-08-25)
 
 **Michael, 2026-08-25:** *"what should be happening is that pump flow is
 simulated, all the control valves and VFDs find their set points, and after

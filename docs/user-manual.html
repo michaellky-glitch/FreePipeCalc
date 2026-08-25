@@ -189,6 +189,7 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
         <li><a href="#design">Design</a></li>
         <li><a href="#control">Control</a></li>
         <li><a href="#simulate">Simulate</a></li>
+        <li><a href="#critical">Calculation sheet and the critical path</a></li>
         <li><a href="#annotation">Annotation</a></li>
         <li><a href="#show">Show</a></li>
         <li><a href="#misc">Tools and misc</a></li>
@@ -201,7 +202,7 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
 <header class="top">
   <h1>User Manual</h1>
   <p class="sub">How to use FreePipeCalc: the interface, the design tools, and every control.</p>
-  <p class="meta">The calculation methods are documented separately in Calculation Method. Current to v0.18.2.</p>
+  <p class="meta">The calculation methods are documented separately in Calculation Method. Current to v0.18.19.</p>
 </header>
 <!-- ========================================================= 1 -->
 <h2 id="overview">1. Interface overview</h2>
@@ -430,12 +431,13 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
     <tr><td>Capacity</td><td>The design load.</td></tr>
     <tr><td>Design ΔT</td><td>The design temperature difference across the coil.</td></tr>
     <tr><td>Temperature limit</td><td>The highest leaving water temperature the coil can reach.</td></tr>
-    <tr><td>Integrated control valve</td><td>Enable a built-in valve so the coil holds its own ΔT.</td></tr>
+    <tr><td>Control valve</td><td>Set the built-in valve to Auto or Manual. Refer to the text below the table.</td></tr>
+    <tr><td>Valve position (%)</td><td>The position of the built-in valve. You can set it only when the valve is Manual.</td></tr>
   </tbody>
 </table>
 </div>
 <div class="note limit"><span class="tag">IMPORTANT:</span>
-  <p>Enable the integrated control valve for a coil to modulate itself. Without it the coil generates the same amount of heat whatever the flow, so ΔT control is lost.</p>
+  <p>Set the control valve to Auto to let the coil modulate itself. The valve then holds the design ΔT of the coil. Without a valve the coil gives the same heat at all flows, and ΔT control is not possible.</p>
 </div>
 <div class="note check"><span class="tag">SUGGESTION:</span>
   <p>Sync a coil with the other coils serving the same heat load. This makes the simulation more stable.</p>
@@ -489,6 +491,24 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
 <h4>Valves</h4>
 <p>The valve tools are repeated here, so you can add a control valve without leaving Control mode. They are the same tools as in Design.</p>
 
+<h4>Setpoint limits</h4>
+<p>Each setpoint has a comparator. The comparator tells the controller when to act.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Comparator</th><th>What the controller does</th></tr></thead>
+  <tbody>
+    <tr><td>SET</td><td>Hold the value. This is the default.</td></tr>
+    <tr><td>MIN</td><td>Act only when the reading is below the value. If the reading is above it, the device stays where it does least. A bypass valve stays closed.</td></tr>
+    <tr><td>MAX</td><td>Act only when the reading is above the value.</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Use MIN to hold a minimum flow through a chiller. Put a flow sensor on the chiller. Set the flow setpoint to the minimum flow of the chiller, and set the comparator to MIN. Then link the bypass valve to the sensor.</p>
+<p>The bypass valve stays closed while the flow is above the minimum. When the coils close and the flow falls, the valve opens. It opens only as much as it must.</p>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>Do not use SET for a minimum flow. SET tries to make the flow equal to the value. When the system is busy the valve cannot decrease the flow to that value. The program then reports a lost setpoint and opens the valve fully.</p>
+</div>
+
 <h3 id="simulate">2.5 Simulate</h3>
 <p>In Simulate the program solves the system in steady state. Terminals become resistances, pumps read their curves, and controllers modulate.</p>
 <div class="note limit"><span class="tag">IMPORTANT:</span>
@@ -507,7 +527,33 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
 </table>
 </div>
 
-<h3 id="annotation">2.6 Annotation</h3>
+<h3 id="critical">2.6 Calculation sheet and the critical path</h3>
+<p>The CALCULATION tab shows the calculation sheet. The sheet has two main sections. <strong>All Pipes</strong> lists every pipe. <strong>Critical Path</strong> lists only the pipes on the circuit that sets the pump duty.</p>
+<p>The heading of each section shows the mode you solved in: Design or Simulation.</p>
+
+<h4>The automatic path</h4>
+<p>The program finds the critical path for you. In a closed system it looks for the circuit that uses the most head to reach its equipment. Every circuit through the pump loses the same total head, so the program compares the head that is left across each machine. The machine with the least head left is the one that is most difficult to reach.</p>
+<p>In an open system the program looks for the outflow with the least residual pressure.</p>
+
+<h4>The manual path</h4>
+<p>You can select the two ends of the path yourself. Do the steps that follow.</p>
+<ol>
+  <li>Go to the CALCULATION tab.</li>
+  <li>In the Critical Path section, click <strong>[Manual]</strong>. The program shows the HYDRONIC tab.</li>
+  <li>Click the first node.</li>
+  <li>Click the second node. One of the two nodes must be on a pump.</li>
+</ol>
+<p>The program then calculates the friction between the two nodes and back to the pump. The section note changes from Auto to Manual.</p>
+<p>To go back to the automatic path, click <strong>[Auto]</strong>. You can also press <kbd>Esc</kbd> during the selection.</p>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>One of the two nodes must be on a pump. A friction total is only correct as a circuit: out along the run, and back to the machine that moves the water.</p>
+</div>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>Use the manual path to check a result by hand. Select a run you know, then compare the total on the sheet with your own calculation.</p>
+</div>
+<p>Click <strong>CAL PATH</strong> in the SHOW group to see the path on the drawing. The program draws the path in red. This shows the automatic path or the manual path, whichever the sheet reports.</p>
+
+<h3 id="annotation">2.7 Annotation</h3>
 <p>In Annotation you arrange the drawing for print and add drawing elements. Nothing here changes the calculation.</p>
 <div class="scroll">
 <table class="ctrl">
@@ -525,7 +571,7 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
 </table>
 </div>
 
-<h3 id="show">2.7 Show</h3>
+<h3 id="show">2.8 Show</h3>
 <p>The SHOW group draws information on top of the model. It is available in every mode. LINKS toggles the control links. The others colour the drawing by a value.</p>
 <div class="scroll">
 <table class="ctrl">
@@ -535,12 +581,13 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
     <tr><td>FLOW</td><td>Colour pipes by flow rate.</td></tr>
     <tr><td>VELOCITY</td><td>Colour pipes by velocity, against the warning limit.</td></tr>
     <tr><td>PRESSURE</td><td>Colour nodes by gauge pressure.</td></tr>
-    <tr><td>TEMPERATURE</td><td>Colour nodes by temperature.</td></tr>
+    <tr><td>TEMP</td><td>Colour nodes by temperature.</td></tr>
+    <tr><td>CAL PATH</td><td>Show the calculation path in red. The path is the one on the calculation sheet, automatic or manual.</td></tr>
   </tbody>
 </table>
 </div>
 
-<h3 id="misc">2.8 Tools and misc</h3>
+<h3 id="misc">2.9 Tools and misc</h3>
 <p><strong>TOOLS</strong> opens a floating window of standalone calculators. They answer a question while you draw, and the drawing stays visible behind the window.</p>
 <div class="scroll">
 <table class="ctrl">
