@@ -3344,21 +3344,41 @@
     });
 
     if (!target) {
-      /* CLOSED CIRCUIT — the index is the WORST-SERVED LOAD, not the heaviest.
+      /* CLOSED CIRCUIT — THE INDEX IS THE CIRCUIT THAT BURNS THE MOST HEAD
+       * GETTING THERE, which is the one with the LEAST left across its own
+       * branch.
        *
-       * It used to be the equipment with the largest pressure drop, which is
-       * wrong twice over. Parallel branches settle at the SAME head difference
-       * between the headers, so "largest drop" cannot tell them apart and the
-       * first one found won — on Michael's two-floor model (an AHU on L1,
-       * the floor duplicated to L2) it always reported L1. And the drop is read
-       * at the ACTUAL flow, so the branch that is starved reports a SMALLER
-       * drop than the branch that is over-flowing: the metric pointed at the
-       * easiest load rather than the hardest.
+       * Michael, 2026-08-25: "take the path of most resistance back to pump (or
+       * outflow if no return path)." Right in substance, with one correction
+       * that decides whether it works: **the total resistance around every
+       * circuit is the SAME**. Kirchhoff — the head changes around any closed
+       * loop sum to zero, so for every loop through the pump, friction + static
+       * equals the pump head exactly. That identity is asserted in four places
+       * in the suite. Ranked by total circuit loss, all fourteen AHUs on the
+       * data hall tie, to solver round-off.
        *
-       * Worst-served is `flow / qRated`. It is a physical statement — this is
-       * the machine the circuit fails to supply — and it is the SAME criterion
-       * `autoSizeForFlow` sizes against, so the calculation sheet and the pump
-       * cannot disagree about which load governs.
+       * What differs is how that total is SPLIT. Every circuit spends the pump
+       * head on pipework plus its own terminal; the index is the one where the
+       * PIPEWORK takes the most, and therefore the one left with the least
+       * differential across its branch. It is the same thing Michael is
+       * describing, measured somewhere it can actually be told apart — and it
+       * is what a commissioning engineer reads off a pair of gauges.
+       *
+       * WHY NOT `flow / qRated`, which this replaces. It is the right idea in
+       * an UNCONTROLLED system: the branch the pump fails to supply is the hard
+       * one. But every terminal with a control valve is driven to its setpoint
+       * BY ITS OWN CONTROLLER, so in SIMULATION nothing is starved and the
+       * metric has nothing left to measure but how close each valve got. On the
+       * data hall the whole spread is 0.57% — the valves' one-percent travel
+       * resolution — and it picked AHU-4, the LEAST remote of the fourteen
+       * (Michael, 2026-08-25: "logic would say the most remote should be
+       * AHU-12 or 13"). The new criterion gives AHU-13 in BOTH modes.
+       *
+       * DESIGN DOES NOT MOVE, and the pump sizer is not orphaned. With the
+       * valves at full travel (DS.1) the two criteria rank identically, and
+       * `autoSizeForFlow` — which still drives the worst-served ratio to 1 —
+       * runs in DESIGN only. So the sheet and the pump still agree about which
+       * machine governs, which is what that coupling was for.
        *
        * Plant and adiabatic items are not loads (a chiller's rated flow is a
        * selection figure, a strainer states nothing), so they are considered
@@ -3375,23 +3395,27 @@
 
       var worst = null;
       pool.forEach(function (l) {
+        /* A BRANCH CARRYING NOTHING IS NOT THE INDEX. Its differential is zero,
+         * which would win this comparison outright — an isolated or valved-off
+         * coil is not the circuit that governs the pump, it is not a circuit. */
+        var q = Math.abs(res.flow[l.id] || 0);
+        if (!(q > 1e-9)) return;
+        var avail = Math.abs(FD.hydraulics.linkLoss(l, res.flow[l.id]));
+        if (!isFinite(avail)) return;
         var mp = M.pipe(m, l.id);
         var rated = (mp && mp.equip) ? Number(mp.equip.qRated) : 0;
-        if (!(rated > 0)) return;
-        var ratio = Math.abs(res.flow[l.id] || 0) / rated;
-        if (!worst || ratio < worst.ratio) worst = { ratio: ratio, link: l };
+        if (!worst || avail < worst.avail) {
+          worst = { avail: avail, link: l,
+                    ratio: rated > 0 ? q / rated : null };
+        }
       });
-      /* Nothing states a rated flow — fall back to the old "heaviest" rule so
-       * a model that predates rated flows still reports something. */
-      if (!worst) {
-        pool.forEach(function (l) {
-          var dp = Math.abs(FD.hydraulics.linkLoss(l, res.flow[l.id]));
-          if (!worst || dp > worst.dp) worst = { dp: dp, ratio: null, link: l };
-        });
-      }
       if (worst) {
         target = { node: worst.link.to, inlet: worst.link.from, residual: null,
-                   kind: 'equipment', link: worst.link.id, served: worst.ratio };
+                   kind: 'equipment', link: worst.link.id, served: worst.ratio,
+                   /* What is left across the index branch. The rest of the pump
+                    * head went into reaching it, which is what makes it the
+                    * index. */
+                   available: worst.avail };
       }
     }
     if (!target) return null;
@@ -3626,9 +3650,12 @@
     return {
       target: target.node,
       targetKind: target.kind,
-      /* Which load governs, and how badly it is served (flow / rated). */
+      /* Which load governs, how badly it is served (flow / rated), and the
+       * head still available across its own branch — the smallest in the
+       * model, which is what selected it. */
       targetLink: target.link || null,
       served: target.served === undefined ? null : target.served,
+      available: target.available === undefined ? null : target.available,
       residual: target.residual,
       origin: cur,
       sections: sections,

@@ -851,6 +851,12 @@ section('Critical path: a big model closes the circuit, not half of it');
   {
     const idx = M.pipe(dm, c.targetLink);
     ok('the index is AHU-13, the most remote coil', idx.tag === 'AHU-13', idx.tag);
+    /* AND IT IS NOW THE SAME IN SIMULATION (v0.18.18). The index is chosen by
+     * how much head is burnt reaching a coil, which is a property of the pipe,
+     * so it no longer depends on where the control valves came to rest. The
+     * simulation solve itself is not run here — it takes the better part of a
+     * minute on this model — but the criterion is the same one, and the
+     * ordering it produces is asserted just below. */
     ok('...and specifically NOT AHU-4, which is the least remote',
        idx.tag !== 'AHU-4', idx.tag);
 

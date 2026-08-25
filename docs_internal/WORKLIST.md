@@ -9,8 +9,8 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-25, after **v0.18.17 (beta)** — setpoints can be limits:
-SET / MIN / MAX, built for bypass valves holding a chiller's minimum flow.
+Updated 2026-08-25, after **v0.18.18 (beta)** — the index circuit is the one
+whose pipework burns the most head, in both Design and Simulation.
 
 ---
 
@@ -49,6 +49,14 @@ The likeliest things to come back:
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
+
+* **v0.18.18 (BETA), 2026-08-25 — the index circuit, in both modes.** Selected
+  by the head left across a terminal's own branch, smallest first — the circuit
+  whose pipework burns the most getting there. `flow / qRated` is gone as the
+  selector: it cannot separate terminals that are each held at setpoint by their
+  own control valve. The data hall's simulation index moved from AHU-4 (least
+  remote) to AHU-13. The pump sizer still ranks by worst-served and still agrees,
+  because it runs in DESIGN only, where DS.1 puts the valves at full travel.
 
 * **v0.18.17 (BETA), 2026-08-25 — MIN/MAX/SET on setpoints.** Every setpoint
   carries a comparator: SET holds the value (default, and what they always did),

@@ -639,6 +639,15 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   <span class="tag">SUGGESTION:</span>
   <p>Look at the Critical Path section of the calculation sheet. It lists the sections from the source to the index terminal, and the friction, static and residual pressure along it. The pump duty is the total of that path.</p>
 </div>
+
+<h4 id="index-closed">Which circuit is the index in a closed system</h4>
+<p>An open system has a plain answer: the terminal with the least residual pressure. A closed circuit does not, and the reason is worth stating because it rules out the obvious method.</p>
+<p><strong>The total resistance around every circuit is the same.</strong> The head changes around any closed loop sum to zero, so for every loop through the pump, friction + static equals the pump head exactly. Ranking circuits by their total loss cannot separate them — they all tie.</p>
+<p>What differs is how that total is <em>split</em>. Every circuit spends the pump head on pipework plus its own terminal, so the index is the circuit where the <strong>pipework takes the most</strong> — and therefore the one whose terminal is left with the <strong>least differential across its own branch</strong>. That is the figure a commissioning engineer reads off a pair of gauges, and it is what the program ranks by.</p>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>Ranking by how well each terminal is <em>served</em> — its flow against its rated flow — works only where nothing is controlling it. A terminal with a control valve is driven to its setpoint by that valve, so on a run of identical terminals none is starved and the small differences left between them are the valves' one-percent travel resolution rather than the pipework. On a fourteen-terminal example the spread was 0.57%, and the terminal it picked was the <em>least</em> remote on the run.</p>
+</div>
 <div class="note rule">
   <span class="tag">NOTE:</span>
   <p>Every value in this worked example is independently recomputed and compared against the engine output in <a href="engine_validation.html">Engine Validation</a>.</p>

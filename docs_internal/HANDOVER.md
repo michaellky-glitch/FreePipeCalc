@@ -10,12 +10,72 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **v0.18.17 (beta), 2026-08-25.** Ten test suites, **2410 assertions**, all
+State: **v0.18.18 (beta), 2026-08-25.** Ten test suites, **2418 assertions**, all
 passing in about 15 s (`for f in test/*.test.js; do node $f; done`).
 
 ---
 
-## 0. LATEST — v0.18.17, MIN/MAX/SET on setpoints — BUILT (2026-08-25)
+## 0. LATEST — v0.18.18, the index circuit, in both modes (2026-08-25)
+
+**Michael, 2026-08-25:** *"what should be happening is that pump flow is
+simulated, all the control valves and VFDs find their set points, and after
+several iterations the simulation settles. So all the calculations were already
+done, just reporting. In this case, we should be able to just take the path of
+most resistance back to pump (or outflow if no return path)."*
+
+**Right in substance; one correction decides whether it works.** The TOTAL
+resistance around every circuit is the SAME. Kirchhoff: the head changes around
+any closed loop sum to zero, so for every loop through the pump,
+friction + static = pump head exactly — the identity asserted in four places in
+the suite. Ranked by total circuit loss, all fourteen data-hall AHUs tie to
+solver round-off. There is nothing to be "most" of.
+
+**What differs is the SPLIT.** Every circuit spends the pump head on pipework
+plus its own terminal. The index is the one where the PIPEWORK takes the most,
+and therefore the one left with the LEAST differential across its own branch —
+which is the figure a commissioning engineer reads off a pair of gauges. Same
+idea Michael described, measured where it can actually be told apart.
+
+`flow / qRated` is gone as the selection criterion. It is right in an
+UNCONTROLLED system, and wrong the moment a terminal has a control valve: the
+valve drives the terminal to its setpoint, so nothing is starved and the ratio
+measures only how close each valve got. Data hall spread: **0.57%**, the valves'
+one-percent travel resolution, picking AHU-4 — the LEAST remote of fourteen.
+
+| model | design | simulation |
+|---|---|---|
+| Data Hall | AHU-13 | **AHU-13** (was AHU-4) |
+| HighRise | AHU-9 | AHU-9 |
+| Tutorial 01 | AHU-01 | AHU-01 |
+| tower | AHU-L3 | **AHU-L2** |
+
+**THE TOWER DISAGREES BETWEEN MODES, AND THAT IS NOT A BUG — but say so if it
+is raised.** Its four coils are in SERIES up a riser, so in simulation they sit
+at different flows (1.21–1.35 L/s) and different inlet temperatures while each
+holds its own ΔT. "Hardest to serve at this operating point" is then genuinely
+not "hardest by design", and the spread is 1.24%. The data hall's coils are in
+parallel and identical, so both modes agree there.
+
+**The pump sizer is not orphaned.** `autoSizeForFlow` still drives the
+worst-served ratio to 1, and it runs in DESIGN only — where DS.1 puts the valves
+at full travel and the two criteria rank IDENTICALLY. So the sheet and the pump
+still agree about which machine governs, which is what that coupling was for.
+The §4 trap entry should be read with that qualification now.
+
+`res.critical.available` is new: the head left across the index branch, the
+smallest in the model, which is what selected it. `served` (flow / rated) is
+still reported — it is useful, it is just not the selector.
+
+`docs/engine.html` §6.3 carries the rule with the Kirchhoff argument spelled
+out, since it is the part that rules out the obvious method.
+
+**STILL OPEN:** DS.2, `user-manual.html` vs Michael's tutorials, MSG.2, and
+whether a chiller should carry its own minimum-flow setpoint rather than needing
+a sensor.
+
+---
+
+## 0A5. v0.18.17 — MIN/MAX/SET on setpoints (2026-08-25)
 
 **Michael chose option B and gave the case:** *"bypass control valves that
 maintain a minimum flow through chillers. I.e. if the main flow drops below MIN

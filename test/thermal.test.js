@@ -3668,6 +3668,93 @@ section('A control loop settles at the default deadband');
  * lost and park the valve WIDE OPEN. That contrast is asserted below, because
  * it is the whole reason the feature exists.
  * ================================================================== */
+/* ==================================================================
+ * THE SIMULATION INDEX IS THE CIRCUIT THAT BURNS THE MOST HEAD.
+ *
+ * Michael, 2026-08-25: "take the path of most resistance back to pump."  Right
+ * in substance, with one correction: the TOTAL resistance around every circuit
+ * is the same — Kirchhoff makes friction + static equal the pump head for every
+ * loop through it. What differs is the SPLIT, and the index is the circuit
+ * where the pipework takes the most and the terminal is left with the least
+ * across its own branch.
+ *
+ * `flow / qRated` cannot do this job in SIMULATION. Both coils below have their
+ * own control valve holding their own ΔT, so both are driven to setpoint and
+ * the ratio has nothing left to measure but how close each valve got — on the
+ * data hall that picked the LEAST remote of fourteen.
+ * ================================================================== */
+section('The index in SIMULATION is the least-served circuit, not the least-lucky valve');
+{
+  /* One pump, two IDENTICAL coils in parallel, one on a much longer run. Each
+   * has an AUTO integrated valve, so each is driven to its own setpoint. */
+  const m = M.create();
+  m.settings.calcMode = 'simulation';
+  const lv = m.levels[0].id;
+  const N = (x, y) => M.addNode(m, lv, x, y);
+  const a = N(0, 0), b = N(2, 0), h = N(6, 0), r = N(6, 40);
+  const pump = M.addPipe(m, a.id, b.id, { size: 'DN50', kind: 'pump', tag: 'PMP' });
+  pump.pump = { mode: 'fixed', head: 30, sizing: 'manual', speed: 1,
+    curve: { H0: 42, a: 90000, b: 1.55, source: 'generated', Qd: 0.0048, Hd: 30,
+      points: [{ q: 0, h: 42 }, { q: 0.0048, h: 30 }, { q: 0.0072, h: 19 }] } };
+  M.addPipe(m, b.id, h.id, { size: 'DN50' });
+  function coil(tag, pts) {
+    let prev = h.id, made = null;
+    pts.forEach(function (pt, i) {
+      const n = N(pt[0], pt[1]);
+      if (i === pts.length - 1) {
+        made = M.addPipe(m, prev, n.id, { size: 'DN50', kind: 'equip', tag: tag });
+        made.equip = { qRated: 0.0024, pdRated: 50000, qOut: 0.02,
+                       equipType: 'exchanger', duty: 100000,
+                       lastEdited: ['qRated', 'duty'],
+                       icv: { kv: 30, opening: 100 } };
+        prev = n.id;
+        return;
+      }
+      M.addPipe(m, prev, n.id, { size: 'DN50' });
+      prev = n.id;
+    });
+    M.addPipe(m, prev, r.id, { size: 'DN50' });
+    return made;
+  }
+  const near_ = coil('AHU-NEAR', [[10, 4], [14, 4]]);
+  const far = coil('AHU-FAR', [[10, 60], [70, 60], [74, 60]]);
+  M.addPipe(m, r.id, a.id, { size: 'DN50' });
+
+  const res = NET.solveModel(m);
+  const c = res.critical;
+  ok('the model has a critical path', !!c);
+
+  const avail = p => res.head[p.a] - res.head[p.b];
+  ok('the FAR coil has less head available across its branch',
+     avail(far) < avail(near_),
+     'far ' + avail(far).toFixed(4) + ' m vs near ' + avail(near_).toFixed(4) + ' m');
+
+  /* THE ASSERTION. The far coil is the index because reaching it costs more,
+   * whatever its valve happened to settle at. */
+  ok('the index is the FAR coil', c.targetLink === far.id,
+     (M.pipe(m, c.targetLink) || {}).tag);
+  ok('...and the path goes through it', !!c.linkIds[far.id]);
+  ok('...and not through the near one', !c.linkIds[near_.id]);
+
+  /* IT IS REPORTED, so the sheet can say why this circuit was chosen. */
+  near('the reported differential is the index branch’s own',
+       c.available, Math.abs(avail(far)), Math.abs(avail(far)) * 1e-6);
+
+  /* AND THE OLD CRITERION COULD NOT HAVE DONE IT. Both coils are held at their
+   * setpoint by their own valves, so `flow / qRated` separates them by the
+   * valves' travel resolution rather than by the pipework — which is how the
+   * data hall came to report its least remote terminal. */
+  const ratio = p => Math.abs(res.flow[p.id] || 0) / p.equip.qRated;
+  ok('both coils are within a couple of percent on flow / qRated',
+     Math.abs(ratio(far) - ratio(near_)) < 0.05,
+     'far ' + ratio(far).toFixed(4) + ' vs near ' + ratio(near_).toFixed(4));
+
+  /* THE IDENTITY still holds, which is the check that the path is a circuit. */
+  near('friction + static equals the head developed on the path',
+       c.frictionHead + c.staticHead, c.pumpHead, 1e-6);
+}
+
+
 section('A MIN setpoint is a floor: the bypass opens only when it has to');
 {
   /* PMP → CH-1 → FS-1 → supply header → coil → return header → PMP, with a
