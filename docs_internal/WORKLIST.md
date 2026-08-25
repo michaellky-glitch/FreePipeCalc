@@ -9,8 +9,8 @@ diversity-flow readout on the canvas. Everything else he has raised is done; wha
 remains is his continued testing (currently on `debug/20260818-lowrise.json`) and
 one thing found in passing (DX.1).
 
-Updated 2026-08-25, after **v0.18.16 (beta)** — the integrated control valve is
-Auto or Manual, so manual balancing is possible without giving up DS.1.
+Updated 2026-08-25, after **v0.18.17 (beta)** — setpoints can be limits:
+SET / MIN / MAX, built for bypass valves holding a chiller's minimum flow.
 
 ---
 
@@ -49,6 +49,14 @@ The likeliest things to come back:
 ## Recently closed
 
 Newest first. Detail in `Human-Test.md` §5A–5J and §5DW.
+
+* **v0.18.17 (BETA), 2026-08-25 — MIN/MAX/SET on setpoints.** Every setpoint
+  carries a comparator: SET holds the value (default, and what they always did),
+  MIN is a floor, MAX a ceiling. Built for Michael's case — a bypass valve
+  holding a chiller's minimum flow, shut while the chiller is above it and
+  opening exactly as far as it must as the coils close down. `seekOneSided` is a
+  search of its own: a limit has no error crossing, so the answer is the
+  BOUNDARY of the satisfied region rather than the highest setting that meets it.
 
 * **v0.18.16 (BETA), 2026-08-25 — the integrated control valve is AUTO or
   MANUAL.** Auto is the machine's own controller (position is an output; full

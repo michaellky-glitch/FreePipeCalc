@@ -2100,13 +2100,67 @@
    * `mode` is what gets MEASURED: 'temperature' reads the leaving temperature,
    * 'flow' the flow through the link, 'dT' the magnitude of the difference
    * across it. */
+  /* ================================ SET, MIN OR MAX — THE COMPARATOR ON A SETPOINT
+   *
+   * Michael, 2026-08-25: "The main use case I am foreseeing is for bypass
+   * control valves that maintain a minimum flow through chillers. I.e. if the
+   * main flow drops below MIN due to downstream valves closing, the bypass
+   * valve will open to maintain MIN flow through the chillers."
+   *
+   *   SET  hold this value. What every setpoint did before, and the default.
+   *   MIN  a FLOOR. The controller acts only when the reading is BELOW it, and
+   *        otherwise sits wherever it does least — a bypass valve sits shut.
+   *   MAX  a CEILING. The mirror: act only when the reading is above it.
+   *
+   * A MIN is not a target expressed differently. On a bypass valve holding a
+   * chiller's minimum flow, SET would demand flow EQUAL to the minimum — and
+   * when the system is busy and the flow is comfortably above it, SET cannot
+   * get down to it, reports the setpoint lost and parks the valve WIDE OPEN.
+   * MIN is satisfied, says nothing, and leaves it shut. That difference is the
+   * whole feature.
+   *
+   * STORED WHERE THE SETPOINT IS, not on the controller: a chiller's minimum
+   * flow is a property of the chiller, whichever valve happens to be watching
+   * it. Sparse, and absent means SET, so no file needs migrating. */
+  var COMPARATORS = ['set', 'min', 'max'];
+
+  function setpointCmp(p, key) {
+    if (!p) return 'set';
+    var c = null;
+    if (p.kind === 'sensor' && p.sensor) c = p.sensor.cmp;
+    else if (p.kind === 'equip' && p.equip && p.equip.cmp) c = p.equip.cmp[key];
+    return COMPARATORS.indexOf(c) > 0 ? c : 'set';
+  }
+
+  function setSetpointCmp(p, key, cmp) {
+    if (!p) return null;
+    var v = COMPARATORS.indexOf(cmp) > 0 ? cmp : 'set';
+    if (p.kind === 'sensor' && p.sensor) {
+      if (v === 'set') delete p.sensor.cmp; else p.sensor.cmp = v;
+      return v;
+    }
+    if (p.kind === 'equip' && p.equip) {
+      if (v === 'set') {
+        if (p.equip.cmp) {
+          delete p.equip.cmp[key];
+          if (!Object.keys(p.equip.cmp).length) delete p.equip.cmp;
+        }
+      } else {
+        p.equip.cmp = p.equip.cmp || {};
+        p.equip.cmp[key] = v;
+      }
+      return v;
+    }
+    return null;
+  }
+
   function controlOptions(m, id) {
     var p = pipe(m, id);
     if (!p) return [];
     if (p.kind === 'sensor') {
       var sp = sensorSetpoint(p);
       return sp ? [{ key: 'set', pipe: p, mode: sp.mode, value: sp.value,
-                     ref: sp.ref,
+                     ref: sp.ref, cmp: setpointCmp(p, 'set'),
                      label: sp.mode === 'flow' ? 'Flow setpoint'
                           : sp.mode === 'pressure' ? 'Pressure setpoint'
                           : sp.mode === 'dPdiff' ? 'Differential pressure'
@@ -2125,12 +2179,12 @@
       var lwt = Number(e.tSet);
       if (isFinite(lwt)) {
         out.push({ key: 'lwt', pipe: p, mode: 'temperature', value: lwt,
-                   label: 'Design LWT' });
+                   cmp: setpointCmp(p, 'lwt'), label: 'Design LWT' });
       }
       var dtm = Math.abs(Number(e.dTMax));
       if (isFinite(dtm) && dtm > 0) {
         out.push({ key: 'dt', pipe: p, mode: 'dT', value: dtm,
-                   label: 'Design ΔT' });
+                   cmp: setpointCmp(p, 'dt'), label: 'Design ΔT' });
       }
       return out;
     }
@@ -2138,11 +2192,12 @@
     // heat exchanger — the flow it needs first, the difference second
     if (e.qRated > 0) {
       out.push({ key: 'flow', pipe: p, mode: 'flow', value: e.qRated,
-                 label: 'Design flow' });
+                 cmp: setpointCmp(p, 'flow'), label: 'Design flow' });
     }
     var dt = Math.abs(equipDTFromDuty(m, p, Number(e.duty) || 0));
     if (isFinite(dt) && dt > 1e-9) {
-      out.push({ key: 'dt', pipe: p, mode: 'dT', value: dt, label: 'Design ΔT' });
+      out.push({ key: 'dt', pipe: p, mode: 'dT', value: dt,
+                 cmp: setpointCmp(p, 'dt'), label: 'Design ΔT' });
     }
     return out;
   }
@@ -3393,6 +3448,8 @@
     looksMangled: looksMangled, repairedTag: repairedTag, repairTags: repairTags,
     canSync: canSync, setSync: setSync, syncOf: syncOf,
     syncedPosition: syncedPosition,
+    COMPARATORS: COMPARATORS,
+    setpointCmp: setpointCmp, setSetpointCmp: setSetpointCmp,
     icvMode: icvMode, icvOpening: icvOpening, icvActive: icvActive,
     addDetail: addDetail, addNote: addNote,
     removeDetail: removeDetail, removeNote: removeNote,

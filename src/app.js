@@ -4228,8 +4228,53 @@
    * as temperatures: a pump holding 200 kPa read "Differential pressure
    * 200000.0 °C" on its own switch. Found 2026-08-06 while checking the reset
    * button, which is the only reason it was on screen. */
+  /* ================================ SET, MIN or MAX, beside every setpoint
+   *
+   * Michael, 2026-08-25. A setpoint can be a value to hold, a FLOOR or a
+   * CEILING. Rendered from `M.controlOptions` rather than hand-placed next to
+   * each field, so a machine that grows a setpoint grows a comparator with it
+   * and the two lists cannot drift apart.
+   *
+   * Only shown when the thing HAS a setpoint — an adiabatic item states
+   * nothing, and a sensor with an empty box has nothing to qualify. */
+  function setpointCmpSection(host, p) {
+    var m = app.model;
+    var opts = M.controlOptions(m, p.id) || [];
+    if (!opts.length) return;
+    var sec = section(host, 'Setpoints');
+    opts.forEach(function (o) {
+      var sel = el('select');
+      [['set', 'SET  — hold this value'],
+       ['min', 'MIN  — a floor, act only below it'],
+       ['max', 'MAX  — a ceiling, act only above it']].forEach(function (c) {
+        var opt = el('option', '', c[1]); opt.value = c[0];
+        if (c[0] === (o.cmp || 'set')) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      field(sec.box, o.label + '  ' + fmtSetpoint(o), sel);
+      sel.addEventListener('change', function () {
+        pushUndo();
+        M.setSetpointCmp(p, o.key, sel.value);
+        renderProperties(); changed();
+      });
+    });
+    infoMark(sec.box.firstChild && sec.box.firstChild.querySelector('label'),
+             'SET holds the value. MIN is a floor: a controller watching it acts ' +
+             'only when the reading falls below, and otherwise sits where it does ' +
+             'least — a bypass valve holding a chiller’s minimum flow sits ' +
+             'shut until the flow drops. MAX is the mirror.');
+  }
+
   function fmtSetpoint(o) {
     var d = app.model.settings.display;
+    /* A LIMIT READS AS ONE. "Design flow 4.20 L/s" and "Design flow >= 4.20
+     * L/s" are different instructions to the plant, and the list is where a
+     * controller's setpoints are chosen — so it has to say which. */
+    var pre = o.cmp === 'min' ? '≥ ' : o.cmp === 'max' ? '≤ ' : '';
+    return pre + fmtSetpointValue(o, d);
+  }
+
+  function fmtSetpointValue(o, d) {
     if (o.mode === 'flow') return FD.units.fmtFlow(o.value, d.flow, true);
     if (o.mode === 'pressure' || o.mode === 'dPdiff') {
       return FD.units.fmtPressure(o.value, d.pressure, true);
@@ -4735,6 +4780,8 @@
         });
     }
 
+    setpointCmpSection(host, p);
+
     var hint = el('p', 'hint', 'Link a pump or globe valve to it with Control. ');
     infoMark(hint, 'The sensor states a setpoint; the linked device modulates ' +
                    'to hold it. Nothing happens without a link, and the ' +
@@ -5153,6 +5200,8 @@
       }
       if (icvAuto) sec.ro('Holding', 'Design \u0394T of ' + (p.tag || p.id));
     }
+
+    setpointCmpSection(host, p);
 
     /* ---- PART LOAD ----------------------------------------------------
      * Renamed from "Capacity override" — Michael, 2026-08-09. It never was an

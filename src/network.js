@@ -1694,7 +1694,7 @@
         if (iAct && iOpts.length) {
           pairs.push({ act: iAct, equip: p, target: iOpts[0].value,
                        mode: iOpts[0].mode, label: iOpts[0].label,
-                       key: iOpts[0].key, refPipe: null,
+                       key: iOpts[0].key, refPipe: null, cmp: iOpts[0].cmp || 'set',
                        options: iOpts, optIndex: 0, result: null, icv: true });
         }
         return;
@@ -1743,7 +1743,7 @@
       }
       pairs.push({ act: act, equip: tgtPipe, target: tgt.value,
                    mode: tgt.mode, label: tgt.label, key: tgt.key,
-                   refPipe: tgt.ref || null,
+                   refPipe: tgt.ref || null, cmp: tgt.cmp || 'set',
                    /* The fallbacks, in order. Chased only if the one above
                     * turns out to be unreachable. */
                    options: opts, optIndex: 0, result: null });
@@ -1776,7 +1776,8 @@
      * different jobs that happen to watch the same instrument. */
     var gangs = {};
     pairs.forEach(function (pr) {
-      var k = pr.act.quantity + '|' + pr.equip.id + '|' + pr.key + '|' + pr.mode;
+      var k = pr.act.quantity + '|' + pr.equip.id + '|' + pr.key + '|' + pr.mode +
+              '|' + (pr.cmp || 'set');
       (gangs[k] = gangs[k] || []).push(pr);
     });
     Object.keys(gangs).forEach(function (k) {
@@ -1978,9 +1979,27 @@
       if (pair.mode === 'dT') return isFinite(l.dT) ? Math.abs(l.dT) : null;
       return isFinite(l.tOut) ? l.tOut : null;
     }
+    /* THE ERROR, AND THE COMPARATOR THAT MAY CLAMP IT TO ONE SIDE.
+     *
+     * SET is `reading - target` and always was. MIN is a FLOOR: only a
+     * shortfall is an error, so the positive half is clamped away and a reading
+     * comfortably above target produces exactly zero. MAX is the mirror.
+     *
+     * Clamping is necessary and NOT sufficient — see `seekOneSided`. With the
+     * error zero across the whole satisfied region, `seek`'s "already on
+     * setpoint" return fires at full travel and the device never moves, and its
+     * tie-break prefers the higher setting where every satisfied position ties
+     * at |e| = 0. A one-sided setpoint wants the BOUNDARY of that region, and
+     * for MIN that is its LOWEST end — the opposite of what `seek` computes. */
+    function clampErr(pair, e) {
+      if (e === null) return null;
+      if (pair.cmp === 'min') return Math.min(0, e);
+      if (pair.cmp === 'max') return Math.max(0, e);
+      return e;
+    }
     function errorOf(c, pair) {
       var v = measure(c, pair);
-      return v === null ? null : v - pair.target;
+      return v === null ? null : clampErr(pair, v - pair.target);
     }
     function quantise(act, x) {
       var q = Math.round(x / act.step) * act.step;
@@ -2452,13 +2471,99 @@
      * freeze." */
     var onProgress = (opts && opts.onProgress) || null;
 
+    /* ============================ A ONE-SIDED SETPOINT IS A LIMIT, NOT A TARGET
+     *
+     * Michael, 2026-08-25: "bypass control valves that maintain a minimum flow
+     * through chillers. I.e. if the main flow drops below MIN due to downstream
+     * valves closing, the bypass valve will open to maintain MIN flow through
+     * the chillers."
+     *
+     * That is a different job from holding a value, and it needs its own search
+     * rather than a tweak to `seek`. `seek` descends from full travel looking
+     * for where the error CROSSES zero, and answers with the highest setting
+     * that meets the setpoint. A limit has no crossing: the error is zero
+     * across everything that satisfies it, and the answer wanted is the
+     * BOUNDARY of that region — for MIN, its LOWEST end, because a bypass valve
+     * that is not needed should be SHUT.
+     *
+     * So the shape here is a plain bracket, and it needs no assumption about
+     * which way the reading moves — only that the two ends differ:
+     *
+     *   1. Try the REST position first: where the device sits when the limit is
+     *      not biting. MIN rests at its floor (a bypass shut, a pump at minimum
+     *      speed); MAX rests at full travel. Usually the answer, and it costs
+     *      one solve.
+     *   2. If rest does not satisfy it, try the FAR end. If that does not
+     *      either, the limit cannot be held anywhere — say so and let the
+     *      caller fall through to the next setpoint.
+     *   3. Otherwise bisect between them for the satisfying position NEAREST
+     *      REST — the least the device has to do.
+     *
+     * Compare SET on the same bypass valve: it would demand flow EQUAL to the
+     * minimum, fail to reach it whenever the system is busy, report the
+     * setpoint lost and park the valve WIDE OPEN. */
+    function* seekOneSided(pair) {
+      var act = pair.act;
+      var wantLow = (pair.cmp === 'min');
+      var band = Math.max(tolFor(pair), pair.floorErr || 0);
+      var x0 = act.get();
+      var sat = function (e) { return e !== null && Math.abs(e) <= band; };
+      var moved = function (x) { return Math.abs(x - x0) > 1e-9; };
+
+      /* 1 — REST. The floor for a MIN, full travel for a MAX. */
+      var rest = wantLow ? act.min : 1;
+      act.set(rest);
+      var cRest = yield* evaluate();
+      var eRest = errorOf(cRest, pair);
+      if (eRest === null) {
+        act.set(x0);
+        return { state: 'no-flow', x: x0, error: null, moved: false };
+      }
+      if (sat(eRest)) {
+        cur = cRest;
+        return { state: 'on', x: rest, error: eRest, moved: moved(rest) };
+      }
+
+      /* 2 — THE FAR END. */
+      var far = wantLow ? 1 : act.min;
+      act.set(far);
+      var cFar = yield* evaluate();
+      var eFar = errorOf(cFar, pair);
+      if (!sat(eFar)) {
+        /* Nothing this device can do holds the limit. `at-max` for a MIN it
+         * cannot reach even wide open, `at-min` for a MAX it cannot hold even
+         * shut — the same two states `seek` reports, so the fall-back and the
+         * parking rules downstream need no special case. */
+        cur = cFar;
+        return { state: wantLow ? 'at-max' : 'at-min',
+                 x: far, error: eFar, moved: moved(far) };
+      }
+
+      /* 3 — BISECT for the satisfying position nearest rest. `a` fails, `b`
+       * satisfies, and `b` is always the answer so far. */
+      var a = rest, b = far, cB = cFar, eB = eFar, guard = 0;
+      while (Math.abs(b - a) > act.step + 1e-12 && solves < MAX_SOLVES &&
+             guard++ < 24) {
+        var mid = quantise(act, (a + b) / 2);
+        if (mid <= Math.min(a, b) + 1e-12 || mid >= Math.max(a, b) - 1e-12) break;
+        act.set(mid);
+        var cm = yield* evaluate();
+        var em = errorOf(cm, pair);
+        if (sat(em)) { b = mid; cB = cm; eB = em; } else { a = mid; }
+      }
+      act.set(b);
+      cur = cB;
+      return { state: 'on', x: b, error: eB, moved: moved(b) };
+    }
+
     /* SETTLE ONE PAIR: the search, plus the priority fall-back to the next
      * setpoint when the first cannot be reached. Pulled out of the iteration loop
      * because the re-settle pass after parking (S4, below) runs exactly this
      * body — and a second hand-copied fall-back would drift out of step with
      * this one the first time either was touched. */
     function* settleOnce(pair) {
-      var r = yield* seek(pair);
+      var r = yield* (pair.cmp === 'min' || pair.cmp === 'max'
+        ? seekOneSided(pair) : seek(pair));
       /* FALL BACK. "LWT first, then ΔT" is a priority, not a blend: if the
        * first setpoint cannot be reached — the actuator on a stop, or backing
        * off making it worse — chase the next one instead of sitting on a
@@ -2468,14 +2573,15 @@
         pair.optIndex++;
         var nx = pair.options[pair.optIndex];
         pair.target = nx.value; pair.mode = nx.mode;
-        pair.label = nx.label; pair.key = nx.key;
+        pair.label = nx.label; pair.key = nx.key; pair.cmp = nx.cmp || 'set';
         pair.floorErr = 0;
         pair.fellBack = true;
         /* Each setpoint is chased from FULL TRAVEL. The previous one may have
          * left the actuator on its stop, and starting the next search there
          * hides half the range from it. */
         if (pair.act.get() < 1 - 1e-9) { pair.act.set(1); cur = yield* evaluate(); }
-        r = yield* seek(pair);
+        r = yield* (pair.cmp === 'min' || pair.cmp === 'max'
+          ? seekOneSided(pair) : seek(pair));
       }
       return r;
     }
@@ -2679,8 +2785,12 @@
          * Measured minus target, from the same `cur` the rest of the row is
          * read from, so the three numbers on the panel can no longer contradict
          * each other. */
+        /* THROUGH THE COMPARATOR, like every other error in this loop. Without
+         * it a MIN device sitting comfortably above its floor reports the whole
+         * surplus as an error, and the state re-judge below then calls a device
+         * that is doing exactly what it should `unsettled`. */
         error: (measured === null || measured === undefined)
-          ? null : (measured - pair.target),
+          ? null : clampErr(pair, measured - pair.target),
         value: pair.act.get(), min: pair.act.min,
         /* `idle` is an internal signal — "at full travel, nothing to do" — and
          * the answer it describes is simply that the setpoint is met. */

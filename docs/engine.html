@@ -904,6 +904,25 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 <p>In the plumbing discipline, an outflow is a fixture. Its design flow comes from fixture units (section 13). In SIMULATION it behaves identically to a generic outflow: Q = K·√P, with K derived from the fixture's undiversified flow and required pressure.</p>
 
 <!-- ===================================================== 10 -->
+<h4 id="setpoint-cmp">A setpoint can be a limit</h4>
+<p>Every setpoint carries a comparator, and the default is <strong>SET</strong> — hold this value, which is what setpoints have always done.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Comparator</th><th>Meaning</th><th>Where the device sits when it is not biting</th></tr></thead>
+  <tbody>
+    <tr><td><strong>SET</strong></td><td>Hold the value. The controller drives the reading to the setpoint from either side.</td><td>Wherever holding it requires.</td></tr>
+    <tr><td><strong>MIN</strong></td><td>A floor. The controller acts only when the reading falls <em>below</em> the setpoint.</td><td>At its minimum — a bypass valve sits shut.</td></tr>
+    <tr><td><strong>MAX</strong></td><td>A ceiling. The mirror of MIN: act only when the reading rises above it.</td><td>At full travel.</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The worked case is a <strong>bypass valve holding a chiller's minimum flow</strong>. Put a flow sensor on the chiller, set it to the minimum flow with MIN, and link the bypass valve to it. While the load is high the coils are open, the chiller is above its minimum, and the bypass stays shut. As the coils close down the chiller flow falls; the bypass opens exactly as far as it must to hold the floor, and no further.</p>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>SET is not a substitute for MIN here. Asked to hold flow <em>equal</em> to the minimum, the same bypass valve cannot reduce the flow that far while the system is busy, so it reports the setpoint as lost and is parked wide open — the opposite of what the valve should be doing. A floor and a target are different instructions.</p>
+</div>
+<p>A limit is searched differently from a target. There is no point where the error crosses zero: it is zero across everything that satisfies the limit, so the answer is the <strong>boundary</strong> of that region — for MIN, its lowest end, because a device that is not needed should be doing nothing.</p>
+
 <h2 id="sources">10. Sources</h2>
 <p>A source is a boundary condition: it states the pressure (or head) the water arrives at. In an open system a source is where water enters the network.</p>
 

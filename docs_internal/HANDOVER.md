@@ -10,12 +10,82 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **v0.18.16 (beta), 2026-08-25.** Ten test suites, **2392 assertions**, all
+State: **v0.18.17 (beta), 2026-08-25.** Ten test suites, **2410 assertions**, all
 passing in about 15 s (`for f in test/*.test.js; do node $f; done`).
 
 ---
 
-## 0. LATEST — v0.18.16, the ICV is Auto or Manual (2026-08-25)
+## 0. LATEST — v0.18.17, MIN/MAX/SET on setpoints — BUILT (2026-08-25)
+
+**Michael chose option B and gave the case:** *"bypass control valves that
+maintain a minimum flow through chillers. I.e. if the main flow drops below MIN
+due to downstream valves closing, the bypass valve will open to maintain MIN
+flow through the chillers."*
+
+Every setpoint now carries a comparator. `SET` is the default and is what
+setpoints have always done. `MIN` is a FLOOR — the controller acts only when the
+reading falls below it and otherwise sits where it does least. `MAX` is the
+mirror. Stored where the SETPOINT is (`sensor.cmp`, `equip.cmp[key]`), sparse,
+absent means SET, so no file needs migrating.
+
+**IT IS NOT SET SAID DIFFERENTLY, and the test asserts the contrast.** On the
+same bypass valve, at full load:
+
+| | bypass | chiller flow | result |
+|---|---|---|---|
+| **MIN** 4.20 L/s | **10%** (shut) | 6.05 L/s | holding, silent |
+| **SET** 4.20 L/s | **100%** (wide open) | 7.33 L/s | `SETPOINT_LOST` |
+
+SET cannot get the flow DOWN to 4.20 while the system is busy, so it calls the
+setpoint lost and parks the valve wide open — the opposite of what a bypass
+should do. Across falling load, MIN gives exactly the plant Michael described:
+
+| load | 100% | 70% | 50% | 30% | 10% |
+|---|---|---|---|---|---|
+| coil flow | 5.930 | 4.205 | 2.970 | 1.811 | 0.571 |
+| bypass | 10% | 10% | 38% | 49% | 56% |
+| chiller | 6.053 | 4.375 | 4.215 | 4.266 | 4.196 |
+
+Shut while the chiller is above its floor, then opening exactly as far as it
+must. All devices report `on`.
+
+**THE DESIGN NOTE WAS WRONG THAT CLAMPING IS ENOUGH** (recorded in v0.18.16 and
+now confirmed by building it). Three things were needed:
+
+1. `errorOf` clamps through `clampErr(pair, e)` — MIN keeps only the negative
+   half, MAX only the positive.
+2. **`seekOneSided`**, a search of its own. `seek` descends looking for where the
+   error CROSSES zero and answers with the highest setting that meets the
+   setpoint. A limit has no crossing — the error is zero across everything that
+   satisfies it — so the answer wanted is the BOUNDARY of that region, and for
+   MIN that is its LOWEST end. The new search tries the REST position first
+   (floor for MIN, full travel for MAX; usually the answer, one solve), then the
+   far end, then bisects between them for the satisfying position nearest rest.
+   It assumes nothing about which way the reading moves, only that the two ends
+   differ. `seek` is untouched.
+3. **The reported error had to be clamped too.** `res.controls.devices[].error`
+   re-derives `measured - target` from the final solve, and without the clamp a
+   MIN device sitting comfortably above its floor reported the whole surplus as
+   an error — and the state re-judge downstream then called a device doing
+   exactly the right thing `unsettled`. That one cost a debugging round.
+
+Also: the gang key includes the comparator, so a MIN and a SET on the same
+reading are not modulated together; the priority fall-back carries the next
+option's comparator.
+
+**UI:** a `Setpoints` section on the sensor and equipment panels, rendered FROM
+`M.controlOptions` rather than hand-placed beside each field, so a machine that
+grows a setpoint grows a comparator with it. The controller's own setpoint list
+prints `≥` / `≤` — "Design flow 4.20 L/s" and "Design flow ≥ 4.20 L/s" are
+different instructions and the list is where they are chosen.
+`docs/engine.html` §9 carries it with the bypass worked through.
+
+**STILL OPEN:** DS.2, the SIMULATION-mode index, `user-manual.html` vs Michael's
+tutorials, MSG.2.
+
+---
+
+## 0A4. v0.18.16 — the ICV is Auto or Manual (2026-08-25)
 
 **Michael, 2026-08-25:** *"I was just thinking about that slider. It should be
 greyed out in simulate. But I do want to have a way for the user to do manual

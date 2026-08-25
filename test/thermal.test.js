@@ -3653,6 +3653,130 @@ section('A control loop settles at the default deadband');
  * manual-at-100 by definition, and a file with an `icv` and no `mode` is the
  * behaviour that shipped, which is Auto.
  * ================================================================== */
+/* ==================================================================
+ * A SETPOINT CAN BE A LIMIT: SET, MIN or MAX.
+ *
+ * Michael, 2026-08-25: "bypass control valves that maintain a minimum flow
+ * through chillers. I.e. if the main flow drops below MIN due to downstream
+ * valves closing, the bypass valve will open to maintain MIN flow through the
+ * chillers."
+ *
+ * MIN is a FLOOR, not a target said differently. The controller acts only when
+ * the reading is below it and otherwise sits where it does least — a bypass
+ * valve sits shut. SET on the same valve would demand flow EQUAL to the
+ * minimum, fail to reach it whenever the system is busy, report the setpoint
+ * lost and park the valve WIDE OPEN. That contrast is asserted below, because
+ * it is the whole reason the feature exists.
+ * ================================================================== */
+section('A MIN setpoint is a floor: the bypass opens only when it has to');
+{
+  /* PMP → CH-1 → FS-1 → supply header → coil → return header → PMP, with a
+   * BYPASS valve across the headers controlled from the flow sensor on the
+   * chiller. The coil's own AUTO valve closes down as its load falls, which is
+   * the "downstream valves closing" in Michael's description. */
+  const MIN_FLOW = 0.0042;                       // 4.2 L/s through the chiller
+  function rig(loadPct, cmp) {
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    const lv = m.levels[0].id;
+    const N = (x, y) => M.addNode(m, lv, x, y);
+    const n0 = N(0, 0), n1 = N(2, 0), n2 = N(4, 0), n3 = N(6, 0), n4 = N(8, 0);
+    n0.device = { kind: 'source', pressure: 300000 };
+    const s1 = N(10, 0), s2 = N(10, -6);
+    const c1 = N(30, 0), c2 = N(32, 0);
+    const r1 = N(32, -6), r2 = N(10, -12), r0 = N(0, -12);
+    const pump = M.addPipe(m, n0.id, n1.id, { size: 'DN80', kind: 'pump', tag: 'PMP-1' });
+    pump.pump = { mode: 'fixed', head: 30, sizing: 'manual', speed: 1,
+      curve: { H0: 40, a: 60000, b: 1.55, source: 'generated', Qd: 0.006, Hd: 30,
+        points: [{ q: 0, h: 40 }, { q: 0.006, h: 30 }, { q: 0.009, h: 20 }] } };
+    const ch = M.addPipe(m, n1.id, n2.id, { size: 'DN80', kind: 'equip', tag: 'CH-1' });
+    ch.equip = { qRated: 0.006, pdRated: 45000, qOut: 0.02, equipType: 'source',
+                 tSet: 6, dTMax: 6 };
+    const fs = M.addPipe(m, n2.id, n3.id, { size: 'DN80', kind: 'sensor', tag: 'FS-1' });
+    fs.sensor = { mode: 'flow', qSet: MIN_FLOW };
+    M.setSetpointCmp(fs, 'set', cmp);
+    M.addPipe(m, n3.id, n4.id, { size: 'DN80' });
+    M.addPipe(m, n4.id, s1.id, { size: 'DN80' });
+    M.addPipe(m, s1.id, c1.id, { size: 'DN50' });
+    const coil = M.addPipe(m, c1.id, c2.id, { size: 'DN50', kind: 'equip', tag: 'AHU-1' });
+    coil.equip = { qRated: 0.006, pdRated: 50000, qOut: 0.02, equipType: 'exchanger',
+                   duty: 150000, lastEdited: ['qRated', 'duty'],
+                   icv: { kv: 60, opening: 100 }, loadPct: loadPct };
+    M.addPipe(m, c2.id, r1.id, { size: 'DN50' });
+    M.addPipe(m, r1.id, r2.id, { size: 'DN80' });
+    M.addPipe(m, s1.id, s2.id, { size: 'DN65' });
+    const bv = M.addPipe(m, s2.id, r2.id, { size: 'DN65', kind: 'valve', tag: 'BV-1' });
+    bv.valve = { type: 'globe', kv: 40, opening: 100, control: { equip: fs.id } };
+    M.addPipe(m, r2.id, r0.id, { size: 'DN80' });
+    M.addPipe(m, r0.id, n0.id, { size: 'DN80' });
+    return { m, pump, ch, fs, coil, bv };
+  }
+  const run = (lp, cmp) => {
+    const t = rig(lp, cmp);
+    const res = NET.solveModel(t.m);
+    const dev = ((res.controls || {}).devices || []).filter(d => d.pipe === t.bv.id)[0];
+    return { t, res, dev,
+             bypass: t.bv.valve.opening,
+             chiller: Math.abs(res.flow[t.ch.id] || 0),
+             coil: Math.abs(res.flow[t.coil.id] || 0) };
+  };
+
+  ok('the comparator reaches the controller as MIN',
+     M.controlOptions(rig(100, 'min').m, rig(100, 'min').fs.id)[0].cmp === 'min');
+
+  /* ---- FULLY LOADED: the chiller is comfortably above its minimum, so the
+   * limit is not biting and the bypass sits at its floor. */
+  const full = run(100, 'min');
+  ok('at full load the chiller is above its minimum', full.chiller > MIN_FLOW,
+     (full.chiller * 1000).toFixed(3) + ' L/s');
+  ok('...so the bypass sits shut, at its floor', full.bypass <= 10,
+     full.bypass + '%');
+  ok('...and reports as holding, not as a lost setpoint',
+     full.dev && full.dev.state === 'on', full.dev && full.dev.state);
+
+  /* ---- THE LOAD FALLS. The coil's own valve closes, and the bypass has to
+   * take over to keep the chiller above its floor. */
+  const part = [70, 50, 30, 10].map(lp => run(lp, 'min'));
+  ok('the coil really does close down as its load falls',
+     part[3].coil < part[0].coil * 0.2,
+     part.map(r => (r.coil * 1000).toFixed(2)).join(' -> ') + ' L/s');
+  ok('the bypass opens as it does', part[3].bypass > part[0].bypass,
+     part.map(r => r.bypass + '%').join(' -> '));
+
+  /* THE POINT: the chiller never drops below its minimum. One percent of this
+   * valve's travel is worth about 0.07 L/s, so the band is the actuator's
+   * resolution rather than an arbitrary tolerance. */
+  part.forEach(function (r, i) {
+    ok('the chiller is held at or above its minimum at load ' + [70, 50, 30, 10][i] + '%',
+       r.chiller >= MIN_FLOW - 1e-5,
+       (r.chiller * 1000).toFixed(3) + ' vs ' + (MIN_FLOW * 1000).toFixed(2) + ' L/s');
+  });
+  ok('...and not wastefully above it once the bypass is working',
+     part[3].chiller < MIN_FLOW * 1.1,
+     (part[3].chiller * 1000).toFixed(3) + ' L/s');
+  part.forEach(function (r, i) {
+    ok('the bypass reports holding at load ' + [70, 50, 30, 10][i] + '%',
+       r.dev && r.dev.state === 'on', r.dev && r.dev.state);
+  });
+
+  /* ---- AND SET IS NOT A SUBSTITUTE. This is why MIN exists: asked to HOLD
+   * 4.2 L/s at full load, the valve cannot get the flow down that far, calls
+   * the setpoint lost and is parked WIDE OPEN — the opposite of what a bypass
+   * should do when the system is busy. */
+  const setFull = run(100, 'set');
+  ok('SET at full load drives the bypass wide open', setFull.bypass >= 100,
+     setFull.bypass + '%');
+  ok('...and reports the setpoint lost',
+     (setFull.res.errors || []).some(e => e.code === 'SETPOINT_LOST'),
+     JSON.stringify((setFull.res.errors || []).map(e => e.code)));
+  ok('...while MIN in the same plant leaves it shut and says nothing',
+     full.bypass <= 10 &&
+     !(full.res.errors || []).some(e => e.code === 'SETPOINT_LOST' &&
+                                        e.pipe === full.t.bv.id),
+     full.bypass + '%');
+}
+
+
 section('An integrated control valve is Auto or Manual');
 {
   function rig(icv) {
