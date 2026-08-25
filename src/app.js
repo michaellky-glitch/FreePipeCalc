@@ -264,6 +264,7 @@
         var loaded = M.fromJSON(obj);
         pushUndo();
         app.model = loaded;
+        forgetResults();
         afterModelSwap();
         app.view.zoomToFit();
         toast('Loaded ' + file.name);
@@ -300,6 +301,15 @@
 
   // -------------------------------------------------------------- solve
   function scheduleSolve() {
+    /* THE MODEL REVISION IS BUMPED HERE, and here only.
+     *
+     * `changed()` is not the funnel it looks like: the canvas has its own
+     * onChange callback, so an edit made by drawing never reaches it. Every
+     * path that can move a number schedules a solve, which makes this the one
+     * place all of them pass through. The revision is what tells a cached
+     * result of the OTHER mode that it no longer describes this model. */
+    if (app.modeSwitch) app.modeSwitch = false;
+    else app.modelRev = (app.modelRev || 0) + 1;
     clearTimeout(app.solveTimer);
     /* ANY NEW REQUEST INVALIDATES A SOLVE ALREADY IN FLIGHT.
      *
@@ -458,8 +468,38 @@
     b.hidden = !any;
   }
 
+  /* ================ THE LAST RESULT OF EACH MODE, KEPT RATHER THAN RE-COMPUTED
+   *
+   * Michael, 2026-08-25: "Why can't you present the last Simulated results? No
+   * need to re-run it, which I agree, may be slightly different every time."
+   *
+   * He is right and the objection before it was wrong. Showing both
+   * calculations does NOT need two solves per sheet render — a simulation solve
+   * on the data hall is 44 s, which is why that read as impossible. The result
+   * is already sitting in memory from when the reader ran it. Keep one per mode
+   * and the sheet can show both for nothing.
+   *
+   * `rev` is the model revision the result was computed at. A cached result
+   * from BEFORE the last edit still describes a real calculation, so it is
+   * shown — but it is labelled, because a sheet that quietly reports numbers
+   * for a model that has since changed is the exact class of silent mismatch
+   * this project keeps paying for. */
+  var lastByMode = {};
+
+  function rememberResult(res) {
+    if (!res || !app.model || app.model.discipline === 'plumbing') return;
+    var mode = (app.model.settings.calcMode === 'simulation') ? 'simulation' : 'design';
+    lastByMode[mode] = { res: res, rev: app.modelRev || 0 };
+  }
+
+  /* A model that has been replaced has no history worth keeping — the cached
+   * results describe a different drawing entirely. */
+  function forgetResults() { lastByMode = {}; }
+  app.forgetResults = forgetResults;
+
   function applyResult(res) {
     app.results = res;
+    rememberResult(res);
     syncRepairButton();
     app.view.results = res;
     app.view.render();
@@ -572,6 +612,7 @@
       return null;
     }
     app.results = res;
+    rememberResult(res);
     if (app.view) { app.view.results = res; app.view.render(); }
     hideSolveProgress();
     updateStatusChip(res);
@@ -1647,7 +1688,32 @@
       renderPlumbingCalc(host, m);
       return;
     }
-    var res = app.results || solveNow();
+    /* THE SHEET DOES NOT SOLVE. It reports.
+     *
+     * Michael, 2026-08-25: the data hall "was converging simulations nicely
+     * before but the last version did not", and then: "I noticed that pause
+     * too. I think it's related to changing tabs, especially to Calculation."
+     *
+     * He found it. Nothing was wrong with the convergence — three consecutive
+     * re-solves settle identically, 5 iterations and 634 solves every time.
+     * What was wrong is that this line called `solveNow()`, the SYNCHRONOUS
+     * solve, whenever no result was in hand. On the data hall that is 44
+     * seconds with the page locked: no progress bar, no repaint, no answer to a
+     * click. A frozen tab is indistinguishable from a solve that will not
+     * converge, which is exactly how it was reported.
+     *
+     * The whole of S3 (v0.16.8) exists so a long solve YIELDS. Opening a tab
+     * must not step around it. So: ask for a solve the normal way and say what
+     * is happening. `applyResult` re-renders this sheet when the answer lands,
+     * so nothing else is needed to make it appear. */
+    var res = app.results;
+    if (!res) {
+      scheduleSolve();
+      host.appendChild(el('p', 'hint',
+        'Calculating. The sheet appears when the solve finishes. A large model ' +
+        'with controls can take a minute; the progress bar is above the drawing.'));
+      return;
+    }
     /* Declared up here because the hydraulic-error block below needs it, and a
      * `var` further down only looks like it is in scope. */
     var d = m.settings.display;
@@ -1814,49 +1880,81 @@
     secAll.appendChild(pipeTable(rows));
 
     // ========================================================= 2. CRITICAL PATH
-    if (res && res.critical && res.critical.sections.length) {
-      var ix2 = res.critical;
+    /* BOTH CALCULATIONS, from the last result of each mode.
+     *
+     * Michael, 2026-08-25: "So proceed with 2 Calculations in Hydronic - Design
+     * & Simulation", and then, when told it would cost two solves per render:
+     * "Why can't you present the last Simulated results? No need to re-run it."
+     *
+     * Quite so. The results are already in memory. `lastByMode` keeps one per
+     * mode, so the sheet shows the design path and the simulated path side by
+     * side for nothing — the same shape PLUMBING has, and in its words.
+     *
+     * A section whose result predates the last edit is SAID to. It still
+     * describes a real calculation, which is why it is shown at all, but a
+     * sheet quietly reporting numbers for a model that has since changed is the
+     * exact silent mismatch this project keeps paying for. */
+    function criticalSection(mode, label) {
+      var entry = lastByMode[mode];
+      var live = entry && entry.rev === (app.modelRev || 0);
       var manualPath = M.criticalManual(m);
-      /* NAMED FOR WHAT IT ACTUALLY IS, and in Plumbing's words (Michael,
-       * 2026-08-25: "be consistent in wording with Plumbing"). The sheet
-       * reports the mode the model was solved in, so the heading has to say
-       * which — a section headed DESIGN while showing a simulated path is the
-       * kind of quiet mismatch this project keeps paying for. */
-      var critMode = (m.settings.calcMode === 'simulation') ? 'Simulation' : 'Design';
-      var secCrit = calcSection('Critical Path (' + critMode + ')',
-        { note: manualPath ? 'Manual' : 'Auto' });
+
+      if (!entry || !entry.res || !entry.res.critical ||
+          !entry.res.critical.sections.length) {
+        /* NOT RUN IS NOT AN ERROR. Say which button fills it in. */
+        var secNone = calcSection('Critical Path (' + label + ')',
+          { note: 'not run', open: false });
+        secNone.appendChild(el('p', 'hint', mode === 'simulation'
+          ? 'No simulation has been run for this model. Switch to SIMULATE and ' +
+            'run it, and the simulated path appears here.'
+          : 'No design calculation has been run for this model. Switch to ' +
+            'DESIGN, and the design path appears here.'));
+        return;
+      }
+
+      var ix2 = entry.res.critical;
+      var secCrit = calcSection('Critical Path (' + label + ')',
+        { note: (manualPath ? 'Manual' : 'Auto') + (live ? '' : ' · out of date') });
+
       /* PICK THE TWO ENDS YOURSELF — Michael, 2026-08-25: "we will need to
        * allow the user to select calculating between 2 points (and back) in
        * addition to the current auto method. Otherwise non-obvious things may
        * trip up the users and they will be unable to verify."
        *
-       * One button, toggling. Pressed with a manual path already set it goes
-       * straight back to automatic; pressed otherwise it sends the reader to
-       * the drawing to name the two ends. Escape on the drawing does the same
-       * as pressing it again. */
-      var pathBtn = el('button', 'btn tiny', manualPath ? '[Auto]' : '[Manual]');
-      pathBtn.title = manualPath
-        ? 'Return to the automatic critical path'
-        : 'Choose the two ends of the critical path on the drawing';
-      pathBtn.addEventListener('click', function () {
-        if (M.criticalManual(m)) {
-          pushUndo();
-          M.setCriticalManual(m, null, null);
-          toast('Critical path is automatic.');
-          changed();
-          return;
-        }
-        app.view.pathPick = { a: null };
-        app.setUIMode('design');
-        app.showTab('pane-network');
-        toast('Select 2 nodes to calculate the friction drop between. ' +
-              'One of the nodes must be a pump.');
-        app.view.render();
-      });
+       * One button, toggling, and only on the DESIGN section — the selection is
+       * a property of the model, not of a mode, so offering it twice would
+       * suggest there were two of them. */
+      if (mode === 'design') {
+        var pathBtn = el('button', 'btn tiny', manualPath ? '[Auto]' : '[Manual]');
+        pathBtn.title = manualPath
+          ? 'Return to the automatic critical path'
+          : 'Choose the two ends of the critical path on the drawing';
+        pathBtn.addEventListener('click', function () {
+          if (M.criticalManual(m)) {
+            pushUndo();
+            M.setCriticalManual(m, null, null);
+            toast('Critical path is automatic.');
+            changed();
+            return;
+          }
+          app.view.pathPick = { a: null };
+          app.setUIMode('design');
+          app.showTab('pane-network');
+          toast('Select 2 nodes to calculate the friction drop between. ' +
+                'One of the nodes must be a pump.');
+          app.view.render();
+        });
+      }
 
       secCrit.appendChild(el('p', 'notice-head',
         'Critical Path from ' + ix2.origin + ' to ' + ix2.target));
-      secCrit.lastChild.appendChild(pathBtn);
+      if (mode === 'design') secCrit.lastChild.appendChild(pathBtn);
+
+      if (!live) {
+        secCrit.appendChild(el('p', 'hint',
+          'The model has changed since this ' + label.toLowerCase() +
+          ' calculation was run. Run it again to bring these figures up to date.'));
+      }
       if (manualPath) {
         secCrit.appendChild(el('p', 'hint',
           'These two ends were chosen by hand. The automatic path finds the ' +
@@ -1867,8 +1965,11 @@
       /* The critical-path sections are repeated here in full, deliberately.
        * They duplicate rows from All Pipes, which is the point: this is the
        * route that sets the pump duty and an engineer checking the duty wants
-       * it on its own, not highlighted among everything else. */
-      var critRows = rows.filter(function (r) { return r.index; });
+       * it on its own, not highlighted among everything else.
+       *
+       * Built from THIS section's own result, so the simulated table shows
+       * simulated flows even while the sheet is in design. */
+      var critRows = sheetRows(entry.res).filter(function (r) { return r.index; });
       secCrit.appendChild(pipeTable(critRows));
 
       var grid = el('div', 'index-grid');
@@ -1887,6 +1988,9 @@
       }
       secCrit.appendChild(grid);
     }
+
+    criticalSection('design', 'Design');
+    criticalSection('simulation', 'Simulation');
 
     // ============================================================ 3. DEVICE FLOW
     /* Every device that moves or consumes water, in ONE section with a single
@@ -8672,6 +8776,10 @@
       }
     }
     pushUndo();
+    /* CHANGING MODE IS NOT AN EDIT. It needs a solve, but the DRAWING has not
+     * moved — so the other mode's cached result still describes this model and
+     * must not be labelled out of date for it. */
+    app.modeSwitch = true;
     m.settings.calcMode = mode;
     updateModeChip();
     renderProperties();
@@ -9140,6 +9248,7 @@
     function doNew() {
       pushUndo();
       app.model = M.create();
+      forgetResults();
       afterModelSwap();
       app.view.zoomToFit();
     }

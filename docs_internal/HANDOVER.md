@@ -10,12 +10,72 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **v0.18.20 (beta), 2026-08-25.** Ten test suites, **2437 assertions**, all
+State: **v0.18.21 (beta), 2026-08-25.** Ten test suites, **2437 assertions**, all
 passing in about 15 s (`for f in test/*.test.js; do node $f; done`).
 
 ---
 
-## 0. LATEST — v0.18.19/.20, a critical path you can name, and the docs (2026-08-25)
+## 0. LATEST — v0.18.21, DS.2 done cheaply, and THE FREEZE (2026-08-25)
+
+### THE SHEET WAS SOLVING. That is the whole of the "convergence" report.
+
+**Michael:** *"the data hall... was converging simulations nicely before but the
+last version did not."* Then, unprompted: *"I noticed that pause too. I think
+it's related to changing tabs, especially to Calculation."*
+
+He found it. **Nothing is wrong with the convergence.** Three consecutive
+re-solves of `examples/Data Hall & Yard.json` settle IDENTICALLY — 5 iterations,
+634 solves, 19 of 19 devices holding, no hunting, no errors — and v0.18.13 and
+v0.18.20 give the same numbers to the digit. Checked before touching anything.
+
+`renderCalculationInner` opened with `var res = app.results || solveNow();`.
+`solveNow` is the SYNCHRONOUS solve. Open CALCULATION before the background
+solve has landed and the page locks for **44 seconds**: no progress bar, no
+repaint, no answer to a click. **A frozen tab is indistinguishable from a solve
+that will not converge**, which is exactly how it was reported.
+
+The whole of S3 (v0.16.8) exists so a long solve YIELDS. Opening a tab must not
+step around it. The sheet now asks for a solve the normal way and says
+"Calculating…"; `applyResult` already re-renders it when the answer lands.
+Measured: opening the sheet with no result in hand went from a 44-second freeze
+to **1 ms**. The other two `|| solveNow()` sites (CSV export, print) are
+deliberate user actions where a wait is expected and are untouched.
+
+### DS.2, AND THE OBJECTION THAT WAS WRONG
+
+**Michael:** *"Why can't you present the last Simulated results? No need to
+re-run it, which I agree, may be slightly different every time."*
+
+Right, and the previous answer — that showing both calculations costs two solves
+per render — was wrong. The result is already in memory from when the reader ran
+it. `lastByMode` keeps ONE RESULT PER MODE, so the sheet shows the design path
+and the simulated path together for nothing.
+
+* `app.modelRev` is bumped in **`scheduleSolve`**, and there only. `changed()`
+  is NOT the funnel it looks like — the canvas has its own onChange callback, so
+  an edit made by drawing never reaches it. Every path that can move a number
+  schedules a solve. That cost a debugging round.
+* **Switching mode is not an edit.** It needs a solve but the drawing has not
+  moved, so `app.modeSwitch` suppresses the bump once and the other mode's
+  cached result is not labelled stale for it.
+* A cached result from before the last edit is still SHOWN — it describes a real
+  calculation — but the section note reads `· out of date` and a hint says to run
+  it again. A mode never run says `not run` and names the button that fills it.
+* `forgetResults()` on NEW and on LOAD: cached results describe a different
+  drawing entirely.
+* The `[Manual]` button lives on the DESIGN section only. The selection is a
+  property of the model, not of a mode; offering it twice would suggest there
+  were two of them.
+
+Verified in the browser: design only → `Design Auto` + `Simulation not run`;
+after simulating → both present, design still `Auto`, revision unchanged.
+
+**REMAINING FROM DS.2:** `All Pipes` is still one section following the current
+mode, as PLUMBING has it. Both critical paths are what Michael asked to see.
+
+---
+
+## 0A7. v0.18.19/.20 — a critical path you can name, and the docs (2026-08-25)
 
 **Michael, 2026-08-25:** *"to fully resolve the Design calculation issue, we
 will need to allow the user to select calculating between 2 points (and back) in
