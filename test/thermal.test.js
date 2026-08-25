@@ -3483,10 +3483,16 @@ section('Integrated control valve and capacity override');
 
   /* ---- AN INTEGRATED VALVE is a real resistance AND a real actuator.
    *
-   * The resistance is measured in DESIGN, because in SIMULATION the valve is
-   * CONTROLLED — the loop holds the coil's ΔT and writes the position, so a
-   * hand-set opening is an input the solve is entitled to overrule. That is the
-   * same rule a drawn control valve follows. */
+   * DESIGN charges for the valve AT FULL TRAVEL. It is in the circuit and it
+   * costs something, so the design solve must pay for it — but its POSITION is
+   * a commissioning result, not a design input, and a design calculation is at
+   * design conditions by definition (Michael, 2026-08-24/25, WORKLIST DS.1).
+   *
+   * This block used to assert the opposite: that a hand-set opening throttled
+   * a DESIGN solve. That is what let a design answer be decided by whatever the
+   * last SIMULATION left behind — on the data hall it picked the LEAST remote
+   * of fourteen identical AHUs, because that one's valve had quantised a single
+   * step further closed than its neighbours'. */
   {
     const t = rig();
     t.m.settings.calcMode = 'design';
@@ -3499,17 +3505,36 @@ section('Integrated control valve and capacity override');
        Math.abs(withV.flow[t.coil.id]) < qOpen,
        (qOpen * 1000).toFixed(3) + ' -> ' + (Math.abs(withV.flow[t.coil.id]) * 1000).toFixed(3) + ' L/s');
 
-    /* Shut, it throttles hard — the same equal-percentage Kv curve a drawn
-     * globe valve uses. At 10% travel its Kv is 0.12 against 12, and its
-     * resistance 9.2e9 against the coil's own 5.1e5, so the branch all but
-     * closes. */
+    /* AND THE DESIGN ANSWER DOES NOT MOVE WITH THE POSITION. At 10% travel this
+     * valve's Kv is 0.12 against 12 and its resistance 9.2e9 against the coil's
+     * own 5.1e5 — if the position were being read, the branch would all but
+     * close. The design flow is identical instead. */
+    const qDesignOpen = Math.abs(withV.flow[t.coil.id]);
     t.coil.equip.icv.opening = 10;
     const shut = NET.solveModel(t.m);
-    ok('...and closing it throttles the branch',
-       Math.abs(shut.flow[t.coil.id]) < Math.abs(withV.flow[t.coil.id]) * 0.1,
-       (Math.abs(shut.flow[t.coil.id]) * 1000).toFixed(4) + ' L/s');
+    near('A hand-set position does not change a DESIGN solve',
+         Math.abs(shut.flow[t.coil.id]), qDesignOpen, qDesignOpen * 1e-9);
+
+    t.coil.equip.icv.opening = 55;
+    const mid = NET.solveModel(t.m);
+    near('...at any position', Math.abs(mid.flow[t.coil.id]), qDesignOpen,
+         qDesignOpen * 1e-9);
+
+    /* The valve is still THERE, which is the other half of the contract: a
+     * design calculation charges for it at full travel rather than ignoring it. */
+    const noValve = rig();
+    noValve.m.settings.calcMode = 'design';
+    const bare = NET.solveModel(noValve.m);
+    ok('...but the valve is still charged for, at full travel',
+       qDesignOpen < Math.abs(bare.flow[noValve.coil.id]),
+       (Math.abs(bare.flow[noValve.coil.id]) * 1000).toFixed(4) + ' L/s without, ' +
+       (qDesignOpen * 1000).toFixed(4) + ' with');
 
     t.m.settings.calcMode = 'simulation';
+    t.coil.equip.icv.opening = 10;
+
+    /* SIMULATION IS UNTOUCHED — Michael, 2026-08-25, choosing the design half
+     * only. There the position is the loop's own answer for this solve. */
 
     /* And it controls to its OWN machine's ΔT, with nothing drawn or linked. */
     t.coil.equip.icv.opening = 100;

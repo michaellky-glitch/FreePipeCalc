@@ -835,6 +835,152 @@ section('Critical path: a big model closes the circuit, not half of it');
      dm.pipes.some(p => p.kind === 'pump' && c.linkIds[p.id]));
   ok('the path is a substantial circuit, not the supply half alone',
      c.sections.length > 40, String(c.sections.length));
+
+  /* ---- AND THE INDEX IS THE MOST REMOTE COIL, not the one whose valve
+   * happened to quantise low (v0.18.15, WORKLIST DS.1).
+   *
+   * Michael, 2026-08-25: "logic would say the most remote should be AHU-12 or
+   * 13... but calculation is showing AHU-4." The fourteen AHUs are identical
+   * machines on one distribution run, each with its own integrated control
+   * valve, and the whole spread in `flow / qRated` across the system is 0.57% —
+   * which is the valves' 1%-of-travel resolution and nothing else. In DESIGN
+   * the valves are now charged at full travel, so the ranking is pipework.
+   *
+   * Ranked by how much head is burnt reaching each coil, AHU-13 is first and
+   * AHU-4 is LAST of the fourteen. The old answer was the least remote one. */
+  {
+    const idx = M.pipe(dm, c.targetLink);
+    ok('the index is AHU-13, the most remote coil', idx.tag === 'AHU-13', idx.tag);
+    ok('...and specifically NOT AHU-4, which is the least remote',
+       idx.tag !== 'AHU-4', idx.tag);
+
+    /* Stated as a property rather than a name, so this still means something if
+     * the model is ever redrawn: the index must be the coil with the LEAST head
+     * available across its own branch, because the rest went into the pipework
+     * getting there. */
+    const coils = dm.pipes.filter(p => p.kind === 'equip' && p.equip &&
+                                       p.equip.equipType === 'exchanger');
+    const drop = p => res.head[p.a] - res.head[p.b];
+    const least = coils.slice().sort((a, b) => drop(a) - drop(b))[0];
+    ok('...which is the coil with the least differential across its branch',
+       least.id === idx.id, least.tag + ' vs ' + idx.tag);
+
+    /* The valve positions are what used to decide it. They must no longer be
+     * able to: forcing every one of them somewhere else cannot move the index. */
+    const moved = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
+    moved.settings.calcMode = 'design';
+    moved.pipes.forEach(function (p) {
+      if (p.kind === 'equip' && p.equip && p.equip.icv) p.equip.icv.opening = 25;
+    });
+    const mres = NET.solveModel(moved);
+    ok('slamming every control valve to 25% does not move the design index',
+       (M.pipe(moved, mres.critical.targetLink) || {}).tag === 'AHU-13',
+       (M.pipe(moved, mres.critical.targetLink) || {}).tag);
+  }
+}
+
+
+/* ==================================================================
+ * DS.1 — A CONTROL VALVE'S POSITION IS AN OUTPUT, NOT A DESIGN INPUT.
+ *
+ * Michael, 2026-08-24: "Design calculation should assume design flow through
+ * each equipment", and 2026-08-25, asking for the DESIGN half only.
+ *
+ * The control loop runs in SIMULATION and not in DESIGN, so a design solve read
+ * whatever opening the last simulation left behind — and on the data hall that
+ * DECIDED the answer. Fourteen identical AHUs on one run, valves settled
+ * between 68% and 71%, and the index came out the LEAST remote of them because
+ * its valve had quantised one step further closed than its neighbours'.
+ *
+ * A BALANCING valve is the opposite case and must not be caught by this: its
+ * position is a decision somebody made, and it stays exactly as set.
+ * ================================================================== */
+section('Design: a controlled valve is at full travel, a balancing valve is not');
+{
+  /* pump — pipe — VALVE — coil — return. The valve is the only thing that
+   * changes between the runs below. */
+  function rig(kind) {
+    const m = M.create();
+    m.settings.calcMode = 'design';
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 2, 0);
+    const c = M.addNode(m, lv, 20, 0), d = M.addNode(m, lv, 22, 0);
+    const e = M.addNode(m, lv, 22, 10);
+    const pump = M.addPipe(m, a.id, b.id, { size: 'DN50', kind: 'pump', tag: 'PMP' });
+    pump.pump = { mode: 'fixed', head: 25, sizing: 'manual', speed: 1,
+      curve: { H0: 34, a: 80000, b: 1.55, source: 'generated', Qd: 0.0024, Hd: 25,
+        points: [{ q: 0, h: 34 }, { q: 0.0024, h: 25 }, { q: 0.0036, h: 16 }] } };
+    M.addPipe(m, b.id, c.id, { size: 'DN50' });
+    const valve = M.addPipe(m, c.id, d.id, { size: 'DN50', kind: 'valve', tag: 'CV' });
+    valve.valve = { type: 'globe', kv: 12, opening: 100 };
+    const coil = M.addPipe(m, d.id, e.id, { size: 'DN50', kind: 'equip', tag: 'AHU' });
+    coil.equip = { qRated: 0.0024, pdRated: 50000, qOut: 0.02, equipType: 'exchanger',
+                   duty: 100000, lastEdited: ['qRated', 'duty'] };
+    M.addPipe(m, e.id, a.id, { size: 'DN50' });
+    /* A control link is what makes it a CONTROL valve. The build only asks
+     * `M.controlOf`, so this exercises the rule without the loop. */
+    if (kind === 'control') valve.valve.control = { equip: coil.id, key: 'dT' };
+    return { m, valve, coil };
+  }
+
+  const open = rig('control');
+  const qOpen = Math.abs(NET.solveModel(open.m).flow[open.coil.id]);
+  ok('the reference case solves with flow', qOpen > 0, String(qOpen));
+
+  /* ---- A CONTROL VALVE: the position is ignored in DESIGN. */
+  [10, 40, 100].forEach(function (pos) {
+    const t = rig('control');
+    t.valve.valve.opening = pos;
+    const q = Math.abs(NET.solveModel(t.m).flow[t.coil.id]);
+    near('a control valve at ' + pos + '% gives the same design flow', q, qOpen,
+         qOpen * 1e-9);
+  });
+
+  /* ---- A BALANCING VALVE: the position is a design input and is honoured.
+   * This is the assertion that stops the fix over-reaching. */
+  const bal100 = rig('balancing');
+  const qBal100 = Math.abs(NET.solveModel(bal100.m).flow[bal100.coil.id]);
+  near('a balancing valve wide open matches the control valve at full travel',
+       qBal100, qOpen, qOpen * 1e-9);
+
+  const bal40 = rig('balancing');
+  bal40.valve.valve.opening = 40;
+  const qBal40 = Math.abs(NET.solveModel(bal40.m).flow[bal40.coil.id]);
+  ok('a balancing valve at 40% DOES throttle the design solve', qBal40 < qBal100 * 0.9,
+     (qBal100 * 1000).toFixed(4) + ' -> ' + (qBal40 * 1000).toFixed(4) + ' L/s');
+
+  /* ---- AND THE TWO WAYS OF DRAWING IT AGREE. The panel tells the reader an
+   * integrated valve is "equivalent to drawing a control valve in the branch
+   * and linking it here", so the same plant must give the same design answer
+   * whichever way it was drawn. */
+  const drawn = rig('control');
+  drawn.valve.valve.opening = 33;
+  const qDrawn = Math.abs(NET.solveModel(drawn.m).flow[drawn.coil.id]);
+
+  const integrated = rig('balancing');
+  integrated.valve.valve.kv = 1e9;                 // the drawn valve out of the way
+  integrated.coil.equip.icv = { kv: 12, opening: 33 };
+  const qInt = Math.abs(NET.solveModel(integrated.m).flow[integrated.coil.id]);
+  /* 1e-4 relative, not exact: the drawn valve is stood down with a huge Kv
+   * rather than deleted, so the two models differ by that valve's residual
+   * resistance — 7 parts per million here. The failure this guards against is
+   * one path honouring the position and the other not, which is a factor of
+   * ten, not a millionth. */
+  near('an integrated valve and a drawn control valve agree in DESIGN',
+       qInt, qDrawn, qDrawn * 1e-4);
+
+  /* ---- SIMULATION IS UNTOUCHED, which is what Michael asked for. There the
+   * position is the loop's own answer, and a valve it is NOT controlling still
+   * reads as drawn. */
+  const sim = rig('balancing');
+  sim.m.settings.calcMode = 'simulation';
+  sim.valve.valve.opening = 40;
+  const qSim40 = Math.abs(NET.solveModel(sim.m).flow[sim.coil.id]);
+  const simOpen = rig('balancing');
+  simOpen.m.settings.calcMode = 'simulation';
+  const qSimOpen = Math.abs(NET.solveModel(simOpen.m).flow[simOpen.coil.id]);
+  ok('an uncontrolled valve still throttles in SIMULATION', qSim40 < qSimOpen * 0.9,
+     (qSimOpen * 1000).toFixed(4) + ' -> ' + (qSim40 * 1000).toFixed(4) + ' L/s');
 }
 
 

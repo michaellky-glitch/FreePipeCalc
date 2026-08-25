@@ -379,6 +379,42 @@
     });
   }
 
+  /* ============ A CONTROL VALVE'S POSITION IS AN OUTPUT, NOT A DESIGN INPUT
+   *
+   * Michael, 2026-08-24, deciding it, and 2026-08-25 asking for the DESIGN half
+   * only: "Design calculation should assume design flow through each
+   * equipment."
+   *
+   * The control loop runs in SIMULATION and not in DESIGN, so a design solve
+   * used whatever opening the last simulation happened to leave behind. That is
+   * not a stale number in a corner — it decides the answer. On
+   * `examples/Data Hall & Yard.json` the fourteen AHUs are identical machines
+   * on one distribution run, and their valves had settled between 68% and 71%.
+   * Ranked by `flow / qRated` the index came out AHU-4 — which is the LEAST
+   * remote of the fourteen — because its valve had quantised one step further
+   * closed than its neighbours' and it therefore carried 0.4% less water. The
+   * whole spread across the system is 0.57%, which is the valves' 1%-of-travel
+   * resolution and nothing else. Michael: "logic would say the most remote
+   * should be AHU-12 or 13."
+   *
+   * With the valves at their design position the same model ranks by pipework:
+   * AHU-13 first, AHU-9, AHU-14, AHU-8, and AHU-4 LAST. That ordering does not
+   * move whatever the valves were last doing, because it is a property of the
+   * pipe.
+   *
+   * THE DESIGN POSITION IS FULL TRAVEL. It is not "no valve" — the valve is a
+   * real resistance at 100% and stays in the circuit, which is what a design
+   * calculation should charge for. What it is not is a commissioning result
+   * borrowed from a run that may have been made at another load.
+   *
+   * SIMULATION IS UNTOUCHED, deliberately (Michael, 2026-08-25). There the
+   * position is the loop's own answer, computed this solve, and it is the
+   * quantity the whole exercise exists to find. */
+  function actuatorOpening(simulating, opening) {
+    if (simulating) return opening;
+    return 100;
+  }
+
   function build(m, prev, opts) {
     var warnings = [];
     applySyncs(m);
@@ -560,7 +596,16 @@
         link.kind = 'valve';
         link.n = 2;                                  // Kv law is square in Q
         var vt = FD.valves.type(p.valve.type);
-        link.r = FD.valves.resistance(p.valve.type, p.valve.kv, p.valve.opening);
+        /* A DRAWN CONTROL VALVE FOLLOWS THE SAME RULE AS AN INTEGRATED ONE.
+         * The panel already tells the reader an ICV is "equivalent to drawing a
+         * control valve in the branch and linking it here", so the two must not
+         * give different DESIGN answers for the same plant. A valve with NO
+         * control link is a balancing valve — its position is a design decision
+         * somebody made and it is left exactly as set. */
+        var vOpening = M.controlOf(p) || M.syncOf(p)
+          ? actuatorOpening(simulating, p.valve.opening)
+          : p.valve.opening;
+        link.r = FD.valves.resistance(p.valve.type, p.valve.kv, vOpening);
 
         /* A check valve must not pass reverse flow. Direction is only known
          * after solving, so this reuses the two-pass machinery the tee
@@ -585,7 +630,7 @@
           }
         }
 
-        if (FD.valves.isClosed(p.valve.type, p.valve.opening)) {
+        if (FD.valves.isClosed(p.valve.type, vOpening)) {
           warnings.push({
             code: 'VALVE_SHUT',
             message: 'Valve ' + p.id + ' is shut.',
@@ -612,7 +657,8 @@
          * same link rather than needing a link of its own. */
         var icv = p.equip.icv;
         if (icv && icv.kv > 0) {
-          link.r += FD.valves.resistance('globe', icv.kv, icv.opening);
+          link.r += FD.valves.resistance('globe', icv.kv,
+                                         actuatorOpening(simulating, icv.opening));
           link.icv = true;
         }
       } else if (method.fittingMode === 'K') {

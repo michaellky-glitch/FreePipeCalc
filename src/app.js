@@ -5108,12 +5108,17 @@
           e.icv.kv = useCv ? Math.round(FD.valves.cvToKv(val) * 10) / 10 : val;
           changed(); renderProperties();
         }));
+      /* An integrated valve is a control valve, so it follows the same rule as a
+       * drawn one at BOTH ends: the loop writes it in simulation, and design
+       * does not read it at all (v0.18.15, WORKLIST DS.1). Saying so, because a
+       * slider that changes no number is worse than no slider. */
       pctSlider(sec.box, 'Valve position (%)',
                 e.icv.opening === undefined ? 100 : e.icv.opening,
                 function (n) { pushUndo(); e.icv.opening = n; changed(); renderProperties(); },
                 (m.settings.calcMode === 'simulation')
                   ? 'Held by the machine\u2019s own \u0394T in SIMULATION — the solve writes it.'
-                  : null);
+                  : 'Not used in DESIGN — the valve is charged at full travel. ' +
+                    'This is where the last simulation left it.');
       sec.ro('Holding', 'Design \u0394T of ' + (p.tag || p.id));
     }
 
@@ -5608,13 +5613,27 @@
        * DISABLED rather than merely annotated (Michael, 2026-08-04). Leaving
        * them live invites setting a number the next solve overwrites, which
        * reads as the app ignoring you. */
-      if (M.controlOf(p) && m.settings.calcMode === 'simulation') {
+      /* AND IN DESIGN IT IS NOT READ AT ALL (v0.18.15, WORKLIST DS.1). A design
+       * calculation is at design conditions, so a controlled valve is charged
+       * for at FULL TRAVEL and this number is not an input to it. Disabling it
+       * in design too, for the same reason it is disabled in simulation: a live
+       * control that changes nothing reads as the app ignoring you. */
+      if (M.controlOf(p)) {
+        var inSim = (m.settings.calcMode === 'simulation');
         slider.disabled = true; box.disabled = true;
         openRow.classList.add('is-disabled');
-        var vh = el('span', 'hint', 'Set by the control link. ');
-        infoMark(vh, 'The valve modulates to hold its linked setpoint, so this ' +
-                     'position is written by the solve. Clear the control link ' +
-                     'to set it by hand.');
+        var vh = el('span', 'hint', inSim
+          ? 'Set by the control link. '
+          : 'Not used in DESIGN — the valve is charged at full travel. ');
+        infoMark(vh, inSim
+          ? 'The valve modulates to hold its linked setpoint, so this ' +
+            'position is written by the solve. Clear the control link ' +
+            'to set it by hand.'
+          : 'A control valve\u2019s position is a commissioning result, not a ' +
+            'design input. DESIGN charges for the valve at full travel; ' +
+            'SIMULATION works out where it actually comes to rest. Clear the ' +
+            'control link to make this a balancing valve, which IS read in ' +
+            'design.');
         openWrap.appendChild(vh);
       }
       des.box.appendChild(openWrap);

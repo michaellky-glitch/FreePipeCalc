@@ -754,6 +754,31 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 <p>Equipment that is switched <strong>off</strong> is omitted from the network entirely — a genuine break, not a bypass.</p>
 
+<h4 id="cv-position">Which opening the two modes use</h4>
+<p>A control valve is in the circuit in both modes and is charged for in both. The <strong>opening</strong> is where they differ, and the rule is the same for an integrated valve and for a drawn globe valve carrying a control link.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Mode</th><th>Opening used</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Design</strong></td>
+      <td>Full travel, always</td>
+      <td>A design calculation is at design conditions. The position a valve comes to rest at is a commissioning result, not a design input, so the design solve charges for the valve wide open and takes no notice of the number in the panel.</td>
+    </tr>
+    <tr>
+      <td><strong>Simulation</strong></td>
+      <td>Whatever the control loop settles on</td>
+      <td>Here the position is the answer being sought. The loop modulates the valve to hold its setpoint and writes the result back.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<p>A valve with <strong>no control link</strong> is a balancing valve. Its position is a decision somebody made, so it is read in both modes exactly as set.</p>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>This matters most when identifying the index circuit. On a run of identical terminals, each holding its own setpoint, every terminal is driven to design flow and the small differences left between them are the valves' one-percent travel resolution rather than the pipework. Ranking such a system by how well each terminal is served would report whichever valve happened to round down, which can be the <em>least</em> remote terminal on the run. With the valves at full travel the design ranking is the pipework, which is what an index circuit is.</p>
+</div>
+
 <h3 id="equip-thermal">8.2 Thermal behaviour</h3>
 <p>Temperature is transported by the water. The thermal solve runs <strong>after</strong> the hydraulic solve and reads its flows. Nothing here feeds back into the hydraulics. Fluid properties are fixed at one temperature. The three thermal phenomena are:</p>
 

@@ -10,12 +10,81 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **v0.18.14 (beta), 2026-08-24.** Ten test suites, **2366 assertions**, all
+State: **v0.18.15 (beta), 2026-08-25.** Ten test suites, **2380 assertions**, all
 passing in about 15 s (`for f in test/*.test.js; do node $f; done`).
 
 ---
 
-## 0. LATEST — v0.18.14, the handover's open list, worked down (2026-08-24)
+## 0. LATEST — v0.18.15, DS.1 built: a design calculation is at design conditions (2026-08-25)
+
+**Michael, 2026-08-25, on `examples/Data Hall & Yard.json`:** *"logic would say
+the most remote should be AHU-12 or 13, or one of the others along that line.
+But calculation is showing AHU-4."* He is right, and the cause is DS.1.
+
+**THE DIAGNOSIS.** Fourteen IDENTICAL AHUs on one distribution run, each with its
+own integrated control valve holding its own coil's ΔT. Every coil is therefore
+driven to design flow BY ITS OWN CONTROLLER, so `flow / qRated` — the index
+criterion — has nothing left to measure but how close each valve got. The whole
+spread across the system is **0.57%**, which is the valves' one-percent travel
+resolution. They had settled between 68% and 71%. AHU-4's had quantised one step
+further closed than its neighbours', so it carried 0.4% less water and won
+"worst served" — and AHU-4 is **the LEAST remote of the fourteen.**
+
+Ranked by how much head is burnt reaching each coil (the drop left across its own
+branch, smallest first — the field measurement a commissioning engineer takes):
+
+| | 1 | 2 | 3 | 4 | … | 13 | 14 |
+|---|---|---|---|---|---|---|---|
+| coil | **AHU-13** | AHU-9 | AHU-14 | AHU-8 | … | AHU-11 | **AHU-4** |
+| ICV | 71% | 71% | 71% | 71% | … | 69% | 68% |
+
+That ordering is **identical in all four combinations** of mode and starting
+valve position, because it is a property of the pipe. `flow / qRated` was
+different in every one of them.
+
+**MICHAEL'S CHOICE (asked, four options): fix DESIGN only, leave SIMULATION.**
+So that is exactly what was built.
+
+**WHAT CHANGED.** `actuatorOpening(simulating, opening)` in `network.js`. In
+DESIGN a CONTROLLED valve is charged at **full travel**; in SIMULATION it is
+charged where the loop put it. It applies to an integrated valve on equipment
+and, identically, to a drawn globe valve carrying a control link — the panel
+already tells the reader an ICV is "equivalent to drawing a control valve in the
+branch and linking it here", so the two must not give different design answers
+for the same plant. **A valve with NO control link is a balancing valve and is
+read exactly as set, in both modes.** That is the assertion that stops the fix
+over-reaching, and it is tested.
+
+Design mode on the data hall now reports **AHU-13**, and slamming every control
+valve to 25% cannot move it. Simulation still reports AHU-4, as asked.
+
+**NOT SILENTLY.** The position slider is disabled in DESIGN for a controlled
+valve — the same rule and the same reason it is already disabled in SIMULATION
+(Michael, 2026-08-04: "leaving them live invites setting a number the next solve
+overwrites, which reads as the app ignoring you") — and says *"Not used in
+DESIGN — the valve is charged at full travel."* A balancing valve's slider stays
+live. All four states driven in the browser and confirmed.
+
+**`docs/engine.html` §8.1 carries the rule**, in a table of the two modes with
+the index-circuit consequence spelled out. Michael is working REMOTE off GitHub
+Pages and cannot read `docs_internal/`, so anything he needs has to be in the
+app's own documentation or in chat.
+
+**The tower's index is unchanged at AHU-L3-N01** and is now right for the right
+reason: L3 was already the most resistant circuit on the pipework (0.852 m
+against L4's 0.741 m — L1/L2/L3 tee into a passing riser and are charged
+`TBRANCH_CONV + E90`, while L4 sits at the END of the column and is charged
+`E90` alone), and design mode no longer reaches that answer through leftover
+valve positions.
+
+**STILL OPEN:** DS.2 (separate the Design and Simulation calculations the way
+PLUMBING does), and the SIMULATION index, which Michael has deliberately left
+reporting worst-served. MIN/MAX/SET is still not started and still needs his
+confirmation.
+
+---
+
+## 0A2. v0.18.14 — the handover's open list, worked down (2026-08-24)
 
 Michael, 2026-08-24, having accepted the AHU-L3 finding: *"Design calculation
 should assume design flow through each equipment. I think we will need to
