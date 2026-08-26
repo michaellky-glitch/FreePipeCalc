@@ -8671,9 +8671,27 @@
     } catch (e) { console.warn('Could not persist custom schedules:', e.message); }
   }
 
+  /* REDRAW IS NOT A REASON TO BLOCK THE PAGE.
+   *
+   * Michael, 2026-08-25: "browser becomes nonresponsive when toggling Warn on
+   * Laminar / Transitional, and when switching to the Calculation tab... can
+   * the page be still responsive but leave the elements being calculated as
+   * 'Loading' or 'Calculating', similar to how Simulating the model still
+   * allows the user to interact?"
+   *
+   * Yes, and this was the second of the two places doing it. `redrawAll` is
+   * called from SIXTY-TWO settings controls, and it called `solveNow()` — the
+   * SYNCHRONOUS solve. Flick one switch on the data hall and the page is dead
+   * for 44 seconds: no progress bar, no repaint, no answer to a click. The
+   * sheet's copy of this mistake was fixed in v0.18.21; this is the rest of it.
+   *
+   * `scheduleSolve` is the responsive path the whole of S3 exists to provide —
+   * it yields between network solves, paints the progress bar, and re-renders
+   * the properties, the sheet and the canvas through `applyResult` when the
+   * answer lands. Nothing here needs to wait for it. */
   function redrawAll() {
     scheduleSave();
-    solveNow();
+    scheduleSolve();
     renderProperties();
     if ($('pane-calculation').dataset.active === 'true') renderCalculation();
     /* Deliberately does NOT rebuild the HYDRAULIC tab. Its controls call
@@ -9933,7 +9951,11 @@
     applyDiscipline();
     app.view.resize();
     app.view.zoomToFit();
-    solveNow();
+    /* AND NOT AT STARTUP EITHER. Restoring a large model and solving it
+     * synchronously means the app opens to a dead window for as long as the
+     * solve takes. Ask for it the responsive way; the drawing is already on
+     * screen and the numbers arrive behind it. */
+    scheduleSolve();
     updateHistoryButtons();
 
     if (restored && restored.pipes.length) {

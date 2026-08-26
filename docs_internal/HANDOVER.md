@@ -10,8 +10,79 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **v0.18.21 (beta), 2026-08-25.** Ten test suites, **2437 assertions**, all
+State: **v0.18.22 (beta), 2026-08-26.** Ten test suites, **2437 assertions**, all
 passing in about 15 s (`for f in test/*.test.js; do node $f; done`).
+
+---
+
+## 0. LATEST — v0.18.22, the rest of the freeze, and the tee decision (2026-08-26)
+
+### `solveNow()` WAS THE FREEZE, IN TWO PLACES. BOTH ARE GONE.
+
+Michael, 2026-08-25: *"browser becomes nonresponsive when toggling Warn on
+Laminar / Transitional, and when switching to the Calculation tab (shorter
+hang)... can the page be still responsive but leave the elements being
+calculated as 'Loading' or 'Calculating', similar to how Simulating?"*
+
+v0.18.21 fixed the calculation sheet. This is the rest:
+
+* **`redrawAll()` called `solveNow()`** — the SYNCHRONOUS solve — and it is
+  called from **62 settings controls**. Flick any one of them on the data hall
+  and the page was dead for 44 s. Now `scheduleSolve()`.
+* **Startup did the same.** Restoring a large model solved it synchronously, so
+  the app opened to a dead window. Now `scheduleSolve()` — the drawing is up and
+  the numbers arrive behind it.
+
+Measured on `datahall-yard` (the 44-second model): Calculation tab **44 s → 1
+ms**, Warn-on-laminar toggle **44 s → 62 ms**.
+
+The two remaining `|| solveNow()` sites — CSV export and print — are deliberate
+user actions where a wait is expected and are left alone.
+
+### EQ.3 — MICHAEL HAS CHOSEN THE MIDDLE PATH
+
+*"I'm inclined to the middle path, mixing in Idelchik data may be confusing for
+consistency (we are already mixing in Carrier data)... take the middle path, but
+document it properly in the Engine page."*
+
+**DECIDED, NOT BUILT.** Make only the BRANCH coefficient a function of the flow
+ratio Qb/Qc; leave the run flat at 20 L/D. His reasoning about the consequence
+was put to me and is CORRECT — see the reply of 2026-08-26 — with two additions
+worth keeping:
+
+* The residual run error is **conservative**: in the common case (a header
+  where each tee bleeds off a small fraction, so Qb/Qc is small) the real
+  straight-through loss approaches zero while a flat 20 L/D is still charged.
+  The model over-states, never under-states, so the pump comes out bigger rather
+  than smaller.
+* It is **not uniform across circuits**. A path running the length of a header
+  passes many run tees; one turning off early passes few. So the over-charge
+  scales with how far along the header a terminal sits, which exaggerates
+  remoteness — pushing the index selection toward the far end, the same
+  direction as the conservative bias.
+
+Tee share of total effective length, measured: **Data Hall 39%** (102 tees, 58
+branch), HighRise 30%, tower 17%, Tutorial 01 4%.
+
+**THE HARD PART IS NOT THE TABLE.** Two things need solving before any number is
+entered: (1) published tee coefficients are referenced to the COMMON leg's
+velocity, while equivalent length references the leg's own — the conversion
+depends on area ratio and flow ratio; (2) a K that depends on Qb/Qc makes a
+link's `r` a function of Q, which is an assumption the Newton step currently
+relies on. The two-pass machinery already re-derives tee TYPE from flow, so the
+shape exists; the numerical behaviour is the risk.
+
+### Also
+
+`docs.js` titles: `Calculation Method`, `Engine Verification`, `Readme`.
+
+`src/docs.js` contains four NUL bytes as sentinels in its markdown code-span
+handling, so **git reports it as binary and `git diff` shows no text for it**.
+Long-standing and deliberate. Do not "fix" it, and do not trust a clean-looking
+diff on that file.
+
+**`grep` silently returns nothing in this environment.** Use `sed -n '/x/p'` or
+python. It cost a wrong conclusion about a corrupted file today.
 
 ---
 
