@@ -338,6 +338,86 @@ moved them.
 
 ---
 
+## 6B. ASHRAE Ch 22 Table 7 — checked, 2026-08-26
+
+Michael supplied the chapter. **The source document is his and is NOT in this
+repository and must never be** — this repo is published to GitHub Pages. Values
+are quoted here as facts; the document stays out.
+
+### It is a misdirect, as he suspected
+
+Table 7 is *Summary of Test Data for Loss Coefficients K for Steel Pipe Tees*.
+Its three rows per size are three **flow configurations**, not a curve:
+
+| row | means | flow ratio |
+|---|---|---|
+| 100 % branch | all flow turns into the branch | Qb/Qc = 1 |
+| 100 % line (flow-through) | all flow goes straight through | Qb/Qc = 0 |
+| 100 % mix | the combining case | one figure only |
+
+So it gives K at the **two endpoints** of the flow ratio and nothing between.
+**It cannot supply the branch curve.** `TEE-LOSSES-RESEARCH-B.md` §3.4 — "maps
+branch loss coefficients against the flow ratio... gives precise curves" — is
+**wrong**, and the main research document and this codebase's own provenance
+note are right. Rennels Ch 16 remains the route.
+
+### But it is not useless: it is the ACCEPTANCE TEST
+
+Measured endpoints are exactly what a fitted curve should be checked against.
+Any Rennels branch curve must approach the "100 % branch" value as Qb/Qc → 1 and
+the "100 % line" value as Qb/Qc → 0. That is a validation we did not have.
+
+ASHRAE Research columns (Rahmeyer 1999b/2002b; Ding et al. 2005), at 2.4 m/s
+except the 50 mm which is at 1.2 m/s:
+
+| tee | 100 % branch | 100 % line | 100 % mix |
+|---|---|---|---|
+| 50 mm thread | 0.93 | 0.19 | 1.19 |
+| 100 mm weld | 0.57 | 0.06 | 0.49 |
+| 150 mm weld | 0.56 | 0.12 | 0.88 |
+| 200 mm weld | 0.53 | 0.08 | 0.70 |
+| 250 mm weld | 0.52 | 0.06 | 0.77 |
+| 300 mm weld | 0.63 | 0.091 | 0.72 |
+| 400 mm weld | 0.55 | 0.028 | 0.74 |
+
+### AND IT FOUND SOMETHING ELSE — the engine's K values are the OLD column
+
+Table 7 carries a "Past" column, attributed to Crane (1988), Freeman (1941) and
+the Hydraulic Institute (1990), with parenthesised values marked as published in
+the **1993** ASHRAE Handbook. At 50 mm thread that column reads **branch 1.4**
+and **line 0.90**.
+
+`data/ktable.js` THREADED holds **TBRANCH = 1.4 at 2 in** and **TRUN = 0.90
+flat**. Those are the same numbers. **The engine is using the 1993 values, and
+the same table's own newer measurements are far lower:**
+
+| 50 mm thread tee | engine today (= "Past") | ASHRAE Research | change |
+|---|---|---|---|
+| branch | 1.4 | 0.93 | **−34 %** |
+| line (run) | 0.90 | 0.19 | **−79 %** |
+
+**This corroborates §5 with measurement rather than deduction.** "100 % line" IS
+the Qb/Qc → 0 case — the header with a small take-off, the commonest case in a
+real model — and ASHRAE measures 0.19 where the engine charges 0.90. The run is
+over-charged by roughly a factor of five at that end, which is a much larger
+conservative bias than §5 estimated.
+
+**It is not a drop-in replacement**, for three reasons:
+
+1. The Research columns are **velocity-dependent** (1.2 / 2.4 / 3.6 m/s) and
+   sparse — most cells are blank.
+2. Table 7 covers **thread at 50 mm only** and **weld from 100 mm up**. The
+   engine has *threaded* and *flanged* sets and no welded set at all.
+3. Changing them re-baselines every Darcy answer, the same class of event as
+   §6A's Hazen-Williams warning.
+
+**Recorded as a decision for Michael, separate from TEE.1:** should the K table
+move from the 1993 values to the ASHRAE Research values where they exist? It is
+an accuracy question with measured data behind it, and it is independent of the
+flow-ratio work.
+
+---
+
 ## 7. Open sub-questions
 
 * Which source for the branch curve? ASHRAE Ch 22 Table 7 is the consistent
