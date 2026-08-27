@@ -105,6 +105,55 @@ magnitude, is the hard part.
 
 ---
 
+## 3.3 Does the friction method change this? — NO, but it matters anyway
+
+Michael asked, 2026-08-26: *"Does DW & HW calculations change how PD is
+calculated at tees? i.e. if the problem exists mostly in HW, then we should push
+users to DW instead."*
+
+The two methods use **entirely different fitting datasets**:
+
+| | Hazen-Williams (default) | Darcy-Weisbach (BETA) |
+|---|---|---|
+| `fittingMode` | `'EL'` — equivalent length | `'K'` — velocity-head coefficients |
+| tee data | Carrier Table 11, feet by size (L/D 20 / 60 fallback) | ASHRAE Tables 3/4, K by size |
+| tee K / L-D values | run 19–20 L/D, branch 58–63 L/D | run **K = 0.90** flat; branch **K = 2.7 → 1.1**, falling with size |
+| how it enters the link | folded into the pipe: `r(L + el)` | a **separate** resistance `rK`, alongside |
+| exponent on the fitting loss | **1.852** (inherits HW's) | **2** |
+
+**Pushing users to Darcy does NOT fix the tee problem.** The defect is that the
+coefficient does not vary with **Qb/Qc**, and *neither dataset does*. ASHRAE's K
+varies with SIZE and connection type; Carrier's equivalent length varies with
+size. Flow ratio appears in neither. The reference-velocity mismatch (§3.2) is
+identical too — `K·V²/2g` uses the leg's own velocity exactly as equivalent
+length does.
+
+**But there is a separate and real argument for Darcy on fitting-heavy models.**
+A fitting loss is a velocity head: it scales as **Q²**. Hazen-Williams folds the
+equivalent length into the pipe, so every fitting is charged at **Q^1.852**.
+That is the wrong exponent, and it is wrong for *all* fittings, not just tees.
+
+It cancels at the design point — both are calibrated there — and only shows up
+as flows move away from it, i.e. **in SIMULATION**. The size of it is
+`2^(2−1.852) = 2^0.148 ≈ 1.11`: at double design flow the HW fitting term is
+understated by about **11 %**, and at half flow overstated by the same factor.
+On a model that is 39 % tee equivalent length that is roughly **4 % of total
+loss** at 2x design flow — real, but an order of magnitude smaller than the
+flow-ratio problem this file is about.
+
+Two consequences for **TEE.1**:
+
+1. **The fix has to be done twice, or once above both.** A flow-ratio-dependent
+   branch coefficient has to reach the K table *and* the equivalent-length
+   table, or be expressed once in a layer above them. Decide that before
+   entering any data — it is the difference between one job and two.
+2. **Recommending Darcy is a separate decision with its own baggage** — see
+   EQ.1 and EQ.2 in `Human-Test.md`. Darcy is still marked BETA in the app, and
+   at C = 120 against ε = 0.045 mm it reads 16–27 % lower on friction rate, so
+   "just switch to Darcy" moves more than the fittings.
+
+---
+
 ## 4. How much it matters — measured
 
 Tee equivalent length as a share of total effective length, DESIGN mode,
