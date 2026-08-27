@@ -41,6 +41,12 @@ user actions where a wait is expected and are left alone.
 
 ### EQ.3 — MICHAEL HAS CHOSEN THE MIDDLE PATH
 
+**FULLY WRITTEN UP IN `docs_internal/TEE-LOSSES.md`** (2026-08-26, at his request:
+"I'll probably come back to this issue in future. Is it fully logged?"). That
+file carries both fitting tables, the measured exposure, the options and why
+each was rejected, and the two hard parts. The summary below is a pointer — go
+there first.
+
 *"I'm inclined to the middle path, mixing in Idelchik data may be confusing for
 consistency (we are already mixing in Carrier data)... take the middle path, but
 document it properly in the Engine page."*
