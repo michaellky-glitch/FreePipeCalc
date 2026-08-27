@@ -7,6 +7,11 @@ back to this issue in future. Is it fully logged?"*
 Carried in `Human-Test.md` as open engineering question **EQ.3** and in
 `WORKLIST.md` as **TEE.1**.
 
+**Read §6A first if you are picking this up.** Two research passes commissioned
+by Michael on 2026-08-26 (`TEE-LOSSES-RESEARCH.md` and
+`TEE-LOSSES-RESEARCH-B.md`) changed the plan materially: the solver risk this
+file feared in §6 has a standard answer, and the build order is now staged.
+
 ---
 
 ## 1. The decision
@@ -221,6 +226,115 @@ Watch for the §18 frozen-active-set trap and the §6 check-valve lesson in
 solution, is exactly the shape that has bitten this project before. The
 established remedy is to freeze it for the whole of a pass and re-derive between
 passes — which is what the tee TYPE already does.
+
+---
+
+## 6A. The 2026-08-26 research — what it changes
+
+Michael commissioned two research passes. Both are in `docs_internal/`:
+**`TEE-LOSSES-RESEARCH.md`** (the substantial one) and
+**`TEE-LOSSES-RESEARCH-B.md`** (shorter, partly redundant).
+
+### It de-risks the hard part. §6 was too pessimistic.
+
+§6 said the difficulty would land in the solver, because a flow-dependent K
+makes a link's `r` a function of Q. **The research supplies the answer, and it is
+the EPANET form**, which uses the same Global Gradient Algorithm this engine
+does. EPANET writes each link as:
+
+```
+H_i - H_j  =  r * Q^n  +  m * Q^2
+```
+
+The fitting loss is a **separate additive term**, never folded into `r`. That one
+change resolves three things at once:
+
+1. **The Newton derivative stays trivial** — `d(m·Q²)/dQ = 2·m·Q`, added to
+   `linkDhdq`. No new numerical hazard, which is what §6 feared.
+2. **It fixes the exponent problem in §3.3** for free. The fitting term sits at
+   exponent 2 while Hazen-Williams keeps 1.852 on the pipe, because they are now
+   different terms.
+3. **It makes the fix ONE job, not two** (the concern raised in §3.3). Express
+   the branch coefficient once as `m(Qb/Qc)` and both friction methods share it.
+
+**Confirmed against the code:** the Darcy path already carries exactly this —
+`link.rK = FD.hydraulics.fittingR(sumK, d)`, a separate resistance alongside
+`link.r`. So half the architecture exists; the work is bringing Hazen-Williams
+onto it rather than inventing anything.
+
+### It dissolves §3.2 rather than solving it
+
+Do **not** convert the coefficient into each leg's frame. Compute the loss
+directly at the combined-leg velocity:
+
+```
+dH = Kc * Vc^2 / (2g)
+```
+
+If a per-leg form is ever needed the conversion is exact and both research
+documents agree on it:
+
+```
+Ki = Kc * (Vc/Vi)^2 = Kc * (Qc/Qi)^2 * (Ai/Ac)^2
+```
+
+**This is why the 1.5x attempt failed**: it put a combined-velocity number into
+an equivalent-length slot in each leg. The remedy is to stop using equivalent
+length for tees, not to find a better multiplier.
+
+### Two findings that strengthen decisions already taken
+
+* **A flat coefficient is the industry NORM, not a poor shortcut.** Crane TP-410
+  and EPANET both use one. The middle path is therefore *more* accurate than the
+  common baseline, not a compromise below it.
+* **The true run coefficient can go NEGATIVE at low flow ratio** — real physics
+  in a combining tee, where the fast stream gives kinetic energy to the slow one
+  (total loss across the tee stays positive). So the run-flat over-charge
+  described in §5 is **larger** than §5 states, and the conservative bias is
+  stronger. Good news for shipping it; worth quantifying.
+
+### Recommended source: Rennels & Hudson, Ch 16
+
+Closed-form equations, no table digitisation, and it is what MathWorks Simscape's
+T-Junction block uses (Rennels / Crane / custom — which is precisely the middle
+path's shape). **Caveat carried by the research itself:** the combining-tee form
+is the less exact of the two, and a combining tee is the case this engine charges
+most (two inlets). Treat that as the main technical risk.
+
+### TWO THINGS THE RESEARCH GETS WRONG OR MISSES
+
+1. **The two documents contradict each other on ASHRAE, and B is the wrong one.**
+   `TEE-LOSSES-RESEARCH-B.md` §3.4 claims ASHRAE Fundamentals **Ch 22** "maps
+   branch loss coefficients against the flow ratio" and "gives precise curves".
+   The main research attributes flow-ratio treatment to the ASHRAE **Duct Fitting
+   Database** (air side), which matches what this codebase already records:
+   Ch 22 Tables 3 and 4 give SINGLE values, and Table 7 gives one "100 % mix"
+   figure. **Trust the main document.** The difference matters — it is
+   "we already own the source" against "we need a new one".
+
+2. **Nobody flagged what this does to existing Hazen-Williams answers.** Moving
+   fittings out of the pipe length and into `m·Q²` **changes the numbers on every
+   saved HW model**, not only at tees and not only off design. It is the right
+   change and it fixes a real exponent error, but it is a re-baselining event: it
+   needs its own before/after comparison on the frozen fixtures, and Michael has
+   to know the sheet will not reproduce a previously issued one.
+
+### Build order, revised
+
+1. Bring Hazen-Williams onto the additive `m·Q²` fitting term, with the EXISTING
+   flat coefficients. **Change nothing else.** Measure the shift on every frozen
+   fixture and get Michael's acceptance of the re-baseline.
+2. Only then make the branch `m` a function of Qb/Qc, from Rennels Ch 16.
+3. Freeze `m` for the whole of a pass; re-derive between passes, exactly as the
+   tee TYPE already is.
+4. Add `2·m·Q` to `linkDhdq`.
+5. Record the zero-flow discontinuity risk (Deltares WANDA reports the sign
+   change as a solver hazard) in `engine.html` §10 before any simulation work
+   leans on it.
+
+Splitting step 1 from step 2 is the important part: it separates a re-baselining
+change from a physics change, so that if the numbers move, it is known which one
+moved them.
 
 ---
 

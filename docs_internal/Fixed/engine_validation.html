@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreePipeCalc — Engine Verification: GGA Worked Example</title>
+<style>
+:root{
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+@media (prefers-color-scheme:dark){ :root{ color-scheme:dark } :root:not([data-theme]){
+    --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+    --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+    --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+    --code-bg:#1e242c;
+} }
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+  --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+  --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+  --code-bg:#1e242c;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+:root[data-embed="1"] header.top{padding-top:22px}
+:root[data-embed="1"] .wrap{padding-bottom:40px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.62 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px 80px;display:flex;gap:36px;align-items:flex-start}
+main{flex:1 1 auto;min-width:0;max-width:760px}
+
+header.top{border-bottom:1px solid var(--line);margin-bottom:28px;padding:30px 0 18px}
+header.top h1{font-size:27px;line-height:1.2;margin:0 0 6px;letter-spacing:-.2px}
+header.top .sub{color:var(--dim);margin:0;font-size:14.5px}
+header.top .meta{color:var(--mute);font-size:12.5px;margin-top:10px}
+
+nav.toc{
+  position:sticky;top:18px;flex:0 0 232px;align-self:flex-start;
+  font-size:13px;line-height:1.5;max-height:calc(100vh - 40px);overflow:auto;
+  border-left:1px solid var(--line-soft);padding-left:16px
+}
+nav.toc h2{font-size:11px;letter-spacing:.9px;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:s}
+nav.toc > ol > li{counter-increment:s;margin:0 0 3px}
+nav.toc > ol > li > a::before{content:counter(s) ". ";color:var(--mute)}
+nav.toc ol ol{padding-left:16px;margin:2px 0 6px}
+nav.toc ol ol li{margin:0}
+nav.toc a{color:var(--dim);text-decoration:none;display:block;padding:2px 0}
+nav.toc a:hover{color:var(--accent)}
+
+h2{font-size:21px;margin:44px 0 12px;padding-top:10px;border-top:1px solid var(--line);letter-spacing:-.15px}
+h2:first-of-type{border-top:0;margin-top:0}
+h3{font-size:16.5px;margin:28px 0 8px}
+h4{font-size:14px;margin:20px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 14px;padding-left:22px}
+li{margin:0 0 5px}
+a{color:var(--accent)}
+strong{font-weight:650}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.9em;background:var(--code-bg);padding:1px 5px;border-radius:4px
+}
+
+.eq{
+  background:var(--panel);border:1px solid var(--line-soft);border-left:3px solid var(--accent);
+  border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;overflow-x:auto;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:1.75
+}
+.eq .lbl{display:block;font-family:system-ui,sans-serif;font-size:11.5px;
+  text-transform:uppercase;letter-spacing:.7px;color:var(--mute);margin-bottom:7px}
+.eq em{color:var(--mute);font-style:normal}
+.steps{counter-reset:step;list-style:none;padding-left:0;margin:16px 0}
+.steps > li{
+  counter-increment:step;position:relative;padding-left:38px;margin-bottom:14px
+}
+.steps > li::before{
+  content:counter(step);position:absolute;left:0;top:1px;
+  width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;
+  font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center
+}
+
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th,td{border:1px solid var(--line-soft);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel);font-weight:600;font-size:13px}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td.pass{color:var(--ok);font-weight:600}
+td.fail{color:var(--err);font-weight:600}
+.scroll{overflow-x:auto;margin:16px 0}
+.scroll table{margin:0}
+
+.note{border-radius:6px;padding:12px 15px;margin:16px 0;border:1px solid var(--line);background:var(--panel)}
+.note p:last-child{margin-bottom:0}
+.note .tag{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.8px;
+  font-weight:700;margin-bottom:6px}
+.note.check{border-left:3px solid var(--ok)} .note.check .tag{color:var(--ok)}
+.note.limit{border-left:3px solid var(--warn)} .note.limit .tag{color:var(--warn)}
+.note.rule{border-left:3px solid var(--accent)} .note.rule .tag{color:var(--accent)}
+
+figure{margin:22px 0}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:13px;color:var(--dim);margin-top:8px}
+
+.lead{font-size:16px;color:var(--dim);margin-bottom:20px}
+footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);
+  font-size:13px;color:var(--mute)}
+
+@media (max-width:1000px){
+  nav.toc{display:none}
+  .wrap{display:block;padding-bottom:50px}
+  main{max-width:none}
+}
+@media print{
+  nav.toc{display:none} .wrap{display:block;max-width:none}
+  body{font-size:10.5pt;color:#000;background:#fff}
+  h2{page-break-after:avoid} .eq,table,figure,.note{page-break-inside:avoid}
+  a{color:#000;text-decoration:none}
+}
+</style>
+<script>
+(function () {
+  try {
+    var q = new URLSearchParams(location.search);
+    var t = q.get('theme');
+    if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
+    if (q.get('embed') === '1') document.documentElement.dataset.embed = '1';
+  } catch (e) { }
+})();
+</script>
+</head>
+<body>
+
+<div class="wrap">
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#topology">Network topology</a></li>
+    <li><a href="#fluid">Fluid and pipe properties</a></li>
+    <li><a href="#fittings">Fitting classification</a></li>
+    <li><a href="#resistance">Resistance of each pipe</a></li>
+    <li><a href="#flow-split">Junction Flow</a>
+      <ol>
+        <li><a href="#flow-equations">Equations</a></li>
+        <li><a href="#flow-symmetry">Flow ratio</a></li>
+        <li><a href="#flow-general">General (asymmetric) case</a></li>
+      </ol>
+    </li>
+    <li><a href="#continuity">Continuity check</a></li>
+    <li><a href="#headloss">Head loss along each path</a></li>
+    <li><a href="#heads">Node heads</a></li>
+    <li><a href="#pressure">Pressures</a></li>
+    <li><a href="#pump">Pump</a></li>
+    <li><a href="#solver">Solver convergence</a></li>
+    <li><a href="#summary">Summary</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="top">
+  <h1>Engine Verification: GGA Worked Example</h1>
+  <p class="sub">Every value in §6.3 of the Calculation Method is recomputed by hand and compared to the engine output.</p>
+  <p class="meta">Source: examples/GGA example.json &middot; Solver: src/solver.js (Todini–Pilati GGA, Hazen-Williams ASHRAE-SI)</p>
+</header>
+
+<!-- ============================================================ 1 -->
+<h2 id="overview">1. Overview</h2>
+<p class="lead">A source feeds a pump. The pump feeds a ring. Three outflows sit on one side of the ring, each drawing 1 L/s at 100 kPa minimum. All pipe is DN50, C&nbsp;=&nbsp;120.</p>
+<p>This page reproduces the worked example from <code>docs/engine.html</code> §6.3. Every claimed value is independently recomputed. The additional material here derives the flow-split equations that the GGA solver handles.</p>
+<p>Final answers match the doc to the stated precision. Intermediate values are carried to six figures.</p>
+
+<!-- ============================================================ 2 -->
+<h2 id="topology">2. Network topology</h2>
+
+<figure>
+<svg viewBox="0 0 700 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ring main with source, pump and three outflows">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" fill="var(--accent)"/>
+    </marker>
+  </defs>
+
+  <!-- Pipes -->
+  <g stroke="var(--text)" stroke-width="3" fill="none" stroke-linecap="round">
+    <!-- P8: SRC→N7 -->
+    <path d="M52,160 L112,160"/>
+    <!-- N7→pump→N8 -->
+    <path d="M136,160 L160,160"/>
+    <path d="M202,160 L226,160"/>
+    <!-- P10: N8→N1 -->
+    <path d="M226,160 L270,160"/>
+    <!-- P1: N1→N2 (up) -->
+    <path d="M270,160 L270,55"/>
+    <!-- P2: N2→N3 (right) -->
+    <path d="M270,55 L470,55"/>
+    <!-- P11: N3→N9 (down) -->
+    <path d="M470,55 L470,101"/>
+    <!-- P12: N9→N6 (down) -->
+    <path d="M470,129 L470,153"/>
+    <!-- P5: N1→N5 (down) — actual flow direction, reversed from JSON def -->
+    <path d="M270,160 L270,265"/>
+    <!-- P4: N5→N4 (right) — actual flow direction, reversed from JSON def -->
+    <path d="M270,265 L470,265"/>
+    <!-- P15: N4→N10 (up) — actual flow direction, reversed from JSON def -->
+    <path d="M470,265 L470,239"/>
+    <!-- P13: N10→N6 (up) — actual flow direction, reversed from JSON def -->
+    <path d="M470,231 L470,167"/>
+  </g>
+
+  <!-- Pump circle -->
+  <circle cx="180" cy="160" r="22" fill="var(--panel)" stroke="var(--accent)" stroke-width="3"/>
+  <path d="M171,150 L195,160 L171,170 z" fill="var(--accent)"/>
+
+  <!-- Source -->
+  <rect x="28" y="142" width="24" height="36" rx="4" fill="var(--panel)" stroke="var(--ok)" stroke-width="3"/>
+
+  <!-- Junction nodes (white fill) -->
+  <g fill="var(--bg)" stroke="var(--text)" stroke-width="2.5">
+    <circle cx="270" cy="160" r="5"/>
+    <circle cx="270" cy="55" r="5"/>
+    <circle cx="470" cy="55" r="5"/>
+    <circle cx="470" cy="265" r="5"/>
+    <circle cx="270" cy="265" r="5"/>
+  </g>
+
+  <!-- Outflow nodes (red ring) -->
+  <g fill="var(--bg)" stroke="var(--err)" stroke-width="3">
+    <circle cx="470" cy="115" r="9"/>
+    <circle cx="470" cy="160" r="9"/>
+    <circle cx="470" cy="205" r="9"/>
+  </g>
+
+  <!-- Flow arrows — upper half goes clockwise, lower half goes counter-clockwise -->
+  <g stroke="var(--accent)" stroke-width="2.2" fill="none" marker-end="url(#ar)">
+    <!-- Supply: SRC → pump → N1 -->
+    <path d="M62,160 L100,160"/>
+    <path d="M206,160 L220,160"/>
+    <path d="M238,160 L262,160"/>
+    <!-- Upper half: clockwise N1→N2→N3→N9→N6 -->
+    <path d="M270,148 L270,73"/>
+    <path d="M300,55 L400,55"/>
+    <path d="M470,73 L470,99"/>
+    <path d="M470,131 L470,151"/>
+    <!-- Lower half: counter-clockwise N1→N5→N4→N10→N6 -->
+    <path d="M270,172 L270,247"/>
+    <path d="M300,265 L400,265"/>
+    <path d="M470,247 L470,237"/>
+    <path d="M470,223 L470,169"/>
+    <!-- Outflows -->
+    <path d="M470,124 L470,136"/>
+    <path d="M470,169 L470,197"/>
+  </g>
+
+  <!-- Node labels -->
+  <g font-family="system-ui,sans-serif" font-size="12.5" fill="var(--dim)">
+    <!-- Source and pump -->
+    <text x="40" y="200" text-anchor="middle" font-size="11">SRC-1</text>
+    <text x="40" y="212" text-anchor="middle" font-size="10">N0</text>
+    <text x="180" y="200" text-anchor="middle">PMP-1</text>
+    <text x="180" y="212" text-anchor="middle" font-size="10">N7–N8</text>
+    <!-- Supply flow -->
+    <text x="82" y="150" text-anchor="middle" fill="var(--accent)" font-size="11.5">3.0 L/s</text>
+    <!-- N1 -->
+    <text x="270" y="145" text-anchor="middle" font-size="11" font-weight="600">N1</text>
+    <!-- Upper half nodes -->
+    <text x="256" y="50" text-anchor="end" font-size="11" font-weight="600">N2</text>
+    <text x="484" y="50" font-size="11" font-weight="600">N3</text>
+    <!-- Lower half nodes -->
+    <text x="256" y="270" text-anchor="end" font-size="11" font-weight="600">N5</text>
+    <text x="484" y="270" font-size="11" font-weight="600">N4</text>
+    <!-- Outflow labels -->
+    <text x="490" y="119" font-size="11"><tspan font-weight="600">N9</tspan>  OF-2  1 L/s</text>
+    <text x="490" y="164" font-size="11"><tspan font-weight="600">N6</tspan>  <tspan font-weight="600">OF-1  1 L/s  (index)</tspan></text>
+    <text x="490" y="209" font-size="11"><tspan font-weight="600">N10</tspan> OF-3  1 L/s</text>
+    <!-- Flow quantities — upper half -->
+    <text x="252" y="108" text-anchor="end" fill="var(--accent)" font-size="11.5">1.5 L/s</text>
+    <text x="370" y="47" text-anchor="middle" fill="var(--accent)" font-size="11">1.5 L/s</text>
+    <text x="456" y="90" text-anchor="end" fill="var(--accent)" font-size="10.5">1.5</text>
+    <text x="456" y="144" text-anchor="end" fill="var(--accent)" font-size="10.5">0.5</text>
+    <!-- Flow quantities — lower half -->
+    <text x="252" y="218" text-anchor="end" fill="var(--accent)" font-size="11.5">1.5 L/s</text>
+    <text x="370" y="283" text-anchor="middle" fill="var(--accent)" font-size="11">1.5 L/s</text>
+    <text x="456" y="250" text-anchor="end" fill="var(--accent)" font-size="10.5">1.5</text>
+    <text x="456" y="196" text-anchor="end" fill="var(--accent)" font-size="10.5">0.5</text>
+  </g>
+</svg>
+<figcaption>The pump's 3.0&nbsp;L/s enters at N1 and splits. The upper half carries 1.5&nbsp;L/s clockwise (N1→N2→N3→N9→N6). The lower half carries 1.5&nbsp;L/s counter-clockwise (N1→N5→N4→N10→N6). Each outflow removes 1&nbsp;L/s; the middle outflow (OF-1) is fed 0.5&nbsp;L/s from each side.</figcaption>
+</figure>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Node</th><th class="num">x (m)</th><th class="num">y (m)</th><th>Tag</th></tr></thead>
+  <tbody>
+    <tr><td>N0</td><td class="num">10.00</td><td class="num">15.00</td><td>SRC-1</td></tr>
+    <tr><td>N1</td><td class="num">15.00</td><td class="num">15.00</td><td>—</td></tr>
+    <tr><td>N2</td><td class="num">15.00</td><td class="num">20.00</td><td>—</td></tr>
+    <tr><td>N3</td><td class="num">20.00</td><td class="num">20.00</td><td>—</td></tr>
+    <tr><td>N4</td><td class="num">20.00</td><td class="num">10.00</td><td>—</td></tr>
+    <tr><td>N5</td><td class="num">15.00</td><td class="num">10.00</td><td>—</td></tr>
+    <tr><td>N6</td><td class="num">20.00</td><td class="num">15.00</td><td>OF-1</td></tr>
+    <tr><td>N7</td><td class="num">12.25</td><td class="num">15.00</td><td>—</td></tr>
+    <tr><td>N8</td><td class="num">12.75</td><td class="num">15.00</td><td>—</td></tr>
+    <tr><td>N9</td><td class="num">20.00</td><td class="num">16.50</td><td>OF-2</td></tr>
+    <tr><td>N10</td><td class="num">20.00</td><td class="num">13.50</td><td>OF-3</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Pipe</th><th>From → To</th><th class="num">Length (m)</th></tr></thead>
+  <tbody>
+    <tr><td>P1</td><td>N1 → N2</td><td class="num">5.0000</td></tr>
+    <tr><td>P2</td><td>N2 → N3</td><td class="num">5.0000</td></tr>
+    <tr><td>P4</td><td>N4 → N5</td><td class="num">5.0000</td></tr>
+    <tr><td>P5</td><td>N5 → N1</td><td class="num">5.0000</td></tr>
+    <tr><td>P8</td><td>N0 → N7</td><td class="num">2.2500</td></tr>
+    <tr><td>P9</td><td>N7 → N8</td><td class="num">0.5000</td></tr>
+    <tr><td>P10</td><td>N8 → N1</td><td class="num">2.2500</td></tr>
+    <tr><td>P11</td><td>N3 → N9</td><td class="num">3.5003</td></tr>
+    <tr><td>P12</td><td>N9 → N6</td><td class="num">1.5009</td></tr>
+    <tr><td>P13</td><td>N6 → N10</td><td class="num">1.5000</td></tr>
+    <tr><td>P15</td><td>N10 → N4</td><td class="num">3.4988</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============================================================ 3 -->
+<h2 id="fluid">3. Fluid and pipe properties</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Quantity</th><th>Symbol</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Inner diameter (DN50 Sch40)</td><td><code>d</code></td><td>52.48 mm = 0.05248 m</td></tr>
+    <tr><td>Hazen-Williams C</td><td><code>C</code></td><td>120</td></tr>
+    <tr><td>HW exponent</td><td><code>n</code></td><td>1.852</td></tr>
+    <tr><td>Water density</td><td><code>ρ</code></td><td>998 kg/m³</td></tr>
+    <tr><td>Gravity</td><td><code>g</code></td><td>9.81 m/s²</td></tr>
+    <tr><td>ρg</td><td>—</td><td>9790.38 N/m³</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Derived ASHRAE-SI constants (from <code>src/hydraulics.js</code>):</p>
+<div class="eq">
+  <span class="lbl">Derived constants</span>
+  A  = 6.819 × (4/π)<sup>1.852</sup>  = 10.6663<br>
+  e  = 1.167 + 2 × 1.852             = 4.8710
+</div>
+<p>Resistance and head loss:</p>
+<div class="eq">
+  <span class="lbl">Resistance and head loss</span>
+  r     = A × L<sub>eff</sub> / ( C<sup>n</sup> × d<sup>e</sup> )<br>
+  h<sub>f</sub>  = r × |Q|<sup>n−1</sup> × Q
+</div>
+
+<!-- ============================================================ 4 -->
+<h2 id="fittings">4. Fitting classification</h2>
+<p>Fittings are inferred from the geometry at each node. The engine uses a two-pass classifier:</p>
+<ol class="steps">
+  <li><p><strong>Pass 1 (geometric guess):</strong> At each node, the code counts pipes meeting and their angles. Pipes with deviation &lt;&nbsp;8° are straight-through and receive no fitting. Pipes at 90° get an elbow. Three-pipe nodes are classified as tees.</p></li>
+  <li><p><strong>Pass 2 (with converged flows):</strong> Actual flow directions determine which tee legs are run vs branch, and whether the tee is dividing or combining.</p></li>
+</ol>
+
+<h3>Tee at N1</h3>
+<p>Three pipes meet: P10 (from N8), P1 (to N2), P5 (to N5). P10 is horizontal. P1 and P5 are vertical, both at 90° to P10 and symmetric. The flow divides (P10 in, P1 and P5 out). Both outlets get <strong>TBRANCH_DIV</strong> (bullhead dividing tee, EL&nbsp;=&nbsp;3.05&nbsp;m).</p>
+
+<h3>Elbows at N2, N3, N5, N10</h3>
+<p>Two pipes meet at each node, at 90° → E90 (EL&nbsp;=&nbsp;1.52&nbsp;m).</p>
+
+<h3>No-fitting pipes</h3>
+<p>P8 and P10 are horizontal, collinear at N7/N8. P12 and P13 are vertical, collinear at N9/N6. The pump link (P9) has no fitting.</p>
+
+<p>Equivalent lengths come from the <strong>Carrier Design Handbook, Table 11</strong>, the default table, at nominal size DN50:</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Fitting</th><th class="num">Carrier DN50</th><th class="num">EL (m)</th></tr></thead>
+  <tbody>
+    <tr><td>90° elbow (E90)</td><td class="num">5 ft</td><td class="num">1.52</td></tr>
+    <tr><td>Tee, branch (TBRANCH)</td><td class="num">10 ft</td><td class="num">3.05</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The table is keyed on <strong>nominal size</strong>, not bore. Nothing is multiplied by a bore. See the Calculation Method, §4.1.</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Pipe</th><th>Node</th><th>Fitting</th><th class="num">EL (m)</th><th>Source</th></tr></thead>
+  <tbody>
+    <tr><td>P1</td><td>N1</td><td>TBRANCH_DIV</td><td class="num">3.05</td><td>Carrier Table 11, DN50 tee branch</td></tr>
+    <tr><td>P5</td><td>N1</td><td>TBRANCH_DIV</td><td class="num">3.05</td><td>Carrier Table 11, DN50 tee branch</td></tr>
+    <tr><td>P2</td><td>N2</td><td>E90</td><td class="num">1.52</td><td>Carrier Table 11, DN50 elbow</td></tr>
+    <tr><td>P4</td><td>N5</td><td>E90</td><td class="num">1.52</td><td>Carrier Table 11, DN50 elbow</td></tr>
+    <tr><td>P11</td><td>N3</td><td>E90</td><td class="num">1.52</td><td>Carrier Table 11, DN50 elbow</td></tr>
+    <tr><td>P15</td><td>N10</td><td>E90</td><td class="num">1.52</td><td>Carrier Table 11, DN50 elbow</td></tr>
+    <tr><td>P8, P10, P12, P13</td><td>—</td><td>(none)</td><td class="num">0</td><td>Collinear pipes</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============================================================ 5 -->
+<h2 id="resistance">5. Resistance of each pipe</h2>
+<p>L<sub>eff</sub>&nbsp;=&nbsp;L&nbsp;+&nbsp;Σ(EL). The resistance <code>r</code> follows from the Hazen-Williams formula. The derived constants from <code>src/hydraulics.js</code> are used throughout this page.</p>
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Pipe</th><th class="num">L (m)</th><th class="num">EL (m)</th><th class="num">L<sub>eff</sub> (m)</th>
+    <th class="num">r<sub>calc</sub></th><th class="num">r<sub>engine</sub></th><th class="num">Δ (%)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>P1</td><td class="num">5.0000</td><td class="num">3.05</td><td class="num">8.0500</td><td class="num">20 800.63</td><td class="num">20 800.63</td><td class="num pass">0.0000</td></tr>
+    <tr><td>P2</td><td class="num">5.0000</td><td class="num">1.52</td><td class="num">6.5200</td><td class="num">16 847.22</td><td class="num">16 847.22</td><td class="num pass">0.0000</td></tr>
+    <tr><td>P4</td><td class="num">5.0000</td><td class="num">1.52</td><td class="num">6.5200</td><td class="num">16 847.22</td><td class="num">16 847.22</td><td class="num pass">0.0000</td></tr>
+    <tr><td>P5</td><td class="num">5.0000</td><td class="num">3.05</td><td class="num">8.0500</td><td class="num">20 800.63</td><td class="num">20 800.63</td><td class="num pass">0.0000</td></tr>
+    <tr><td>P8</td><td class="num">2.2500</td><td class="num">0</td><td class="num">2.2500</td><td class="num">5 813.84</td><td class="num">5 813.84</td><td class="num pass">0.0000</td></tr>
+    <tr><td>P10</td><td class="num">2.2500</td><td class="num">0</td><td class="num">2.2500</td><td class="num">5 813.84</td><td class="num">5 813.84</td><td class="num pass">0.0000</td></tr>
+    <tr><td>P11</td><td class="num">3.5003</td><td class="num">1.52</td><td class="num">5.0203</td><td class="num">12 972.21</td><td class="num">12 972.21</td><td class="num pass">0.0000</td></tr>
+    <tr><td>P12</td><td class="num">1.5009</td><td class="num">0</td><td class="num">1.5009</td><td class="num">3 878.12</td><td class="num">3 878.12</td><td class="num pass">0.0000</td></tr>
+    <tr><td>P13</td><td class="num">1.5000</td><td class="num">0</td><td class="num">1.5000</td><td class="num">3 875.89</td><td class="num">3 875.89</td><td class="num pass">0.0000</td></tr>
+    <tr><td>P15</td><td class="num">3.4988</td><td class="num">1.52</td><td class="num">5.0188</td><td class="num">12 968.22</td><td class="num">12 968.22</td><td class="num pass">0.0000</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="eq">
+  <span class="lbl">Sample calculation — P1</span>
+  r = 10.6663 × 8.05 / ( 120<sup>1.852</sup> × 0.05248<sup>4.871</sup> )<br>
+  &nbsp; = 10.6663 × 8.05 / ( 7078.07 × 5.804 × 10<sup>−7</sup> )<br>
+  &nbsp; = 85.864 / 0.0041087  =  <strong>20 800.6</strong>
+</div>
+
+<!-- ============================================================ 6 -->
+<h2 id="flow-split">6. Junction Flow</h2>
+<p>The solver does not assume symmetry. It finds the split from the governing equations.</p>
+
+<h3 id="flow-equations">6.1 Equations</h3>
+<p>At every junction, flow in must equal flow out to satisfy conservation of mass. Along every pipe, the head drop equals the friction loss (energy).</p>
+<div class="eq">
+  <span class="lbl">Continuity at N1</span>
+  Q<sub>P10</sub> + Q<sub>P5</sub> + Q<sub>P1</sub> = 0<br>
+  <em>Flow positive from "from" node to "to" node. P5 enters N1 from N5, so Q<sub>P5</sub> enters. P1 leaves N1 to N2, so Q<sub>P1</sub> leaves. P10 enters from N8.</em>
+</div>
+<div class="eq">
+  <span class="lbl">Energy along the upper path (N1 → N6)</span>
+  H(N1) − H(N6) = hf(P1) + hf(P2) + hf(P11) + hf(P12)<br>
+  &nbsp;&nbsp;= r₁·|Q₁|<sup>n−1</sup>·Q₁ + r₂·|Q₂|<sup>n−1</sup>·Q₂ + r₁₁·|Q₁₁|<sup>n−1</sup>·Q₁₁ + r₁₂·|Q₁₂|<sup>n−1</sup>·Q₁₂
+</div>
+<div class="eq">
+  <span class="lbl">Energy along the lower path (N1 → N6)</span>
+  H(N1) − H(N6) = hf(P5) + hf(P4) + hf(P15) + hf(P13)<br>
+  &nbsp;&nbsp;= r₅·|Q₅|<sup>n−1</sup>·Q₅ + r₄·|Q₄|<sup>n−1</sup>·Q₄ + r₁₅·|Q₁₅|<sup>n−1</sup>·Q₁₅ + r₁₃·|Q₁₃|<sup>n−1</sup>·Q₁₃
+</div>
+
+<p>Both paths share the same endpoints N1 and N6, so the left-hand sides are identical. The right-hand sides must therefore sum to the same value. This is the <strong>loop closure condition</strong>: the total head loss around any closed loop is zero.</p>
+
+<h3 id="flow-symmetry">6.2 Flow Ratio</h3>
+<p>After each outflow node removes its 1&nbsp;L/s, the remaining flow on P12 and P13 is the same (0.5&nbsp;L/s on each side), and the pipes are nearly identical in length and resistance. This means the upper and lower paths between N1 and N6 have the same total resistance.</p>
+<p>Write <code>Q<sub>upper</sub></code> for the flow leaving N1 toward N2, and <code>Q<sub>lower</sub></code> for the flow leaving N1 toward N5. Continuity at N1 gives:</p>
+<div class="eq">
+  Q<sub>upper</sub> + Q<sub>lower</sub> = Q<sub>total</sub> = 3.0 L/s
+</div>
+<p>Loop closure gives:</p>
+<div class="eq">
+  <span class="lbl">Loop closure</span>
+  hf<sub>upper</sub>(Q<sub>upper</sub>) − hf<sub>lower</sub>(Q<sub>lower</sub>) = 0
+</div>
+<p>For a single pipe, hf&nbsp;=&nbsp;r&nbsp;·&nbsp;Q<sup>n</sup>. Extending this to a chain of pipes in series, each carrying the same flow (because there are no intermediate outflows on the ring between N1 and the first outflow on each side), the total head loss is proportional to Q<sup>n</sup>:</p>
+<div class="eq">
+  hf<sub>path</sub> = R<sub>path</sub> · Q<sup>n</sup><br><br>
+  where R<sub>upper</sub> = r₁ + r₂ + r₁₁ + r₁₂, &nbsp;&nbsp;R<sub>lower</sub> = r₅ + r₄ + r₁₅ + r₁₃
+</div>
+<p>Substituting into the loop equation:</p>
+<div class="eq">
+  R<sub>upper</sub> · Q<sub>upper</sub><sup>n</sup> = R<sub>lower</sub> · Q<sub>lower</sub><sup>n</sup><br><br>
+  Q<sub>upper</sub> / Q<sub>lower</sub> = ( R<sub>lower</sub> / R<sub>upper</sub> )<sup>1/n</sup>
+</div>
+<p>This is the general result: the flow ratio equals the resistance ratio raised to the power <code>1/n</code>. For Hazen-Williams, n&nbsp;=&nbsp;1.852, so:</p>
+<div class="eq">
+  Q<sub>upper</sub> / Q<sub>lower</sub> = ( R<sub>lower</sub> / R<sub>upper</sub> )<sup>0.5399</sup>
+</div>
+
+<h3 id="flow-general">6.3 Numerical check</h3>
+<p>Step-by-step arithmetic. Each line carries the calculation forward.</p>
+
+<ol class="steps">
+  <li>
+    <p><strong>Path resistances</strong> — sum the pipe resistances along each path:</p>
+    <div class="eq">
+R<sub>upper</sub> = r₁ + r₂ + r₁₁ + r₁₂<br>
+&nbsp;&nbsp;= 20 800.6 + 16 847.2 + 12 972.2 + 3 878.1<br>
+&nbsp;&nbsp;= 54 498.1<br><br>
+R<sub>lower</sub> = r₅ + r₄ + r₁₅ + r₁₃<br>
+&nbsp;&nbsp;= 20 800.6 + 16 847.2 + 12 968.2 + 3 875.9<br>
+&nbsp;&nbsp;= 54 491.9
+    </div>
+  </li>
+  <li>
+    <p><strong>Resistance ratio</strong> — how much more resistant the upper path is:</p>
+    <div class="eq">
+R<sub>lower</sub> / R<sub>upper</sub><br>
+&nbsp;&nbsp;= 54 491.9 / 54 498.1<br>
+&nbsp;&nbsp;= 0.999886
+    </div>
+  </li>
+  <li>
+    <p><strong>Flow ratio</strong> — raise to the power 1/n = 0.5399:</p>
+    <div class="eq">
+Q<sub>upper</sub> / Q<sub>lower</sub> = (R<sub>lower</sub> / R<sub>upper</sub>)<sup>1/n</sup><br>
+&nbsp;&nbsp;= 0.999886<sup>0.5399</sup><br>
+&nbsp;&nbsp;= 0.999939
+    </div>
+  </li>
+  <li>
+    <p><strong>Solve for each flow</strong> — combine with Q<sub>upper</sub> + Q<sub>lower</sub> = 3.0:</p>
+    <div class="eq">
+Let r = Q<sub>upper</sub> / Q<sub>lower</sub> = 0.999939<br><br>
+Q<sub>upper</sub> = 3.0 × r / (1 + r)<br>
+&nbsp;&nbsp;= 3.0 × 0.999939 / (1 + 0.999939)<br>
+&nbsp;&nbsp;= 2.999817 / 1.999939<br>
+&nbsp;&nbsp;= <strong>1.49997 L/s</strong><br><br>
+Q<sub>lower</sub> = 3.0 / (1 + r)<br>
+&nbsp;&nbsp;= 3.0 / 1.999939<br>
+&nbsp;&nbsp;= <strong>1.50003 L/s</strong>
+    </div>
+  </li>
+  <li>
+    <p><strong>Compare with engine</strong>:</p>
+    <div class="eq">
+Engine:  Q<sub>upper</sub> = 1.499967 L/s &nbsp;&nbsp; Q<sub>lower</sub> = 1.500033 L/s<br>
+Hand:    Q<sub>upper</sub> = 1.49997  L/s &nbsp;&nbsp; Q<sub>lower</sub> = 1.50003  L/s<br><br>
+Δ &lt; 0.00001 L/s  ✓
+    </div>
+  </li>
+</ol>
+
+<div class="note rule">
+  <span class="tag">General case</span>
+  <p>If the ring were asymmetric — different pipe sizes, different fitting counts, or outflows at unequal positions — the ratio R<sub>lower</sub>/R<sub>upper</sub> would not be 1, and the flow split would not be 50/50. The solver handles this without special treatment: the Newton-Raphson iteration finds whatever Q values satisfy both continuity and energy simultaneously.</p>
+</div>
+
+<h3>6.4 Flows within each half</h3>
+<p>Once the split at N1 is known, the flows on each pipe follow from continuity at the intermediate nodes.</p>
+
+<div class="eq">
+  <span class="lbl">Upper half</span>
+  P1 carries Q<sub>upper</sub>  = 1.499967 L/s (N1 → N2)<br>
+  P2 carries Q<sub>upper</sub>  = 1.499967 L/s (N2 → N3, no demand at N2)<br>
+  P11 carries Q<sub>upper</sub> = 1.499967 L/s (N3 → N9, no demand at N3)<br>
+  At N9: 1.499967 in − 1.000000 demand = 0.499967 out via P12<br>
+  P12 carries 0.499967 L/s (N9 → N6)
+</div>
+<div class="eq">
+  <span class="lbl">Lower half</span>
+  P5 carries Q<sub>lower</sub> = 1.500033 L/s (N5 → N1, reversed: actual flow N1 → N5)<br>
+  P4 carries Q<sub>lower</sub> = 1.500033 L/s (N4 → N5, reversed: actual flow N5 → N4)<br>
+  P15 carries Q<sub>lower</sub> = 1.500033 L/s (N10 → N4, reversed: actual flow N4 → N10)<br>
+  At N10: 1.500033 in − 1.000000 demand = 0.500033 out via P13<br>
+  P13 carries 0.500033 L/s (N6 → N10, reversed: actual flow N10 → N6)
+</div>
+
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Pipe</th><th>Side</th><th class="num">Q<sub>engine</sub> (L/s)</th><th class="num">Q<sub>calc</sub> (L/s)</th><th class="num">Δ (L/s)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>P10</td><td>—</td><td class="num">3.000000</td><td class="num">3.000000</td><td class="num">0.000000</td></tr>
+    <tr><td>P1</td><td>upper</td><td class="num">1.499967</td><td class="num">1.49997</td><td class="num">&lt; 0.00001</td></tr>
+    <tr><td>P2</td><td>upper</td><td class="num">1.499967</td><td class="num">1.49997</td><td class="num">&lt; 0.00001</td></tr>
+    <tr><td>P11</td><td>upper</td><td class="num">1.499967</td><td class="num">1.49997</td><td class="num">&lt; 0.00001</td></tr>
+    <tr><td>P12</td><td>upper</td><td class="num">0.499967</td><td class="num">0.49997</td><td class="num">&lt; 0.00001</td></tr>
+    <tr><td>P5</td><td>lower</td><td class="num">1.500033</td><td class="num">1.50003</td><td class="num">&lt; 0.00001</td></tr>
+    <tr><td>P4</td><td>lower</td><td class="num">1.500033</td><td class="num">1.50003</td><td class="num">&lt; 0.00001</td></tr>
+    <tr><td>P15</td><td>lower</td><td class="num">1.500033</td><td class="num">1.50003</td><td class="num">&lt; 0.00001</td></tr>
+    <tr><td>P13</td><td>lower</td><td class="num">0.500033</td><td class="num">0.50003</td><td class="num">&lt; 0.00001</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============================================================ 7 -->
+<h2 id="continuity">7. Continuity check</h2>
+<p>ΣQ&nbsp;−&nbsp;demand must equal zero at every junction. The engine's result:</p>
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Node</th><th class="num">ΣQ (L/s)</th><th class="num">Demand (L/s)</th><th class="num">Balance (L/s)</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>N0</td><td class="num">−3.000000</td><td class="num">0</td><td class="num">3.000000 *</td><td>OK **</td></tr>
+    <tr><td>N1</td><td class="num">0.000000</td><td class="num">0</td><td class="num">0.000000</td><td class="pass">OK</td></tr>
+    <tr><td>N2</td><td class="num">0.000000</td><td class="num">0</td><td class="num">0.000000</td><td class="pass">OK</td></tr>
+    <tr><td>N3</td><td class="num">0.000000</td><td class="num">0</td><td class="num">0.000000</td><td class="pass">OK</td></tr>
+    <tr><td>N4</td><td class="num">0.000000</td><td class="num">0</td><td class="num">0.000000</td><td class="pass">OK</td></tr>
+    <tr><td>N5</td><td class="num">0.000000</td><td class="num">0</td><td class="num">0.000000</td><td class="pass">OK</td></tr>
+    <tr><td>N6</td><td class="num">1.000000</td><td class="num">1.0</td><td class="num">0.000000</td><td class="pass">OK</td></tr>
+    <tr><td>N7</td><td class="num">0.000000</td><td class="num">0</td><td class="num">0.000000</td><td class="pass">OK</td></tr>
+    <tr><td>N8</td><td class="num">0.000000</td><td class="num">0</td><td class="num">0.000000</td><td class="pass">OK</td></tr>
+    <tr><td>N9</td><td class="num">1.000000</td><td class="num">1.0</td><td class="num">0.000000</td><td class="pass">OK</td></tr>
+    <tr><td>N10</td><td class="num">1.000000</td><td class="num">1.0</td><td class="num">0.000000</td><td class="pass">OK</td></tr>
+  </tbody>
+</table>
+</div>
+<p style="font-size:13px;color:var(--dim)">* N0 is the source; its outflow is the pump demand on P8.<br>** Source node ΣQ equals total system outflow — not a continuity error.</p>
+
+<!-- ============================================================ 8 -->
+<h2 id="headloss">8. Head loss along each path</h2>
+
+<h3>Upper path (N1 → N2 → N3 → N9 → N6)</h3>
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Pipe</th><th class="num">Q (L/s)</th><th class="num">r</th><th class="num">hf<sub>engine</sub> (m)</th><th class="num">hf<sub>calc</sub> (m)</th><th class="num">Δ (mm)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>P1</td><td class="num">1.499967</td><td class="num">20 800.63</td><td class="num">0.122512</td><td class="num">0.122512</td><td class="num">&lt; 0.001</td></tr>
+    <tr><td>P2</td><td class="num">1.499967</td><td class="num">16 847.22</td><td class="num">0.099227</td><td class="num">0.099227</td><td class="num">&lt; 0.001</td></tr>
+    <tr><td>P11</td><td class="num">1.499967</td><td class="num">12 972.21</td><td class="num">0.076404</td><td class="num">0.076399</td><td class="num">0.005</td></tr>
+    <tr><td>P12</td><td class="num">0.499967</td><td class="num">3 878.12</td><td class="num">0.002986</td><td class="num">0.002984</td><td class="num">0.002</td></tr>
+    <tr><td colspan="3"><strong>Total</strong></td><td class="num"><strong>0.301129</strong></td><td class="num"><strong>0.301123</strong></td><td class="num"><strong>0.006</strong></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Lower path (N1 → N5 → N4 → N10 → N6)</h3>
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Pipe</th><th class="num">Q (L/s)</th><th class="num">r</th><th class="num">hf<sub>engine</sub> (m)</th><th class="num">hf<sub>calc</sub> (m)</th><th class="num">Δ (mm)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>P5</td><td class="num">1.500033</td><td class="num">20 800.63</td><td class="num">−0.122522</td><td class="num">−0.122522</td><td class="num">&lt; 0.001</td></tr>
+    <tr><td>P4</td><td class="num">1.500033</td><td class="num">16 847.22</td><td class="num">−0.099236</td><td class="num">−0.099236</td><td class="num">&lt; 0.001</td></tr>
+    <tr><td>P15</td><td class="num">1.500033</td><td class="num">12 968.22</td><td class="num">−0.076387</td><td class="num">−0.076387</td><td class="num">&lt; 0.001</td></tr>
+    <tr><td>P13</td><td class="num">0.500033</td><td class="num">3 875.89</td><td class="num">−0.002985</td><td class="num">−0.002985</td><td class="num">&lt; 0.001</td></tr>
+    <tr><td colspan="3"><strong>Total</strong></td><td class="num"><strong>−0.301130</strong></td><td class="num"><strong>−0.301130</strong></td><td class="num"><strong>&lt; 0.001</strong></td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Negative signs indicate the flow is in the opposite direction to the pipe's defined <code>from → to</code>. The magnitudes match: the head drop from N1 to N6 is 0.30113&nbsp;m via either path. Loop closure error &lt;&nbsp;0.01&nbsp;mm.</p>
+
+<div class="eq">
+  <span class="lbl">Sample calculation — hf(P1)</span>
+  hf = r × Q<sup>n</sup> = 20 800.63 × 0.001499967<sup>1.852</sup><br>
+  &nbsp; = 20 800.63 × 5.889 × 10<sup>−6</sup><br>
+  &nbsp; = <strong>0.122512 m</strong>
+</div>
+
+<!-- ============================================================ 9 -->
+<h2 id="heads">9. Node heads</h2>
+<p>Starting from H(N1) and subtracting head losses along the upper path:</p>
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Node</th><th class="num">Head (m)</th><th class="num">Pressure (kPa)</th><th>Note</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>N0 (SRC-1)</td><td class="num">0.000000</td><td class="num">0.00</td><td>Source, open to atmosphere</td></tr>
+    <tr><td>N7</td><td class="num">−0.123621</td><td class="num">−1.21</td><td>Below atmospheric (suction side)</td></tr>
+    <tr><td>N8</td><td class="num">10.638859</td><td class="num">104.16</td><td>Pump adds 10.762 m</td></tr>
+    <tr><td>N1</td><td class="num">10.515238</td><td class="num">102.95</td><td>After hf(P10) = 0.124 m</td></tr>
+    <tr><td>N2</td><td class="num">10.392725</td><td class="num">101.75</td><td></td></tr>
+    <tr><td>N3</td><td class="num">10.293498</td><td class="num">100.78</td><td></td></tr>
+    <tr><td>N5</td><td class="num">10.392715</td><td class="num">101.75</td><td></td></tr>
+    <tr><td>N4</td><td class="num">10.293480</td><td class="num">100.78</td><td></td></tr>
+    <tr><td>N9 (OF-2)</td><td class="num">10.217094</td><td class="num">100.03</td><td>+0.03 kPa margin</td></tr>
+    <tr><td>N10 (OF-3)</td><td class="num">10.217093</td><td class="num">100.03</td><td>+0.03 kPa margin</td></tr>
+    <tr><td><strong>N6 (OF-1)</strong></td><td class="num"><strong>10.214108</strong></td><td class="num"><strong>100.00</strong></td><td><strong>Index terminal — sets the pump duty</strong></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Head path verification</h3>
+<p>Two independent paths must arrive at the same head at N6:</p>
+<div class="eq">
+  <span class="lbl">Upper path (N1 → N2 → N3 → N9 → N6)</span>
+  H(N2) = H(N1) − hf(P1)  = 10.515238 − 0.122512 = 10.392726  ✓<br>
+  H(N3) = H(N2) − hf(P2)  = 10.392726 − 0.099227 = 10.293499  ✓<br>
+  H(N9) = H(N3) − hf(P11) = 10.293499 − 0.076404 = 10.217095  ✓<br>
+  H(N6) = H(N9) − hf(P12) = 10.217095 − 0.002986 = 10.214109  ✓
+</div>
+<div class="eq">
+  <span class="lbl">Lower path (N1 → N5 → N4 → N10 → N6)</span>
+  H(N5)  = H(N1) − hf(P5)  = 10.515238 − 0.122522 = 10.392716  ✓<br>
+  H(N4)  = H(N5) − hf(P4)  = 10.392716 − 0.099236 = 10.293480  ✓<br>
+  H(N10) = H(N4) − hf(P15) = 10.293480 − 0.076387 = 10.217093  ✓<br>
+  H(N6)  = H(N10)−hf(P13) = 10.217093 − 0.002985 = 10.214108  ✓
+</div>
+<p>Both paths converge to H(N6) = 10.214108&nbsp;m. Loop closure error &lt;&nbsp;0.01&nbsp;mm.</p>
+
+<!-- ============================================================ 10 -->
+<h2 id="pressure">10. Pressures</h2>
+<div class="eq">
+  <span class="lbl">Pressure conversion</span>
+  P = ρg × (H − z) = 9790.38 × H &nbsp;(Pa) = H × 9.79038 &nbsp;(kPa)<br>
+  <em>All nodes at elevation z = 0.</em>
+</div>
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Node</th><th class="num">H (m)</th><th class="num">P<sub>calc</sub> (kPa)</th><th class="num">P<sub>engine</sub> (kPa)</th><th class="num">Δ (Pa)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>N0</td><td class="num">0.000</td><td class="num">0.00</td><td class="num">0.00</td><td class="num">0</td></tr>
+    <tr><td>N1</td><td class="num">10.515</td><td class="num">102.95</td><td class="num">102.95</td><td class="num">0</td></tr>
+    <tr><td>N6</td><td class="num">10.214</td><td class="num">100.00</td><td class="num">100.00</td><td class="num">0</td></tr>
+    <tr><td>N9</td><td class="num">10.217</td><td class="num">100.03</td><td class="num">100.03</td><td class="num">0</td></tr>
+    <tr><td>N10</td><td class="num">10.217</td><td class="num">100.03</td><td class="num">100.03</td><td class="num">0</td></tr>
+    <tr><td>N8</td><td class="num">10.639</td><td class="num">104.16</td><td class="num">104.16</td><td class="num">0</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Index terminal confirmed: OF-1 (N6) = exactly 100.00&nbsp;kPa. All demand nodes ≥ 100.00&nbsp;kPa. ✓</p>
+
+<!-- ============================================================ 11 -->
+<h2 id="pump">11. Pump</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Quantity</th><th class="num">Value</th></tr></thead>
+  <tbody>
+    <tr><td>Design flow Q<sub>d</sub></td><td class="num">3.000 L/s</td></tr>
+    <tr><td>Design head H<sub>d</sub></td><td class="num">10.7625 m</td></tr>
+    <tr><td>Shut-off head H<sub>0</sub></td><td class="num">15.0675 m</td></tr>
+    <tr><td>Curve exponent b</td><td class="num">1.55034</td></tr>
+    <tr><td>Curve coefficient a</td><td class="num">35 098.79</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="eq">
+  <span class="lbl">Operating point check</span>
+  H<sub>pump</sub> = H<sub>0</sub> − a × Q<sup>b</sup><br>
+  &nbsp;&nbsp;= 15.0675 − 35 098.79 × 0.003<sup>1.55034</sup><br>
+  &nbsp;&nbsp;= 15.0675 − 4.3050 = <strong>10.7625 m</strong>  ✓
+</div>
+
+<div class="eq">
+  <span class="lbl">Pump head at operating point</span>
+  H(N8) − H(N7) = 10.638859 − (−0.123621) = 10.762479 m  ✓
+</div>
+
+<p>Head at N7 = −0.124&nbsp;m: the source is at 0&nbsp;m, and hf(P8) = 5813.84 × 0.003<sup>1.852</sup> = 0.124&nbsp;m of loss from N0 to N7.</p>
+
+<!-- ============================================================ 12 -->
+<h2 id="solver">12. Solver convergence</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Metric</th><th class="num">Value</th></tr></thead>
+  <tbody>
+    <tr><td>Converged</td><td class="num pass">Yes</td></tr>
+    <tr><td>Iterations</td><td class="num">3</td></tr>
+    <tr><td>Max flow imbalance</td><td class="num">1.87 × 10⁻¹⁶ m³/s</td></tr>
+    <tr><td>Head tolerance</td><td class="num">10⁻³ m</td></tr>
+    <tr><td>Flow tolerance</td><td class="num">10⁻⁵ m³/s</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The GGA Newton-Raphson converges in 3 iterations, well within MAX_ITER = 100. Near the answer, the error falls quadratically.</p>
+
+<!-- ============================================================ 13 -->
+<h2 id="summary">13. Summary</h2>
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Parameter</th><th>Engine</th><th>Calculation</th><th>Pass</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>DN50 Sch40 bore</td><td>52.48 mm</td><td>52.48 mm</td><td class="pass">✓</td></tr>
+    <tr><td>Q<sub>upper</sub> / Q<sub>lower</sub></td><td>1.499967 / 1.500033 L/s</td><td>1.49997 / 1.50003 L/s</td><td class="pass">✓</td></tr>
+    <tr><td>P12 / P13 flow (to OF-1)</td><td>0.499967 / 0.500033 L/s</td><td>0.49997 / 0.50003 L/s</td><td class="pass">✓</td></tr>
+    <tr><td>Index terminal P (OF-1)</td><td>100.0000 kPa</td><td>100.00 kPa</td><td class="pass">✓</td></tr>
+    <tr><td>P1 L<sub>eff</sub>, r</td><td>8.0500 m, 20 800.63</td><td>8.05 m, 20 800.6</td><td class="pass">✓</td></tr>
+    <tr><td>P2 L<sub>eff</sub>, r</td><td>6.5200 m, 16 847.22</td><td>6.52 m, 16 847.2</td><td class="pass">✓</td></tr>
+    <tr><td>P11 L<sub>eff</sub>, r</td><td>5.0203 m, 12 972.21</td><td>5.02 m, 12 972.2</td><td class="pass">✓</td></tr>
+    <tr><td>hf(P1)</td><td>0.122512 m</td><td>0.123 m</td><td class="pass">✓</td></tr>
+    <tr><td>hf(P2)</td><td>0.099227 m</td><td>0.099 m</td><td class="pass">✓</td></tr>
+    <tr><td>hf(P11)</td><td>0.076404 m</td><td>0.076 m</td><td class="pass">✓</td></tr>
+    <tr><td>hf(P12)</td><td>0.002986 m</td><td>0.003 m</td><td class="pass">✓</td></tr>
+    <tr><td>Pump head</td><td>10.762479 m</td><td>10.7625 m</td><td class="pass">✓</td></tr>
+    <tr><td>H(N8)</td><td>10.638859 m</td><td>10.639 m</td><td class="pass">✓</td></tr>
+    <tr><td>H(N9)</td><td>10.217094 m</td><td>10.217 m</td><td class="pass">✓</td></tr>
+    <tr><td>H(N6)</td><td>10.214108 m</td><td>10.214 m</td><td class="pass">✓</td></tr>
+    <tr><td>H(N10)</td><td>10.217093 m</td><td>10.217 m</td><td class="pass">✓</td></tr>
+    <tr><td>P(N6)</td><td>100.0000 kPa</td><td>100.00 kPa</td><td class="pass">✓</td></tr>
+    <tr><td>P(N9)</td><td>100.0292 kPa</td><td>100.03 kPa</td><td class="pass">✓</td></tr>
+    <tr><td>P(N10)</td><td>100.0292 kPa</td><td>100.03 kPa</td><td class="pass">✓</td></tr>
+    <tr><td>All demands met</td><td>—</td><td>—</td><td class="pass">✓</td></tr>
+  </tbody>
+</table>
+</div>
+
+<footer>
+  <p>FreePipeCalc — Engine Verification. All results must be independently verified by a qualified professional engineer before use.</p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>

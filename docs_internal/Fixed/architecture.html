@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreePipeCalc — Architecture</title>
+<style>
+/* Self-contained: no fonts, no scripts, no network. The page must open from a
+   USB stick with a double-click, which is the same rule the app follows. */
+:root{
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+/* Dark by the reader's own setting when the page stands alone... */
+@media (prefers-color-scheme:dark){ :root{ color-scheme:dark } :root:not([data-theme]){
+    --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+    --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+    --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+    --code-bg:#1e242c;
+} }
+/* ...and by the APP's setting when it is embedded in the DOCUMENTATION tab,
+   which passes ?theme=. An explicit theme wins over the media query in both
+   directions, so a dark app never shows a white page and the reverse. */
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+  --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+  --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+  --code-bg:#1e242c;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+/* Embedded: the page supplies its own margin, so drop the outer one and let the
+   host frame own the scroll edge. */
+:root[data-embed="1"] header.top{padding-top:22px}
+:root[data-embed="1"] .wrap{padding-bottom:40px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.62 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px 80px;display:flex;gap:36px;align-items:flex-start}
+main{flex:1 1 auto;min-width:0;max-width:760px}
+
+/* ---- masthead ---- */
+header.top{border-bottom:1px solid var(--line);margin-bottom:28px;padding:30px 0 18px}
+header.top h1{font-size:27px;line-height:1.2;margin:0 0 6px;letter-spacing:-.2px}
+header.top .sub{color:var(--dim);margin:0;font-size:14.5px}
+header.top .meta{color:var(--mute);font-size:12.5px;margin-top:10px}
+
+/* ---- contents rail ---- */
+nav.toc{
+  position:sticky;top:18px;flex:0 0 232px;align-self:flex-start;
+  font-size:13px;line-height:1.5;max-height:calc(100vh - 40px);overflow:auto;
+  border-left:1px solid var(--line-soft);padding-left:16px
+}
+nav.toc h2{font-size:11px;letter-spacing:.9px;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:s}
+nav.toc > ol > li{counter-increment:s;margin:0 0 3px}
+nav.toc > ol > li > a::before{content:counter(s) ". ";color:var(--mute)}
+nav.toc ol ol{padding-left:16px;margin:2px 0 6px}
+nav.toc ol ol li{margin:0}
+nav.toc a{color:var(--dim);text-decoration:none;display:block;padding:2px 0}
+nav.toc a:hover{color:var(--accent)}
+
+/* ---- headings ---- */
+h2{font-size:21px;margin:44px 0 12px;padding-top:10px;border-top:1px solid var(--line);letter-spacing:-.15px}
+h2:first-of-type{border-top:0;margin-top:0}
+h3{font-size:16.5px;margin:28px 0 8px}
+h4{font-size:14px;margin:20px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 14px;padding-left:22px}
+li{margin:0 0 5px}
+a{color:var(--accent)}
+strong{font-weight:650}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.9em;background:var(--code-bg);padding:1px 5px;border-radius:4px
+}
+
+/* ---- formulae ---- */
+.eq{
+  background:var(--panel);border:1px solid var(--line-soft);border-left:3px solid var(--accent);
+  border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;overflow-x:auto;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:1.75
+}
+.eq .lbl{display:block;font-family:system-ui,sans-serif;font-size:11.5px;
+  text-transform:uppercase;letter-spacing:.7px;color:var(--mute);margin-bottom:7px}
+.eq em{color:var(--mute);font-style:normal}
+.steps{counter-reset:step;list-style:none;padding-left:0;margin:16px 0}
+.steps > li{
+  counter-increment:step;position:relative;padding-left:38px;margin-bottom:14px
+}
+.steps > li::before{
+  content:counter(step);position:absolute;left:0;top:1px;
+  width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;
+  font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center
+}
+
+/* ---- tables ---- */
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th,td{border:1px solid var(--line-soft);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel);font-weight:600;font-size:13px}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto;margin:16px 0}
+.scroll table{margin:0}
+
+/* ---- callouts ---- */
+.note{border-radius:6px;padding:12px 15px;margin:16px 0;border:1px solid var(--line);background:var(--panel)}
+.note p:last-child{margin-bottom:0}
+.note .tag{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.8px;
+  font-weight:700;margin-bottom:6px}
+.note.check{border-left:3px solid var(--ok)} .note.check .tag{color:var(--ok)}
+.note.limit{border-left:3px solid var(--warn)} .note.limit .tag{color:var(--warn)}
+.note.rule{border-left:3px solid var(--accent)} .note.rule .tag{color:var(--accent)}
+
+figure{margin:22px 0}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:13px;color:var(--dim);margin-top:8px}
+
+.lead{font-size:16px;color:var(--dim);margin-bottom:20px}
+footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);
+  font-size:13px;color:var(--mute)}
+
+@media (max-width:1000px){
+  nav.toc{display:none}
+  .wrap{display:block;padding-bottom:50px}
+  main{max-width:none}
+}
+@media print{
+  nav.toc{display:none} .wrap{display:block;max-width:none}
+  body{font-size:10.5pt;color:#000;background:#fff}
+  h2{page-break-after:avoid} .eq,table,figure,.note{page-break-inside:avoid}
+  a{color:#000;text-decoration:none}
+}
+</style><style>
+/* Architecture-only additions: a rule callout and a load-order list. */
+.rules{counter-reset:r;list-style:none;padding-left:0;margin:16px 0}
+.rules > li{counter-increment:r;position:relative;padding-left:34px;margin-bottom:12px}
+.rules > li::before{content:counter(r);position:absolute;left:0;top:1px;width:22px;height:22px;
+  border-radius:5px;background:var(--panel);border:1px solid var(--line);color:var(--dim);
+  font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.layer{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;white-space:nowrap}
+.owner{color:var(--mute);font-size:12.5px}
+</style>
+<script>
+/* The ONLY script in this document, and it does one thing: let the app tell the
+   page which theme to draw in. A query string survives file:// where fetch and
+   postMessage-to-an-opaque-origin do not, so this is what works when the app is
+   opened by double-clicking index.html. With no parameter the page falls back to
+   the reader's own prefers-color-scheme, which is what it does when opened on
+   its own. */
+(function () {
+  try {
+    var q = new URLSearchParams(location.search);
+    var t = q.get('theme');
+    if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
+    if (q.get('embed') === '1') document.documentElement.dataset.embed = '1';
+  } catch (e) { /* no parameters, no problem: the media query still applies */ }
+})();
+</script></head>
+<body>
+<div class="wrap">
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#what">Purpose</a></li>
+    <li><a href="#constraints">Constraints</a></li>
+    <li><a href="#modules">Modules</a></li>
+    <li><a href="#flow">Data flow</a></li>
+    <li><a href="#disciplines">Disciplines</a></li>
+    <li><a href="#modes">Modes</a></li>
+    <li><a href="#model">Model</a></li>
+    <li><a href="#solve">Hydronic Network Solver</a></li>
+    <li><a href="#dw">Domestic Water</a></li>
+    <li><a href="#fittings">Fittings</a></li>
+    <li><a href="#canvas">Canvas and Panels</a></li>
+    <li><a href="#messages">Warnings and Errors</a></li>
+    <li><a href="#output">Output</a></li>
+    <li><a href="#testing">Testing</a></li>
+    <li><a href="#docs">Documentation</a></li>
+    <li><a href="#limits">Limitations</a></li>
+    <li><a href="#changing">Changes</a></li>
+  </ol>
+</nav>
+<main>
+<header class="top">
+  <h1>Architecture</h1>
+  <p class="sub">How FreePipeCalc is built, and why it is built this way. Read this before you change anything.</p>
+  <p class="meta">Current to v0.18.2. The calculation methods themselves are in <strong>Calculation Method</strong>.</p>
+</header>
+<!-- ============================================ 1 -->
+<h2 id="what">1. Purpose</h2>
+<p class="lead">A single-page application for Building Services Engineers. You draw a multi-level water network. It solves the flow distribution, the friction losses and the pump duty, then produces a calculation sheet and printable level plans.</p>
+<p>It is <strong>not</strong> a web application. It is a folder of files. You open <code>index.html</code> and it runs. There is no server, no installation, no build step, no network access.</p>
+
+<!-- ============================================ 2 -->
+<h2 id="constraints">2. Constraints</h2>
+<p>Three rules shape every decision in this program. Each one removes options that look attractive.</p>
+
+<h3>2.1 Run from <code>file://</code></h3>
+<p>This constraint has the widest effect.</p>
+<p>A browser treats a <code>file://</code> origin as opaque. Therefore these do not work when a user opens the folder by double-clicking:</p>
+<ul>
+  <li><code>&lt;script type="module"&gt;</code> — ES modules are subject to CORS.</li>
+  <li><code>fetch()</code> of a file in the same folder.</li>
+  <li>Web Workers. A worker also cannot load the engine, because <code>importScripts</code> and <code>fetch</code> are blocked in the same way.</li>
+  <li>Anything from a network: fonts, CDN libraries, analytics.</li>
+</ul>
+<div class="note rule">
+  <span class="tag">Note:</span>
+  <p>Every source file is a classic script in an IIFE. Each attaches to one global namespace, <code>FD</code>. The load order is fixed in <code>index.html</code>. There are no imports.</p>
+  <p>If you add a file, add it to <code>index.html</code>. If the engine tests need it, add it to the test load list as well.</p>
+</div>
+<p>An <strong>iframe</strong> is a navigation, not a fetch. This is why the documentation pages are HTML and are framed: they are the only documents that read correctly from disk.</p>
+
+<h3>2.2. Units</h3>
+<p>All model state and all calculation is metric: metres, m³/s, pascals, and metres of head. Imperial units are a formatting concern only. They live in <code>src/units.js</code>. Nothing in the solver may call it.</p>
+<div class="note limit">
+  <span class="tag">Important:</span>
+  <p>Head is in metres <em>of the working fluid</em>. To convert head to pressure you need that fluid's density.</p>
+  <p><code>FD.units.headToPa()</code> assumes water at 998 kg/m³. Use it only for display arithmetic where the fluid is not in scope. Anything that reports a <strong>result</strong> must use <code>headToPaWith(h, rho)</code>.</p>
+  <p>An error here is silent: a glycol model reports water numbers. This has happened.</p>
+</div>
+
+<h3>2.3 Build Steps and Dependencies</h3>
+<p>The program ships as source. What you read is what runs.</p>
+<p>The one consequence you must remember is the cache. Each script tag in <code>index.html</code> carries a <code>?v=</code> token, and <code>FD.VERSION</code> must equal it.</p>
+<div class="note limit">
+  <span class="tag">Important: </span>
+  <p>Bump the token after you edit any file. This includes <code>styles.css</code>. If you do not, the browser serves the old file and your change appears to do nothing. A stale stylesheet looks exactly like a JavaScript fault.</p>
+  <p>If a change "did not take", check the token before you check the code.</p>
+</div>
+
+<!-- ============================================ 3 -->
+<h2 id="modules">3. Module map</h2>
+<p>Load order matters. This is it. The dependency direction is strictly downward: <code>solver.js</code> does not know what a riser is, and <code>model.js</code> does not know what a pixel is.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Layer</th><th>File</th><th>Owns</th></tr></thead>
+  <tbody>
+    <tr><td rowspan="7" class="owner">Data</td><td class="layer">data/schedules.js</td><td>Pipe schedules: bore, outside diameter, insulation. Sizing helpers.</td></tr>
+    <tr><td class="layer">data/fittings.js</td><td>Fitting equivalent lengths from published tables (Carrier, NFPA 13, custom) keyed on nominal size.</td></tr>
+    <tr><td class="layer">data/valves.js</td><td>Valve Kv/Cv data, opening curves, resistance.</td></tr>
+    <tr><td class="layer">data/ktable.js</td><td>ASHRAE fitting resistance coefficients K, by nominal size.</td></tr>
+    <tr><td class="layer">data/pumps.js</td><td>Pump curves: least-squares fit, three-point quadratic, affinity scaling.</td></tr>
+    <tr><td class="layer">data/fluids.js</td><td>Water and propylene glycol properties. Glycol is flagged unverified.</td></tr>
+    <tr><td class="layer">data/plumbing.js</td><td>IPC 2018 fixture units, demand curves, Table 604.3 outlets.</td></tr>
+    <tr><td rowspan="3" class="owner">Engine</td><td class="layer">src/units.js</td><td>SI to display conversion, and number parsing. <strong>Display only.</strong></td></tr>
+    <tr><td class="layer">src/hydraulics.js</td><td>Pipe loss models and friction factors.</td></tr>
+    <tr><td class="layer">src/solver.js</td><td>The Global Gradient Algorithm. Knows nothing about drawings.</td></tr>
+    <tr><td rowspan="4" class="owner">Model</td><td class="layer">src/model.js</td><td>The document: levels, nodes, pipes, risers, devices, save and load. Also the domestic-water sizing core.</td></tr>
+    <tr><td class="layer">src/geometry.js</td><td>Rigid length edits, conflict detection, repair. No UI.</td></tr>
+    <tr><td class="layer">src/network.js</td><td><strong>Model to solver translation.</strong> The busiest file.</td></tr>
+    <tr><td class="layer">src/thermal.js</td><td>Temperature transport, mixing, heat loss. Reads solved flows. Feeds nothing back.</td></tr>
+    <tr><td rowspan="6" class="owner">Interface</td><td class="layer">src/dialog.js</td><td>Modal dialogs. No browser popups.</td></tr>
+    <tr><td class="layer">src/canvas.js</td><td>The drawing surface: rendering, hit testing, every gesture.</td></tr>
+    <tr><td class="layer">src/printer.js</td><td>Printed level plans, as SVG.</td></tr>
+    <tr><td class="layer">src/dxf.js</td><td>DXF export.</td></tr>
+    <tr><td class="layer">src/tools.js</td><td>The TOOLS window: standalone calculators, and the MONITOR list.</td></tr>
+    <tr><td class="layer">src/docs.js</td><td>The DOCUMENTATION tab.</td></tr>
+    <tr><td class="owner">Shell</td><td class="layer">src/app.js</td><td>Toolbar, panels, calculation sheet, settings, persistence.</td></tr>
+  </tbody>
+</table>
+</div>
+<p><code>network.js</code> is where drawn geometry becomes hydraulics. That is why it holds most of the interesting logic.</p>
+
+<!-- ============================================ 4 -->
+<h2 id="flow">4. Data flow</h2>
+<ol class="steps">
+  <li><p><strong>You edit.</strong> The canvas or a panel changes the model.</p></li>
+  <li><p><strong>The edit is classified.</strong> There are three verbs, and picking the correct one is not optional — see below.</p></li>
+  <li><p><strong>The model is translated.</strong> <code>network.build()</code> turns levels, risers and devices into a flat list of nodes and links, and charges the fittings.</p></li>
+  <li><p><strong>The network is solved.</strong> The solver returns flows and heads.</p></li>
+  <li><p><strong>Higher passes run.</strong> Pump sizing, control loops and the thermal pass each need a solved network, and each can change it. Section 8 explains why the solve repeats.</p></li>
+  <li><p><strong>Results are published.</strong> One result object feeds the canvas, the property panel, the calculation sheet and every export.</p></li>
+</ol>
+
+<h3>4.1 Verbs</h3>
+<div class="scroll">
+<table>
+  <thead><tr><th>Verb</th><th>Meaning</th><th>Effect</th></tr></thead>
+  <tbody>
+    <tr><td><code>changed()</code></td><td>A change that can move a number.</td><td>Saves, redraws, and schedules a solve.</td></tr>
+    <tr><td><code>arranged()</code></td><td>A change to the DRAWING that the solver cannot see.</td><td>Saves and redraws. <strong>No solve.</strong></td></tr>
+    <tr><td><code>selectionChanged()</code></td><td>Selecting is not an edit.</td><td>Redraws the panel only.</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Dragging a label, moving a note, bending a control leader and aligning to the grid are all real document changes that must be saved, and none of them can move a number. They are <code>arranged()</code>.</p>
+<div class="note limit">
+  <span class="tag">Important: </span>
+  <p>Ask which verb a gesture is before you wire it. The marquee once called <code>changed()</code> for a gesture that only writes the selection, so every click that missed a pipe cost a full recalculation. Selecting a tool did the same, so picking up the PROBE re-solved the model.</p>
+</div>
+
+<!-- ============================================ 5 -->
+<h2 id="disciplines">5. Disciplines</h2>
+<p>A file is one discipline. <code>m.discipline</code> is <code>'hydronic'</code> (default) or <code>'plumbing'</code>. You switch it on the chip beside the status chip, and the program warns you first, because the two disciplines share geometry but not device meaning.</p>
+<div class="note rule">
+  <span class="tag">Note:</span>
+  <p>In a plumbing file the network solver is <strong>never invoked on the DESIGN path</strong>.</p>
+  <p>Domestic water is sized from fixture units, which is a different question from a flow balance. Teaching the solver about fixture units would have put that at risk. Keeping them apart protects the mature code.</p>
+</div>
+<p>SIMULATE is the exception. The program builds a <strong>converted copy</strong> of the model in which every fixture is an ordinary pressure-dependent terminal, and runs the unmodified solver on the copy. The fixture-unit machinery never reaches the solver, and the simulation still gets real physics and real control loops. Actuator positions that the control loop settles on are copied back to the real model, because they are results.</p>
+<p>The discipline also selects the tab set. Plumbing hides THERMAL and relabels the network tab.</p>
+
+<!-- ============================================ 6 -->
+<h2 id="modes">6. Modes</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Mode</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td><strong>DESIGN</strong></td><td>Size components and pumps automatically based on flow demands.</td></tr>
+    <tr><td><strong>CONTROL</strong></td><td>Draw sensors and control links to show the sequence of operations.</td></tr>
+    <tr><td><strong>SIMULATE</strong></td><td>Test system performance by applying pump curves, resistance values, and controller logic.</td></tr>
+    <tr><td><strong>ANNOTATE</strong></td><td>Add annotations, labels, notes and lines that do not interact with the model.</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note rule">
+  <span class="tag">Note: </span>
+  <p>DESIGN and SIMULATE are separate modes. In DESIGN mode, flow is an input and component size is the output. In SIMULATE mode, size is an input and flow is the output.</p>
+  <p>Combining these modes into one process creates a control conflict, because one actuator cannot manage two controllers at the same time. For this reason, setpoint control works in SIMULATE mode only.</p>
+</div>
+<div class="note rule">
+  <span class="tag">Note: </span>
+<p><strong>SIMULATE</strong> has 2 sub-modes:</p>
+<ul>
+  <li><strong>STATIC:</strong> Prevents automatic recalculation during edits. Run the simulation once to review results safely without triggering long wait times. <strong>Recommended for large models</strong>.</li>
+  <li><strong>DYNAMIC:</strong> Recalculates the model automatically on every edit for real-time adjustments. <strong>Recommended for small models</strong>.</li>
+</ul>
+</div>
+
+<!-- ============================================ 7 -->
+<h2 id="model">7. Model</h2>
+<p>The model is saved as JSON file format (JavaScript Object Notation).</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Part</th><th>What it holds</th></tr></thead>
+  <tbody>
+    <tr><td><code>levels</code></td><td>Floors, each with a name and an altitude. Everything drawn on a level is horizontal at that altitude.</td></tr>
+    <tr><td><code>nodes</code></td><td>Points. A node may carry a device: a source or an outflow.</td></tr>
+    <tr><td><code>pipes</code></td><td>Links between nodes. A pipe may be a plain pipe, a pump, a valve, equipment, a sensor or a riser.</td></tr>
+    <tr><td><code>risers</code></td><td>Vertical columns joining levels. They materialise into pipes when the network is built.</td></tr>
+    <tr><td><code>settings</code></td><td>Method, fluid, display units, warning limits, IPC table overrides, and the monitor list.</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note limit">
+  <span class="tag">Important:</span>
+  <p>All pipes drawn on a level run horizontally at that level's elevation. Only risers change vertical height.</p>
+  <p>Sloped pipes are not supported. You cannot create a pipe with different endpoint heights on the same level.</p>
+</div>
+<p>Saved files carry a <code>formatVersion</code>. Loading merges the saved settings over current defaults, so new settings will be added to a file written by an older build.</p>
+
+<!-- ============================================ 8 -->
+<h2 id="solve">8. Hydronic Network Solver</h2>
+<p>The full method is explained in <strong>Engine</strong> documentation. </p>
+<h3>8.1 Global Gradient Algorithm (GGA) Iteration</h3>
+<p>A single solve only calculates flows for fixed inputs. Because flow resistance, pump duty, and controller positions change each other's input conditions, a single solve cannot produce a complete answer. The solver must run multiple iterations until all variables stabilize.</p>
+
+<p>Iterative dependencies include:</p>
+<ul>
+  <li><strong>Flow resistance:</strong> Tee fitting loss depends on whether flow goes to the run or the branch, but flow direction is unknown until after an initial solve.</li>
+  <li><strong>Pump sizing:</strong> Required pump duty depends on the pressure drop to the worst terminal, but that pressure drop changes as pump duty updates flows.</li>
+  <li><strong>Controllers:</strong> A controller adjusts an actuator, which changes network pressure and flow, which in turn alters the sensor reading driving the controller.</li>
+</ul>
+<p>Each iteration step performs a full network solve until the system stabilizes.</p>
+<div class="note rule">
+  <span class="tag">Note: </span>
+  <p>If a complex system does not stabilize, increase the number of iterations in Settings>Setpoint Control</p>
+</div>
+
+<h3>8.2 Non-blocking execution</h3>
+<p>The solver runs as a generator, yielding control after each network solve:</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Caller</th><th>Execution method</th></tr></thead>
+  <tbody>
+    <tr><td><code>solveModel()</code></td><td>Executes all iterations continuously. Used for tests and exports.</td></tr>
+    <tr><td>Application UI</td><td>Executes iterations on a 24 ms budget using <code>setTimeout</code> to keep the UI responsive in all browser states.</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note rule">
+  <span class="tag">Note:</span>
+  <p>If the user edits the model during an active solve, the application increments <code>app.solveEpoch</code> and cancels the running calculation to prevent invalid results.</p>
+</div>
+
+<h3>8.3 Negative pressure</h3>
+<p>The DESIGN solve is demand-driven. Negative pressure indicates insufficient head to satisfy the demand.</p>
+<p>This number represents the missing head required for pump sizing—it is not a physical pressure. Use <strong>SIMULATE</strong> mode to calculate actual delivered flow.</p>
+
+<h3>8.4 Open/Closed loop detection</h3>
+<p>The software detects whether a system is open or closed from the drawing geometry. Closed circuits automatically receive a reference datum node for absolute pressure calculation.</p>
+
+<h3>8.5 Pump sizing</h3>
+<p>Pumps set to Automatic sizing adjust duty until the worst-served terminal receives required pressure.</p>
+<div class="note limit">
+  <span class="tag">Important:</span>
+  <p>Pumps must be set to Manual or CURVE sizing before entering SIMULATE mode to lock their performance curves.</p>
+  <ul>
+    <li><strong>MANUAL:</strong> Generates a pump curve based on the design point flow and head.</li>
+    <li><strong>CURVE:</strong> Uses a user-provided performance curve.</li>
+  </ul>
+</div>
+
+<h3>8.6 Thermal calculation</h3>
+<p>The thermal module solves temperature using a single linear system after hydraulic calculations complete. Temperature does not feed back into hydraulic calculations.</p>
+<p>Junction temperatures use flow-weighted averages. Pipe heat loss calculations use pipe insulation and external surface coefficients.</p>
+<div class="note rule">
+  <span class="tag">Note:</span>
+  <p>Fluid density changes due to temperature variations are not simulated.</p>
+</div>
+
+<!-- ============================================ 9 -->
+<h2 id="dw">9. Domestic water</h2>
+<p>The full method is explained in <strong>Engine</strong> documentation. </p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Function</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td><code>M.plumbingSizing</code></td><td>Traces the network from the source to accumulate downstream fixture units and generic flow.</td></tr>
+    <tr><td><code>network.plumbingReport</code></td><td>Applies pipe friction and calculates forward residual pressure for DESIGN mode.</td></tr>
+    <tr><td><code>network.plumbingSimModel</code></td><td>Converts plumbing fixtures into pressure-dependent terminals for SIMULATE mode.</td></tr>
+    <tr><td><code>network.plumbingPumpDuty</code></td><td>Calculates booster pump duty in a single linear pass based on residual pressure.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note limit">
+  <span class="tag">Important:</span>
+  <p> Always use the appropriate discipline for your system type. Plumbing fixtures use IPC table values rather than standard hydronic demand fields. Accessing raw hydronic properties (such as <code>flow</code> or <code>reqPressure</code>) on a plumbing fixture returns invalid data.</p>
+</div>
+<div class="note rule">
+  <span class="tag">Note:</span>
+  <p>To avoid calculation and sizing errors, always use the <code>M.plumbing*</code> helper functions when working with domestic water networks.</p>
+</div>
+
+<!-- ============================================ 10 -->
+<h2 id="fittings">10. Fittings</h2>
+<p>Fittings are automatically generated from the piping arrangement.</p>
+<p>Because tee leg assignments (run vs. branch) depend on flow direction, fitting loss calculations are updated after an initial solve, requiring a second solve iteration (see Section 8.1).</p>
+
+<!-- ============================================ 11 -->
+<h2 id="canvas">11. Canvas and panels</h2>
+<h3>11.1 The canvas</h3>
+<p><code>canvas.js</code> owns rendering, hit testing and every gesture. It draws the active level solid and a neighbouring level faded, so you can see what you are connecting to.</p>
+<div class="note rule">
+  <span class="tag">Note:</span>
+  <p>An invalid <code>fillStyle</code> or <code>strokeStyle</code> does not raise an error. The canvas keeps the last colour it was given.</p>
+  <p>So a missing theme key does not look like a colour fault. It looks like whatever was drawn immediately before. Text boxes were once painted in the background colour on top of a background-coloured panel: created correctly, drawn correctly, invisible.</p>
+  <p>When a colour looks wrong, check that the value is a string.</p>
+</div>
+
+<h3>11.2 Property panel levels</h3>
+<div class="scroll">
+<table>
+  <thead><tr><th>Level</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><strong>L1 — Identity</strong></td><td>Basic item identification (always visible).</td></tr>
+    <tr><td><strong>L2 — Sections</strong></td><td>Collapsible categories (Design, Actual, Control, Display) that retain open/closed states.</td></tr>
+    <tr><td><strong>L3 — Tooltips</strong></td><td>Explanatory notes accessed through the 🛈 icon.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note limit">
+  <span class="tag">Important:</span>
+  <p>The property panel rebuilds on every solve. To prevent edits from being written to the wrong element mid-render, input handlers use <code>commit()</code> guards to reject inputs from outdated panel states.</p>
+</div>
+
+<!-- ============================================ 12 -->
+<h2 id="messages">12. Warnings and errors</h2>
+<p>The full list of error messages is documented in <strong>MESSAGES</strong> documentation.</p>
+<p>All message detection is performed by the engine and shared across the entire application.</p>
+
+<p>Message severity levels:</p>
+<ul>
+  <li><strong>Error:</strong> Calculation is invalid or impossible. Cannot be dismissed.</li>
+  <li><strong>Defect:</strong> Geometry or logic conflict in the drawing. Cannot be dismissed.</li>
+  <li><strong>Warning:</strong> Results are valid, but exceed typical engineering thresholds.</li>
+  <li><strong>Notice:</strong> Informational message to clarify specific calculated values.</li>
+</ul>
+
+<div class="note limit">
+  <span class="tag">Important:</span>
+  <p>Numerical convergence does not guarantee a valid drawing. The engine separately checks geometry for breaks, disconnected islands, unjoined coincident nodes, and unsupported configurations.</p>
+</div>
+
+<!-- ============================================ 13 -->
+<h2 id="output">13. Output</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Output type</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>Calculation sheet</td><td>Features collapsible sections. Collapsed sections are excluded from printing to let you control what is issued.</td></tr>
+    <tr><td>Print</td><td>Supports calculation sheets and landscape level plans. Calculation sheets automatically switch to landscape orientation if table width exceeds portrait limits.</td></tr>
+    <tr><td>CSV</td><td>Exports one file per table using UTF-8 BOM encoding to preserve special characters in spreadsheet applications.</td></tr>
+    <tr><td>DXF</td><td>Exports geometry and text as either a single 3D model or separate per-level files with preserved Z-coordinates.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============================================ 14 -->
+<h2 id="testing">14. Testing</h2>
+<p>The suite contains over 2,200 assertions across 10 test files, running on native Node.js with no external dependencies. Run all tests with:</p>
+
+<div class="eq">for f in test/*.test.js; do node $f; done</div>
+
+<div class="note limit">
+  <span class="tag">Important:</span>
+  <p>Test expectations must come from independent hand calculations, never copied directly from engine outputs. Document the reason before updating any expected test baseline.</p>
+</div>
+
+<ul>
+  <li><strong>Fixtures:</strong> Tests read frozen fixture files in <code>test/fixtures/</code>. Files in <code>examples/</code> and <code>debug/</code> are not used by tests and can be excluded from production builds.</li>
+  <li><strong>Generators:</strong> Scripts named <code>test/testrun-*.js</code> regenerate files in <code>examples/</code>; they are not test suites.</li>
+  <li><strong>Harness:</strong> <code>test/harness.js</code> loads data and engine layers. Test suites append the specific modules they exercise.</li>
+</ul>
+
+<div class="note limit">
+  <span class="tag">Important:</span>
+  <p>Custom test harnesses must load <code>thermal.js</code> when testing control logic. Omitting it causes <code>runControlsGen</code> to exit early, making control loops fail silently.</p>
+</div>
+
+<p>Deployment is handled by GitHub Actions. The test workflow gates production deployment—if tests fail, the build will not publish.</p>
+
+<!-- ============================================ 15 -->
+<h2 id="docs">15. Documentation</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Location</th><th>Audience</th></tr></thead>
+  <tbody>
+    <tr><td><code>docs/</code></td><td>End-user documentation included with the application.</td></tr>
+    <tr><td><code>docs_internal/</code></td><td>Developer documentation (specifications, worklists, test logs, and handover notes).</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>User documentation consists of HTML pages rendered inside an iframe in the <strong>DOCUMENTATION</strong> tab. This setup allows pages to display correctly when running locally from disk without cross-origin fetch restrictions. The main application passes theme configuration through query parameters.</p>
+
+<div class="note rule">
+  <span class="tag">Note:</span>
+  <p>User documentation must cover only confirmed features and behavior. Document unresolved questions and decisions in the internal test log.</p>
+</div>
+
+<!-- ============================================ 16 -->
+<h2 id="limits">16. Limitations</h2>
+<p> See Known Issues section in README.</p>
+
+<!-- ============================================ 17 -->
+<h2 id="changing">17. Changes</h2>
+<ol class="rules">
+  <li><strong>Bump the <code>?v=</code> token and <code>FD.VERSION</code> together.</strong> Including for a stylesheet change.</li>
+  <li><strong>Never invent engineering data.</strong> If a number cannot be sourced, ship it flagged or do not shipA synthesised fitting column was once 250% wrong against the real table. it. An invented correction is not defensible to a checking engineer.</li>
+  <li><strong>Add the message code to the catalogue.</strong> The test checks both directions.</li>
+  <li><strong>Choose the right verb</strong> — <code>changed</code>, <code>arranged</code> or <code>selectionChanged</code>.</li>
+  <li><strong>Report a result with <code>headToPaWith</code>,</strong> never the bare <code>headToPa</code>.</li>
+  <li><strong>Reconstruct a loss with <code>linkLoss(link, q)</code>.</strong> Reading <code>link.r</code> alone omits the fitting term. The number still looks like a pressure drop. It is just too small.</li>
+  <li><strong>Do not replace a span of code you have not read.</strong> Replacing the text between two names deleted fifty-three functions once, and ten another time, because the two names were not adjacent. Match the exact text.</li>
+  <li><strong>Release state on every path.</strong> A latch that only clears on success is a fault waiting for its first exception.</li>
+  <li><strong>Do not mirror input state you can read directly.</strong> A key-up that lands in another window never arrives, so a tracked modifier stays stuck after you switch application.</li>
+  <li><strong>Verify on a server, not from <code>file://</code>.</strong> Bind it to the loopback address.</li>
+</ol>
+<footer>
+  <p>FreePipeCalc — Architecture. The calculation methods are documented separately in <strong>Calculation Method</strong>.</p>
+</footer>
+</main>
+</div>
+</body>
+</html>

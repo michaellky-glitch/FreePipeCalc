@@ -85,4 +85,4 @@ Guide the user through recreating examples/Tutorial 01 - Basics.json
 - Add dP sensor across AHU, setting properties & link to pump.
 - Re-simulate. Check expected value.
 - Calculation tab. Print calculation & model.
-- Then run through copy-pasting another AHU line from N2 to N3.
+- Then run through copy-pasting another AHU line from N2 to N3 & seeing how the system responds.

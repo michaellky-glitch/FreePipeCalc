@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreePipeCalc — Tutorial — Hydronic — Calculation</title>
+<style>
+:root{
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+@media (prefers-color-scheme:dark){ :root{ color-scheme:dark } :root:not([data-theme]){
+    --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+    --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+    --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+    --code-bg:#1e242c;
+} }
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+  --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+  --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+  --code-bg:#1e242c;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+:root[data-embed="1"] header.top{padding-top:22px}
+:root[data-embed="1"] .wrap{padding-bottom:40px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.62 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px 80px;display:flex;gap:36px;align-items:flex-start}
+main{flex:1 1 auto;min-width:0;max-width:760px}
+header.top{border-bottom:1px solid var(--line);margin-bottom:28px;padding:30px 0 18px}
+header.top h1{font-size:27px;line-height:1.2;margin:0 0 6px;letter-spacing:-.2px}
+header.top .sub{color:var(--dim);margin:0;font-size:14.5px}
+header.top .meta{color:var(--mute);font-size:12.5px;margin-top:10px}
+nav.toc{position:sticky;top:18px;flex:0 0 232px;align-self:flex-start;font-size:13px;line-height:1.5;max-height:calc(100vh - 40px);overflow:auto;border-left:1px solid var(--line-soft);padding-left:16px}
+nav.toc h2{font-size:11px;letter-spacing:.9px;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:s}
+nav.toc > ol > li{counter-increment:s;margin:0 0 3px}
+nav.toc > ol > li > a::before{content:counter(s) ". ";color:var(--mute)}
+nav.toc ol ol{padding-left:16px;margin:2px 0 6px}
+nav.toc ol ol li{margin:0}
+nav.toc a{color:var(--dim);text-decoration:none;display:block;padding:2px 0}
+nav.toc a:hover{color:var(--accent)}
+h2{font-size:21px;margin:44px 0 12px;padding-top:10px;border-top:1px solid var(--line);letter-spacing:-.15px}
+h2:first-of-type{border-top:0;margin-top:0}
+h3{font-size:16.5px;margin:28px 0 8px}
+h4{font-size:14px;margin:20px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 14px;padding-left:22px}
+li{margin:0 0 5px}
+a{color:var(--accent)}
+strong{font-weight:650}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.9em;background:var(--code-bg);padding:1px 5px;border-radius:4px}
+.note{border-radius:6px;padding:12px 15px;margin:16px 0;border:1px solid var(--line);background:var(--panel)}
+.note p:last-child{margin-bottom:0}
+.note .tag{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.8px;font-weight:700;margin-bottom:6px}
+.note.check{border-left:3px solid var(--ok)} .note.check .tag{color:var(--ok)}
+.note.limit{border-left:3px solid var(--warn)} .note.limit .tag{color:var(--warn)}
+.note.rule{border-left:3px solid var(--accent)} .note.rule .tag{color:var(--accent)}
+.lead{font-size:16px;color:var(--dim);margin-bottom:20px}
+footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--mute)}
+@media (max-width:1000px){nav.toc{display:none}.wrap{display:block;padding-bottom:50px}main{max-width:none}}
+@media print{nav.toc{display:none}.wrap{display:block;max-width:none}body{font-size:10.5pt;color:#000;background:#fff}h2{page-break-after:avoid}.note{page-break-inside:avoid}a{color:#000;text-decoration:none}}
+.mock-toolbar{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px 12px 12px;margin:16px 0 10px;overflow-x:auto}
+.mock-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:12px}
+.mock-row-tools{border-top:1px solid var(--line-soft);margin-top:10px;padding-top:11px;opacity:.55}
+.mock-group{display:flex;gap:4px;align-items:center;padding:6px 8px;border-radius:6px;border:1px solid transparent;position:relative}
+.mock-group[data-label]::before{content:attr(data-label);position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:8.5px;letter-spacing:.09em;color:var(--mute);background:var(--panel);padding:0 4px;white-space:nowrap}
+.mock-group.highlight{outline:3px solid var(--warn);outline-offset:2px;background:rgba(255,159,67,.13);border-color:var(--warn)}
+.mock-sep{width:1px;height:22px;background:var(--line);margin:0 4px;flex:none}
+.mock-btn{appearance:none;border:1px solid var(--line);background:var(--bg);color:var(--dim);font:inherit;font-size:11.5px;letter-spacing:.3px;padding:5px 10px;border-radius:5px;white-space:nowrap}
+.mock-btn.icon{padding:5px 8px;font-size:13px}
+.mock-btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.mock-sub{display:flex;gap:3px;align-items:center;padding-left:9px;border-left:1px solid var(--line-soft)}
+.mock-sub:first-child{padding-left:0;border-left:0}
+.mock-sub i{font-style:normal;font-size:8.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--mute);white-space:nowrap;margin-right:2px}
+.mock-sub.highlight{outline:3px solid var(--warn);outline-offset:2px;background:rgba(255,159,67,.13);border-radius:6px;padding:6px 8px}
+.desc{margin:0 0 28px;padding:10px 14px;background:var(--panel);border:1px solid var(--line-soft);border-radius:6px}
+.desc ul{margin:6px 0 0}
+.desc li{font-size:13.5px;color:var(--dim)}
+.badge{display:inline-block;font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;background:var(--warn);color:#fff;padding:1px 6px;border-radius:999px;margin-left:8px;vertical-align:middle}
+.sheet-mock{border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:16px 0}
+.sheet-mock-head{padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap}
+.sheet-mock-head .mock-btn{font-size:11px;padding:4px 8px}
+.sheet-mock-body{padding:12px;background:var(--bg);font-size:13px;color:var(--dim)}
+.sheet-mock-body table{width:100%;border-collapse:collapse;font-size:12.5px}
+.sheet-mock-body th,.sheet-mock-body td{border:1px solid var(--line-soft);padding:5px 7px;text-align:right}
+.sheet-mock-body th{background:var(--panel);font-size:11.5px}
+.sheet-mock-body td:first-child,.sheet-mock-body th:first-child{text-align:left}
+</style>
+<script>
+(function(){try{var q=new URLSearchParams(location.search);var t=q.get('theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t;if(q.get('embed')==='1')document.documentElement.dataset.embed='1';}catch(e){}})();
+</script>
+</head>
+<body>
+<div class="wrap">
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#top">Top ribbon</a>
+      <ol>
+        <li><a href="#top-file">File</a></li>
+        <li><a href="#top-mode">Mode</a></li>
+        <li><a href="#top-show">Show</a></li>
+        <li><a href="#top-misc">Misc</a></li>
+      </ol>
+    </li>
+    <li><a href="#bottom">Bottom ribbon</a></li>
+    <li><a href="#sheet">Calculation sheet</a></li>
+    <li><a href="#actions">Sheet actions</a></li>
+    <li><a href="#next">Next steps</a></li>
+  </ol>
+  <div class="note rule" style="margin-top:18px">
+    <span class="tag">NOTE:</span>
+    <p style="font-size:12.5px">
+      <a href="tutorial-overview.html">Overview</a><br>
+      <a href="tutorial-hydronic.html">Hydronic</a><br>
+      <a href="tutorial-calculation.html"><strong>Calculation</strong> (this file)</a><br>
+      <a href="tutorial-hydraulic.html">Hydraulic</a><br>
+      <a href="tutorial-thermal.html">Thermal</a>
+    </p>
+  </div>
+</nav>
+<main>
+<header class="top">
+  <h1>Tutorial — Hydronic — Calculation</h1>
+  <p class="sub">How to read the CALCULATION tab. Top ribbon reference and sheet guide.</p>
+  <p class="meta">Hydronic discipline &middot; CALCULATION tab &middot; v0.18.2</p>
+</header>
+
+<p class="lead">CALCULATION shows the result. Each pipe is one row. Pressure, flow, velocity, and head loss are on that row. Index circuit comes first. Warnings are at the end. Collapse sections to control what prints.</p>
+
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>Click <strong>CALCULATION</strong> in the top bar to open this tab. The drawing toolbar hides. The sheet appears. Top ribbon still exists but is hidden on this tab — the mock-ups below show it as it appears on PIPING NETWORK, for reference.</p>
+</div>
+
+<h2 id="overview">1. Overview</h2>
+<p>Three layers:</p>
+<ul>
+  <li><strong>Header</strong> — project data (project, system, engineer, date). Edit on the sheet. Saved with the model.</li>
+  <li><strong>Sections</strong> — collapsible blocks. Each block is one table or one warning group.</li>
+  <li><strong>Totals and disclaimer</strong> — sums and the verification note. Always at the end.</li>
+</ul>
+
+<h2 id="top">2. Top ribbon (reference)</h2>
+<p>Top ribbon is the same as on PIPING NETWORK. It hides while you read the sheet, but its functions do not change. Use these mock-ups to find the buttons when you return to the drawing.</p>
+
+<h3 id="top-file">2.1 FILE <span class="badge">outlined</span></h3>
+<div class="mock-toolbar">
+  <div class="mock-row">
+    <div class="mock-group highlight" data-label="FILE">
+      <span class="mock-btn">NEW</span><span class="mock-btn">SAVE</span><span class="mock-btn">LOAD</span><span class="mock-btn">PRINT</span><span class="mock-btn">REPAIR</span><span class="mock-btn">DXF</span><span class="mock-btn icon">↶</span><span class="mock-btn icon">↷</span>
+    </div>
+    <div class="mock-sep"></div>
+    <div class="mock-group" data-label="MODE"><span class="mock-btn">DESIGN</span><span class="mock-btn">CONTROL</span><span class="mock-btn">SIMULATE</span><span class="mock-btn">ANNOTATION</span></div>
+    <div class="mock-sep"></div>
+    <div class="mock-group" data-label="SHOW"><span class="mock-btn">LINKS</span><span class="mock-btn">FLOW</span><span class="mock-btn">VELOCITY</span><span class="mock-btn">PRESSURE</span><span class="mock-btn">TEMPERATURE</span></div>
+    <div class="mock-sep"></div>
+    <div class="mock-group" data-label="MISC"><span class="mock-btn">TOOLS</span><span class="mock-btn">RENUMBER</span><span class="mock-btn icon">⤢</span></div>
+  </div>
+</div>
+<div class="desc">
+  <p><strong>FILE — same as on PIPING NETWORK.</strong></p>
+  <ul>
+    <li><strong>NEW / SAVE / LOAD</strong> — New, save, open. Save before you change discipline or close the tab.</li>
+    <li><strong>PRINT</strong> — Print the sheet. Collapsed sections do not print. Close what you do not need, then print.</li>
+    <li><strong>REPAIR / DXF</strong> — Repair tags, export DXF. Same as on PIPING NETWORK.</li>
+    <li><strong>↶ / ↷</strong> — Undo / redo. Works across tabs.</li>
+  </ul>
+</div>
+
+<h3 id="top-mode">2.2 MODE <span class="badge">outlined</span></h3>
+<div class="mock-toolbar">
+  <div class="mock-row">
+    <div class="mock-group" data-label="FILE"><span class="mock-btn">NEW</span><span class="mock-btn">SAVE</span><span class="mock-btn">LOAD</span><span class="mock-btn">PRINT</span><span class="mock-btn">REPAIR</span><span class="mock-btn">DXF</span><span class="mock-btn icon">↶</span><span class="mock-btn icon">↷</span></div>
+    <div class="mock-sep"></div>
+    <div class="mock-group highlight" data-label="MODE"><span class="mock-btn primary">DESIGN</span><span class="mock-btn">CONTROL</span><span class="mock-btn">SIMULATE</span><span class="mock-btn">ANNOTATION</span></div>
+    <div class="mock-sep"></div>
+    <div class="mock-group" data-label="SHOW"><span class="mock-btn">LINKS</span><span class="mock-btn">FLOW</span><span class="mock-btn">VELOCITY</span><span class="mock-btn">PRESSURE</span><span class="mock-btn">TEMPERATURE</span></div>
+    <div class="mock-sep"></div>
+    <div class="mock-group" data-label="MISC"><span class="mock-btn">TOOLS</span><span class="mock-btn">RENUMBER</span><span class="mock-btn icon">⤢</span></div>
+  </div>
+</div>
+<div class="desc">
+  <p><strong>MODE — decides how the sheet is calculated.</strong></p>
+  <ul>
+    <li><strong>DESIGN</strong> — Sheet shows required flow, sized pipe, pump duty. Flow is input.</li>
+    <li><strong>SIMULATE</strong> — Sheet shows actual flow from pump curves. Flow is result.</li>
+    <li><strong>CONTROL / ANNOTATION</strong> — Sheet does not change. Use them only on PIPING NETWORK.</li>
+  </ul>
+</div>
+
+<h3 id="top-show">2.3 SHOW <span class="badge">outlined</span></h3>
+<div class="mock-toolbar">
+  <div class="mock-row">
+    <div class="mock-group" data-label="FILE"><span class="mock-btn">NEW</span><span class="mock-btn">SAVE</span><span class="mock-btn">LOAD</span><span class="mock-btn">PRINT</span><span class="mock-btn">REPAIR</span><span class="mock-btn">DXF</span><span class="mock-btn icon">↶</span><span class="mock-btn icon">↷</span></div>
+    <div class="mock-sep"></div>
+    <div class="mock-group" data-label="MODE"><span class="mock-btn">DESIGN</span><span class="mock-btn">CONTROL</span><span class="mock-btn">SIMULATE</span><span class="mock-btn">ANNOTATION</span></div>
+    <div class="mock-sep"></div>
+    <div class="mock-group highlight" data-label="SHOW"><span class="mock-btn">LINKS</span><span class="mock-btn">FLOW</span><span class="mock-btn">VELOCITY</span><span class="mock-btn">PRESSURE</span><span class="mock-btn">TEMPERATURE</span></div>
+    <div class="mock-sep"></div>
+    <div class="mock-group" data-label="MISC"><span class="mock-btn">TOOLS</span><span class="mock-btn">RENUMBER</span><span class="mock-btn icon">⤢</span></div>
+  </div>
+</div>
+<div class="desc">
+  <p><strong>SHOW — overlays on the drawing only.</strong> No effect on the sheet. Use on PIPING NETWORK to see the same result as colour.</p>
+</div>
+
+<h3 id="top-misc">2.4 MISC <span class="badge">outlined</span></h3>
+<div class="mock-toolbar">
+  <div class="mock-row">
+    <div class="mock-group" data-label="FILE"><span class="mock-btn">NEW</span><span class="mock-btn">SAVE</span><span class="mock-btn">LOAD</span><span class="mock-btn">PRINT</span><span class="mock-btn">REPAIR</span><span class="mock-btn">DXF</span><span class="mock-btn icon">↶</span><span class="mock-btn icon">↷</span></div>
+    <div class="mock-sep"></div>
+    <div class="mock-group" data-label="MODE"><span class="mock-btn">DESIGN</span><span class="mock-btn">CONTROL</span><span class="mock-btn">SIMULATE</span><span class="mock-btn">ANNOTATION</span></div>
+    <div class="mock-sep"></div>
+    <div class="mock-group" data-label="SHOW"><span class="mock-btn">LINKS</span><span class="mock-btn">FLOW</span><span class="mock-btn">VELOCITY</span><span class="mock-btn">PRESSURE</span><span class="mock-btn">TEMPERATURE</span></div>
+    <div class="mock-sep"></div>
+    <div class="mock-group highlight" data-label="MISC"><span class="mock-btn">TOOLS</span><span class="mock-btn">RENUMBER</span><span class="mock-btn icon">⤢</span></div>
+  </div>
+</div>
+<div class="desc">
+  <p><strong>MISC — helpers.</strong> No direct sheet action. TOOLS can check a value you see on the sheet (e.g., velocity for a pipe).</p>
+</div>
+
+<h2 id="bottom">3. Bottom ribbon on this tab</h2>
+<div class="mock-toolbar">
+  <div class="mock-row mock-row-tools">
+    <span class="mock-sub"><i>Edit</i><span class="mock-btn">SELECT</span><span class="mock-btn">COPY</span><span class="mock-btn">PASTE</span></span>
+    <span class="mock-sub"><i>Pipe</i><span class="mock-btn">PIPE</span><span class="mock-btn">RISER</span></span>
+    <span class="mock-sub"><i>Hydraulic</i><span class="mock-btn">SOURCE</span><span class="mock-btn">OUTFLOW</span><span class="mock-btn">PUMP</span><span class="mock-btn">OTHER</span></span>
+    <span class="mock-sub"><i>Thermal</i><span class="mock-btn">HEAT SOURCE/SINK</span><span class="mock-btn">HEAT EXCHANGER</span></span>
+    <span class="mock-sub"><i>Valves</i><span class="mock-btn">CONTROL</span><span class="mock-btn">ISOLATION</span><span class="mock-btn">CHECK</span></span>
+  </div>
+  <p style="font-size:11px;color:var(--mute);margin:8px 0 0">Bottom ribbon is dimmed — not shown on CALCULATION. Return to PIPING NETWORK to use it.</p>
+</div>
+<div class="desc">
+  <p><strong>No bottom ribbon here.</strong> CALCULATION has its own action bar (see §5). Bottom ribbon (Edit, Pipe, Hydraulic, Thermal, Valves) lives only on PIPING NETWORK. For its function, see <a href="tutorial-hydronic.html#bottom">Hydronic — Bottom ribbon</a>.</p>
+</div>
+
+<h2 id="sheet">4. Calculation sheet</h2>
+
+<div class="sheet-mock">
+  <div class="sheet-mock-head"><span class="mock-btn">SAVE CALCULATION (CSV)</span><span class="mock-btn">SAVE MODEL</span><span class="mock-btn">PRINT</span></div>
+  <div class="sheet-mock-body">
+    <p><strong>Sheet head</strong> — project, system, engineer, date, discipline, method, fluid. Editable in place.</p>
+    <table>
+      <tr><th>Section</th><th>Size</th><th>Flow</th><th>Vel.</th><th>PD</th><th>PD/m</th></tr>
+      <tr><td>N1 → N2</td><td>DN50</td><td>2.40 L/s</td><td>1.22</td><td>4.20 kPa</td><td>340 Pa/m</td></tr>
+      <tr><td>N2 → N3 — <em>index</em></td><td>DN40</td><td>1.20 L/s</td><td>1.05</td><td>6.80 kPa</td><td>420 Pa/m</td></tr>
+    </table>
+    <p style="margin-top:10px">Index circuit first (sets pump duty). Other branches after. Use background tint to find index rows.</p>
+  </div>
+</div>
+
+<div class="desc">
+  <p><strong>How to read the sheet:</strong></p>
+  <ul>
+    <li><strong>Header</strong> — Edit project fields here. The sheet records method and fluid for traceability.</li>
+    <li><strong>Critical path (index)</strong> — Path from source to the worst-served outflow. Its total loss sets the pump duty. Listed first, tinted green.</li>
+    <li><strong>All sections</strong> — One row per pipe. Columns: tag, size, bore, length, fittings, flow, velocity, pressure drop, friction rate (Pa/m), static head, outlet pressure.</li>
+    <li><strong>Warnings</strong> — At the end, grouped as Defect / Warning / Notice. Defect = drawing is wrong. Warning = value over limit. Click message chip or MESSAGES window to find the item.</li>
+    <li><strong>Collapse</strong> — Click a section header to collapse it. Collapsed sections do not print. Use this to control the issued set.</li>
+    <li><strong>Disclaimer</strong> — At the end of every sheet. Do not remove it. Results need independent check by a qualified engineer.</li>
+  </ul>
+</div>
+
+<div class="note limit">
+  <span class="tag">IMPORTANT:</span>
+  <p>Sheet values use display units from SETTINGS. Change units there — the sheet updates. SI is still the stored value.</p>
+</div>
+
+<h2 id="actions">5. Sheet actions</h2>
+<div class="mock-toolbar">
+  <div class="mock-row">
+    <div class="mock-group highlight" data-label="ACTIONS">
+      <span class="mock-btn">SAVE CALCULATION (CSV)</span>
+      <span class="mock-btn">SAVE MODEL</span>
+      <span class="mock-btn">PRINT</span>
+    </div>
+  </div>
+</div>
+<div class="desc">
+  <p><strong>Actions on this tab:</strong></p>
+  <ul>
+    <li><strong>SAVE CALCULATION (CSV)</strong> — Export sheet tables as CSV. UTF-8 with BOM, so Excel reads symbols. One file per table when needed (e.g., wide plumbing sheet).</li>
+    <li><strong>SAVE MODEL</strong> — Save the model file. Same as FILE &gt; SAVE. Do this after you edit the header.</li>
+    <li><strong>PRINT</strong> — Print the sheet. The app picks portrait or landscape by table width. Collapsed sections stay hidden on paper.</li>
+  </ul>
+</div>
+
+<div class="note check">
+  <span class="tag">SUGGESTION:</span>
+  <p>Check the status chip first. Green = solved. Number + grey = warnings. Red = error. Click the chip to open MESSAGES. Fix defects before you issue the sheet.</p>
+</div>
+
+<h2 id="next">6. Next steps</h2>
+<ul>
+  <li><a href="tutorial-hydronic.html">Hydronic — Piping Network</a> — draw and edit.</li>
+  <li><a href="tutorial-hydraulic.html">Hydraulic tab</a> — fluid, method, schedule, fittings, limits.</li>
+  <li><a href="tutorial-thermal.html">Thermal tab</a> — ambient, insulation, band, energy balance.</li>
+</ul>
+
+<footer>
+  <p>FreePipeCalc Tutorial — Hydronic — Calculation. Top ribbon for reference, no bottom ribbon on this tab. Sheet sections collapse to control print.</p>
+</footer>
+</main>
+</div>
+</body>
+</html>
