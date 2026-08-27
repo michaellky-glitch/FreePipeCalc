@@ -1,0 +1,37 @@
+# Run the test suites on every branch that is NOT master.
+#
+# WHY THIS EXISTS. `pages.yml` runs the suites and then deploys, and it triggers
+# on `master` only — which is correct for deployment and leaves branch work with
+# NO CI at all. That gap matters here more than it usually would: Michael tests
+# off GitHub Pages, a branch never reaches Pages, so on a branch the test run is
+# the only automated check there is.
+#
+# This deploys nothing. It is the same suites, on any other branch, so a branch
+# cannot quietly go red while it is being worked on.
+name: Tests
+
+on:
+  push:
+    branches-ignore: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run the test suites
+        run: |
+          fail=0
+          for f in test/*.test.js; do
+            echo "── $f"
+            node "$f" || fail=1
+          done
+          exit $fail
