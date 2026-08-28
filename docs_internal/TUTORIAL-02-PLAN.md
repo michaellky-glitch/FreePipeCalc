@@ -60,3 +60,47 @@ Solves clean: converged, no errors, no warnings.
 * Michael's own `tutorial-hydronic/calculation/hydraulic/thermal.html` set and
   the overlap with `user-manual.html` are still unresolved — do not duplicate
   ribbon documentation here.
+
+
+---
+
+## WALKTHROUGH FINDINGS — 2026-08-28 (tutorial WRITTEN and followed through)
+
+`docs/tutorial-02-hydronic.html` is written and registered (between Tutorial 01
+and Tutorial 05). I drove the endpoint model through the steps and corrected the
+tutorial's claims to what the model actually produces. Two things for Michael:
+
+**1. THE "VFDs at 100% while CVs modulate HEAVILY" SYMPTOM (step 4 of the brief)
+IS ONLY PARTLY THERE.** Measured on the shipped file:
+
+| state | pumps | AHU valves | dP across AHU-5 |
+|---|---|---|---|
+| before sensor (pumps free @100%) | 100% | 66–74% open | 291 kPa |
+| after sensor @250, PMP-2 synced | ~95% | 72–81% open | 250 kPa (held) |
+
+The valves throttle to about two-thirds open — **moderate, not heavy** — and
+adding the sensor moves the pumps only 100% → 95%. The direction is right and the
+tutorial now says so honestly (the result boxes carry these numbers, and step 9
+adds a line that the effect is bigger on a plant with more spare head). **But if
+you want the tutorial to DRAMATISE the energy saving, the model needs more spare
+pump head** — an auto-sized pump self-fits the load, so it barely oversizes.
+Consider shipping the pumps slightly oversized (Manual, or a higher design head)
+so the "before" state is genuinely wasteful and the sensor visibly rescues it.
+
+**2. THE STANDBY / PUMP-COUNT GAP.** Your step 1 says "2 pumps"; the endpoint
+ships THREE (PMP-3 standby, off). The tutorial builds two duty pumps and adds a
+NOTE that a standby third can be added the same way and left Off. If you would
+rather the tutorial build all three explicitly, say so.
+
+**3. DP anomaly confirmed and sharpened** — WORKLIST DP.1. At 200 kPa the pump
+sits at 86% (NOT maxed) and the device reports state `on`, yet SETPOINT_LOST
+fires. That state/error contradiction is the thread to pull. The tutorial's step
+9 tells the reader to expect the failure and raise to ~250, and names it as
+under investigation.
+
+**Verified:** page tags balanced, TOC's ten anchors all resolve, all four tables
+`.scroll`-wrapped, renders in dark theme, registry guard passes. Layout could not
+be pixel-measured — the browser pane reports 0 width — but the page reuses
+Tutorial 01's head and structure verbatim, and Tutorial 01 reports MORE apparent
+overflow than this page under the same collapsed pane, so it is a measurement
+artefact, not a defect.
