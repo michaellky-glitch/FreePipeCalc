@@ -26,7 +26,11 @@
   };
 
   var PDM = {
-    'Pa/m':     { factor: 1,        dp: 0, label: 'Pa/m' },
+    /* TWO DECIMALS — Michael, 2026-08-28: "increase the PD/m to 2 decimal
+     * places... Currently both are 0." At whole Pa/m a small-bore branch at a
+     * low friction rate reads "0", which is not a number anyone can size
+     * against. */
+    'Pa/m':     { factor: 1,        dp: 2, label: 'Pa/m' },
     'ft/100ft': { factor: RHO * G,  dp: 2, label: 'ft/100ft' } // m/m -> ft/100ft is 1:1 ratio x100
   };
 
