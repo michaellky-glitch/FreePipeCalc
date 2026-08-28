@@ -8122,36 +8122,6 @@
         pushUndo(); m.settings.frictionMethod = v; renderHydraulic(); redrawAll();
       });
 
-    /* ============ THE TEE LIMITATION, SAID WHERE THE METHOD IS CHOSEN
-     *
-     * Michael, 2026-08-28, on settling WORKLIST TEE.1 as option C — the
-     * flow-ratio branch coefficient goes on the DARCY path only, and
-     * Hazen-Williams is left exactly as it is:
-     *
-     *   "Leave HW as-is, but show a notification if the user is currently
-     *    using HW."
-     *
-     * IN THE PANEL, NOT IN A MESSAGE. This is the same rule the synced-pump
-     * notice was moved by on 2026-08-23: a message fires on every solve and
-     * describes something the engineer chose deliberately, which is noise. Here
-     * the remedy is the control directly above this line, so the note belongs
-     * beside it — the answer where the question is asked.
-     *
-     * WHY HAZEN-WILLIAMS CANNOT CARRY THE FIX (docs_internal/TEE-LOSSES.md
-     * §6A): a flow-ratio coefficient has to ride as an additive K term at
-     * exponent 2, and converting Hazen-Williams' equivalent LENGTHS into K
-     * needs a friction factor, which Hazen-Williams does not have. Darcy has
-     * one, already carries fittings as a separate `rK`, and is the basis the
-     * source data is published in. */
-    if (m.settings.frictionMethod === 'HW') {
-      var teeNote = el('div', 'note limit');
-      teeNote.appendChild(el('span', 'tag', 'IMPORTANT:'));
-      teeNote.appendChild(el('p', '',
-        'The current friction loss calculation (Hazen-Williams) is unable to ' +
-        'calculate pressure drops across unequal dividing tees. Recommend ' +
-        'changing to Darcy-Weisbach instead.'));
-      mg.appendChild(teeNote);
-    }
 
     /* The IPC demand-curve selector lives at the TOP of the plumbing block
      * above ("Plumbing supply system"), where it reads with the tables it

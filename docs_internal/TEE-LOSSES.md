@@ -46,8 +46,13 @@ Hazen-Williams is selected — his wording:
 > pressure drops across unequal dividing tees. Recommend changing to
 > Darcy-Weisbach instead.*
 
-IN THE PANEL, NOT IN A MESSAGE — the 2026-08-23 rule. The remedy is the control
-directly above the note.
+**IT IS A MESSAGE, IN THE CHIP** — Michael, 2026-08-28: *"Don't put the
+notification in Hydraulic, just put it in the chip please."* Shipped first as a
+panel note beside the method selector (v0.18.23) and moved on his instruction
+(v0.18.24). Code `HW_TEE_LIMIT`, raised **once per solve** and **only when the
+model actually contains a tee** — a limitation that cannot bite the drawing in
+front of you is noise. It sits with `LAMINAR`, which is the other warning about
+the METHOD rather than about the pipework.
 
 **Consequence to face later:** if the tee treatment is materially better under
 Darcy, the case for Darcy becoming the DEFAULT gets stronger, and that collides

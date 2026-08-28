@@ -426,6 +426,41 @@
     var s = m.settings;
     var rho = (s.fluid && s.fluid.density) || 998;
 
+    /* ============ THE METHOD CANNOT DO TEES PROPERLY, AND SAYS SO IN THE CHIP
+     *
+     * Michael, 2026-08-28, settling WORKLIST TEE.1 as option C — the flow-ratio
+     * branch coefficient goes on the DARCY path only — and then: "Don't put the
+     * notification in Hydraulic, just put it in the chip please."
+     *
+     * WHY HAZEN-WILLIAMS CANNOT CARRY THE FIX (docs_internal/TEE-LOSSES.md §0):
+     * a flow-ratio coefficient must ride as an additive K term at exponent 2,
+     * and converting Hazen-Williams' equivalent LENGTHS into K needs a friction
+     * factor, which Hazen-Williams does not have. Darcy has one, already carries
+     * fittings as a separate `rK`, and the solver already sums `r·Q^n + rK·Q²`.
+     *
+     * ONLY WHEN THE MODEL ACTUALLY HAS A TEE. A limitation that cannot bite the
+     * drawing in front of you is noise, and this list is pruned hard for exactly
+     * that reason — a single straight run has no tee to get wrong. */
+    if (method.fittingMode !== 'K') {
+      var hasTee = Object.keys(fits).some(function (id) {
+        return (fits[id].types || []).some(function (t) {
+          return t.indexOf('TRUN') === 0 || t.indexOf('TBRANCH') === 0;
+        });
+      });
+      if (hasTee) {
+        warnings.push({
+          code: 'HW_TEE_LIMIT',
+          /* The SHORT name. `method.name` is the registry's full title —
+           * "Hazen-Williams (ASHRAE with Equivalent Lengths)" — which nests a
+           * bracket inside a bracket and reads badly in a sentence. */
+          message: 'The current friction loss calculation (' +
+                   String(method.name).split(' (')[0] +
+                   ') is unable to calculate pressure drops across unequal ' +
+                   'dividing tees. Recommend changing to Darcy-Weisbach instead.'
+        });
+      }
+    }
+
     /* Parallel pumps need a CHARACTERISTIC, not a fixed head.
      *
      * N pumps that each hold their outlet at a fixed head above their inlet,
