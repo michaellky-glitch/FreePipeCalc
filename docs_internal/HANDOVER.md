@@ -1070,7 +1070,7 @@ file; the catalogue check follows the file to `docs_internal/MESSAGES.md`.
      prototype pollution, printer.js builds SVG via `createElementNS`+`textContent`,
      dxf.js sanitises to ASCII.
 
-3. **`docs/tutorial-02-schedules.html`** — adding a pipe schedule, both the
+3. **`docs/tutorial-05-schedules.html`** — adding a pipe schedule, both the
    in-app Custom route and editing `data/schedules.js`. Registered in `docs.js`
    (nine entries now). **`data/schedules.js` was made easier to edit**: a signposted
    header, a new **`fromBore([[label, bore, od], …])`** helper beside `fromWall`,
@@ -1093,7 +1093,7 @@ the file, so they take the doc house style, not the code one. Rewritten:
   active voice, no idiom. Warnings carry the same `IMPORTANT:` tag the HTML docs
   use. The two templates are now labelled TEMPLATE 1 / TEMPLATE 2 by which
   published table the reader has.
-* `docs/tutorial-02-schedules.html` — 31 sentences rewritten. One prose sentence
+* `docs/tutorial-05-schedules.html` — 31 sentences rewritten. One prose sentence
   over 22 words remains and it is a list of standard names. No idiom left.
 
 **The rule for next time: developer comments keep the project voice; anything a

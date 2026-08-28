@@ -4,7 +4,7 @@
  * TO ADD YOUR OWN SCHEDULE:
  *   1. Find the block "YOUR OWN SCHEDULES" at the end of the SCHEDULES table.
  *   2. Use the template in that block.
- * For the full procedure, read docs/tutorial-02-schedules.html.
+ * For the full procedure, read docs/tutorial-05-schedules.html.
  * ===========================================================================
  *
  * Each schedule has a list of sizes. Each size has three values:
@@ -187,7 +187,7 @@
      *   6. Save the file.
      *   7. Change the version number in index.html. Then reload the program.
      *
-     * For the full procedure, read docs/tutorial-02-schedules.html.
+     * For the full procedure, read docs/tutorial-05-schedules.html.
      *
      * IMPORTANT: The key is the text in quotes, for example 'copper_x'. A saved
      * model records the key. Do not change the key after you use it. If you
