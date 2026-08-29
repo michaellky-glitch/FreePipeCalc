@@ -1113,18 +1113,17 @@
         return;
       }
       /* DETAIL: a free line that the model never sees. Click to place vertices,
-       * Esc or a click on the last point to finish. Clicking an EXISTING detail
-       * line erases it — Michael asked for "draw & erase" as one tool, and a
-       * separate eraser would be a second mode to be in. */
+       * Esc or a click on the last point to finish.
+       *
+       * CLICKING AN EXISTING LINE NO LONGER ERASES IT — Michael, 2026-08-29:
+       * "Clicking on detail lines while the draw>detail tool is active should
+       * not delete the old lines." It used to, as a "draw & erase" single tool.
+       * The trouble is that drawing a room outline means clicking ON the lines
+       * already drawn — a corner, an edge you are tracing along — so the tool
+       * deleted the work as a side effect of using it. Deleting a detail line
+       * is the SELECT tool's job, which already handles annotation and is
+       * undoable in the ordinary way. */
       if (self.tool === 'detail') {
-        var hitD = self.detailAt(w.x, w.y, 8);
-        if (hitD && !self.detailDraft) {
-          self.onBeforeEdit();
-          M.removeDetail(m0, hitD.id);
-          self.onMessage('Detail line erased.');
-          self.changed();
-          return;
-        }
         /* SNAPPED, like pipework (Michael, 2026-08-08). A detail line is
          * drawing a room or a plant box over a drawing that is entirely
          * orthogonal, so a free-hand vertex is almost never what is wanted.
@@ -2385,7 +2384,13 @@
 
   View.prototype.pumpClick = function (w) {
     var pmp = this.insertInline(w, 'pump', { pump: { mode: 'auto', head: 20, flow: 0 } }, 'pump');
-    if (pmp && !pmp.tag) { pmp.tag = this.nextTag('pump'); this.changed(); }
+    /* NAMED BY THE CONVENTION on SETTINGS, the same as a heat exchanger or a
+     * heat source (Michael, 2026-08-29). The built-in `nextTag('pump')` was the
+     * only thing left tagging itself. */
+    if (pmp && !pmp.tag) {
+      pmp.tag = M.equipmentTag(this.getModel(), 'pump', this.getModel().activeLevel);
+      this.changed();
+    }
   };
 
   /* SENSOR: an instrument dropped into a run. `toolVariant` says WHICH, from
@@ -2719,8 +2724,14 @@
     this._riserHandles = [];
     this._riserBoxes = [];
     /* UNDER the model. Detail lines are a backdrop — a room outline, a plant
-     * box — and pipework must never be hidden behind one. */
+     * box — and pipework must never be hidden behind one.
+     *
+     * TEXT BOXES SIT HERE TOO (Michael, 2026-08-29: "Annotation draw order
+     * should be behind design elements"). They used to be drawn last, over
+     * everything, so a note placed near a run buried the pipework it was
+     * annotating. Annotation describes the drawing; it does not obscure it. */
     this.drawDetails();
+    this.drawNotes();
     this.drawRisers();
     this.drawPipes();
     this.drawNodes();
@@ -2734,7 +2745,6 @@
     this.drawWarnHighlight();
     this.drawControlLinks();
     this.drawSyncLinks();
-    this.drawNotes();
     this.drawLinkNodePreview();
     this.drawPastePreview();
     this.drawDisconnects();

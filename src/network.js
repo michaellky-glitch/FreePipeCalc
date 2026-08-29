@@ -441,6 +441,33 @@
      * ONLY WHEN THE MODEL ACTUALLY HAS A TEE. A limitation that cannot bite the
      * drawing in front of you is noise, and this list is pruned hard for exactly
      * that reason — a single straight run has no tee to get wrong. */
+    /* ============ A MACHINE ON AUTO IS SIZED TO THE MOMENT IT IS SIMULATED
+     *
+     * Michael, 2026-08-29. On AUTO sizing a heat source/sink is unlimited: it
+     * holds its setpoint whatever that takes, and its rated flow is whatever
+     * the solve landed on. Its hydraulic resistance is derived from that rated
+     * point — so in SIMULATION the machine is, in effect, a chiller selected
+     * exactly for the conditions being simulated. That is a fine assumption for
+     * DESIGN, where finding the selection is the whole job. It is a statement
+     * worth making out loud in SIMULATION, where the reader is asking what a
+     * REAL plant does at a part-load condition.
+     *
+     * SIMULATION ONLY: on DESIGN this is not a caveat, it is the method. */
+    if (simulating) {
+      m.pipes.forEach(function (p) {
+        if (p.kind !== 'equip' || !p.equip || p.equip.off) return;
+        if (p.equip.equipType !== 'source') return;
+        var cap = Number(p.equip.qMax);
+        if (isFinite(cap) && cap !== 0) return;        // Manual: nameplate stated
+        warnings.push({
+          code: 'EQUIP_AUTO_SIM', pipe: p.id,
+          message: (p.tag || p.id) + ' is in Auto Mode. Simulating with ' +
+                   'Equipment in Auto Mode assumes that the pressure drop is ' +
+                   'sized exactly to the current conditions.'
+        });
+      });
+    }
+
     if (method.fittingMode !== 'K') {
       var hasTee = Object.keys(fits).some(function (id) {
         return (fits[id].types || []).some(function (t) {

@@ -5082,7 +5082,23 @@
     var qIn = el('input'); qIn.type = 'text';
     qIn.value = FD.units.fmtFlow(e.qRated || 0, d.flow);
     field(des.box, 'Flow (' + d.flow + ')', qIn);
-    if (!isAdiabatic) {
+    /* A SOURCE/SINK ON AUTO HAS NO DESIGN FLOW TO STATE — Michael, 2026-08-29:
+     * "When in Auto sizing mode, block the user from changing flow rate."
+     *
+     * On Auto the machine holds its setpoint whatever that takes, so the flow
+     * is an OUTCOME of the solve, not an input to it. Leaving the box live
+     * invites typing a number the next solve ignores, which is the same
+     * complaint the controlled-valve position answered on 2026-08-04 — and it
+     * is worse here, because flow, capacity and ΔT are one equation, so a typed
+     * flow silently moves the ΔT of a machine that was never given a capacity. */
+    var srcAuto = isSource &&
+      (!isFinite(Number(e.qMax)) || Number(e.qMax) === 0);
+    if (srcAuto) {
+      qIn.disabled = true;
+      qIn.parentNode.classList.add('is-disabled');
+      qIn.parentNode.appendChild(el('span', 'hint',
+        'Set by the solve on Auto sizing. Switch Sizing to Manual to state it.'));
+    } else if (!isAdiabatic) {
       infoMark(fieldLabel(qIn),
                'Flow, load and ΔT are one equation. Changing this moves ' +
                'whichever of the other two you set least recently.');
@@ -7309,51 +7325,118 @@
     if (m.discipline !== 'plumbing') {
       host.appendChild(el('h2', '', 'Equipment naming'));
       m.settings.naming = m.settings.naming || {};
-      var PREFIX_OPTS = [['none', 'None'], ['tag', 'Tag']];
-      var NUMBER_OPTS = [['none', 'None'], ['floor', 'Floor'], ['seq', 'Sequence']];
+      var NUMBER_OPTS = [['floor', 'Floor'], ['seq', 'Sequence']];
 
-      [['exchanger', 'Heat exchangers'], ['source', 'Heat sources / sinks']]
+      /* FIELD, NOT PREFIX — Michael, 2026-08-29. Four controls in two rows:
+       * Field 1 / Number 1, then Field 2 / Number 2. Each is switched on or off
+       * rather than picking "None" from a menu, because "None" is not a kind of
+       * prefix, it is the absence of one. A switch says that; a dropdown makes
+       * the reader hunt for it.
+       *
+       * PUMPS ARE HERE TOO now, on the same terms as the two equipment kinds. */
+      [['exchanger', 'Heat exchangers'],
+       ['source', 'Heat sources / sinks'],
+       ['pump', 'Pumps']]
         .forEach(function (row) {
           var kind = row[0];
           var f = M.namingFor(m, kind);
           m.settings.naming[kind] = f;
           host.appendChild(el('h3', 'sub', row[1]));
-          var g = group2();
-          function commitNaming() {
-            renderSettings();
-            redrawAll();
-          }
-          function prefixPair(key, textKey, label) {
-            sel(g, label, PREFIX_OPTS, f[key], function (v) {
-              f[key] = v; commitNaming();
-            });
-            /* The tag text may contain and END WITH spaces — "AHU " with a
-             * floor number after it reads "AHU 1" — so it is never trimmed. */
-            if (f[key] === 'tag') {
-              text(g, label + ' text', f[textKey], function (v) { f[textKey] = v; });
-            }
-          }
-          prefixPair('p1', 'p1Text', 'Prefix 1');
-          sel(g, 'Number 1', NUMBER_OPTS, f.n1, function (v) { f.n1 = v; commitNaming(); });
-          prefixPair('p2', 'p2Text', 'Prefix 2');
-          sel(g, 'Number 2', NUMBER_OPTS, f.n2, function (v) { f.n2 = v; commitNaming(); });
 
-          /* A live example, built by the same function that names a real
-           * device, so the preview cannot drift from the result. */
-          var demo = M.create();
-          demo.settings.naming = {}; demo.settings.naming[kind] = f;
-          M.addLevel(demo, { name: 'L1', altitude: 3.5 });
-          var lvlDemo = demo.levels.filter(function (l) { return l.altitude === 0; })[0];
-          var ex = [];
-          for (var i = 0; i < 2; i++) {
-            var na = M.addNode(demo, lvlDemo.id, i, 0), nb = M.addNode(demo, lvlDemo.id, i + 0.5, 0);
-            var ep = M.addPipe(demo, na.id, nb.id, { size: 'DN50' });
-            ep.kind = 'equip';
-            ep.equip = { qRated: 0.01, pdRated: 50000, equipType: kind, duty: 10000 };
-            ep.tag = M.equipmentTag(demo, kind, lvlDemo.id);
-            ex.push(ep.tag);
+          /* The preview element is created FIRST and refreshed in place, so
+           * typing in a text box updates it on every keystroke. It used to be
+           * built once at the end of the pass, which meant it only moved when
+           * something forced a whole re-render — Michael: "Tag preview not
+           * updating until another field is changed? It should live update." */
+          var preview = el('p', 'hint', '');
+          function refreshPreview() {
+            /* Built by the SAME function that names a real device, on a
+             * throwaway model, so the preview cannot drift from the result. */
+            var demo = M.create();
+            demo.settings.naming = {}; demo.settings.naming[kind] = f;
+            M.addLevel(demo, { name: 'L1', altitude: 3.5 });
+            var lvlDemo = demo.levels.filter(function (l) { return l.altitude === 0; })[0];
+            var ex = [];
+            for (var i = 0; i < 2; i++) {
+              var na = M.addNode(demo, lvlDemo.id, i, 0);
+              var nb = M.addNode(demo, lvlDemo.id, i + 0.5, 0);
+              var ep = M.addPipe(demo, na.id, nb.id, { size: 'DN50' });
+              if (kind === 'pump') { ep.kind = 'pump'; ep.pump = { mode: 'auto', head: 20 }; }
+              else {
+                ep.kind = 'equip';
+                ep.equip = { qRated: 0.01, pdRated: 50000, equipType: kind, duty: 10000 };
+              }
+              ep.tag = M.equipmentTag(demo, kind, lvlDemo.id);
+              ex.push(ep.tag);
+            }
+            preview.textContent = 'Preview: ' + ex.join(', ');
           }
-          host.appendChild(el('p', 'hint', 'On the ground floor: ' + ex.join(', ')));
+
+          /* A change to the FORMAT re-renders (a switch adds or removes a
+           * control); a change to the TEXT only refreshes the preview, so the
+           * caret is not thrown out of the box being typed in. */
+          function commitFormat() { renderSettings(); redrawAll(); }
+          function commitText() { refreshPreview(); scheduleSave(); redrawAll(); }
+
+          function fieldCell(g2, key, textKey, label) {
+            var cell = el('div', 'field');
+            var on = (f[key] === 'tag');
+            /* NOT SEEDED. `f[textKey]` already carries whatever the field held
+             * — the kind's default for Field 2, empty for Field 1 — so
+             * switching off and on again restores what was there rather than
+             * inventing a value. Seeding Field 1 with the equipment prefix read
+             * as "HX0-HX01", which is nobody's convention. */
+            switchRow(cell, label, on, function (v) {
+              f[key] = v ? 'tag' : 'none';
+              commitFormat();
+            });
+            if (on) {
+              var i = el('input'); i.type = 'text'; i.value = f[textKey] || '';
+              /* The tag text may contain and END WITH spaces — "AHU " with a
+               * floor number after it reads "AHU 1" — so it is never trimmed. */
+              i.addEventListener('input', function () { f[textKey] = i.value; commitText(); });
+              cell.appendChild(i);
+            }
+            g2.appendChild(cell);
+          }
+
+          /* `dflt` is what the switch turns ON to. NUMBER 1 defaults to FLOOR
+           * and number 2 to SEQUENCE, which is the worked example the naming
+           * convention was built for — L0-AHU01. Defaulting both to sequence
+           * puts two counters in one tag, and `equipmentTag` only counts one of
+           * them, so the preview repeated itself. */
+          function numberCell(g2, key, label, dflt) {
+            var cell = el('div', 'field');
+            var on = (f[key] !== 'none');
+            switchRow(cell, label, on, function (v) {
+              f[key] = v ? dflt : 'none';
+              commitFormat();
+            });
+            if (on) {
+              var sN = el('select');
+              NUMBER_OPTS.forEach(function (o) {
+                var opt = el('option', '', o[1]); opt.value = o[0];
+                if (o[0] === f[key]) opt.selected = true;
+                sN.appendChild(opt);
+              });
+              sN.addEventListener('change', function () { f[key] = sN.value; commitFormat(); });
+              cell.appendChild(sN);
+            }
+            g2.appendChild(cell);
+          }
+
+          /* TWO ROWS, his layout: Field 1 / Number 1, then Field 2 / Number 2.
+           * A grid of its own per row, so the pair stays together when the
+           * panel is narrow. */
+          var rowA = group2();
+          fieldCell(rowA, 'p1', 'p1Text', 'Field 1');
+          numberCell(rowA, 'n1', 'Number 1', 'floor');
+          var rowB = group2();
+          fieldCell(rowB, 'p2', 'p2Text', 'Field 2');
+          numberCell(rowB, 'n2', 'Number 2', 'seq');
+
+          refreshPreview();
+          host.appendChild(preview);
         });
       host.appendChild(el('p', 'hint',
         'Applies to equipment placed from now on, and to a floor when it is ' +

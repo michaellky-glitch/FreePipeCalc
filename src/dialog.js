@@ -51,7 +51,15 @@
       function onKey(e) {
         if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); close(opts.cancelValue); }
         if (e.key === 'Enter' && opts.submitOnEnter !== false) {
-          if (e.target && e.target.tagName === 'TEXTAREA') return;
+          /* CTRL+ENTER COMMITS FROM A TEXTAREA — Michael, 2026-08-29: an
+           * annotation text box needs "a save button or ctrl-enter to commit,
+           * or both". The Save button was always there; this is the keyboard
+           * half. A PLAIN Enter still inserts a newline, because a note is
+           * multi-line by nature and submitting on it would make a two-line
+           * note impossible to type. */
+          if (e.target && e.target.tagName === 'TEXTAREA') {
+            if (!(e.ctrlKey || e.metaKey)) return;
+          }
           e.preventDefault();
           close(typeof opts.onSubmit === 'function' ? opts.onSubmit() : true);
         }
