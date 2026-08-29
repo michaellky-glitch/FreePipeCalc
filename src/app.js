@@ -3357,10 +3357,44 @@
     host.appendChild(el('h3', '', 'Text note'));
     var sec = section(host, 'Details');
     sec.ro('Internal tag', n.id);
+    /* ================ THE TEXT NEEDS A WAY TO SAY "DONE"
+     *
+     * Michael, 2026-08-29: an annotation text box "should have a save button or
+     * ctrl-enter to commit, or both", and on the follow-up: "This is the edit
+     * box I am talking about (in properties)."
+     *
+     * It committed on `change`, which for a textarea fires on BLUR — so you
+     * type, nothing happens, and the only way to commit is to click somewhere
+     * else and hope. There is no affordance saying the text has been taken, and
+     * a multi-line box swallows Enter, so the obvious keystroke does nothing
+     * either.
+     *
+     * Now: Ctrl+Enter commits, a Save button commits, and blur still commits so
+     * no one loses work by clicking away. The button is DISABLED until the text
+     * actually differs, which is what makes it a state readout rather than
+     * decoration — if it is live, there is something unsaved. */
     var ta = el('textarea'); ta.rows = 4; ta.value = n.text || '';
-    field(sec.box, 'Text', ta).addEventListener('change', function () {
+    field(sec.box, 'Text', ta);
+    var saveText = el('button', 'btn tiny', 'Save text');
+    saveText.type = 'button';
+    saveText.disabled = true;
+    ta.parentNode.appendChild(saveText);
+    var dirty = function () { return ta.value.replace(/\r/g, '') !== (n.text || ''); };
+    function commitNoteText() {
+      if (!dirty()) { saveText.disabled = true; return; }
       pushUndo(); n.text = ta.value.replace(/\r/g, ''); changed();
+      saveText.disabled = true;
+    }
+    ta.addEventListener('input', function () { saveText.disabled = !dirty(); });
+    ta.addEventListener('change', commitNoteText);
+    ta.addEventListener('keydown', function (e) {
+      /* PLAIN Enter still makes a newline — a note is multi-line by nature. */
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault(); commitNoteText();
+      }
     });
+    saveText.addEventListener('click', commitNoteText);
+    sec.box.appendChild(el('p', 'hint', 'Ctrl+Enter saves. Enter makes a new line.'));
     annotationColourRow(sec, n);
     var sIn = el('input'); sIn.type = 'text'; sIn.value = String(n.size || 13);
     field(sec.box, 'Text size (px)', sIn).addEventListener('change', function () {
