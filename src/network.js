@@ -969,6 +969,71 @@
    * The yielded value is progress, never state: `{ solves, iteration, device,
    * fraction }`. Nothing is expected to be done with it, and the driver may
    * ignore it entirely. */
+  /* ============ THE REQUIRED CAPACITY IS ANSWERED WITHOUT THE CAPACITY
+   *
+   * Michael, 2026-08-29, on `debug/network.pnet(7).json`: five coils at 160 kW
+   * against two 400 kW chillers, so the plant is a shade undersized once the
+   * pipes pick up heat from ambient. Each chiller then reported a **required
+   * capacity of 1024 kW** and a margin of -61%, while the heat balance was out
+   * by 0.03 kW. His diagnosis was right: "the chiller is hitting a brick wall
+   * at 400 kW and thermal runaway is happening until heat loss from the pipe to
+   * ambient = deficit."
+   *
+   * `requiredDuty` is `C·(tSet − tIn)` — what the machine needs AT THE INLET IT
+   * ACTUALLY HAS. That is the right question when the machine is holding its
+   * setpoint. It is circular when it is not: the deficit pushes the return
+   * water up, the hotter return raises tIn, the higher tIn raises the apparent
+   * requirement, and the loop only settles when the pipes shed the difference
+   * to ambient. The number reported is then the requirement for a runaway that
+   * exists BECAUSE the machine is short — not the requirement for the duty the
+   * building actually presents.
+   *
+   * So the sizing question is asked of a plant that is NOT short. The thermal
+   * pass is one-way over fixed flows — it feeds nothing back into the
+   * hydraulics — so lifting the capacity ceilings and running it again costs
+   * one pass and no re-solve, and gives each machine the duty it would land on
+   * if it could hold its setpoint. That IS the capacity to select.
+   *
+   * ONLY THE CAPACITY IS LIFTED. A ΔT limit is a real property of the machine
+   * and stays; the panel reports which constraint bound it either way.
+   *
+   * MAIN SOLVE ONLY. The control loop calls `FD.thermal.solve` hundreds of
+   * times and never reads this, so it stays out of that path. */
+  function applyRequiredCapacity(m, res) {
+    if (!FD.thermal || !res || !res.thermal || !res.thermal.links) return;
+    var limited = [];
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'equip' || !p.equip || p.equip.off) return;
+      if (p.equip.equipType !== 'source') return;
+      var cap = Number(p.equip.qMax);
+      if (!isFinite(cap) || cap === 0) return;      // already unlimited
+      limited.push({ e: p.equip, cap: p.equip.qMax });
+    });
+    if (!limited.length) return;
+
+    var free = null;
+    limited.forEach(function (x) { delete x.e.qMax; });
+    try {
+      free = FD.thermal.solve(m, res);
+    } catch (err) {
+      free = null;
+    } finally {
+      /* RESTORED ON EVERY PATH. This mutates the live model for the length of
+       * one pass, so a throw here would leave every chiller unlimited. */
+      limited.forEach(function (x) { x.e.qMax = x.cap; });
+    }
+    if (!free || !free.links) return;
+
+    Object.keys(res.thermal.links).forEach(function (id) {
+      var got = res.thermal.links[id];
+      var want = free.links[id];
+      if (!got || !want) return;
+      if (got.limit !== 'Capacity') return;
+      if (want.qW === undefined || want.qW === null || !isFinite(want.qW)) return;
+      got.qNeed = want.qW;
+    });
+  }
+
   function solveModel(m, maxPasses, opts) {
     var it = solveModelGen(m, maxPasses, opts);
     var r = it.next();
@@ -1146,6 +1211,7 @@
      * once the flows are known — and it feeds nothing back, because fluid
      * properties are held at one temperature. Last, and one-way. */
     res.thermal = FD.thermal ? FD.thermal.solve(m, res) : null;
+    applyRequiredCapacity(m, res);
     if (res.thermal) {
       if (res.thermal.warnings.length) {
         res.warnings = res.warnings.concat(res.thermal.warnings);

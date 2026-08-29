@@ -3375,7 +3375,7 @@
      * decoration — if it is live, there is something unsaved. */
     var ta = el('textarea'); ta.rows = 4; ta.value = n.text || '';
     field(sec.box, 'Text', ta);
-    var saveText = el('button', 'btn tiny', 'Save text');
+    var saveText = el('button', 'btn tiny', 'Save');
     saveText.type = 'button';
     saveText.disabled = true;
     ta.parentNode.appendChild(saveText);
@@ -3394,7 +3394,6 @@
       }
     });
     saveText.addEventListener('click', commitNoteText);
-    sec.box.appendChild(el('p', 'hint', 'Ctrl+Enter saves. Enter makes a new line.'));
     annotationColourRow(sec, n);
     var sIn = el('input'); sIn.type = 'text'; sIn.value = String(n.size || 13);
     field(sec.box, 'Text size (px)', sIn).addEventListener('change', function () {
