@@ -61,7 +61,7 @@
 
       /* Darcy-Weisbach settings. Swamee-Jain is the chosen correlation
        * (2026-08-02); the others stay selectable for comparison. */
-      dw: { frictionFactor: 'swameejain', roughness_mm: 0.045, kSet: 'threaded' },
+      dw: { frictionFactor: 'colebrook', roughness_mm: 0.045, kSet: 'threaded' },
 
       /* Fluid. `preset` names one of data/fluids.js; the four numbers below
        * are only read when the preset is 'custom', because a named fluid's

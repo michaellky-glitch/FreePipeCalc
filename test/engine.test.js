@@ -290,10 +290,16 @@ section('Hazen-Williams');
   ok('Loss at ~zero flow is finite and positive', isFinite(tiny) && tiny > 0);
   ok('dh/dQ at zero flow is finite', isFinite(FD.hydraulics.dhdq(r, 0, HW_N)));
 
-  ok('Darcy-Weisbach is available and still flagged (BETA)',
+  /* DARCY LEFT BETA on 2026-08-30, at Michael's word. His approval of the
+   * method and of a correlation was on record from v0.8.0; what the BETA line
+   * stood for was "never checked against another tool or a real job", and he
+   * closed that. The name and the flag move together — a method that still
+   * said BETA in its name while `experimental` was false would put the caveat
+   * on the sheet and nowhere else, or the reverse. */
+  ok('Darcy-Weisbach is available and no longer flagged BETA',
      FD.hydraulics.methods.DW.available === true &&
-     FD.hydraulics.methods.DW.experimental === true &&
-     /BETA/.test(FD.hydraulics.methods.DW.name));
+     FD.hydraulics.methods.DW.experimental === false &&
+     !/BETA/i.test(FD.hydraulics.methods.DW.name));
 
   /* TWO methods, not three. The two Hazen-Williams entries computed pipe loss
    * identically and differed only in how they charged fittings, so the menu
@@ -969,11 +975,29 @@ section('Darcy-Weisbach: Swamee-Jain against an iterated Colebrook');
        hf2 / hfSJ > 3.7 && hf2 / hfSJ < 4.0, (hf2 / hfSJ).toFixed(4));
   }
 
-  ok('Swamee-Jain is the default when none is named',
+  /* COLEBROOK-WHITE IS THE DEFAULT (Michael, 2026-08-30). It is the reference
+   * the explicit forms are fitted to, so defaulting to a fit rather than to the
+   * thing it fits was always the odd way round. */
+  ok('Colebrook-White is the correlation used when none is named',
      FD.hydraulics.frictionFactor(1e5, 1e-4) ===
+     FD.hydraulics.frictionFactor(1e5, 1e-4, 'colebrook'));
+  ok('...and it is NOT Swamee-Jain any more',
+     FD.hydraulics.frictionFactor(1e5, 1e-4) !==
      FD.hydraulics.frictionFactor(1e5, 1e-4, 'swameejain'));
-  ok('...and is the default in a new model',
-     FD.model ? true : true);   // model defaults are asserted in model.test.js
+  /* `FD2` is the sandbox that carries model.js — `FD` alone is the data and
+   * hydraulics layer. */
+  ok('...and a new model is created with it',
+     (FD2.model.create().settings.dw || {}).frictionFactor === 'colebrook',
+     String((FD2.model.create().settings.dw || {}).frictionFactor));
+
+  /* THE NAMES CARRY NO PARENTHETICAL EXPLANATION any more — his instruction the
+   * same day. They are selector labels, not a place to teach the method. */
+  ok('correlation names are bare',
+     Object.keys(FD.hydraulics.frictionFactors).every(function (k) {
+       return !/[()]|—/.test(FD.hydraulics.frictionFactors[k].name);
+     }),
+     Object.keys(FD.hydraulics.frictionFactors)
+       .map(function (k) { return FD.hydraulics.frictionFactors[k].name; }).join(' | '));
 }
 
 /* --------------------------------------------------------------------------

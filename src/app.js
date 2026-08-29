@@ -2500,7 +2500,7 @@
           kv2('NOTE', 'Constants have been EDITED from the ASHRAE defaults.');
         }
       } else {
-        var ffKey = (m.settings.dw && m.settings.dw.frictionFactor) || 'swameejain';
+        var ffKey = (m.settings.dw && m.settings.dw.frictionFactor) || 'colebrook';
         var ff = FD.hydraulics.frictionFactors[ffKey];
         kv2('Formula', 'hf = f · (L/d) · V²/2g   +   Σ K · V²/2g');
         kv2('Friction factor', ff ? ff.name : ffKey);
@@ -2509,12 +2509,16 @@
          * velocity-head equation, so the two match (Ch 22 Eq 7). */
         kv2('Fittings', 'K velocity heads (Ch 22 Eq 7), ' +
             FD.ktable.sets[(m.settings.dw && m.settings.dw.kSet) || 'threaded'].name);
-        kv2('NOTE', 'BETA. ' + (ffKey === 'swameejain'
-          ? 'Swamee-Jain is an explicit fit to Colebrook-White, measured in the test ' +
-            'suite against an independent iteration of Colebrook: within 0.9% over ' +
-            'Re 1e4–1e7 with ε/d up to 1e-3, and up to 2.8% at Re 5000 with ε/d 1e-2. '
-          : '') +
-          'Verify against your own reference before issue.');
+        /* NO LONGER A BETA NOTE (Michael, 2026-08-30: "Darcy can leave beta").
+         * Colebrook-White is the default correlation and is the reference the
+         * explicit fits are measured against, so there is nothing to caveat —
+         * only the fit error to state when an explicit form has been chosen. */
+        if (ffKey === 'swameejain') {
+          kv2('NOTE', 'Swamee-Jain is an explicit fit to Colebrook-White, measured ' +
+              'in the test suite against an independent iteration of Colebrook: ' +
+              'within 0.9% over Re 1e4–1e7 with ε/d up to 1e-3, and up to 2.8% at ' +
+              'Re 5000 with ε/d 1e-2.');
+        }
       }
       var fl = m.settings.fluid || {};
       kv2('Fluid', (fl.name || 'Water') + ', ρ = ' + (fl.density || 998) + ' kg/m³');
@@ -8332,18 +8336,19 @@
        * keeps it — a stored calculation is not re-specified behind the
        * engineer's back — so a notice hard-coded to Swamee-Jain would have been
        * describing a different calculation from the one on the screen. */
-      var ffNow = (m.settings.dw && m.settings.dw.frictionFactor) || 'swameejain';
+      var ffNow = (m.settings.dw && m.settings.dw.frictionFactor) || 'colebrook';
       var ffDef = FD.hydraulics.frictionFactors[ffNow];
-      host.appendChild(el('div', 'notice warn-notice',
-        'BETA. Friction factor: ' + (ffDef ? ffDef.name : ffNow) + '. ' +
-        (ffNow === 'swameejain'
-          ? 'Measured against an independent iteration of Colebrook-White in the test ' +
-            'suite: within 0.9% over Re 1e4–1e7 with ε/d up to 1e-3, which is the ' +
-            'envelope building-services pipework sits in, rising to 2.8% at Re 5000 ' +
-            'with ε/d 1e-2. '
-          : 'Swamee-Jain is the correlation this build selects for new models; this ' +
-            'one keeps the choice it was saved with. ') +
-        'Calculations issued from this method carry a BETA note on the sheet.'));
+      /* NOT A WARNING ANY MORE. Darcy left BETA on 2026-08-30 and Colebrook-White
+       * is the default correlation — the reference the explicit forms are fitted
+       * to, solved iteratively here. The only thing worth saying is the fit
+       * error, and only when an explicit form is the one in use. */
+      host.appendChild(el('p', 'hint',
+        'Friction factor: ' + (ffDef ? ffDef.name : ffNow) + '. ' +
+        (ffNow === 'colebrook'
+          ? 'Solved iteratively — the reference the explicit correlations are ' +
+            'fitted against.'
+          : 'An explicit fit to Colebrook-White. Colebrook-White is the default ' +
+            'for new models; this one keeps the choice it was saved with.')));
 
       var dg = grid();
       selField(dg, 'Friction factor correlation',
