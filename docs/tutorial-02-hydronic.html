@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreePipeCalc — Tutorial 02: A multi-storey hydronic system</title>
+<style>
+/* Self-contained: no fonts, no scripts, no network. The page must open from a
+   USB stick with a double-click, which is the same rule the app follows. */
+:root{
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+/* Dark by the reader's own setting when the page stands alone... */
+@media (prefers-color-scheme:dark){ :root{ color-scheme:dark } :root:not([data-theme]){
+    --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+    --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+    --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+    --code-bg:#1e242c;
+} }
+/* ...and by the APP's setting when it is embedded in the DOCUMENTATION tab,
+   which passes ?theme=. An explicit theme wins over the media query in both
+   directions, so a dark app never shows a white page and the reverse. */
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#14171c; --panel:#1b1f26; --line:#2c333d; --line-soft:#232932;
+  --text:#e6e9ee; --dim:#aab2bd; --mute:#7d8792;
+  --accent:#6ba4ee; --ok:#46d17f; --warn:#ff9f43; --err:#ff6b6b;
+  --code-bg:#1e242c;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#ffffff; --panel:#f7f8fa; --line:#d9dde3; --line-soft:#e8ebef;
+  --text:#1b1f24; --dim:#5b636d; --mute:#828a94;
+  --accent:#12509e; --ok:#0a7a3d; --warn:#a06000; --err:#b21f2d;
+  --code-bg:#f2f4f7;
+}
+/* Embedded: the page supplies its own margin, so drop the outer one and let the
+   host frame own the scroll edge. */
+:root[data-embed="1"] header.top{padding-top:22px}
+:root[data-embed="1"] .wrap{padding-bottom:40px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.62 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px 80px;display:flex;gap:36px;align-items:flex-start}
+main{flex:1 1 auto;min-width:0;max-width:760px}
+
+/* ---- masthead ---- */
+header.top{border-bottom:1px solid var(--line);margin-bottom:28px;padding:30px 0 18px}
+header.top h1{font-size:27px;line-height:1.2;margin:0 0 6px;letter-spacing:-.2px}
+header.top .sub{color:var(--dim);margin:0;font-size:14.5px}
+header.top .meta{color:var(--mute);font-size:12.5px;margin-top:10px}
+
+/* ---- contents rail ---- */
+nav.toc{
+  position:sticky;top:18px;flex:0 0 232px;align-self:flex-start;
+  font-size:13px;line-height:1.5;max-height:calc(100vh - 40px);overflow:auto;
+  border-left:1px solid var(--line-soft);padding-left:16px
+}
+nav.toc h2{font-size:11px;letter-spacing:.9px;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:s}
+nav.toc > ol > li{counter-increment:s;margin:0 0 3px}
+nav.toc > ol > li > a::before{content:counter(s) ". ";color:var(--mute)}
+nav.toc ol ol{padding-left:16px;margin:2px 0 6px}
+nav.toc ol ol li{margin:0}
+nav.toc a{color:var(--dim);text-decoration:none;display:block;padding:2px 0}
+nav.toc a:hover{color:var(--accent)}
+
+/* ---- headings ---- */
+h2{font-size:21px;margin:44px 0 12px;padding-top:10px;border-top:1px solid var(--line);letter-spacing:-.15px}
+h2:first-of-type{border-top:0;margin-top:0}
+h3{font-size:16.5px;margin:28px 0 8px}
+h4{font-size:14px;margin:20px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 14px;padding-left:22px}
+li{margin:0 0 5px}
+a{color:var(--accent)}
+strong{font-weight:650}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.9em;background:var(--code-bg);padding:1px 5px;border-radius:4px
+}
+
+/* ---- formulae ---- */
+.eq{
+  background:var(--panel);border:1px solid var(--line-soft);border-left:3px solid var(--accent);
+  border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;overflow-x:auto;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:1.75
+}
+.eq .lbl{display:block;font-family:system-ui,sans-serif;font-size:11.5px;
+  text-transform:uppercase;letter-spacing:.7px;color:var(--mute);margin-bottom:7px}
+.eq em{color:var(--mute);font-style:normal}
+.steps{counter-reset:step;list-style:none;padding-left:0;margin:16px 0}
+.steps > li{
+  counter-increment:step;position:relative;padding-left:38px;margin-bottom:14px
+}
+.steps > li::before{
+  content:counter(step);position:absolute;left:0;top:1px;
+  width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;
+  font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center
+}
+
+/* ---- tables ---- */
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th,td{border:1px solid var(--line-soft);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel);font-weight:600;font-size:13px}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto;margin:16px 0}
+.scroll table{margin:0}
+
+/* ---- callouts ---- */
+.note{border-radius:6px;padding:12px 15px;margin:16px 0;border:1px solid var(--line);background:var(--panel)}
+.note p:last-child{margin-bottom:0}
+.note .tag{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.8px;
+  font-weight:700;margin-bottom:6px}
+.note.check{border-left:3px solid var(--ok)} .note.check .tag{color:var(--ok)}
+.note.limit{border-left:3px solid var(--warn)} .note.limit .tag{color:var(--warn)}
+.note.rule{border-left:3px solid var(--accent)} .note.rule .tag{color:var(--accent)}
+
+figure{margin:22px 0}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:13px;color:var(--dim);margin-top:8px}
+
+.lead{font-size:16px;color:var(--dim);margin-bottom:20px}
+footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);
+  font-size:13px;color:var(--mute)}
+
+@media (max-width:1000px){
+  nav.toc{display:none}
+  .wrap{display:block;padding-bottom:50px}
+  main{max-width:none}
+}
+@media print{
+  nav.toc{display:none} .wrap{display:block;max-width:none}
+  body{font-size:10.5pt;color:#000;background:#fff}
+  h2{page-break-after:avoid} .eq,table,figure,.note{page-break-inside:avoid}
+  a{color:#000;text-decoration:none}
+}
+</style><style>
+.ctrl{width:100%;margin:14px 0}.ctrl th,.ctrl td{vertical-align:top}
+.ctrl th:first-child,.ctrl td:first-child{white-space:nowrap;font-weight:600}
+kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;background:var(--code-bg);
+  border:1px solid var(--line);border-radius:4px;padding:1px 6px;white-space:nowrap}
+.tight li{margin-bottom:3px}
+.result{background:var(--panel);border:1px solid var(--line-soft);border-radius:6px;padding:12px 15px;margin:14px 0}
+.result .rh{font-size:11.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--mute);margin-bottom:8px;font-weight:700}
+</style>
+<script>
+/* The ONLY script in this document, and it does one thing: let the app tell the
+   page which theme to draw in. A query string survives file:// where fetch and
+   postMessage-to-an-opaque-origin do not, so this is what works when the app is
+   opened by double-clicking index.html. With no parameter the page falls back to
+   the reader's own prefers-color-scheme, which is what it does when opened on
+   its own. */
+(function () {
+  try {
+    var q = new URLSearchParams(location.search);
+    var t = q.get('theme');
+    if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
+    if (q.get('embed') === '1') document.documentElement.dataset.embed = '1';
+  } catch (e) { /* no parameters, no problem: the media query still applies */ }
+})();
+</script></head><body>
+<div class="wrap">
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#start">Before you start</a></li>
+    <li><a href="#discipline">Set the discipline</a></li>
+    <li><a href="#plant">Build the plant room</a></li>
+    <li><a href="#floor1">Draw Level 1</a></li>
+    <li><a href="#copy">Copy the floor upward</a></li>
+    <li><a href="#sim1">Simulate the building</a></li>
+    <li><a href="#sensor">Control the pump from a sensor</a></li>
+    <li><a href="#syncpumps">Run the pumps together</a></li>
+    <li><a href="#sim2">Simulate again</a></li>
+    <li><a href="#chiller3">Add a third chiller</a></li>
+  </ol>
+</nav>
+<main>
+<header class="top">
+  <h1>Tutorial 02: A multi-storey hydronic system</h1>
+  <p class="sub">Build a five-storey chilled-water system with a central plant, copy a floor up a riser, run pumps in parallel, and control them from a differential-pressure sensor.</p>
+  <p class="meta">The finished model is <code>examples/Tutorial 02 - Hydronic System.json</code>. Load it to compare your result. This tutorial follows on from Tutorial 01.</p>
+</header>
+
+<!-- ============================================ -->
+<h2 id="start">1. Before you start</h2>
+<p class="lead">You will build a central chilled-water plant on the ground floor and serve one air handling unit on each of five floors above it. The floors are stacked on two riser columns. You will then run two pumps in parallel and control them from the pressure across the top-floor coil.</p>
+<p>Tutorial 01 built one loop by hand. This tutorial builds a real building, so it leans on two features that save the repetition: <strong>copying a floor</strong> up the risers, and <strong>synchronising</strong> the pumps so they act as one set. Do Tutorial 01 first if you have not — the drawing tools and the pump, chiller and coil properties are explained there and are not repeated here.</p>
+<p>This tutorial uses the <strong>Darcy-Weisbach</strong> calculation method, which is the setting the finished file carries. Set it on the HYDRAULIC tab if it is not already selected.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>The building</th><th class="num">Level</th><th class="num">Height</th><th>Serves</th></tr></thead>
+  <tbody>
+    <tr><td>Plant room</td><td class="num">Level 0</td><td class="num">0 m</td><td>Two duty pumps, two chillers</td></tr>
+    <tr><td>Floor 1</td><td class="num">Level 1</td><td class="num">35.0 m</td><td>AHU-1</td></tr>
+    <tr><td>Floor 2</td><td class="num">Level 2</td><td class="num">38.5 m</td><td>AHU-2</td></tr>
+    <tr><td>Floor 3</td><td class="num">Level 3</td><td class="num">42.0 m</td><td>AHU-3</td></tr>
+    <tr><td>Floor 4</td><td class="num">Level 4</td><td class="num">45.5 m</td><td>AHU-4</td></tr>
+    <tr><td>Floor 5</td><td class="num">Level 5</td><td class="num">49.0 m</td><td>AHU-5</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>The floor heights matter: the static head is what the pump has to lift the water to. Level 1 sits at 35 m, and every floor above it is 3.5 m higher. Set each level's altitude in its properties when you add it. FreePipeCalc adds a new floor 3.5 m above the one you copy, so once Level 1 is right, the floors above follow.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="discipline">2. Set the discipline</h2>
+<p>Check that the discipline chip on the top bar reads HYDRONIC. If it reads PLUMBING, click it to switch.</p>
+
+<!-- ============================================ -->
+<h2 id="plant">3. Build the plant room</h2>
+<p>Work on Level 0. It holds the central plant: the chillers that make the cold water, and the pumps that push it up the building. You will build <strong>two duty pumps and two chillers</strong> now, and add a third chiller at the end.</p>
+<p>Open the HYDRONIC tab in DESIGN mode. Draw the plant headers: a supply header the pumps and chillers sit on, and a return header the water comes back to. Bring the two risers off the headers — you will connect the floors to them next.</p>
+
+<h3>The chillers</h3>
+<p>Place two chillers on the plant pipework with the HEAT SOURCE/SINK tool. Set each one the same.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>Set to</th></tr></thead>
+  <tbody>
+    <tr><td>Type</td><td>Source / sink (chiller)</td></tr>
+    <tr><td>Flow</td><td>31 L/s</td></tr>
+    <tr><td>Pressure drop</td><td>45 kPa</td></tr>
+    <tr><td>Cooling / Heating</td><td>Cooling</td></tr>
+    <tr><td>LWT setpoint</td><td>7.5 °C</td></tr>
+    <tr><td>ΔT max</td><td>8.5 K</td></tr>
+    <tr><td>Capacity</td><td>Auto</td></tr>
+  </tbody>
+</table>
+</div>
+<p>31 L/s at a 45 kPa drop is each chiller's rated evaporator point. The two chillers share the building's load; on Auto capacity each removes whatever heat it must to hold 7.5 °C, up to its ΔT limit.</p>
+
+<h3>The pumps</h3>
+<p>Place two pumps on the supply header with the PUMP tool. Set each one the same.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>Set to</th></tr></thead>
+  <tbody>
+    <tr><td>Sizing</td><td>Auto</td></tr>
+    <tr><td>Running</td><td>On</td></tr>
+  </tbody>
+</table>
+</div>
+<p>On <strong>Auto</strong> sizing the program works out the duty the system needs, rather than you typing it. Both pumps run, sharing the flow. You will make them act as one set in step 8.</p>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>A real plant usually has a standby pump as well — a third pump left off, ready to take over. The finished file carries one (PMP-3, standby). Add it the same way as the other two and set its Running switch to Off. It is not needed for the steps that follow.</p>
+</div>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>An Auto pump has no curve until it has been sized in DESIGN. Run a DESIGN calculation once the building is drawn, before you simulate, so each pump has a curve to run on. Tutorial 01 step 12 explains why.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="floor1">4. Draw Level 1</h2>
+<p>Add Level 1 above the plant room. Select the plant level, open its properties, and use <strong>Add level above</strong>. Open the new level's properties and set its <strong>altitude to 35 m</strong> — the first occupied floor sits well above the plant.</p>
+<p>On Level 1, draw the floor pipework: a branch off each riser, across to the air handling unit and back. Place one AHU with the HEAT EXCHANGER tool.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>Set to</th></tr></thead>
+  <tbody>
+    <tr><td>Capacity</td><td>200 kW</td></tr>
+    <tr><td>Flow</td><td>5.63 L/s</td></tr>
+    <tr><td>Pressure drop</td><td>200 kPa</td></tr>
+    <tr><td>Cooling / Heating</td><td>Heating</td></tr>
+    <tr><td>Control valve</td><td>Auto</td></tr>
+  </tbody>
+</table>
+</div>
+<p>200 kW at 5.63 L/s is about an 8.5 K temperature rise, which matches the chillers' ΔT. The coil's <strong>control valve is on Auto</strong>: in SIMULATE it modulates to hold the coil's design ΔT, throttling the flow when the coil has more pressure across it than it needs. Every floor will have one.</p>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>Connect the floor branches to the riser columns, not to loose pipe ends. A riser shows as a ringed marker where it meets the floor. Click that marker to join the branch to the column. The riser then carries the flow up and down the building.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="copy">5. Copy the floor upward</h2>
+<p>Floors 2 to 5 are the same as Floor 1. You do not draw them again — you copy Floor 1 up the building.</p>
+<ol class="steps">
+  <li>Select Level 1 and open its properties.</li>
+  <li>Click <strong>Copy this level's layout</strong>. The target defaults to <em>New floor above</em>, placed 3.5 m higher.</li>
+  <li>Press <strong>Copy</strong>. FreePipeCalc creates Level 2 at 38.5 m, copies the floor to it, and <strong>extends the riser columns</strong> so the new floor joins the stack.</li>
+  <li>Repeat from the new floor: copy Level 2 to make Level 3, then Level 4, then Level 5.</li>
+</ol>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>The equipment is re-tagged as it is copied. Floor 1 has AHU-1; the copy on Floor 2 arrives as AHU-2, and so on up to AHU-5 on Floor 5. The tag follows the floor the machine is on, so the numbering stays right without you touching it.</p>
+</div>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>After the last copy you have five floors, each with one AHU, both risers running the full height. Switch between levels on the level panel to check each floor came across. The riser markers should appear on every floor.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="sim1">6. Simulate the building</h2>
+<p>Run a DESIGN calculation first so the Auto pumps have curves, then switch to SIMULATE.</p>
+<div class="result">
+  <div class="rh">What you should see</div>
+  <ul class="tight">
+    <li>Both pumps run at <strong>full speed</strong> — the VFDs are at 100%.</li>
+    <li>The coil control valves <strong>throttle back</strong> — they sit around two-thirds open, holding their ΔT against more pressure than the coils need.</li>
+    <li>The pressure across the top coil, AHU-5, is <strong>about 290 kPa</strong> — well above what the coil requires.</li>
+  </ul>
+</div>
+<p>This is the state a constant-speed system runs in, and it wastes energy. The pumps push at full speed while every coil valve throttles against them. The pumps have no way of knowing the building does not need that much pressure, because nothing is telling them what the building actually needs. You will give them that signal next.</p>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>Look at the control valve on the top floor, AHU-5. It is the furthest from the plant, so it has the least pressure to spare — yet it is still throttling. That is the signal a real system uses: hold just enough pressure at the hardest-served coil, and every easier coil looks after itself.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="sensor">7. Control the pump from a sensor</h2>
+<p>Add a differential-pressure sensor across the top-floor coil and let it drive the pumps. When the coil valves close, the pressure across them rises; the sensor sees it and the pumps slow down.</p>
+<ol class="steps">
+  <li>Go to Level 5. Select the SENSOR tool and click the <strong>supply</strong> pipe next to AHU-5.</li>
+  <li>Open the sensor's properties. Set <strong>Measures</strong> to <strong>Differential pressure</strong>.</li>
+  <li>Set the <strong>reference pipe</strong>: click <em>Reference pipe</em>, then click the AHU-5 <strong>return</strong> pipe. The sensor now reads the pressure difference between the coil's supply and return.</li>
+  <li>Set the <strong>Δp setpoint to 200 kPa</strong> — a first estimate of the pressure the top coil needs.</li>
+  <li>Select ADD CONTROL, click <strong>PMP-1</strong>, then click the sensor. PMP-1 will now change speed to hold 200 kPa across AHU-5.</li>
+</ol>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>The control links to PMP-1 only. In the next step you tie PMP-2 to PMP-1, so the second pump follows the first rather than chasing the same sensor on its own. Two pumps chasing one sensor fight each other; one pump leads and the rest follow.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="syncpumps">8. Run the pumps together</h2>
+<p>Parallel pumps on a common header share one speed command. Synchronise PMP-2 to PMP-1 so the pair acts as one set.</p>
+<ol class="steps">
+  <li>Select PMP-2 and open its properties.</li>
+  <li>Set <strong>Sync with</strong> to <strong>PMP-1</strong>.</li>
+</ol>
+<p>PMP-2 now copies PMP-1's speed and its sizing. When the sensor slows PMP-1, PMP-2 slows with it. If you added the standby PMP-3, sync it to PMP-1 as well and leave it Off — a synced standby is still a standby, ready at the same duty when it is switched on.</p>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>Sync copies the speed and the sizing, not the control valve. Only PMP-1 carries the sensor link; PMP-2 follows PMP-1's speed. This is why you link one pump and sync the rest, rather than linking every pump to the sensor.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="sim2">9. Simulate again</h2>
+<p>Return to SIMULATE.</p>
+<div class="result">
+  <div class="rh">What you should see, once it settles</div>
+  <ul class="tight">
+    <li>The pumps <strong>ease off together</strong> — the VFDs drop to about 95% as the sensor holds the pressure at the top coil.</li>
+    <li>The coil valves <strong>open up</strong> — with less pressure to throttle against, they run nearer 80% open.</li>
+    <li>The pressure across AHU-5 is held at the setpoint instead of running high.</li>
+  </ul>
+</div>
+<p>The change is modest here because the plant is close to right for the load. On a system with more spare pump head, the same control saves much more — the pumps follow the building down as floors close their valves.</p>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>At 200 kPa the system may not settle: the notification chip reports that the setpoint cannot be held. Raise the setpoint on DPS-01 — typically by about 50 kPa, to <strong>250 kPa</strong> — and simulate again. It should settle, with the pumps near 95% speed. The finished file carries 250 kPa for this reason.</p>
+</div>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>Why 200 kPa is not enough is under investigation. The coils' own control valves add pressure drop that the sensor does not see across its two tapping points, so the pump is asked for a differential the system does not present there. This may be corrected in a future version. For now, raise the setpoint until the system settles, and note the value that works.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="chiller3">10. Add a third chiller</h2>
+<p>The plant needs more cooling capacity, or a standby chiller. You do not draw it from scratch — you copy one that is already there.</p>
+<ol class="steps">
+  <li>Go to Level 0. Select an existing chiller and the pipe it sits on.</li>
+  <li>Copy the selection with <kbd>Ctrl</kbd>+<kbd>C</kbd>, and place the copy with <kbd>Ctrl</kbd>+<kbd>V</kbd> on the plant pipework. Press <kbd>Tab</kbd> to pick which end joins, and <kbd>R</kbd> to turn it.</li>
+  <li>The copy arrives as WCCH-03, tagged for its place in the plant.</li>
+</ol>
+<p>Simulate once more. With three chillers the plant has the capacity and the redundancy a real system needs. Compare your model with the finished file to check the result.</p>
+<div class="note check"><span class="tag">SUGGESTION:</span>
+  <p>You now have the full system: a central plant with two duty pumps and three chillers, five floors on two risers, and the pumps controlled from the top-floor pressure. This is the pattern most chilled-water buildings follow.</p>
+</div>
+
+<footer>
+  <p>FreePipeCalc — Tutorial 02: A multi-storey hydronic system. The finished model is <code>examples/Tutorial 02 - Hydronic System.json</code>. All results must be verified by a qualified professional engineer before use.</p>
+</footer>
+</main>
+</div>
+</body>
+</html>

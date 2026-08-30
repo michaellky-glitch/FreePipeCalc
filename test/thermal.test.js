@@ -4072,4 +4072,93 @@ section('A synced pump holds its leader\u2019s speed');
   ok('A device cannot sync itself', M.setSync(m, pumps[0], pumps[0].id) === null);
 }
 
+/* ==================================================================
+ * REQUIRED CAPACITY IS ASKED OF A PLANT THAT IS NOT SHORT.
+ *
+ * Michael, 2026-08-29, on a five-coil model against two 400 kW chillers: each
+ * chiller reported a REQUIRED CAPACITY OF 1024 kW and a margin of -61%, while
+ * the heat balance was out by a fraction of a kilowatt. His diagnosis: "the
+ * chiller is hitting a brick wall at 400 kW and thermal runaway is happening
+ * until heat loss from the pipe to ambient = deficit."
+ *
+ * `requiredDuty` is C·(tSet − tIn), which is right when the machine is holding
+ * its setpoint and circular when it is not: the deficit raises the return
+ * temperature, the hotter return raises tIn, and the higher tIn raises the
+ * apparent requirement. The figure reported is then the requirement for a
+ * runaway that exists BECAUSE the machine is short.
+ *
+ * So the question is put to a plant that is not short — the capacity ceilings
+ * lifted, one extra thermal pass over the same flows.
+ * ================================================================== */
+section('Required capacity is not inflated by the runaway it causes');
+{
+  /* One chiller deliberately too small for one coil, in a closed loop. */
+  function rig(capW) {
+    const m = M.create();
+    m.settings.calcMode = 'design';
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 2, 0);
+    const c = M.addNode(m, lv, 20, 0), d2 = M.addNode(m, lv, 20, 10);
+    const pump = M.addPipe(m, a.id, b.id, { size: 'DN80', kind: 'pump', tag: 'PMP' });
+    pump.pump = { mode: 'fixed', head: 25, sizing: 'manual', speed: 1,
+      curve: { H0: 34, a: 60000, b: 1.55, source: 'generated', Qd: 0.02, Hd: 25,
+        points: [{ q: 0, h: 34 }, { q: 0.02, h: 25 }, { q: 0.03, h: 16 }] } };
+    const ch = M.addPipe(m, b.id, c.id, { size: 'DN80', kind: 'equip', tag: 'CH-1' });
+    ch.equip = { qRated: 0.02, pdRated: 45000, equipType: 'source',
+                 tSet: 7, dTMax: 20 };
+    if (capW !== null) ch.equip.qMax = capW;
+    const coil = M.addPipe(m, c.id, d2.id, { size: 'DN80', kind: 'equip', tag: 'AHU-1' });
+    coil.equip = { qRated: 0.02, pdRated: 50000, qOut: 0.02, equipType: 'exchanger',
+                   duty: 400000, lastEdited: ['qRated', 'duty'] };
+    M.addPipe(m, d2.id, a.id, { size: 'DN80' });
+    return { m, ch, coil };
+  }
+
+  /* UNLIMITED: what the plant actually asks for. */
+  const free = rig(null);
+  const rFree = NET.solveModel(free.m);
+  const wanted = rFree.thermal.links[free.ch.id].qW;
+  ok('an unlimited chiller lands on the load it is given',
+     Math.abs(Math.abs(wanted) - 400000) < 40000,
+     (wanted / 1000).toFixed(2) + ' kW');
+
+  /* HALF THAT: the machine binds, the loop runs away, and the REQUIREMENT must
+   * still be the number above rather than one inflated by the runaway. */
+  const small = rig(-200000);
+  const rSmall = NET.solveModel(small.m);
+  const th = rSmall.thermal.links[small.ch.id];
+
+  ok('the undersized chiller is capacity limited', th.limit === 'Capacity', th.limit);
+  ok('...and it does run away — the inlet is well above design',
+     th.tIn > rFree.thermal.links[free.ch.id].tIn + 5,
+     'limited tIn ' + th.tIn.toFixed(2) + ' vs free ' +
+     rFree.thermal.links[free.ch.id].tIn.toFixed(2));
+
+  near('the REQUIRED capacity is what the unlimited plant needs',
+       th.qNeed, wanted, Math.abs(wanted) * 0.02);
+
+  /* THE POINT, stated as the thing that was wrong: the requirement must not be
+   * a multiple of the load just because the machine is short. */
+  ok('...and not the runaway figure, which was several times the load',
+     Math.abs(th.qNeed) < Math.abs(wanted) * 1.5,
+     (th.qNeed / 1000).toFixed(2) + ' kW against a ' +
+     (wanted / 1000).toFixed(2) + ' kW load');
+
+  /* The margin an engineer reads off it is now sane: a 200 kW machine on a
+   * 400 kW load is about half of what is needed, not a sixtieth. */
+  const margin = (Math.abs(small.ch.equip.qMax) / Math.abs(th.qNeed) - 1) * 100;
+  ok('the margin on selection is about -50%, not -60-something on a fiction',
+     margin < -40 && margin > -60, margin.toFixed(1) + '%');
+
+  /* AND THE CEILINGS ARE PUT BACK. The extra pass mutates the live model for
+   * its duration; a machine left unlimited afterwards would silently change
+   * every later solve. */
+  ok('the chiller keeps its capacity after the solve',
+     small.ch.equip.qMax === -200000, String(small.ch.equip.qMax));
+  ok('...and a second solve gives the same answer',
+     Math.abs(NET.solveModel(small.m).thermal.links[small.ch.id].qNeed - th.qNeed) < 1,
+     'not idempotent');
+}
+
+
 report();

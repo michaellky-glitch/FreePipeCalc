@@ -70,7 +70,7 @@
   var FRICTION_FACTORS = {
     colebrook: {
       key: 'colebrook',
-      name: 'Colebrook-White (implicit, reference)',
+      name: 'Colebrook-White',
       note: 'The standard against which the others are fitted. Solved iteratively.',
       f: function (Re, relRough) {
         // 1/√f = −2 log₁₀( ε/3.7d + 2.51/(Re√f) )   — fixed-point iteration
@@ -85,7 +85,7 @@
     },
     swameejain: {
       key: 'swameejain',
-      name: 'Swamee-Jain (explicit) — selected',
+      name: 'Swamee-Jain',
       note: 'The correlation this app uses. Measured against an iterated ' +
             'Colebrook: within 0.9% over Re 1e4–1e7 and ε/d ≤ 1e-3, rising to ' +
             '2.8% at Re 5000 with ε/d 1e-2.',
@@ -96,7 +96,7 @@
     },
     haaland: {
       key: 'haaland',
-      name: 'Haaland (explicit)',
+      name: 'Haaland',
       note: 'Within ~2% of Colebrook; simplest of the explicit forms.',
       f: function (Re, relRough) {
         var t = -1.8 * Math.log10(Math.pow(relRough / 3.7, 1.11) + 6.9 / Re);
@@ -105,7 +105,7 @@
     },
     churchill: {
       key: 'churchill',
-      name: 'Churchill (all flow regimes)',
+      name: 'Churchill',
       note: 'Single expression spanning laminar, transitional and turbulent flow.',
       f: function (Re, relRough) {
         var A = Math.pow(2.457 * Math.log(1 / (Math.pow(7 / Re, 0.9) + 0.27 * relRough)), 16);
@@ -119,7 +119,7 @@
    * Churchill already covers laminar, so it is left to handle itself. */
   function frictionFactor(Re, relRough, which) {
     if (!(Re > 0)) return 0;
-    var corr = FRICTION_FACTORS[which] || FRICTION_FACTORS.swameejain;
+    var corr = FRICTION_FACTORS[which] || FRICTION_FACTORS.colebrook;
     if (corr.key === 'churchill') return corr.f(Re, relRough);
     if (Re < RE_LAMINAR) return 64 / Re;              // Hagen-Poiseuille
     if (Re < RE_TURBULENT) {
@@ -229,10 +229,10 @@
      * r·Q² + rK·Q² = (r + rK)·Q². */
     DW: {
       key: 'DW',
-      name: 'Darcy-Weisbach (BETA)',
+      name: 'Darcy-Weisbach',
       n: 2,
       available: true,
-      experimental: true,
+      experimental: false,
       fittingMode: 'K',
       source: '2021 ASHRAE Handbook — Fundamentals (SI), Ch 22, Eq (7) and Tables 3–6',
 
@@ -253,14 +253,14 @@
         var v = (q === null || q < Q_MIN) ? 1.0 : q / area;
 
         var Re = v * d / nu;
-        var f = frictionFactor(Re, eps / d, ctx.frictionFactor || 'swameejain');
+        var f = frictionFactor(Re, eps / d, ctx.frictionFactor || 'colebrook');
         return 8 * f * L_eff / (Math.PI * Math.PI * G * Math.pow(d, 5));
       },
 
       exponent: function () { return 2; },
 
       formula: function (ctx) {
-        var ff = FRICTION_FACTORS[(ctx && ctx.frictionFactor)] || FRICTION_FACTORS.swameejain;
+        var ff = FRICTION_FACTORS[(ctx && ctx.frictionFactor)] || FRICTION_FACTORS.colebrook;
         return 'hf = f · (L/d) · V²/2g   +   Σ K · V²/2g       f from ' + ff.name;
       }
     }

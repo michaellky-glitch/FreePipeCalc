@@ -61,7 +61,7 @@
 
       /* Darcy-Weisbach settings. Swamee-Jain is the chosen correlation
        * (2026-08-02); the others stay selectable for comparison. */
-      dw: { frictionFactor: 'swameejain', roughness_mm: 0.045, kSet: 'threaded' },
+      dw: { frictionFactor: 'colebrook', roughness_mm: 0.045, kSet: 'threaded' },
 
       /* Fluid. `preset` names one of data/fluids.js; the four numbers below
        * are only read when the preset is 'custom', because a named fluid's
@@ -1347,7 +1347,13 @@
     exchanger: { p1: 'none', p1Text: '', n1: 'none',
                  p2: 'tag',  p2Text: 'HX', n2: 'seq' },
     source:    { p1: 'none', p1Text: '', n1: 'none',
-                 p2: 'tag',  p2Text: 'HS', n2: 'seq' }
+                 p2: 'tag',  p2Text: 'HS', n2: 'seq' },
+    /* PUMPS TOO — Michael, 2026-08-29: "Add pumps to Equipment Naming Schemes
+     * (Same treatment as HX & HS)". `PMP` matches what his own drawings use and
+     * what `nextTag('pump')` produced before, so a model made under the old
+     * rule and one made now agree. */
+    pump:      { p1: 'none', p1Text: '', n1: 'none',
+                 p2: 'tag',  p2Text: 'PMP', n2: 'seq' }
   };
 
   function namingFor(m, kind) {
@@ -1422,9 +1428,14 @@
   function retagLevelEquipment(m, levelId) {
     var done = 0;
     m.pipes.forEach(function (p) {
-      if (p.kind !== 'equip' || !p.equip) return;
-      var t = p.equip.equipType;
-      if (t !== 'exchanger' && t !== 'source') return;
+      /* A PUMP IS NAMED BY THE CONVENTION TOO (Michael, 2026-08-29). It is not
+       * `equip`, so it needs its own branch rather than an equipType test. */
+      var t = null;
+      if (p.kind === 'pump' && p.pump) t = 'pump';
+      else if (p.kind === 'equip' && p.equip) {
+        t = p.equip.equipType;
+        if (t !== 'exchanger' && t !== 'source') return;
+      } else return;
       var host = node(m, p.a);
       if (!host || host.level !== levelId) return;
       var next = equipmentTag(m, t, levelId);

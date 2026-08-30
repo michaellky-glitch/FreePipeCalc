@@ -18,15 +18,28 @@
     'GPM':  { factor: 6.30902e-5,  dp: 1, label: 'GPM' }
   };
 
+  /* TWO DECIMALS ON EVERY PRESSURE UNIT — Michael, 2026-08-28, "we can go with
+   * 2 dp for both", alongside the same change to PD/m.
+   *
+   * At one decimal in kPa anything below 50 Pa reads 0.0, so a short section on
+   * a small branch showed nothing to size against. Metres head was already at
+   * two; kPa, psi and ft head now match it, so the same quantity reads to the
+   * same precision whichever unit the reader has chosen — and adjacent columns
+   * of the sheet (Section PD, Static, Residual) cannot show one at 8.7 and the
+   * next at 8.72. */
   var PRESSURE = {
-    'kPa': { factor: 1000,          dp: 1, label: 'kPa' },
+    'kPa': { factor: 1000,          dp: 2, label: 'kPa' },
     'm':   { factor: RHO * G,       dp: 2, label: 'm hd' },   // metres of water
-    'psi': { factor: 6894.757,      dp: 1, label: 'psi' },
-    'ft':  { factor: RHO * G * 0.3048, dp: 1, label: 'ft hd' }
+    'psi': { factor: 6894.757,      dp: 2, label: 'psi' },
+    'ft':  { factor: RHO * G * 0.3048, dp: 2, label: 'ft hd' }
   };
 
   var PDM = {
-    'Pa/m':     { factor: 1,        dp: 0, label: 'Pa/m' },
+    /* TWO DECIMALS — Michael, 2026-08-28: "increase the PD/m to 2 decimal
+     * places... Currently both are 0." At whole Pa/m a small-bore branch at a
+     * low friction rate reads "0", which is not a number anyone can size
+     * against. */
+    'Pa/m':     { factor: 1,        dp: 2, label: 'Pa/m' },
     'ft/100ft': { factor: RHO * G,  dp: 2, label: 'ft/100ft' } // m/m -> ft/100ft is 1:1 ratio x100
   };
 

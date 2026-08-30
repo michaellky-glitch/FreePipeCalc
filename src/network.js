@@ -426,6 +426,68 @@
     var s = m.settings;
     var rho = (s.fluid && s.fluid.density) || 998;
 
+    /* ============ THE METHOD CANNOT DO TEES PROPERLY, AND SAYS SO IN THE CHIP
+     *
+     * Michael, 2026-08-28, settling WORKLIST TEE.1 as option C — the flow-ratio
+     * branch coefficient goes on the DARCY path only — and then: "Don't put the
+     * notification in Hydraulic, just put it in the chip please."
+     *
+     * WHY HAZEN-WILLIAMS CANNOT CARRY THE FIX (docs_internal/TEE-LOSSES.md §0):
+     * a flow-ratio coefficient must ride as an additive K term at exponent 2,
+     * and converting Hazen-Williams' equivalent LENGTHS into K needs a friction
+     * factor, which Hazen-Williams does not have. Darcy has one, already carries
+     * fittings as a separate `rK`, and the solver already sums `r·Q^n + rK·Q²`.
+     *
+     * ONLY WHEN THE MODEL ACTUALLY HAS A TEE. A limitation that cannot bite the
+     * drawing in front of you is noise, and this list is pruned hard for exactly
+     * that reason — a single straight run has no tee to get wrong. */
+    /* ============ A MACHINE ON AUTO IS SIZED TO THE MOMENT IT IS SIMULATED
+     *
+     * Michael, 2026-08-29. On AUTO sizing a heat source/sink is unlimited: it
+     * holds its setpoint whatever that takes, and its rated flow is whatever
+     * the solve landed on. Its hydraulic resistance is derived from that rated
+     * point — so in SIMULATION the machine is, in effect, a chiller selected
+     * exactly for the conditions being simulated. That is a fine assumption for
+     * DESIGN, where finding the selection is the whole job. It is a statement
+     * worth making out loud in SIMULATION, where the reader is asking what a
+     * REAL plant does at a part-load condition.
+     *
+     * SIMULATION ONLY: on DESIGN this is not a caveat, it is the method. */
+    if (simulating) {
+      m.pipes.forEach(function (p) {
+        if (p.kind !== 'equip' || !p.equip || p.equip.off) return;
+        if (p.equip.equipType !== 'source') return;
+        var cap = Number(p.equip.qMax);
+        if (isFinite(cap) && cap !== 0) return;        // Manual: nameplate stated
+        warnings.push({
+          code: 'EQUIP_AUTO_SIM', pipe: p.id,
+          message: (p.tag || p.id) + ' is in Auto Mode. Simulating with ' +
+                   'Equipment in Auto Mode assumes that the pressure drop is ' +
+                   'sized exactly to the current conditions.'
+        });
+      });
+    }
+
+    if (method.fittingMode !== 'K') {
+      var hasTee = Object.keys(fits).some(function (id) {
+        return (fits[id].types || []).some(function (t) {
+          return t.indexOf('TRUN') === 0 || t.indexOf('TBRANCH') === 0;
+        });
+      });
+      if (hasTee) {
+        warnings.push({
+          code: 'HW_TEE_LIMIT',
+          /* The SHORT name. `method.name` is the registry's full title —
+           * "Hazen-Williams (ASHRAE with Equivalent Lengths)" — which nests a
+           * bracket inside a bracket and reads badly in a sentence. */
+          message: 'The current friction loss calculation (' +
+                   String(method.name).split(' (')[0] +
+                   ') is unable to calculate pressure drops across unequal ' +
+                   'dividing tees. Recommend changing to Darcy-Weisbach instead.'
+        });
+      }
+    }
+
     /* Parallel pumps need a CHARACTERISTIC, not a fixed head.
      *
      * N pumps that each hold their outlet at a fixed head above their inlet,
@@ -907,6 +969,71 @@
    * The yielded value is progress, never state: `{ solves, iteration, device,
    * fraction }`. Nothing is expected to be done with it, and the driver may
    * ignore it entirely. */
+  /* ============ THE REQUIRED CAPACITY IS ANSWERED WITHOUT THE CAPACITY
+   *
+   * Michael, 2026-08-29, on `debug/network.pnet(7).json`: five coils at 160 kW
+   * against two 400 kW chillers, so the plant is a shade undersized once the
+   * pipes pick up heat from ambient. Each chiller then reported a **required
+   * capacity of 1024 kW** and a margin of -61%, while the heat balance was out
+   * by 0.03 kW. His diagnosis was right: "the chiller is hitting a brick wall
+   * at 400 kW and thermal runaway is happening until heat loss from the pipe to
+   * ambient = deficit."
+   *
+   * `requiredDuty` is `C·(tSet − tIn)` — what the machine needs AT THE INLET IT
+   * ACTUALLY HAS. That is the right question when the machine is holding its
+   * setpoint. It is circular when it is not: the deficit pushes the return
+   * water up, the hotter return raises tIn, the higher tIn raises the apparent
+   * requirement, and the loop only settles when the pipes shed the difference
+   * to ambient. The number reported is then the requirement for a runaway that
+   * exists BECAUSE the machine is short — not the requirement for the duty the
+   * building actually presents.
+   *
+   * So the sizing question is asked of a plant that is NOT short. The thermal
+   * pass is one-way over fixed flows — it feeds nothing back into the
+   * hydraulics — so lifting the capacity ceilings and running it again costs
+   * one pass and no re-solve, and gives each machine the duty it would land on
+   * if it could hold its setpoint. That IS the capacity to select.
+   *
+   * ONLY THE CAPACITY IS LIFTED. A ΔT limit is a real property of the machine
+   * and stays; the panel reports which constraint bound it either way.
+   *
+   * MAIN SOLVE ONLY. The control loop calls `FD.thermal.solve` hundreds of
+   * times and never reads this, so it stays out of that path. */
+  function applyRequiredCapacity(m, res) {
+    if (!FD.thermal || !res || !res.thermal || !res.thermal.links) return;
+    var limited = [];
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'equip' || !p.equip || p.equip.off) return;
+      if (p.equip.equipType !== 'source') return;
+      var cap = Number(p.equip.qMax);
+      if (!isFinite(cap) || cap === 0) return;      // already unlimited
+      limited.push({ e: p.equip, cap: p.equip.qMax });
+    });
+    if (!limited.length) return;
+
+    var free = null;
+    limited.forEach(function (x) { delete x.e.qMax; });
+    try {
+      free = FD.thermal.solve(m, res);
+    } catch (err) {
+      free = null;
+    } finally {
+      /* RESTORED ON EVERY PATH. This mutates the live model for the length of
+       * one pass, so a throw here would leave every chiller unlimited. */
+      limited.forEach(function (x) { x.e.qMax = x.cap; });
+    }
+    if (!free || !free.links) return;
+
+    Object.keys(res.thermal.links).forEach(function (id) {
+      var got = res.thermal.links[id];
+      var want = free.links[id];
+      if (!got || !want) return;
+      if (got.limit !== 'Capacity') return;
+      if (want.qW === undefined || want.qW === null || !isFinite(want.qW)) return;
+      got.qNeed = want.qW;
+    });
+  }
+
   function solveModel(m, maxPasses, opts) {
     var it = solveModelGen(m, maxPasses, opts);
     var r = it.next();
@@ -1084,6 +1211,7 @@
      * once the flows are known — and it feeds nothing back, because fluid
      * properties are held at one temperature. Last, and one-way. */
     res.thermal = FD.thermal ? FD.thermal.solve(m, res) : null;
+    applyRequiredCapacity(m, res);
     if (res.thermal) {
       if (res.thermal.warnings.length) {
         res.warnings = res.warnings.concat(res.thermal.warnings);

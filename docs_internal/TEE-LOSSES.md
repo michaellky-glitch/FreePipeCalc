@@ -14,6 +14,53 @@ file feared in §6 has a standard answer, and the build order is now staged.
 
 ---
 
+## 0. SETTLED 2026-08-28 — OPTION C, DARCY ONLY
+
+Michael, on the fork raised in `BRANCH-NOTES.md`:
+
+> *"Go with option C. Leave HW as-is, but show a notification if the user is
+> currently using HW."*
+
+**The flow-ratio branch coefficient goes on the DARCY path only.**
+Hazen-Williams is not migrated and not touched.
+
+Why C wins:
+
+* **No conversion.** A flow-ratio coefficient must ride as an additive K term at
+  exponent 2. Converting Hazen-Williams' equivalent LENGTHS into K needs a
+  friction factor, and Hazen-Williams does not have one. Darcy does.
+* **No re-baseline.** Every saved Hazen-Williams answer is unchanged.
+* **No reversed decision.** `hydraulics.js` records "the fitting basis follows
+  the method" as collapsed to two AT MICHAEL'S INSTRUCTION. C leaves that intact.
+* **No second implementation.** Darcy already carries fittings as a separate
+  `rK`, and the solver already sums `r·Q^n + rK·Q²` with its derivative — so the
+  architecture the research recommended is ALREADY BUILT on that path.
+* Rennels Ch 16 publishes in K, which is Darcy's basis natively.
+
+**The cost, stated plainly:** Hazen-Williams remains the default and keeps both
+the flat tee coefficient and the wrong fitting exponent. Shipped in **v0.18.23**
+as a note beside the method selector on the HYDRAULIC tab, shown only when
+Hazen-Williams is selected — his wording:
+
+> *The current friction loss calculation (Hazen-Williams) is unable to calculate
+> pressure drops across unequal dividing tees. Recommend changing to
+> Darcy-Weisbach instead.*
+
+**IT IS A MESSAGE, IN THE CHIP** — Michael, 2026-08-28: *"Don't put the
+notification in Hydraulic, just put it in the chip please."* Shipped first as a
+panel note beside the method selector (v0.18.23) and moved on his instruction
+(v0.18.24). Code `HW_TEE_LIMIT`, raised **once per solve** and **only when the
+model actually contains a tee** — a limitation that cannot bite the drawing in
+front of you is noise. It sits with `LAMINAR`, which is the other warning about
+the METHOD rather than about the pipework.
+
+**Consequence to face later:** if the tee treatment is materially better under
+Darcy, the case for Darcy becoming the DEFAULT gets stronger, and that collides
+with the BETA question (§EQ.1/1.7) and with EQ.2's 16–27 % friction-rate shift.
+Not decided.
+
+---
+
 ## 1. The decision
 
 > *"I'm inclined to the middle path, mixing in Idelchik data may be confusing
