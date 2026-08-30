@@ -129,13 +129,51 @@
     var bull = isSymmetricSplit(m, nodeId, charged,
                                 common.length === 1 ? common[0] : null);
 
+    /* WHAT THE FLOW-RATIO COEFFICIENT NEEDS (TEE.1).
+     *
+     * Idel'chik's tee coefficients are functions of Qb/Qc and Fb/Fc, and are
+     * quoted in terms of the velocity in the COMMON channel — the single leg on
+     * the other side of the split. Both are measurable here and nowhere else:
+     * this is the one place that knows which leg is common, which are charged,
+     * and how much water each carries.
+     *
+     * The area ratio is DERIVED FROM THE BORES (Michael, 2026-08-30) rather
+     * than assumed to be 1. A DN50 branch off a DN100 main is Fb/Fc = 0.25 and
+     * the table says that costs several times what an equal-size branch does,
+     * which is exactly the distinction a flat coefficient cannot make.
+     *
+     * `common.length === 1` guards a cross, where there is no single common
+     * channel and the ratio is not defined. */
+    var qOf = function (pp) { return Math.abs((flows && flows[pp.id]) || 0); };
+    var areaOf = function (pp) {
+      var d = M.pipeBore(m, pp);
+      return (d > 0) ? Math.PI * d * d / 4 : 0;
+    };
+    var commonPipe = (common.length === 1) ? common[0] : null;
+    var qCommon = commonPipe ? qOf(commonPipe) : 0;
+    var aCommon = commonPipe ? areaOf(commonPipe) : 0;
+
     charged.forEach(function (p) {
       var isRun = !bull && (p.id === runPair[0] || p.id === runPair[1]);
-      out.push({
+      var rec = {
         pipe: p.id,
         type: dividing ? (isRun ? 'TRUN_DIV' : 'TBRANCH_DIV')
                        : (isRun ? 'TRUN_CONV' : 'TBRANCH_CONV')
-      });
+      };
+      /* Only a BRANCH carries the ratios — the run is left flat (option C). */
+      if (!isRun && commonPipe && qCommon > 1e-12 && aCommon > 0) {
+        var aLeg = areaOf(p);
+        if (aLeg > 0) {
+          rec.qRatio = qOf(p) / qCommon;      // Qb/Qc
+          rec.aRatio = aLeg / aCommon;        // Fb/Fc
+          rec.dividing = dividing;
+          /* Held so the charged leg can be converted out of the common-channel
+           * frame: zeta_leg = zeta_c * (Qc/Qb)^2 * (Ab/Ac)^2. */
+          rec.qLeg = qOf(p);
+          rec.qCommon = qCommon;
+        }
+      }
+      out.push(rec);
     });
     return out;
   }
@@ -291,10 +329,79 @@
         var nominal_mm = FD.schedules.nominalMm
           ? FD.schedules.nominalMm(p.size) : bore_mm;
         byPipe[p.id].el += FD.fittings.el(f.type, nominal_mm, m.settings);
-        byPipe[p.id].sumK += FD.ktable.k(FD.fittings.ktableType(f.type),
-                                         nominal_mm, kSet, m.settings.fittingK);
+
+        /* ============ THE BRANCH K FOLLOWS THE FLOW RATIO (TEE.1, option C)
+         *
+         * A flat coefficient cannot describe a tee: the real one varies with
+         * Qb/Qc by more than an order of magnitude, which is the largest known
+         * approximation in this engine (docs_internal/TEE-LOSSES.md).
+         * Idel'chik Diagrams 7-25 and 7-16 give the curve for the exact fitting
+         * the geometry detector produces — a standard threaded malleable-iron
+         * tee at 90 degrees — and `data/tees.js` carries them.
+         *
+         * THE CONVERSION IS THE POINT. Idel'chik quotes zeta in terms of the
+         * velocity in the COMMON channel; a K added to this leg's `sumK` is
+         * charged at THIS leg's velocity by `fittingR`. So
+         *
+         *     zeta_leg = zeta_c * (w_c/w_leg)^2 = zeta_c * (Qc/Qb)^2 * (Ab/Ac)^2
+         *
+         * Skipping that conversion is what defeated the 2026-08 attempt.
+         *
+         * K PATH ONLY — Hazen-Williams keeps its flat equivalent length and is
+         * untouched, which is the whole of option C. And the RUN stays flat in
+         * both: only the branch is made flow-dependent.
+         *
+         * FROZEN FOR THIS PASS by construction — `f.qRatio` came from the
+         * PREVIOUS pass's flows, exactly as the dividing/combining decision
+         * does, so the coefficient cannot chase the solution inside one solve. */
+        var kFlat = FD.ktable.k(FD.fittings.ktableType(f.type),
+                                nominal_mm, kSet, m.settings.fittingK);
+        var kUse = kFlat;
+        if (FD.tees && f.qRatio !== undefined && f.qLeg > 1e-12) {
+          var zc = FD.tees.branchK(f.qRatio, f.aRatio, f.dividing);
+          if (zc !== null && isFinite(zc)) {
+            /* THE CONVERSION IS CLAMPED AT THE TABLE'S OWN LOWER BOUND, and
+             * this matters more than it looks. `zeta_c` is referenced to the
+             * COMMON velocity, so converting to the leg's frame multiplies by
+             * (Qc/Qb)^2 — which runs away as the branch flow approaches zero.
+             * On the data hall, P457 carries 0.0032 L/s and came out with
+             * rK = 4.3e9, a resistance 2600x the whole model's fittings put
+             * together. The LOSS was still only 0.045 m, so the physics was not
+             * wrong; the RESISTANCE was, and a frozen resistance that large
+             * drives the next pass's flow lower still, which raises it again.
+             * That is the zero-flow discontinuity Deltares report for exactly
+             * this family of coefficients.
+             *
+             * Idel'chik's tables start at Qb/Qc = 0.1 and `branchK` already
+             * clamps zeta there, because below it there is no data. The frame
+             * conversion is clamped at the SAME bound, so the two agree about
+             * where the table stops. A branch carrying under a tenth of the
+             * combined flow is charged as if it carried a tenth — bounded, and
+             * conservative in the direction that matters, since its real loss
+             * is smaller still. */
+            var qEff = Math.max(f.qRatio, FD.tees.qRatios[0]);
+            var vRatio = (1 / qEff) * f.aRatio;             // w_c / w_leg
+            var kLocal = zc * vRatio * vRatio;
+            /* A COMBINING BRANCH CAN BE NEGATIVE and that is real physics — the
+             * faster stream gives kinetic energy to the slower (Idel'chik 7-2).
+             * It is NOT allowed to make a link's total resistance negative,
+             * which would be a pump made of pipe, so it is floored at the pipe
+             * level below by clamping the accumulated sum, not here. */
+            if (isFinite(kLocal)) kUse = kLocal;
+          }
+        }
+        byPipe[p.id].sumK += kUse;
         byPipe[p.id].types.push(f.type);
       });
+    });
+    /* A FITTING SET CANNOT ADD ENERGY. Idel'chik's converging-branch
+     * coefficients go negative at low flow ratios, which is real — but a link
+     * whose total minor loss is negative would be a pump made of pipe, and the
+     * solver's resistance model has no room for it. Clamped per PIPE, after
+     * everything on that pipe has been added, so a genuinely negative branch
+     * can still offset the elbows beside it before the floor applies. */
+    Object.keys(byPipe).forEach(function (id) {
+      if (byPipe[id].sumK < 0) byPipe[id].sumK = 0;
     });
     return byPipe;
   }

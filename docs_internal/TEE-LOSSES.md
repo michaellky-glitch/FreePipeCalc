@@ -509,6 +509,66 @@ negative). 38 assertions.
 should be. The model knows both diameters, so `Fb/Fc` is measured rather than
 assumed, which closes the open sub-question below about `Ab/Ac`.
 
+### 6C. WIRED UP — 2026-08-31, and the trap it walked into
+
+`data/tees.js` is now consumed by the engine on the **Darcy path only**.
+`index.html` is version **0.18.31-tee** so a branch build cannot be mistaken for
+a master one.
+
+* `fittingsAtNode` measures **Qb/Qc** and **Fb/Fc** at each tee — it is the one
+  place that knows which leg is common, which are charged, and what each
+  carries. Area ratio comes from the BORES, per Michael.
+* `fittingsByPipe` replaces the flat branch K with `FD.tees.branchK(...)`,
+  converted out of the common-channel frame into the charged leg's.
+* The RUN stays flat and Hazen-Williams is untouched — option C, unchanged.
+* Frozen per pass by construction: the ratios come from the PREVIOUS pass's
+  flows, exactly as the dividing/combining decision does.
+
+**THE TRAP, and it is worth keeping.** The frame conversion multiplies by
+`(Qc/Qb)²`, which runs away as a branch approaches zero flow. First run on the
+data hall: pipe **P457** carries 0.0032 L/s and came out with `rK = 4.3e9` — a
+single fitting resistance **2600x the whole model's fittings put together**, and
+the total fitting resistance moved **+264,247%**.
+
+The physics was not wrong. That link's LOSS was still only 0.045 m, because
+`r·Q²` stays bounded as `r` blows up. What was wrong is the RESISTANCE, and a
+frozen resistance that large drives the next pass's flow lower still, which
+raises it again — the zero-flow discontinuity Deltares report for this family of
+coefficients, arriving exactly where the research said it would.
+
+**The fix is the table's own domain.** Idel'chik starts at Qb/Qc = 0.1 and
+`branchK` already clamps ζ there, because below it there is no data. The frame
+conversion is now clamped at the SAME bound, so the two agree about where the
+table stops. A branch carrying under a tenth of the combined flow is charged as
+if it carried a tenth — bounded, and conservative, since its real loss is
+smaller still.
+
+### THE RE-BASELINE, measured (Darcy, design, before → after)
+
+| model | total pump flow | fitting resistance | biggest coil change | index |
+|---|---|---|---|---|
+| Data Hall | 99.409 → 99.882 L/s (**+0.48%**) | +24.1% | AHU-4 −1.44% | AHU-13 → **AHU-11** |
+| HighRise | 60.954 → 60.855 L/s (**−0.16%**) | +11.7% | AHU-1 −0.37% | AHU-9 (unchanged) |
+
+Modest at the system level and larger per branch, which is the expected shape:
+the tee coefficient redistributes flow between branches rather than changing
+what the pump does. **The Data Hall's design index moves AHU-13 → AHU-11** — the
+first time the tee treatment has changed an engineering answer, and the thing
+for Michael to look at first. Hazen-Williams answers do not move at all.
+
+Every model still converges and the friction + static = pump head identity holds
+to 1e-7. Eleven suites green.
+
+### STILL TO CHECK BEFORE MERGING TO MASTER
+
+* Michael's acceptance of the re-baseline, and of the index moving on the data
+  hall.
+* SIMULATION mode is unmeasured here — design only. The control loop re-derives
+  fittings every pass, so the clamp's stability matters more there.
+* The combining-branch negatives are in the data and reachable, but no shipped
+  model exercises a converging tee at a low enough ratio to go negative. The
+  per-pipe clamp at zero is in `fittingsByPipe`; it has not been exercised.
+
 ### STILL TO WIRE UP
 
 `data/tees.js` is **not yet consumed by the engine**. What remains:
