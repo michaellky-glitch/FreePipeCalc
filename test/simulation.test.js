@@ -1170,5 +1170,207 @@ section('Pump runout is measured against the rated duty, not the scaled one');
      w.message.indexOf(w.pct.toFixed(1) + '% of design flow') >= 0, w.message);
 }
 
+/* ==================================================================
+ * TEE.1 IN SIMULATION — THE FLOW-RATIO BRANCH COEFFICIENT UNDER CONTROL
+ *
+ * `docs_internal/TEE-LOSSES.md` option C makes the tee BRANCH coefficient a
+ * function of Qb/Qc on the Darcy path. It was measured in DESIGN, where the
+ * two-pass loop derives the ratio once from the previous pass and settles.
+ * SIMULATION is the harder case and is what this section covers:
+ *
+ *   * the control loop re-runs the whole core for every trial valve position
+ *     and every trial pump speed, so the coefficient is re-derived hundreds of
+ *     times and the SEARCH runs against a system whose resistance moves with it;
+ *   * a controlled valve is the one thing in the program that deliberately
+ *     drives a branch towards zero flow, which is exactly where the
+ *     common-to-leg frame conversion runs away — the (Qc/Qb)^2 term that gave
+ *     one data-hall fitting rK = 4.3e9 before the clamp went in.
+ *
+ * The clamp is the table's own lower bound: Idel'chik starts at Qb/Qc = 0.1,
+ * `branchK` already clamps zeta there, and the conversion is clamped at the
+ * same place so the two agree about where the data stops.
+ * ================================================================== */
+section('The tee branch coefficient holds together in SIMULATION');
+{
+  /* A tee with ONE fitting on the branch and nothing else on that pipe, so the
+   * link's whole rK is the tee and can be checked against hand arithmetic.
+   *
+   *   source -- PUMP -- b ----- T ----- c  (run, terminal)
+   *                             |
+   *                             d  (branch, DN50)
+   *                             |  BV-01
+   *                             e  (terminal)
+   *
+   * b-T and T-c are collinear, so they are the RUN and T-d is the BRANCH.
+   * T-d and d-e are collinear too, so node d carries no bend and the branch
+   * pipe is charged the tee and nothing besides. */
+  function rig(opening, method) {
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    m.settings.frictionMethod = method || 'DW';
+    const lv = m.levels[0];
+    const N = (x, y) => M.addNode(m, lv, x, y);
+    const a = N(0, 0), b = N(1, 0), t = N(11, 0), c = N(21, 0), d = N(11, 10), e = N(11, 20);
+    a.device = { kind: 'source', head: 0 };
+    c.device = { kind: 'demand', flow: 0.020, reqPressure: 100e3 };
+    e.device = { kind: 'demand', flow: 0.010, reqPressure: 100e3 };
+    const pump = M.addPipe(m, a.id, b.id, { kind: 'pump', tag: 'PMP-01' });
+    pump.pump = { mode: 'fixed', head: 40, sizing: 'manual',
+                  qDesign: 0.030, hDesign: 40, curve: P.singlePoint(40, 0.030) };
+    M.addPipe(m, b.id, t.id, { size: 'DN100', schedule: 'sch40' });
+    M.addPipe(m, t.id, c.id, { size: 'DN100', schedule: 'sch40' });
+    const br = M.addPipe(m, t.id, d.id, { size: 'DN50', schedule: 'sch40' });
+    const v = M.addPipe(m, d.id, e.id, { kind: 'valve', tag: 'BV-01' });
+    v.valve = { type: 'globe', kv: FD.valves.defaultKv('globe', 52.48), opening: opening };
+    return { m, pump, br, tee: t };
+  }
+
+  function run(opening, method) {
+    const r = rig(opening, method);
+    const res = NET.solveModel(r.m);
+    const link = (res.network.links || []).filter(l => l.id === r.br.id)[0] || {};
+    let qRatio = null;
+    NET.fittingsAtNode(r.m, r.tee.id, res.flow, []).forEach(f => {
+      if (f.pipe === r.br.id && f.qRatio !== undefined) qRatio = f.qRatio;
+    });
+    return { res, link, qRatio, branchQ: Math.abs(res.flow[r.br.id] || 0),
+             totalQ: Math.abs(res.flow[r.pump.id] || 0) };
+  }
+
+  /* ---- the hand calculation the clamped branch must reproduce -------------
+   * DN50 sch40 bore 52.48 mm in a DN100 sch40 common of 102.26 mm, so
+   *   Fb/Fc = (52.48/102.26)^2 = 0.263376
+   * On Diagram 7-25 at Qb/Qc = 0.1 the rows either side are 0.19 -> 1.41 and
+   * 0.27 -> 1.37, and 0.263376 sits (0.263376-0.19)/0.08 = 0.91720 along, so
+   *   zeta_c = 1.41 + (1.37 - 1.41)(0.91720) = 1.373312
+   * Converted out of the common-channel frame at the clamped ratio,
+   *   K_leg = zeta_c (Fb/Fc / 0.1)^2 = 1.373312 x 2.633759^2 = 9.526237
+   * and on a 52.48 mm bore that is
+   *   rK = K_leg / (2g A^2) = 103768.9  [s^2/m^5]                          */
+  const d100 = FD.schedules.size('sch40', 'DN100').id_mm;
+  const d50 = FD.schedules.size('sch40', 'DN50').id_mm;
+  const aRatio = Math.pow(d50 / d100, 2);
+  near('the area ratio comes off the bores', aRatio, 0.263376, 1e-6);
+  const zClamp = FD.tees.branchK(0.1, aRatio, true);
+  near('zeta_c at the table bound', zClamp, 1.373312, 1e-6);
+  const kClamp = zClamp * Math.pow(aRatio / 0.1, 2);
+  near('...converted into the branch frame', kClamp, 9.526237, 1e-5);
+  const rkClamp = FD.hydraulics.fittingR(kClamp, d50 / 1000);
+  near('...as a resistance', rkClamp, 103768.9, 0.1);
+
+  /* THE COEFFICIENT IS LIVE IN SIMULATION, not frozen at the design ratio.
+   * Wide open the branch takes about a quarter of the flow and is charged a
+   * few velocity heads; throttled it is charged the clamped value, which is
+   * larger by more than a factor of four. A flat coefficient gives one number
+   * at both ends, so this difference IS the feature. */
+  const wide = run(100), shut = run(1);
+  ok('wide open, the branch is well inside the table',
+     wide.qRatio > 0.1 && wide.qRatio < 1, String(wide.qRatio));
+  ok('throttled, the branch is below the table bound',
+     shut.qRatio < 0.1, String(shut.qRatio));
+  ok('the charged resistance moves with the flow ratio',
+     shut.link.rK > wide.link.rK * 4,
+     wide.link.rK + ' -> ' + shut.link.rK);
+
+  /* THE CLAMP. Below Qb/Qc = 0.1 there is no data, so every ratio under it is
+   * charged as if it were 0.1 — the same bound `branchK` already applies to
+   * zeta. Three openings two orders of magnitude apart must give the SAME
+   * resistance, and it must be the hand figure above. */
+  const tiny = [1, 0.5, 0.1].map(o => run(o));
+  tiny.forEach((r, i) => {
+    near('the clamped branch is charged the table bound (opening ' +
+         [1, 0.5, 0.1][i] + '%)', r.link.rK, rkClamp, 1);
+  });
+  ok('...and the branch flow really did fall two orders of magnitude',
+     tiny[2].branchQ < tiny[0].branchQ / 5,
+     tiny[0].branchQ + ' -> ' + tiny[2].branchQ);
+
+  /* THE RUNAWAY THAT THE CLAMP EXISTS TO STOP. Without it the conversion
+   * multiplies by (Qc/Qb)^2, which is unbounded — the data-hall fitting that
+   * reached rK = 4.3e9 had Qb/Qc = 0.0002. Here the ratio falls to about 6e-5
+   * and the resistance does not move at all. */
+  ok('a branch approaching zero flow does not run away',
+     tiny[2].link.rK < 2 * rkClamp, String(tiny[2].link.rK));
+  tiny.concat([wide, shut]).forEach(r => {
+    ok('every throttled case still converges', r.res.converged === true);
+    ok('...with no fitting oscillation',
+       !(r.res.warnings || []).some(w => w.code === 'FITTING_OSCILLATION'));
+  });
+
+  /* A SHUT VALVE IS NOT A SPECIAL CASE. `CLOSED_R` still passes a trickle, so
+   * the branch never reaches exactly zero and never falls through to the flat
+   * coefficient — the resistance is the same clamped value as at 0.1% open. */
+  const closed = run(0);
+  ok('a fully shut branch valve is reported', (closed.res.warnings || [])
+     .some(w => w.code === 'VALVE_SHUT'));
+  near('...and the tee behind it is still charged the clamped value',
+       closed.link.rK, rkClamp, 1);
+
+  /* OPTION C: HAZEN-WILLIAMS IS NOT TOUCHED. On the equivalent-length path the
+   * fitting is folded into the pipe, there is no separate rK to make
+   * flow-dependent, and the charged equivalent length is the same whatever the
+   * branch is carrying. */
+  const hwWide = run(100, 'HW'), hwShut = run(1, 'HW');
+  ok('Hazen-Williams carries no separate fitting resistance',
+     !(hwWide.link.rK > 0) && !(hwShut.link.rK > 0),
+     hwWide.link.rK + ' / ' + hwShut.link.rK);
+  near('...and its equivalent length does not move with the flow ratio',
+       hwShut.link._el, hwWide.link._el, 1e-12);
+  ok('...which is a real equivalent length, not an absent one',
+     hwWide.link._el > 0, String(hwWide.link._el));
+  ok('...while the Darcy branch resistance did move',
+     shut.link.rK !== wide.link.rK);
+}
+
+/* ==================================================================
+ * AND ON A REAL MODEL WITH A CONTROL LOOP.
+ *
+ * The rig above sets valve positions by hand. This is the thing the handover
+ * asked for: a variable-primary high rise where 11 controlled valves and a
+ * pressure-controlled pump are all searched at once, with the branch
+ * coefficient re-derived inside every trial solve.
+ * ================================================================== */
+section('The control loop settles with the flow-ratio coefficient live');
+{
+  const file = __dirname + '/fixtures/highrise-variable-primary.pnet.json';
+  function solve(maxPasses) {
+    const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
+    m.settings.frictionMethod = 'DW';
+    m.settings.calcMode = 'simulation';
+    const res = NET.solveModel(m, maxPasses);
+    let q = 0;
+    m.pipes.forEach(p => {
+      if (p.kind === 'pump' && p.pump && p.pump.mode !== 'off') q += Math.abs(res.flow[p.id] || 0);
+    });
+    return { res, q };
+  }
+
+  const a = solve();
+  ok('the simulation converges', a.res.converged === true);
+  const bad = (a.res.warnings || []).filter(w =>
+    w.code === 'FITTING_OSCILLATION' || w.code === 'CONTROL_BUDGET' ||
+    w.code === 'CONTROL_HUNTING');
+  ok('nothing oscillates, hunts or runs out of budget', bad.length === 0,
+     bad.map(w => w.code).join(','));
+
+  /* A FITTING SET CANNOT ADD ENERGY. Idel'chik's converging-branch zeta is
+   * negative at low flow ratios — real physics, and this model evaluates it
+   * on well over a hundred branch legs — but a link whose total minor loss
+   * came out negative would be a pump made of pipe. */
+  const negative = (a.res.network.links || []).filter(l => (l.rK || 0) < 0);
+  ok('no link ends up with a negative fitting resistance', negative.length === 0,
+     negative.map(l => l.id).join(','));
+
+  /* THE FROZEN COEFFICIENT REACHES A FIXED POINT. Each pass derives the ratio
+   * from the previous pass's flows, so the question is whether more passes
+   * keep moving the answer. Doubling the ceiling must change nothing. */
+  const b = solve(10);
+  ok('doubling the pass ceiling does not move the answer',
+     Math.abs(b.q - a.q) / a.q < 1e-9,
+     (a.q * 1000).toFixed(6) + ' vs ' + (b.q * 1000).toFixed(6) + ' L/s');
+  ok('...and it did not need the extra passes', b.res.passes <= 5,
+     String(b.res.passes));
+}
+
 
 report();

@@ -11,7 +11,7 @@ eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrate
 out of the user docs.
 
 State: **master v0.18.30, branch `tee-fittings` v0.18.31-tee. 2026-08-31.**
-**ELEVEN** test suites, **2487 assertions**, all passing (`for f in test/*.test.js; do node $f; done`).
+**ELEVEN** test suites, **2520 assertions**, all passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
 
@@ -22,7 +22,7 @@ State: **master v0.18.30, branch `tee-fittings` v0.18.31-tee. 2026-08-31.**
 | | version | state |
 |---|---|---|
 | **`master`** | v0.18.30 | **1 commit ahead, UNPUSHED.** Darcy out of BETA. |
-| **`tee-fittings`** | v0.18.31-tee | **17 ahead, UNPUSHED.** TEE.1 built. |
+| **`tee-fittings`** | v0.18.31-tee | **18 ahead, UNPUSHED.** TEE.1 built and measured in simulation. |
 | **GitHub Pages** | v0.18.29 | What Michael actually sees today. |
 
 **Michael tests off Pages**, so nothing from v0.18.30 or the tee branch has been
@@ -39,9 +39,19 @@ Leave it. Same standing rule as `docs_internal/Draft/` and `Fixed/`.
    worst coil −1.44%, **and the design index moves AHU-13 → AHU-11**. HighRise
    −0.16%. Hazen-Williams does not move at all. He has seen the numbers and said
    "it seems ok", but has not accepted the index change.
-2. **TEE.1 is UNMEASURED IN SIMULATION.** Design only. The control loop
-   re-derives fittings every pass, so the zero-flow clamp matters more there.
-   **Do this before proposing a merge.**
+2. **TEE.1 IS NOW MEASURED IN SIMULATION** — `TEE-LOSSES.md` §6D, 2026-08-31.
+   It is stable on all six fixtures: every model converges, nothing oscillates,
+   hunts or runs out of budget, and the clamp holds a branch driven three orders
+   of magnitude below the table bound at a constant resistance. Simulation moves
+   the same amount as design (data hall +0.28% pump flow, terminals +0.19%).
+   **Two things came out of it that he has not seen.** First, the +24.1% fitting
+   resistance is a residue: nine riser-into-header legs go UP by 800 771 while
+   33 ordinary branch legs go DOWN by 410 924 — so the data hall moved because
+   of the REFERENCE-VELOCITY conversion, not the flow-ratio curve. At node N53 a
+   DN40 riser at 3.5 m/s into a DN200 header was charged 1.2 mm of loss and is
+   now charged 1.68 m, which is 2.7 common velocity heads, the published
+   bullhead figure. Second, the data hall simulation costs 13 s more
+   (50.0 → 63.1 s, control solves 657 → 754).
 3. **TH.1** — plant-level shortfall (option 1, decided), then graceful chiller
    overload to ~110%. Needs his steer on the margin and whether power draw is
    modelled at all.

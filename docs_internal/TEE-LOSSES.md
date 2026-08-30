@@ -563,23 +563,233 @@ to 1e-7. Eleven suites green.
 
 * Michael's acceptance of the re-baseline, and of the index moving on the data
   hall.
-* SIMULATION mode is unmeasured here — design only. The control loop re-derives
-  fittings every pass, so the clamp's stability matters more there.
-* The combining-branch negatives are in the data and reachable, but no shipped
-  model exercises a converging tee at a low enough ratio to go negative. The
-  per-pipe clamp at zero is in `fittingsByPipe`; it has not been exercised.
+* SIMULATION mode — **measured 2026-08-31, see §6D below.** It is stable on
+  every fixture, and §6D also identifies where the fitting-resistance increase
+  actually lands.
+* The combining-branch negatives are in the data and reachable. §6D reaches the
+  per-pipe floor on the economizer during the control search.
 
-### STILL TO WIRE UP
+---
 
-`data/tees.js` is **not yet consumed by the engine**. What remains:
+## 6D. MEASURED IN SIMULATION — 2026-08-31
 
-1. In `fittingsAtNode`, compute `Qb/Qc` and `Fb/Fc` at each tee and hand them on.
-2. Replace the flat branch K on the DARCY path with `FD.tees.branchK(...)`,
-   converted from the common-channel frame into the charged leg's frame.
-3. Freeze per pass; re-derive between passes, as the tee TYPE already is.
-4. Leave the RUN flat — option C, unchanged.
-5. Re-baseline: this WILL move Darcy answers on any model with tees. Compare the
-   frozen fixtures before and after and get Michael's acceptance.
+Section 6C measured the design mode only. This section measures the simulation
+mode. It is the harder case for two reasons.
+
+* The control loop runs the whole hydraulic core again for each trial valve
+  position and each trial pump speed. The coefficient is derived again in each
+  of those solves. The device search therefore operates on a system whose
+  resistance moves while the search moves.
+* A controlled valve is the only part of the program that moves a branch to
+  zero flow on purpose. Zero flow is where the frame conversion becomes
+  unstable, which is the trap in 6C.
+
+Method: each fixture was solved twice on the Darcy path, once with
+`data/tees.js` loaded and once with it removed. Removing the module makes
+`fittingsByPipe` keep the flat K, so the two runs differ in one thing only.
+
+### The measurement
+
+| model | mode | pump flow, flat → tee | fitting resistance | terminal flow |
+|---|---|---|---|---|
+| Data Hall | design | 99.409 → 99.882 L/s (**+0.48%**) | +24.1% | — |
+| Data Hall | **simulation** | 59.473 → 59.641 L/s (**+0.28%**) | +24.8% | 104.180 → 104.374 L/s (+0.19%) |
+| HighRise | design | 60.954 → 60.855 L/s (−0.16%) | +11.7% | — |
+| HighRise | **simulation** | 56.145 → 56.299 L/s (+0.27%) | +12.4% | 112.291 → 112.597 L/s (+0.27%) |
+| Economizer | design | 6.419 → 6.415 L/s (−0.05%) | +105.7% | — |
+| Economizer | **simulation** | 4.619 → 4.616 L/s (−0.06%) | +73.4% | 7.814 → 7.810 L/s (−0.05%) |
+| Tower 5-level | design | 8.634 → 8.628 L/s (−0.07%) | −2.1% | — |
+| Tower 5-level | **simulation** | 5.142 → 5.139 L/s (−0.06%) | +4.0% | 10.284 → 10.278 L/s (−0.06%) |
+| Parallel branches | **simulation** | 3.207 → 3.206 L/s (−0.03%) | +73.8% | 6.414 → 6.413 L/s (−0.03%) |
+| Plumbing booster | **simulation** | 1.824 → 1.823 L/s (−0.09%) | +130.1% | 1.824 → 1.823 L/s (−0.09%) |
+
+Every model converges in both modes. No model raises `FITTING_OSCILLATION`,
+`CONTROL_BUDGET` or `CONTROL_HUNTING`. The simulation movement is the same size
+as the design movement. The tee coefficient moves flow between branches. It
+does not change what the plant does.
+
+**The simulation index moves on the data hall, as the design index does.** The
+least satisfied terminal changes from ACCH-03 at 28.9% to ACCH-02 at 29.1%. The
+two are within 0.2 percentage points of each other, so this is a change of name
+and not a change of engineering answer. The design index change from AHU-13 to
+AHU-11 is the one to look at.
+
+### The settled control positions on the data hall
+
+| device | flat | tee |
+|---|---|---|
+| AHU-1 … AHU-14 valves | 0.68 – 0.71 open | 0.67 – 0.69 open |
+| CHWP-01 … CHWP-04 speed | 0.373 – 0.375 | 0.384 – 0.386 |
+| PWP-01 speed | 0.735 | 0.739 |
+
+Each valve closes by two or three points. Each chilled water pump turns about
+one point faster. Each device reports the state `on`. No device is lost or
+parked.
+
+### The clamp under the control loop
+
+The branch coefficient was recorded on every solve of the control loop, for
+each fixture.
+
+| model | branch legs | legs ever below Qb/Qc = 0.1 | legs below it in every pass | crossings of the bound | smallest Qb/Qc | largest leg-frame K |
+|---|---|---|---|---|---|---|
+| HighRise | 20 | 6 | 0 | 24 over 74 passes | 4.2e-3 | 4.4 |
+| Tower 5-level | 8 | 6 | 0 | 52 over 254 passes | 1.9e-2 | 90.0 |
+| Data Hall | 58 | 7 (settled state) | — | — | 5.7e-2 | 4325 |
+
+The bound is crossed during the search. That is expected, because the search
+opens and closes the valve that feeds the branch. What matters is that the
+crossings stop. No branch on any model shows a flow ratio that falls all the
+way through the last twelve passes, which is the signature of the runaway in
+6C. The largest movement in Qb/Qc over the last twelve passes is 0.008 on the
+HighRise and 0.0005 on the tower.
+
+The frozen resistance was also recorded per link. The widest range on one link
+over a whole run is 8.4x on the HighRise, 37x on the tower and 117x on the
+economizer. Each of those is a valve being swept from shut to open by the
+search, not an instability. Each model converges.
+
+### The case the clamp exists for
+
+A rig was built to drive one branch to nothing on purpose:
+
+    source ── PUMP ── b ───── T ───── c   run, terminal
+                              │
+                              d   branch, DN50, then a globe valve
+                              │
+                              e   terminal
+
+The valve opening was set by hand from 100% to 0%. The branch pipe carries the
+tee and no other fitting, so its whole `rK` is the tee.
+
+| valve open | branch flow | Qb/Qc | K in the branch frame | branch rK | total flow | converged |
+|---|---|---|---|---|---|---|
+| 100% | 10.539 L/s | 0.2555 | 2.23 | 2.428e4 | 41.252 L/s | yes |
+| 50% | 3.152 L/s | 0.0854 | 9.53 | 1.038e5 | 36.929 L/s | yes |
+| 20% | 0.451 L/s | 0.0128 | 9.53 | 1.038e5 | 35.257 L/s | yes |
+| 5% | 0.113 L/s | 0.0032 | 9.53 | 1.038e5 | 35.045 L/s | yes |
+| 1% | 0.023 L/s | 0.00065 | 9.53 | 1.038e5 | 34.987 L/s | yes |
+| 0.1% | 0.0023 L/s | 0.00006 | 9.53 | 1.038e5 | 34.974 L/s | yes |
+| 0% (shut) | 0.0058 L/s | 0.00017 | 9.53 | 1.038e5 | 34.977 L/s | yes |
+
+The flow ratio falls by more than three orders of magnitude below the bound.
+The charged resistance does not move. The total flow is smooth and has no step.
+
+The clamped value agrees with the hand calculation. A DN50 sch40 bore of
+52.48 mm in a DN100 sch40 common of 102.26 mm gives Fb/Fc = 0.263376. On
+Diagram 7-25 at Qb/Qc = 0.1, interpolation between the 0.19 row (1.41) and the
+0.27 row (1.37) gives ζ = 1.373312. The conversion into the branch frame at the
+clamped ratio gives K = 1.373312 × 2.633759² = 9.526237, and on a 52.48 mm bore
+that is rK = 103769 s²/m⁵. The engine reports 1.038e5.
+
+A shut valve is not a special case. `CLOSED_R` still passes a trickle, so the
+branch flow is never exactly zero, and the fall-back to the flat coefficient at
+`qLeg <= 1e-12` is not reached.
+
+### Where the fitting resistance increase actually goes
+
+This is new and it is the most useful number for the re-baseline decision. The
+change in `rK` was attributed link by link on the data hall.
+
+| branch legs | links | change in ΣrK | share of the total change |
+|---|---|---|---|
+| branch WIDER than the common leg (Fb/Fc > 1) | 9 | +800 771 | +203% |
+| branch below the flow-ratio bound | 4 | +5 409 | +1% |
+| all other branch legs | 33 | −410 924 | −104% |
+| net | | **+395 227 (+24.1%)** | |
+
+The headline +24.1% is a small residue of two large movements in opposite
+directions. Most branch legs are charged **less** than the flat coefficient
+charged them. Nine legs are charged a great deal more.
+
+Those nine legs are risers that enter a header. Node N53 is the clearest one. A
+DN40 riser carries 4.545 L/s at 3.50 m/s into the middle of a DN200 header, and
+the flow divides both ways. The engine classifies this as a symmetric split, so
+both header legs are charged the branch coefficient.
+
+| | flat K | tee curve |
+|---|---|---|
+| riser P60, DN40 | 3.50 m/s, velocity head 0.624 m, not charged the tee | same |
+| header leg P66, DN200 | 0.085 m/s, ΣK 2.2, fitting loss **0.8 mm** | ΣK 2930, fitting loss **0.852 m** |
+| header leg P67, DN200 | 0.058 m/s, ΣK 2.2, fitting loss **0.4 mm** | ΣK 3797, fitting loss **0.824 m** |
+
+The two header legs together are now charged 1.68 m. Against a common velocity
+head of 0.624 m that is 2.7 velocity heads, which is the usual published figure
+for a bullhead tee. The flat treatment charged 1.2 mm in total for the same
+fitting.
+
+**So the data hall did not move because of the flow-ratio curve. It moved
+because of the reference-velocity conversion.** A fitting whose loss is set by
+the fast common leg was being charged at the slow branch leg's own velocity,
+and the loss was three orders of magnitude too small. Section 3.2 called that
+the structural half of the problem. This is the size of it, measured.
+
+**NOTE:** Fb/Fc = 24.5 is off the end of Diagram 7-25, whose last row is 1.00.
+`branchK` clamps the lookup at that row, and the frame conversion is then
+applied in full. That is the same shape as the flow-ratio trap in 6C, so it was
+examined. It is not the same defect. The conversion is exact arithmetic and the
+resulting loss is correct, as the 2.7 velocity heads above show. Clamping the
+area ratio as well would charge almost nothing for a 3.5 m/s stream entering a
+header, which would be wrong. The lookup is clamped and the conversion is not,
+and that is the correct arrangement. It is recorded here because the two clamps
+look inconsistent and somebody will ask.
+
+The HighRise has no leg with Fb/Fc > 1. Its whole +11.7% comes from ordinary
+branch legs, and its index does not move.
+
+### What it costs
+
+| model | control solves, flat → tee | control iterations | wall time |
+|---|---|---|---|
+| Data Hall | 657 → 754 (+15%) | 5 → 6 | 50.0 s → 63.1 s (+26%) |
+| HighRise | 43 → 36 (−16%) | 3 → 2 | 0.68 s → 0.53 s |
+| Tower 5-level | 126 → 126 | 5 → 5 | 0.69 s → 0.65 s |
+| Economizer | 127 → 127 | 4 → 4 | 0.70 s → 0.67 s |
+
+The data hall simulation costs about 13 seconds more. Small models do not
+change, and the HighRise settles sooner. This is the same class of number as
+PERF.1, where the 44 second design solve is real compute and is not to be
+optimised.
+
+### Flow regime warnings move
+
+Two models change their laminar and transitional warnings, because branch flows
+change.
+
+* Data Hall, design: `TRANSITIONAL` × 5 becomes `LAMINAR` × 5.
+* Data Hall, simulation: `LAMINAR` × 5 becomes `LAMINAR` × 5 and
+  `TRANSITIONAL` × 1.
+
+The count does not grow. The classification of the same few pipes moves across
+the boundary.
+
+### What is now in the suite
+
+`test/simulation.test.js` has two new sections and 33 new assertions.
+
+* "The tee branch coefficient holds together in SIMULATION" builds the rig
+  above, and asserts the hand calculation of the clamped coefficient, that the
+  charged resistance follows the flow ratio, that three openings two orders of
+  magnitude apart give the same clamped resistance, that a shut branch is not a
+  special case, and that Hazen-Williams carries no `rK` and its equivalent
+  length does not move.
+* "The control loop settles with the flow-ratio coefficient live" solves the
+  HighRise in simulation and asserts convergence, the absence of the three
+  instability codes, that no link ends with a negative fitting resistance, and
+  that doubling the pass ceiling from 5 to 10 does not move the answer by more
+  than 1 part in 1e9.
+
+Eleven suites, **2520 assertions**, all passing.
+
+### What is still open before a merge to master
+
+* Michael's acceptance of the re-baseline, and of the design index moving from
+  AHU-13 to AHU-11 on the data hall. Simulation adds a second index change,
+  ACCH-03 to ACCH-02, but the two terminals are 0.2 points apart.
+* The 13 extra seconds on the data hall simulation.
+* The negative combining-branch coefficient reaches the per-pipe floor on the
+  economizer during the search, where one link's `rK` falls to zero and comes
+  back. The floor works. No shipped model ends a solve with it applied.
 
 ---
 
