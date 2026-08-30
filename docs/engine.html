@@ -172,6 +172,7 @@ footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);
       <ol>
         <li><a href="#hw">Hazen-Williams</a></li>
         <li><a href="#dw">Darcy-Weisbach</a></li>
+        <li><a href="#dw-worked">Worked example — Colebrook</a></li>
         <li><a href="#compare">Which method</a></li>
         <li><a href="#regime">Flow regime</a></li>
         <li><a href="#lowflow">Very low flow</a></li>
@@ -329,13 +330,13 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   <em>As a solver resistance:</em>&nbsp; r = 8 · f · L_eff / (π² · g · d⁵), &nbsp; n = 2
 </div>
 <p>The friction factor <code>f</code> depends on the Reynolds number, so <code>r</code> is not constant. The program recalculates <code>r</code> between solver passes from the flow of the previous pass. The first pass assumes 1 m/s.</p>
-<p>Four correlations are available. Swamee-Jain is the default.</p>
+<p>Four correlations are available. Colebrook-White is the default.</p>
 <div class="scroll">
 <table>
   <thead><tr><th>Correlation</th><th>Form</th><th>Agreement with Colebrook-White</th></tr></thead>
   <tbody>
-    <tr><td>Colebrook-White</td><td>Implicit</td><td>The reference. Solved by iteration.</td></tr>
-    <tr><td><strong>Swamee-Jain</strong> (default)</td><td>Explicit</td><td>Measured in the test suite against an iterated Colebrook-White: within <strong>0.9%</strong> for 10⁴ ≤ Re ≤ 10⁷ and ε/d ≤ 10⁻³. The error rises to <strong>2.8%</strong> at Re = 5×10³ with ε/d = 10⁻², the corner of its published validity.</td></tr>
+    <tr><td><strong>Colebrook-White</strong> (default)</td><td>Implicit</td><td>The reference the other three are fitted to. Solved by iteration, as shown in section 3.3.</td></tr>
+    <tr><td>Swamee-Jain</td><td>Explicit</td><td>Measured in the test suite against an iterated Colebrook-White: within <strong>0.9%</strong> for 10⁴ ≤ Re ≤ 10⁷ and ε/d ≤ 10⁻³. The error rises to <strong>2.8%</strong> at Re = 5×10³ with ε/d = 10⁻², the corner of its published validity.</td></tr>
     <tr><td>Haaland</td><td>Explicit</td><td>Within about 2%. The simplest form.</td></tr>
     <tr><td>Churchill</td><td>Explicit</td><td>Covers all flow regimes in one expression.</td></tr>
   </tbody>
@@ -344,7 +345,86 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 <p>The choice of correlation has little effect on the answer. Across realistic building-services cases (DN25 to DN200, new to heavily fouled pipe) the four correlations agree to about 2%.</p>
 <p>Laminar flow uses <code>f = 64/Re</code>. In the transitional band the program blends linearly between the laminar and turbulent values, so the solver sees a continuous curve and not a step. Churchill covers all regimes itself and is not blended.</p>
 
-<h3 id="compare">3.3 Which method to use</h3>
+<h3 id="dw-worked">3.3 Worked example — Colebrook-White by iteration</h3>
+<p>This is one pipe, calculated by hand. Every figure below is the number the program produces.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Input</th><th class="num">Value</th><th>Source</th></tr></thead>
+  <tbody>
+    <tr><td>Pipe</td><td class="num">DN50, schedule 40</td><td>Bore 52.48 mm, from the schedule table</td></tr>
+    <tr><td>Length</td><td class="num">100 m</td><td>Drawn length, no fittings</td></tr>
+    <tr><td>Flow</td><td class="num">5.0 L/s</td><td></td></tr>
+    <tr><td>Roughness ε</td><td class="num">0.045 mm</td><td>Commercial steel, new. Set on the HYDRAULIC tab.</td></tr>
+    <tr><td>Kinematic viscosity ν</td><td class="num">1.004 × 10⁻⁶ m²/s</td><td>Water at 20 °C</td></tr>
+  </tbody>
+</table>
+</div>
+<h4>Step 1 — velocity and Reynolds number</h4>
+<div class="eq">
+  A = π d² / 4 = π × 0.05248² / 4 = 2.1631 × 10⁻³ m²<br><br>
+  V = Q / A = 0.005 / 2.1631 × 10⁻³ = <strong>2.3115 m/s</strong><br><br>
+  Re = V d / ν = 2.3115 × 0.05248 / 1.004 × 10⁻⁶ = <strong>120 824</strong><br><br>
+  ε / d = 0.045 / 52.48 = <strong>8.575 × 10⁻⁴</strong>
+</div>
+<p>Re is above 4000, so the flow is turbulent and the turbulent correlation applies.</p>
+
+<h4>Step 2 — solve Colebrook-White</h4>
+<p>Colebrook-White cannot be rearranged for <code>f</code>. It is solved by repeated substitution. The program works in <code>x = 1/√f</code>:</p>
+<div class="eq">
+  <span class="lbl">Colebrook-White</span>
+  x = −2 log₁₀ ( ε/3.7d + 2.51 x / Re ) &nbsp;&nbsp; where x = 1/√f
+</div>
+<p>The starting value is the Swamee-Jain result, which is close enough that four passes are more than sufficient:</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Pass</th><th class="num">x = 1/√f</th><th class="num">f</th><th class="num">Change in f</th></tr></thead>
+  <tbody>
+    <tr><td>Start (Swamee-Jain)</td><td class="num">6.829421</td><td class="num">0.021440</td><td class="num">—</td></tr>
+    <tr><td>1</td><td class="num">6.855132</td><td class="num">0.021280</td><td class="num">−1.6 × 10⁻⁴</td></tr>
+    <tr><td>2</td><td class="num">6.853891</td><td class="num">0.021288</td><td class="num">+8 × 10⁻⁶</td></tr>
+    <tr><td>3</td><td class="num">6.853951</td><td class="num">0.021287</td><td class="num">−4 × 10⁻⁷</td></tr>
+    <tr><td>4</td><td class="num">6.853948</td><td class="num">0.021287</td><td class="num">+2 × 10⁻⁸</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Each pass reduces the error by roughly a factor of twenty. <strong>f = 0.021287.</strong></p>
+<h4>Step 3 — head loss</h4>
+<div class="eq">
+  h<sub>f</sub> = f · (L / d) · V² / 2g<br><br>
+  = 0.021287 × (100 / 0.05248) × 2.3115² / (2 × 9.81)<br><br>
+  = <strong>11.046 m</strong>
+</div>
+<h4>Step 4 — the same figure as a solver resistance</h4>
+<p>The solver stores a resistance rather than a head loss, so that the loss can be recalculated at any flow:</p>
+<div class="eq">
+  r = 8 f L / (π² g d⁵),&nbsp;&nbsp; h<sub>f</sub> = r · Q²&nbsp; (n = 2)
+</div>
+<p>Evaluated at 5 L/s this returns <strong>11.046 m</strong>, the same figure. The program reports 11.0461 m.</p>
+<div class="note limit">
+  <span class="tag">IMPORTANT:</span>
+  <p>The friction factor depends on the flow, so <code>r</code> is not a constant. The program recalculates it between solver passes from the flow of the previous pass. A hand check must use the flow the program settled on, not the design flow.</p>
+</div>
+
+<h4>The same pipe by Swamee-Jain, for comparison</h4>
+<p>Swamee-Jain is explicit. It gives a friction factor in one step, with no iteration:</p>
+<div class="eq">
+  <span class="lbl">Swamee-Jain</span>
+  f = 0.25 / [ log₁₀ ( ε/3.7d + 5.74/Re<sup>0.9</sup> ) ]²<br><br>
+  = 0.25 / [ log₁₀ ( 8.575×10⁻⁴/3.7 + 5.74/120824<sup>0.9</sup> ) ]²<br><br>
+  = <strong>0.021440</strong>
+</div>
+<div class="scroll">
+<table>
+  <thead><tr><th>Correlation</th><th class="num">f</th><th class="num">h<sub>f</sub> over 100 m</th><th class="num">Difference</th></tr></thead>
+  <tbody>
+    <tr><td>Colebrook-White, iterated</td><td class="num">0.021287</td><td class="num">11.046 m</td><td class="num">—</td></tr>
+    <tr><td>Swamee-Jain, explicit</td><td class="num">0.021440</td><td class="num">11.126 m</td><td class="num">+0.72%</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Swamee-Jain is the value Colebrook-White starts its iteration from, which is why four passes are enough. The 0.72% gap is typical: across the range building-services pipework sits in, the two agree to better than 1%.</p>
+
+<h3 id="compare">3.4 Which method to use</h3>
 <div class="note rule">
   <span class="tag">NOTE:</span>
   <p>Against Hazen-Williams at C = 120, Darcy-Weisbach with ε = 0.045 mm gives a friction rate roughly 15–30% lower (DN25 to DN200 at 1–2.5 m/s).</p>
@@ -355,7 +435,7 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   <li>Use <strong>Darcy-Weisbach</strong> for other fluids, for glycol mixtures, or where flow is laminar.</li>
 </ul>
 
-<h3 id="regime">3.4 Flow regime</h3>
+<h3 id="regime">3.5 Flow regime</h3>
 <p>After the solution settles, the program calculates the Reynolds number for each section:</p>
 <div class="eq">Re = V · d / ν</div>
 <div class="scroll">
@@ -370,7 +450,7 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 <p>Laminar sections usually appear on oversized pipe at low demand, or on a branch that is nearly shut. You can switch this check off on the HYDRAULIC tab.</p>
 
-<h3 id="lowflow">3.5 Very low flow</h3>
+<h3 id="lowflow">3.6 Very low flow</h3>
 <p>At <code>Q = 0</code> the slope of the loss curve is zero: the slope is <code>n·r·|Q|<sup>n−1</sup></code>, which falls to zero as <code>Q</code> approaches zero for any <code>n</code> above 1. The solver divides by that slope, so it cannot use the curve at the origin.</p>
 <p>Below <code>Q_MIN = 1×10⁻⁶ m³/s</code> the program replaces the curve with its tangent at <code>Q_MIN</code>. The tangent passes through the origin. The loss stays continuous, odd, and increasing. The slope stays finite.</p>
 
