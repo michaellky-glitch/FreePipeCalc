@@ -1,8 +1,13 @@
 # Tee losses — the largest known approximation in the engine
 
-**Status: DECIDED, NOT BUILT.** Michael chose the middle path on 2026-08-26.
-This file exists because he expects to come back to it: *"I'll probably come
-back to this issue in future. Is it fully logged?"*
+**Status: BUILT, MEASURED AND MERGED — 2026-08-31, master v0.18.32.** Michael
+chose the middle path on 2026-08-26 and accepted the re-baseline on 2026-08-31:
+*"The calculation itself looks acceptable just going from the datahall example.
+So we can merge the Tee branch into main and remove the branch."* The
+`tee-fittings` branch is merged by fast-forward and deleted. This file exists
+because he expects to come back to it: *"I'll probably come back to this issue
+in future. Is it fully logged?"* — §6C is the design build, §6D the simulation
+measurement.
 
 Carried in `Human-Test.md` as open engineering question **EQ.3** and in
 `WORKLIST.md` as **TEE.1**.
@@ -781,15 +786,21 @@ the boundary.
 
 Eleven suites, **2520 assertions**, all passing.
 
-### What is still open before a merge to master
+### Accepted and merged
 
-* Michael's acceptance of the re-baseline, and of the design index moving from
-  AHU-13 to AHU-11 on the data hall. Simulation adds a second index change,
-  ACCH-03 to ACCH-02, but the two terminals are 0.2 points apart.
-* The 13 extra seconds on the data hall simulation.
+Michael accepted the re-baseline on 2026-08-31 from the data hall, and the
+branch was merged to master by fast-forward and deleted. `docs/engine.html` §4.4
+was rewritten against ASD-STE100 in the same session, and it now carries the
+reference-velocity finding as a SUGGESTION callout with the N53 figures.
+
+Carried forward rather than closed:
+
+* The 13 extra seconds on the data hall simulation. Same class as PERF.1.
 * The negative combining-branch coefficient reaches the per-pipe floor on the
   economizer during the search, where one link's `rK` falls to zero and comes
   back. The floor works. No shipped model ends a solve with it applied.
+* TEE.2 is untouched and independent: the Darcy K table still holds the 1993
+  values, and the RUN is still flat (option C).
 
 ---
 

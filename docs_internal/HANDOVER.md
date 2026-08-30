@@ -10,48 +10,41 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **master v0.18.30, branch `tee-fittings` v0.18.31-tee. 2026-08-31.**
+State: **master v0.18.32. `tee-fittings` is MERGED and DELETED. 2026-08-31.**
 **ELEVEN** test suites, **2520 assertions**, all passing (`for f in test/*.test.js; do node $f; done`).
 
 ---
 
 ## 0. READ THIS FIRST — WHERE EVERYTHING STANDS (2026-08-31)
 
-### NOTHING IS PUSHED. Two branches are ahead of the remote.
+### NOTHING IS PUSHED. Master is 11 commits ahead of the remote.
 
 | | version | state |
 |---|---|---|
-| **`master`** | v0.18.30 | **1 commit ahead, UNPUSHED.** Darcy out of BETA. |
-| **`tee-fittings`** | v0.18.31-tee | **18 ahead, UNPUSHED.** TEE.1 built and measured in simulation. |
+| **`master`** | v0.18.32 | **11 commits ahead, UNPUSHED.** Darcy out of BETA, and TEE.1 merged in. |
+| **`tee-fittings`** | — | **MERGED to master (fast-forward) and DELETED, 2026-08-31.** Michael: "we can merge the Tee branch into main and remove the branch." |
 | **GitHub Pages** | v0.18.29 | What Michael actually sees today. |
 
-**Michael tests off Pages**, so nothing from v0.18.30 or the tee branch has been
-in front of him except through a local `index.html`. He asked twice for "bump,
-don't push" — **do not push without asking.**
+**Michael tests off Pages**, so nothing from v0.18.30 to v0.18.32 has been in
+front of him except through a local `index.html`. He asked twice for "bump,
+don't push" — **do not push without asking.** He accepted the TEE.1 re-baseline
+on the data hall ("the calculation itself looks acceptable just going from the
+datahall example"), which is what released the merge.
 
 `docs/Tutorial 2 Docs/` is HIS untracked work with a live editor swap file.
 Leave it. Same standing rule as `docs_internal/Draft/` and `Fixed/`.
 
 ### WHAT IS WAITING ON MICHAEL, in the order I would raise it
 
-1. **TEE.1 re-baseline acceptance.** The branch changes Darcy answers on any
-   model with tees. Data Hall: total flow +0.48%, fitting resistance +24.1%,
-   worst coil −1.44%, **and the design index moves AHU-13 → AHU-11**. HighRise
-   −0.16%. Hazen-Williams does not move at all. He has seen the numbers and said
-   "it seems ok", but has not accepted the index change.
-2. **TEE.1 IS NOW MEASURED IN SIMULATION** — `TEE-LOSSES.md` §6D, 2026-08-31.
-   It is stable on all six fixtures: every model converges, nothing oscillates,
-   hunts or runs out of budget, and the clamp holds a branch driven three orders
-   of magnitude below the table bound at a constant resistance. Simulation moves
-   the same amount as design (data hall +0.28% pump flow, terminals +0.19%).
-   **Two things came out of it that he has not seen.** First, the +24.1% fitting
-   resistance is a residue: nine riser-into-header legs go UP by 800 771 while
-   33 ordinary branch legs go DOWN by 410 924 — so the data hall moved because
-   of the REFERENCE-VELOCITY conversion, not the flow-ratio curve. At node N53 a
-   DN40 riser at 3.5 m/s into a DN200 header was charged 1.2 mm of loss and is
-   now charged 1.68 m, which is 2.7 common velocity heads, the published
-   bullhead figure. Second, the data hall simulation costs 13 s more
-   (50.0 → 63.1 s, control solves 657 → 754).
+**TEE.1 is CLOSED.** He accepted the re-baseline from the data hall on
+2026-08-31, the branch is merged to master by fast-forward and deleted, and
+`docs/engine.html` §4 was rewritten against ASD-STE100 at the same time
+(Idelchik without the apostrophe; the naming only ever surfaced there). The
+measurement is in `TEE-LOSSES.md` §6C and §6D. What is worth carrying forward:
+the +24.1% fitting resistance is a RESIDUE — nine riser-into-header legs go up
+by 800 771 while 33 ordinary branch legs go DOWN by 410 924 — so the change came
+from the REFERENCE-VELOCITY conversion, not the flow-ratio curve.
+
 3. **TH.1** — plant-level shortfall (option 1, decided), then graceful chiller
    overload to ~110%. Needs his steer on the margin and whether power draw is
    modelled at all.
