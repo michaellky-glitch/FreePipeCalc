@@ -456,7 +456,7 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 
 <!-- ===================================================== 4 -->
 <h2 id="fittings">4. Fittings</h2>
-<p>You do not place fittings. The program finds them from the geometry of the drawing. It counts the pipes that meet at each node and the angles between them. The fitting loss is added to the pipe that carries the flow away from the fitting (section 4.3 gives the rule for tees).</p>
+<p>You do not place fittings. The program finds them from the geometry of the drawing. It counts the pipes that meet at each node, and it measures the angles between them. The program adds the fitting loss to the pipe that carries the flow away from the fitting. Section 4.3 gives the rule for tees.</p>
 
 <h3 id="fit-el">4.1 Equivalent length — used with Hazen-Williams</h3>
 <p>Each fitting is charged as an extra length of straight pipe. The equivalent length comes from a <strong>published table</strong>, selected on the HYDRAULIC tab. It is not calculated from an L/D ratio.</p>
@@ -549,25 +549,25 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 
 <h3 id="fit-tee">4.3 How a tee is charged</h3>
-<p>Which leg of a tee is the "run" and which is the "branch" depends on the direction of flow. The direction is only known after the solve. The program therefore:</p>
+<p>The direction of the flow sets which leg is the "run" and which is the "branch". The program knows the direction only after the solve. It therefore does three steps:</p>
 <ol>
-  <li>solves with a geometric estimate — the straightest pair of legs is the run,</li>
-  <li>reassigns run and branch from the solved flow directions,</li>
-  <li>solves again.</li>
+  <li>It solves with a geometric estimate. The straightest pair of legs is the run.</li>
+  <li>It sets the run and the branch again from the solved flow directions.</li>
+  <li>It solves again.</li>
 </ol>
-<p>This settles in one or two passes. If the assignment oscillates, the program keeps the last solution and warns you.</p>
-<p>The charging rule follows the flow, and each stream pays for its own passage through the fitting:</p>
+<p>This settles in one or two passes. If the assignment does not settle, the program keeps the last solution and gives a warning.</p>
+<p>The charge follows the flow. Each stream pays for its own passage through the fitting:</p>
 <ul>
-  <li><strong>Dividing tee</strong> (one pipe in, two out): both <strong>outlets</strong> are charged.</li>
-  <li><strong>Combining tee</strong> (two pipes in, one out): both <strong>inlets</strong> are charged. The branch inflow suffers most of the loss in a combining tee, so charging only the outlet would understate it.</li>
-  <li><strong>Elbow</strong>: the downstream pipe is charged.</li>
+  <li><strong>Dividing tee</strong> (one pipe in, two out): the program charges both <strong>outlets</strong>.</li>
+  <li><strong>Combining tee</strong> (two pipes in, one out): the program charges both <strong>inlets</strong>. In a combining tee the branch inflow has most of the loss. A charge on the outlet only would be too small.</li>
+  <li><strong>Elbow</strong>: the program charges the downstream pipe.</li>
 </ul>
-<p>Two special cases keep the assignment stable and physically sensible:</p>
+<p>Two special cases keep the assignment stable and correct:</p>
 <ul>
-  <li><strong>Ties break on geometry.</strong> When two legs carry nearly the same flow, the straightest in–out pair becomes the run. Geometry does not depend on the solution, so the assignment cannot oscillate. At a riser tee this correctly makes the vertical run the "run" and the floor take-off the "branch".</li>
-  <li><strong>A symmetric split has no run.</strong> When the two charged legs leave the common leg at equal angles (a bullhead tee, or a symmetric Y), both legs are charged as branch. Both streams genuinely turn, which is what the branch coefficient describes.</li>
+  <li><strong>Ties break on geometry.</strong> When two legs carry almost the same flow, the straightest in-and-out pair becomes the run. Geometry does not depend on the solution, so the assignment cannot move. At a riser tee, this makes the vertical run the "run" and the floor take-off the "branch".</li>
+  <li><strong>A symmetric split has no run.</strong> The two charged legs leave the common leg at equal angles: a bullhead tee, or a symmetric Y. The program charges both legs as a branch. Both streams turn, and the branch coefficient is for a stream that turns.</li>
 </ul>
-<p>Elbows are classified by the angle between the two pipes, measured as the deviation from straight:</p>
+<p>The program classifies elbows by the angle between the two pipes. It measures the angle as the deviation from straight:</p>
 <div class="scroll">
 <table>
   <thead><tr><th>Deviation</th><th>Fitting charged</th></tr></thead>
@@ -578,13 +578,13 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   </tbody>
 </table>
 </div>
-<p>Valves are not in these tables. They are modelled by flow coefficient (section 11).</p>
+<p>Valves are not in these tables. The program models a valve by a flow coefficient (section 11).</p>
 
 <!-- ===================================================== 5 -->
 <h3 id="fit-teek">4.4 The branch coefficient varies with the flow ratio</h3>
-<p>A tee is the largest approximation in this program. The tables in sections 4.1 and 4.2 give one number for a tee branch, whatever the flow. The real coefficient is a function of how the flow divides, and it varies by more than a factor of ten across that range. A branch taking 5% of the main is not the same fitting as a branch taking 90% of it.</p>
-<p>Under <strong>Darcy-Weisbach</strong>, the branch coefficient is therefore read from a curve instead of a table row. The run keeps its flat value. Hazen-Williams is unchanged and keeps the equivalent lengths in section 4.1.</p>
-<p>Source: I. E. Idel'chik, <em>Handbook of Hydraulic Resistance</em>, AEC-TR-6630 (1966), Section VII. Diagram 7-25 is a standard threaded malleable-iron diverging tee at 90°. Diagram 7-16 is the converging tee. Both are of the type the program's geometry produces: a branch taken off a through-run of constant section.</p>
+<p>A tee is the largest approximation in this program. The tables in sections 4.1 and 4.2 give one number for a tee branch at all flows. But the true coefficient changes with the division of the flow. It changes by more than a factor of ten from one end of the range to the other. A branch that takes 5% of the main is not the same fitting as a branch that takes 90% of it.</p>
+<p>With <strong>Darcy-Weisbach</strong>, the program therefore reads the branch coefficient from a curve, and not from a table row. The run keeps its constant value. Hazen-Williams does not change. It keeps the equivalent lengths in section 4.1.</p>
+<p>Source: I. E. Idelchik, <em>Handbook of Hydraulic Resistance</em>, AEC-TR-6630 (1966), Section VII. Diagram 7-25 is a standard threaded malleable-iron diverging tee at 90°. Diagram 7-16 is the converging tee. The program's geometry makes this type of tee: a branch that comes off a through-run of constant section.</p>
 
 <h4>The two inputs</h4>
 <div class="eq">
@@ -593,7 +593,7 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   <span class="lbl">Area ratio</span>
   F<sub>b</sub> / F<sub>c</sub> = (d<sub>b</sub> / d<sub>c</sub>)<sup>2</sup>
 </div>
-<p>The common leg is the single leg on the other side of the split: the inlet of a dividing tee, or the outlet of a combining one. The area ratio is calculated from the two bores. The program knows both, so it is measured and not assumed.</p>
+<p>The common leg is the single leg on the other side of the split. It is the inlet of a dividing tee, or the outlet of a combining tee. The program calculates the area ratio from the two bores. It knows both bores, so it measures this ratio and does not assume it.</p>
 
 <h4>Dividing tee, branch — Diagram 7-25</h4>
 <p>Values of ζ<sub>c.b</sub> against Q<sub>b</sub>/Q<sub>c</sub>:</p>
@@ -629,28 +629,33 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 <div class="note rule">
   <span class="tag">NOTE:</span>
-  <p>The negative values are correct. Where two streams combine, the faster stream gives kinetic energy to the slower one, so one leg shows a gain. The loss across the whole fitting stays positive.</p>
+  <p>The negative values are correct. Where two streams combine, the faster stream gives kinetic energy to the slower stream. One leg thus shows a gain. The loss across the full fitting stays positive.</p>
 </div>
-<p>Between tabulated points the program interpolates on both axes. Outside the table the value is clamped, not extrapolated.</p>
+<p>Between tabulated points, the program interpolates on both axes. Outside the table, the program holds the value at the limit of the table. It does not extrapolate.</p>
 
 <h4>The reference velocity</h4>
-<p>Idel'chik gives these coefficients in terms of the velocity in the <strong>common leg</strong>, not the velocity in the leg being charged:</p>
+<p>Idelchik gives these coefficients against the velocity in the <strong>common leg</strong>. He does not give them against the velocity in the leg that the program charges:</p>
 <div class="eq">Δh = ζ<sub>c</sub> · V<sub>c</sub>² / 2g</div>
-<p>The program charges a fitting to one pipe, at that pipe's own velocity. The coefficient is therefore converted:</p>
+<p>The program charges a fitting to one pipe, at that pipe's own velocity. It therefore converts the coefficient:</p>
 <div class="eq">
   <span class="lbl">Into the frame of the charged leg</span>
   K<sub>b</sub> = ζ<sub>c</sub> · (V<sub>c</sub> / V<sub>b</sub>)² = ζ<sub>c</sub> · (Q<sub>c</sub> / Q<sub>b</sub>)² · (F<sub>b</sub> / F<sub>c</sub>)²
 </div>
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>
-  <p>The conversion divides by the flow ratio. As a branch approaches zero flow the coefficient rises without limit, although the head loss it produces stays small. A resistance of that size is not usable in the solver, so the conversion is clamped at Q<sub>b</sub>/Q<sub>c</sub> = 0.1. This is the first column of the table, which is where the published data stops. A branch carrying less than a tenth of the combined flow is charged as if it carried a tenth. Its true loss is smaller, so the result is on the safe side.</p>
+  <p>The conversion divides by the flow ratio. Thus the coefficient increases without limit as the branch flow decreases to zero. The head loss stays small, but the solver cannot use a resistance of that size. The program therefore holds the conversion at Q<sub>b</sub>/Q<sub>c</sub> = 0.1. This is the first column of the table, and it is where the published data stops. The program charges a branch that carries less than a tenth of the combined flow as if it carried a tenth. The true loss is smaller, thus the result is on the safe side.</p>
+</div>
+
+<div class="note check">
+  <span class="tag">SUGGESTION:</span>
+  <p>The conversion, and not the curve, causes most of the change on a large model. A riser that enters the middle of a header is the usual example. The riser is small and fast, and the header legs are large and slow. The loss is a function of the fast riser velocity, but the older method charged it at the slow header velocity, thus the loss was much too small. On one example, a DN40 riser at 3.5 m/s divides into a DN200 header. The two header legs were charged 1.2 mm of head in total. They are now charged 1.68 m, which is 2.7 velocity heads of the riser. This agrees with the published value for a bullhead tee. Most other branches are charged less than before, and not more.</p>
 </div>
 
 <h4>When the coefficient is calculated</h4>
-<p>The coefficient depends on the flow, and the flow is what the solver is looking for. The program breaks the loop in the same way it decides which leg is the run (section 4.3): the flow ratio is taken from the previous pass and held fixed for the whole of the next one. It is recalculated between passes, not during them.</p>
+<p>The coefficient depends on the flow, but the flow is the unknown that the solver must find. The program breaks this loop in the same way that it finds the run (section 4.3). It takes the flow ratio from the previous pass, and it holds that ratio for all of the next pass. It calculates the ratio again between passes, but not during a pass.</p>
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>
-  <p>This changes Darcy-Weisbach answers on any model with tees. It does not change Hazen-Williams answers. On a fourteen-terminal example the total flow moved by half a percent, individual branches by up to one and a half percent, and the index circuit changed.</p>
+  <p>This changes Darcy-Weisbach results for each model that has tees. It does not change Hazen-Williams results. On a fourteen-terminal example, the total flow changed by 0.5%, the flow in one branch changed by 1.4%, and the index circuit changed. Examine the index circuit again after you change to this version.</p>
 </div>
 
 <h2 id="fluid">5. Fluid properties</h2>
