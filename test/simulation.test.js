@@ -8,8 +8,13 @@
  */
 'use strict';
 const { load, ok, near, section, report } = require('./harness');
+/* THERMAL IS LOADED, and it matters. The control loop measures a machine's
+ * Design ΔT through `FD.thermal`; without it every ΔT controller is inert and a
+ * simulation reads the same whatever the setpoint says — which silently made
+ * the DP.1 section below pass identical numbers at 170, 200 and 250 kPa. */
 const FD = load(['src/model.js', 'src/geometry.js', 'data/pumps.js', 'data/valves.js',
-                 'src/hydraulics.js', 'src/solver.js', 'src/network.js']);
+                 'src/hydraulics.js', 'src/solver.js', 'src/network.js',
+                 'src/thermal.js']);
 const M = FD.model, NET = FD.network, P = FD.pumps;
 const fs = require('fs');
 
@@ -1370,6 +1375,69 @@ section('The control loop settles with the flow-ratio coefficient live');
      (a.q * 1000).toFixed(6) + ' vs ' + (b.q * 1000).toFixed(6) + ' L/s');
   ok('...and it did not need the extra passes', b.res.passes <= 5,
      String(b.res.passes));
+}
+
+/* ==================================================================
+ * DP.1 — A dP SETPOINT EQUAL TO THE MACHINE'S RATING DELIVERS RATED FLOW.
+ *
+ * Michael, 2026-08-31, from the data hall and the high rise: "IRL, we place a
+ * DP sensor across the most remote HX to hold that 200 kPa DP, ensuring flow is
+ * sufficient... Right now, simulation requires ~+50 kPa from HX design setpoint
+ * or there is insufficient flow."
+ *
+ * He was right about the cause. The dP sensor spans the EQUIPMENT LINK, and an
+ * integrated control valve sits on that same link, so `measure()` reads coil AND
+ * valve. While `pdRated` meant the coil ALONE, a setpoint equal to the rating
+ * could never deliver rated flow — it was short by exactly the valve's drop.
+ * Measured before the fix: 200 kPa gave the coil 181 kPa and 95.1% flow, and
+ * the setpoint had to reach 220 kPa, which is 200 plus the valve's 20.3 kPa at
+ * full travel.
+ *
+ * `pdRated` is now the TOTAL for the branch. This pins the consequence.
+ * ================================================================== */
+section('A dP setpoint equal to the rating delivers rated flow');
+{
+  const file = __dirname + '/fixtures/highrise-variable-primary.pnet.json';
+  function atSetpoint(kPa) {
+    const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
+    m.settings.calcMode = 'simulation';
+    m.pipes.filter(p => p.id === 'P180')[0].sensor.dpSet = kPa * 1000;
+    const res = NET.solveModel(m);
+    const eq = m.pipes.filter(p => p.id === 'P167')[0];
+    return {
+      res, eq,
+      q: Math.abs(res.flow.P167 || 0),
+      frac: Math.abs(res.flow.P167 || 0) / eq.equip.qRated,
+      open: eq.equip.icv.opening,
+      lost: (res.errors || []).some(e => e.code === 'SETPOINT_LOST')
+    };
+  }
+
+  /* AHU-10 is rated 200 kPa and the sensor spans it. Setting the sensor to that
+   * rating must now give the machine its rated flow, with its own valve wide
+   * open — which is what the index terminal does in a real plant. */
+  const at = atSetpoint(200);
+  ok('the equipment the sensor spans is rated 200 kPa',
+     at.eq.equip.pdRated === 200000, String(at.eq.equip.pdRated));
+  near('a setpoint equal to the rating gives rated flow', at.frac, 1, 0.01);
+  ok('...with the machine’s own valve at full travel', at.open >= 99,
+     String(at.open));
+  ok('...and no setpoint is lost', at.lost === false);
+
+  /* NOT SWITCHED OFF. Below the rating the machine really is starved and must
+   * still say so — the check that stops this becoming a fix that just silences
+   * the message. */
+  const low = atSetpoint(170);
+  ok('below the rating the flow really does fall short', low.frac < 0.97,
+     (low.frac * 100).toFixed(1) + '%');
+  ok('...and the setpoint is reported lost', low.lost === true);
+
+  /* ABOVE the rating the surplus is burned by the valve, which throttles. That
+   * is the behaviour Michael described seeing at 250 kPa on the data hall. */
+  const high = atSetpoint(250);
+  ok('above the rating the valve throttles to absorb the surplus', high.open < 90,
+     String(high.open));
+  near('...and the flow stays at rated', high.frac, 1, 0.01);
 }
 
 

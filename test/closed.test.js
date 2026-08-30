@@ -955,25 +955,78 @@ section('Design: a controlled valve is at full travel, a balancing valve is not'
   ok('a balancing valve at 40% DOES throttle the design solve', qBal40 < qBal100 * 0.9,
      (qBal100 * 1000).toFixed(4) + ' -> ' + (qBal40 * 1000).toFixed(4) + ' L/s');
 
-  /* ---- AND THE TWO WAYS OF DRAWING IT AGREE. The panel tells the reader an
-   * integrated valve is "equivalent to drawing a control valve in the branch
-   * and linking it here", so the same plant must give the same design answer
-   * whichever way it was drawn. */
-  const drawn = rig('control');
-  drawn.valve.valve.opening = 33;
-  const qDrawn = Math.abs(NET.solveModel(drawn.m).flow[drawn.coil.id]);
+  /* ---- THE RATING INCLUDES THE INTEGRATED VALVE (DP.1, 2026-08-31).
+   *
+   * The two ways of drawing it USED to agree exactly, and deliberately. They no
+   * longer do, and the difference is the whole of the DP.1 fix.
+   *
+   * An INTEGRATED valve is part of the machine, so the rated dP an engineer
+   * types is the TOTAL for the branch — coil and valve together — which is what
+   * a dP sensor across it reads. A DRAWN valve is separate pipework and is
+   * charged on top of the rating. So the same Kv gives a different answer
+   * depending on which one it is, and that is correct: they are not the same
+   * plant. Michael: "Pressure Drop from Valve Kv at 100% is subtracted from
+   * Equipment PD."
+   *
+   * THE INVARIANT THAT REPLACES THE OLD EQUIVALENCE. At full travel the
+   * subtraction and the addition cancel exactly, so the link resistance is the
+   * one the rating alone implies. This is the property that makes a sensor set
+   * to the machine's rated dP deliver its rated flow. */
+  {
+    const t = rig('balancing');
+    t.valve.valve.kv = 1e9;                        // the drawn valve out of the way
+    t.coil.equip.icv = { kv: 40, opening: 33 };    // AUTO: design charges full travel
+    const res = NET.solveModel(t.m);
+    const link = res.network.links.filter(l => l.id === t.coil.id)[0];
+    const expect = FD.hydraulics.equipmentR(50000, 0.0024, 998);
+    near('at full travel the link resistance is exactly the rating alone',
+         link.r, expect, expect * 1e-12);
+  }
 
-  const integrated = rig('balancing');
-  integrated.valve.valve.kv = 1e9;                 // the drawn valve out of the way
-  integrated.coil.equip.icv = { kv: 12, opening: 33 };
-  const qInt = Math.abs(NET.solveModel(integrated.m).flow[integrated.coil.id]);
-  /* 1e-4 relative, not exact: the drawn valve is stood down with a huge Kv
-   * rather than deleted, so the two models differ by that valve's residual
-   * resistance — 7 parts per million here. The failure this guards against is
-   * one path honouring the position and the other not, which is a factor of
-   * ten, not a millionth. */
-  near('an integrated valve and a drawn control valve agree in DESIGN',
-       qInt, qDrawn, qDrawn * 1e-4);
+  /* AND IT IS A REAL SUBTRACTION, not a no-op. An integrated Kv 40 on a machine
+   * rated 50 kPa is the same plant as a DRAWN Kv 40 on a machine rated
+   * 50 kPa less the valve's full-open drop at rated flow. By hand: 0.0024 m3/s
+   * is 8.64 m3/h, so (8.64/40)^2 bar = 4.666 kPa, leaving 45.334 kPa of coil. */
+  {
+    const integrated = rig('balancing');
+    integrated.valve.valve.kv = 1e9;
+    integrated.coil.equip.icv = { kv: 40, opening: 33, mode: 'manual' };
+    const qInt = Math.abs(NET.solveModel(integrated.m).flow[integrated.coil.id]);
+
+    /* BALANCING, not control: DS.1 charges a CONTROL valve at full travel in
+     * DESIGN, so a control valve here would ignore the 33% and compare two
+     * different positions. A balancing valve is honoured as set, which is what
+     * the manual integrated valve above is too. */
+    const drawn = rig('balancing');
+    drawn.valve.valve.kv = 40;
+    drawn.valve.valve.opening = 33;
+    drawn.coil.equip.pdRated = 45334.4;            // the rating net of the valve
+    const qDrawn = Math.abs(NET.solveModel(drawn.m).flow[drawn.coil.id]);
+
+    near('an integrated valve equals a drawn one on the NET rating',
+         qInt, qDrawn, qDrawn * 1e-4);
+  }
+
+  /* A VALVE THAT SPENDS THE WHOLE RATING leaves no coil, and is reported rather
+   * than allowed to become a negative resistance. Kv 12 at 8.64 m3/h drops
+   * (8.64/12)^2 bar = 51.84 kPa against a 50 kPa rating, so this rig — which is
+   * the one this section used before DP.1 — is exactly that case. */
+  {
+    const t = rig('balancing');
+    t.valve.valve.kv = 1e9;
+    t.coil.equip.icv = { kv: 12, opening: 33 };
+    const res = NET.solveModel(t.m);
+    const w = (res.warnings || []).filter(x => x.code === 'ICV_EXCEEDS_PD');
+    ok('a valve bigger than the whole rating raises ICV_EXCEEDS_PD', w.length === 1,
+       (res.warnings || []).map(x => x.code).join(','));
+    ok('...naming the machine', w.length === 1 && w[0].pipe === t.coil.id);
+    /* The coil floors at zero and the link becomes the valve alone. This ICV is
+     * AUTO, so DESIGN charges it at FULL travel (DS.1) whatever the 33% says —
+     * so the link is exactly the wide-open valve and nothing else. */
+    const link = res.network.links.filter(l => l.id === t.coil.id)[0];
+    near('...and the coil floors at zero, leaving only the valve',
+         link.r, FD.valves.resistance('globe', 12, 100), 1e-6);
+  }
 
   /* ---- SIMULATION IS UNTOUCHED, which is what Michael asked for. There the
    * position is the loop's own answer, and a valve it is NOT controlling still

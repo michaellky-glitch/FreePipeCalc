@@ -1,0 +1,41 @@
+Open Example 2-0. This is a simple 6 storey building.
+
+Introduction
+Level 0 is the Mechanical floor, levels 1-5 are typical with a 1 AHU room on each floor. The heat load on each floor is 200kW, total connected heat load is 1000kW. Expected peak load is 800kW (80%). 2 Duty chillers are provided (400kW each), with 1 standby. The standby will activate in the event of >peak load or if a duty chiller is taken offline for maintenance.
+
+Only Level 0 & Level 1 are shown right now. The tutorial equipment setting out and pipe routing are shown as annotations.
+
+1. Setting up project parameters:
+- Settings: Change Equipment Naming. In this example our naming scheme is [Discipline]-[Floor]-[Type][Number] e.g. MECH-L0-WCH01. Note: You can manually adjust this later but setting it up now will save time later.
+2. Thermal: Set Ambient Temperature - This affects heat loss/gain from pipes. Source Water Temperature (Note: This usually does not matter as simulation is for steady state. But may be relevant for specific edge cases (e.g. outflows)). Insulation thickness.
+3. Hydraulic: Set fluid, Calculation Type - See Calculation Method. Note: Hazen-William is more conservative, recommended to use Darcy-Weisbach for more complex systems with many tees. Pipe Schedule - Note: If the selected pipe schedule is not shown, see Tutorial for Pipe Schedules.
+
+2. Draw the system.
+- Go back to Hydronic & start by tracing the Chiller Plant Room header & Chiller 1 piping.
+Important: Most Chilled Water headers are located at high level. This can be modelled as a level (Say L0-HEADER). But this step is skipped to simplify this Tutorial.
+- Add a Source at the Expansion Tank.
+- Equipment is modelled as a node. So connect the Chilled water supply and return. Add a pump to Chilled Water return. Then add a Heat Source/Sink between supply & return. Important: Minimum pipe length to place equipment is 1m. Important: Equipment is directional. Connecting them backwards prevents flow. Note: Placing a pump & orienting it in the intended direction of flow makes dowstream equipment align with the pump's direction.
+- Check that the chiller sizing is Manual, Design Properties: Cooling Capacity 400kW, LWT 7.5C, dT 7.5C.
+- Select the chiller lineup by clicking on the CHWR branch pipe, holding shift and clicking on the CHWS branch pipe.
+- Copy with ctrl-c or clicking Copy in the Edit ribbon. Paste with ctrl-v and align the chiller lineup with Chiller 2 & 3. Important: Always check both ends of your copy paste to ensure it is connected properly. If a tee was not automatically generated, drag the pasted pipe away and back on to the pipe. Note: When placing the copied pipes, a filled preview circle indicates a tee will be automatically generated. Empty preview circle means no automatic tee.
+- Click on Chiller 3's pump and chiller, set their Status to Offline, or click the power icon next to the equipment.
+
+- Check that the view direction for L0 is looking up. Add a Riser to the end of the CHWS & CHWR pipes. Note: If you get the notification: "Riser column placed. There is no level in the View Direction, so click this floor’s pipework on another level to connect it." Change the view direction in Levels so it is looking up.
+- Go to L1 & continue drawing the pipes to the AHU. Flow arrows should appear when you close the loop. Add a Heat Exchanger between the AHU CHWS & CHWR. Design Properties: dP 100kPa, Heating, 200kW, dT 7.5K, Temperature Limit (Max) 26C. The flow rate should automatically update to 6.38L/s.
+- Go back to Levels, click C to copy. Select New Floor Above (Level 2). Repeat for L3 to L5. Note: Simulating now will result in warnings about being unable to achieve setpoint. This is because our Chiller Capacity was based on peak load, the simulation is based on connected load.
+
+
+---
+Annotations:
+- Editing annotation text boxes should have a save button or ctrl-enter to commit, or both.
+- Clicking on detail lines while the draw>detail tool is active should not delete the old lines.
+- Annotation draw order should be behind design elements.
+
+Settings>Equipment Naming:
+- Tag preview not updating until another field is changed? It should live update. Rename preview from "On the ground floor:" to "Preview:"
+- Rename 'Prefix' to 'Field'. So Field 1, Number 1, Field 2, Number 2.
+- Put Field 1/Number 1 on one line, Field 2/Number 2 on a second line.
+- Replace drop down Tag/None with a slider button to enable/disable that Field/Number.
+
+Heat Source/Sink
+- When in Auto sizing mode, block the user from changing flow rate. Pressure drop should be held constant (as entered) at any flow rate.

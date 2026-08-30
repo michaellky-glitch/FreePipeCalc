@@ -5376,6 +5376,13 @@
           e.icv.kv = useCv ? Math.round(FD.valves.cvToKv(val) * 10) / 10 : val;
           changed(); renderProperties();
         }));
+      /* THE RATING INCLUDES THE VALVE — Michael's wording, 2026-08-31 (DP.1).
+       * Without this the engineer has no way to know that the number typed as
+       * the machine's rated dP is the coil AND the valve together, which is
+       * what a dP sensor across the branch reads. */
+      infoMark(fieldLabel(kvIn),
+               'Note: Pressure Drop from Valve Kv at 100% is subtracted from ' +
+               'Equipment PD.');
       /* THE POSITION: an OUTPUT on Auto, an INPUT on Manual.
        *
        * On Auto it follows the same rule a drawn control valve does at both

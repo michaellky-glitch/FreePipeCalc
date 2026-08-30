@@ -963,9 +963,21 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   h<sub>loss</sub> = r · Q²
 </div>
 <p>where ΔP<sub>rated</sub> is in Pa, Q<sub>rated</sub> in m³/s, and ρ is the fluid density. The exponent is always 2 (Darcy-like), regardless of the pipe friction method.</p>
-<p>An integrated control valve (ICV) on a coil adds its own globe-valve resistance in series on the same link:</p>
+<p>An integrated control valve (ICV) on a coil is in series with the coil on the same link. <strong>The rated pressure drop is the total for the two together.</strong> The valve at full travel is taken out of the rating to give the coil its own resistance, then the valve is added back at its actual position:</p>
 <div class="eq">
-  r<sub>total</sub> = r<sub>equip</sub> + r<sub>valve</sub>(K<sub>v,ICV</sub>, opening)
+  <span class="lbl">Coil alone</span>
+  r<sub>coil</sub> = r<sub>equip</sub> &minus; r<sub>valve</sub>(K<sub>v,ICV</sub>, 100%)<br><br>
+  <span class="lbl">The link</span>
+  r<sub>total</sub> = r<sub>coil</sub> + r<sub>valve</sub>(K<sub>v,ICV</sub>, opening)
+</div>
+<p>At full travel the two cancel, so the link drops exactly the rated pressure at the rated flow. This is what makes a differential pressure setpoint work: a sensor placed across the machine reads the coil <em>and</em> its valve, because that is where the tappings go. If the rating were the coil alone, a setpoint equal to the rating could never deliver the rated flow — it would be short by whatever the valve drops.</p>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>A <strong>drawn</strong> valve is not treated this way. It is separate pipework and is charged on top of the rating. The same K<sub>v</sub> therefore gives a different answer depending on whether the valve is part of the machine or drawn in the branch, because those are two different plants. A machine's quoted pressure drop normally includes the valve it ships with.</p>
+</div>
+<div class="note limit">
+  <span class="tag">IMPORTANT:</span>
+  <p>If the valve at full travel drops more than the whole rated pressure, no coil is left. The coil is held at zero, the machine becomes its own valve, and the program reports <code>ICV_EXCEEDS_PD</code>. Raise the valve K<sub>v</sub>, or raise the rated pressure drop.</p>
 </div>
 <p>Equipment that is switched <strong>off</strong> is omitted from the network entirely — a genuine break, not a bypass.</p>
 

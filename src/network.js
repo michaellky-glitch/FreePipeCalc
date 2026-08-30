@@ -765,12 +765,19 @@
         link.kind = 'valve';
         link.n = 2;                                  // Kv law is square in Q
         var vt = FD.valves.type(p.valve.type);
-        /* A DRAWN CONTROL VALVE FOLLOWS THE SAME RULE AS AN INTEGRATED ONE.
-         * The panel already tells the reader an ICV is "equivalent to drawing a
-         * control valve in the branch and linking it here", so the two must not
-         * give different DESIGN answers for the same plant. A valve with NO
-         * control link is a balancing valve — its position is a design decision
-         * somebody made and it is left exactly as set. */
+        /* A DRAWN CONTROL VALVE FOLLOWS THE SAME POSITION RULE AS AN INTEGRATED
+         * ONE: DESIGN charges it at full travel (DS.1), SIMULATION reads the
+         * loop's answer. A valve with NO control link is a balancing valve —
+         * its position is a design decision somebody made and it is left
+         * exactly as set.
+         *
+         * THE TWO ARE NO LONGER THE SAME PLANT, and that is deliberate since
+         * DP.1 (2026-08-31). An INTEGRATED valve is part of the machine, so the
+         * rated dP already covers it and the equip branch subtracts it back out.
+         * A DRAWN valve is separate pipework and is charged ON TOP of the
+         * rating. Same Kv, different answer, because one is inside the machine's
+         * quoted figure and the other is not. `closed.test.js` pins the new
+         * relationship: an integrated Kv equals a drawn Kv on the NET rating. */
         var vOpening = M.controlOf(p) || M.syncOf(p)
           ? actuatorOpening(simulating, p.valve.opening)
           : p.valve.opening;
@@ -817,10 +824,10 @@
         link.r = FD.hydraulics.equipmentR(p.equip.pdRated || 0, p.equip.qRated || 0, rho);
         /* AN INTEGRATED CONTROL VALVE is a real valve in series with the coil,
          * so it is a real resistance — the same equal-percentage Kv a drawn
-         * globe valve gets, added to the machine's own. Michael, 2026-08-08:
-         * it is what an AHU ships with, and drawing the valve, the sensor and
-         * the link by hand on every coil of a sixty-coil model is three
-         * gestures that never say anything different.
+         * globe valve gets. Michael, 2026-08-08: it is what an AHU ships with,
+         * and drawing the valve, the sensor and the link by hand on every coil
+         * of a sixty-coil model is three gestures that never say anything
+         * different.
          *
          * Series resistances ADD, which is the whole reason it can live on the
          * same link rather than needing a link of its own. */
@@ -834,6 +841,51 @@
           var icvOpen = (M.icvMode(p) === 'manual')
             ? M.icvOpening(p)
             : actuatorOpening(simulating, icv.opening);
+
+          /* ============ THE STATED EQUIPMENT PD IS THE TOTAL, VALVE INCLUDED
+           *
+           * Michael, 2026-08-31, fixing DP.1: "is the valve Kv should be built
+           * into the design PD... Pressure Drop from Valve Kv at 100% is
+           * subtracted from Equipment PD."
+           *
+           * WHY. A dP sensor placed across a coil in the real world reads the
+           * whole branch — coil AND its control valve — because that is where
+           * the tappings go. The engine agrees: the valve lives on this same
+           * link, so `measure()` sees their sum. Before this, `pdRated` was the
+           * COIL alone and the valve was charged ON TOP, so a sensor set to the
+           * coil's rated dP could never deliver rated flow. Measured on the
+           * HighRise: a 200 kPa setpoint gave the coil 181 kPa and 95.1% flow,
+           * and the setpoint had to go to 220 kPa — exactly the valve's 20.3 kPa
+           * at full travel — before the coil saw its rating. That is the whole
+           * of DP.1.
+           *
+           * SO THE RATING NOW INCLUDES THE VALVE. The coil's own resistance is
+           * the stated dP LESS what the valve drops wide open at rated flow,
+           * and the valve is then added back at its actual position. At full
+           * travel the two cancel exactly and the link delivers `pdRated` at
+           * `qRated`, which is what the engineer typed and what a sensor across
+           * it now reads.
+           *
+           * THE SUBTRACTION IS EXACT IN RESISTANCE SPACE, with no unit work.
+           * The valve's drop at rated flow is rho*g*rFull*qRated^2, so dividing
+           * by rho*g*qRated^2 to turn it back into an equipment resistance
+           * returns rFull itself. Hence a plain subtraction of resistances. */
+          var rIcvFull = FD.valves.resistance('globe', icv.kv, 100);
+          link.r -= rIcvFull;
+          /* A VALVE THAT DROPS MORE THAN THE WHOLE RATING leaves no coil at
+           * all. That is a model that cannot be built — an undersized Kv
+           * against the stated dP — so it is reported rather than silently
+           * turned into a negative resistance, which would be a pump made of
+           * coil. Floored at zero: the machine becomes its own valve. */
+          if (!(link.r > 0)) {
+            link.r = 0;
+            warnings.push({
+              code: 'ICV_EXCEEDS_PD', pipe: p.id,
+              message: (p.tag || p.id) + ' has a control valve that drops more ' +
+                       'than the whole rated pressure. Raise the valve Kv or the ' +
+                       'rated pressure drop.'
+            });
+          }
           link.r += FD.valves.resistance('globe', icv.kv, icvOpen);
           link.icv = true;
         }
@@ -3190,7 +3242,11 @@
      * lead plus syncs. The answer is still sound (they are ganged), which is
      * why this is a defect and not an error. */
     CONTROL_GANGED: 1, CONTROL_TARGET_GONE: 1, TAG_MANGLED: 1,
-    TAG_DUPLICATE: 1
+    TAG_DUPLICATE: 1,
+    /* An equipment rating smaller than its own valve's full-open drop cannot be
+     * built. The solve stands (the coil is floored at zero), so it is a defect
+     * in the model rather than an error in the physics. */
+    ICV_EXCEEDS_PD: 1
   };
   var NOTICE_CODES = {
     CHECK_CLOSED: 1, VALVE_SHUT: 1, THERMAL_DATUM: 1
