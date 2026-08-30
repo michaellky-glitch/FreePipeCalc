@@ -465,6 +465,64 @@ flow-ratio work.
 
 ---
 
+## 6B. THE SOURCE IS IN HAND — 2026-08-30
+
+Michael supplied `https://www.nrc.gov/docs/ML1220/ML12209A041.pdf`, which is
+**Idel'chik, *Handbook of Hydraulic Resistance*, AEC-TR-6630 (1966)** — the
+classic English translation. A copy is filed beside this note in
+`docs_internal/`. The NRC blocks a plain fetch; it needs browser headers
+(User-Agent, Referer, Sec-Fetch-*).
+
+**Section Seven — "Stream junctions and divisions"** is the tee chapter, and it
+answers the two things §3 said were unresolved:
+
+* **THE REFERENCE VELOCITY, from the source itself.** The symbol list (§7-1)
+  defines `ζc.b` and `ζc.s` as *"resistance coefficients of the branch and the
+  main passage expressed in terms of the velocity in the COMMON CHANNEL"*. So
+  `dH = ζc · w_c²/2g`, and a caller working in one leg's frame converts by
+  `ζ_i = ζ_c · (Q_c/Q_i)² · (A_i/A_c)²`. Exact, and the end of §3.2.
+* **THE EXACT FITTING, not a generic wye.** Diagram **7-25** is a *standard
+  threaded malleable-iron DIVERGING tee at 90°*, and **7-16** its converging
+  counterpart, both of type `Fs + Fb > Fc` with `Fs = Fc` — a take-off from a
+  through-run of constant section, which is precisely what this program's
+  geometry detector produces.
+
+It also confirms the negative coefficients the research predicted: §7-2 states
+that in a converging tee the faster stream gives kinetic energy to the slower,
+so one leg shows a gain while the total stays positive. The whole first column
+of 7-16 is negative.
+
+### Transcribed and asserted — `data/tees.js`, `test/tees.test.js`
+
+Both branch tables are in, indexed by flow ratio Qb/Qc (0.1–1.0) and area ratio
+Fb/Fc (0.09–1.00), with bilinear interpolation clamped at both ends.
+
+**THE OCR SCRAMBLES THEM AND THIS IS THE TRAP.** The 1966 scan emits the tables
+as COLUMN blocks, and prints columns 0.6–1.0 physically ABOVE the caption that
+introduces columns 0.1–0.5. De-scrambling by eye is exactly the step that goes
+wrong silently, so `test/tees.test.js` asserts the four corners and one interior
+cell per row against the printed page, plus the shape (every diverging value
+positive, rows monotonic in flow ratio, the converging first column entirely
+negative). 38 assertions.
+
+**AREA RATIO IS DERIVED FROM THE BORES** — Michael, 2026-08-30, agreeing it
+should be. The model knows both diameters, so `Fb/Fc` is measured rather than
+assumed, which closes the open sub-question below about `Ab/Ac`.
+
+### STILL TO WIRE UP
+
+`data/tees.js` is **not yet consumed by the engine**. What remains:
+
+1. In `fittingsAtNode`, compute `Qb/Qc` and `Fb/Fc` at each tee and hand them on.
+2. Replace the flat branch K on the DARCY path with `FD.tees.branchK(...)`,
+   converted from the common-channel frame into the charged leg's frame.
+3. Freeze per pass; re-derive between passes, as the tee TYPE already is.
+4. Leave the RUN flat — option C, unchanged.
+5. Re-baseline: this WILL move Darcy answers on any model with tees. Compare the
+   frozen fixtures before and after and get Michael's acceptance.
+
+---
+
 ## 7. Open sub-questions
 
 * Which source for the branch curve? ASHRAE Ch 22 Table 7 is the consistent
