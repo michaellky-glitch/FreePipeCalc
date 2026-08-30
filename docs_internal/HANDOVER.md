@@ -10,8 +10,81 @@ reference. `Human-Test.md` is what Michael has and has not verified with his own
 eyes; its top block now holds **open engineering questions EQ.1–EQ.8** migrated
 out of the user docs.
 
-State: **v0.18.22 (beta), 2026-08-26.** Ten test suites, **2437 assertions**, all
-passing in about 15 s (`for f in test/*.test.js; do node $f; done`).
+State: **master v0.18.30, branch `tee-fittings` v0.18.31-tee. 2026-08-31.**
+**ELEVEN** test suites, **2487 assertions**, all passing (`for f in test/*.test.js; do node $f; done`).
+
+---
+
+## 0. READ THIS FIRST — WHERE EVERYTHING STANDS (2026-08-31)
+
+### NOTHING IS PUSHED. Two branches are ahead of the remote.
+
+| | version | state |
+|---|---|---|
+| **`master`** | v0.18.30 | **1 commit ahead, UNPUSHED.** Darcy out of BETA. |
+| **`tee-fittings`** | v0.18.31-tee | **17 ahead, UNPUSHED.** TEE.1 built. |
+| **GitHub Pages** | v0.18.29 | What Michael actually sees today. |
+
+**Michael tests off Pages**, so nothing from v0.18.30 or the tee branch has been
+in front of him except through a local `index.html`. He asked twice for "bump,
+don't push" — **do not push without asking.**
+
+`docs/Tutorial 2 Docs/` is HIS untracked work with a live editor swap file.
+Leave it. Same standing rule as `docs_internal/Draft/` and `Fixed/`.
+
+### WHAT IS WAITING ON MICHAEL, in the order I would raise it
+
+1. **TEE.1 re-baseline acceptance.** The branch changes Darcy answers on any
+   model with tees. Data Hall: total flow +0.48%, fitting resistance +24.1%,
+   worst coil −1.44%, **and the design index moves AHU-13 → AHU-11**. HighRise
+   −0.16%. Hazen-Williams does not move at all. He has seen the numbers and said
+   "it seems ok", but has not accepted the index change.
+2. **TEE.1 is UNMEASURED IN SIMULATION.** Design only. The control loop
+   re-derives fittings every pass, so the zero-flow clamp matters more there.
+   **Do this before proposing a merge.**
+3. **TH.1** — plant-level shortfall (option 1, decided), then graceful chiller
+   overload to ~110%. Needs his steer on the margin and whether power draw is
+   modelled at all.
+4. **DP.1** — Tutorial 02 step 7. At a 200 kPa setpoint the pump sits at 86%,
+   *not* at its ceiling, reports state `on`, and yet `SETPOINT_LOST` fires. That
+   state/error contradiction is the thread to pull. Fixing it would also let
+   Tutorial 02 say what happens instead of "under investigation".
+5. **Tutorial 02's energy story is undersold** — auto-sized pumps barely
+   oversize, so the sensor only moves them 100% → 95%. Would need deliberately
+   oversized pumps in the shipped file.
+6. **MSG.2**, **DS.2**, and the `user-manual.html` / `tutorial-*.html` overlap.
+
+### THINGS THAT COST TIME THIS SESSION — do not rediscover them
+
+* **`grep` SILENTLY RETURNS NOTHING in this environment.** Use `sed -n '/x/p'`
+  or python. It briefly convinced me I had corrupted a file.
+* **A `?v=` token is spent once.** Editing a module after bumping leaves the
+  browser on the old copy while the node suites read from disk and go green.
+  **Navigating to the same URL does not re-fetch `index.html` either** — use
+  `index.html?nc=<n>`.
+* **The browser pane reports `clientWidth: 0`**, so page overflow cannot be
+  measured. Compare against a known-good page instead: Tutorial 01 reports MORE
+  apparent overflow than pages that are fine.
+* **`src/docs.js` contains NUL bytes** as sentinels, so git calls it binary and
+  shows no textual diff. Do not "fix" it; do not trust a clean diff on it.
+* **`changed()` is not the funnel it looks like** — the canvas has its own
+  onChange callback, so an edit made by DRAWING never reaches it. `scheduleSolve`
+  is the one place every path passes through.
+* **The suite enforces that every emitted message code appears in
+  `docs_internal/MESSAGES.md`.** Add the row or the build fails.
+
+### THE BIG ONE, if you only read one thing
+
+**`solveNow()` is the synchronous solve and it must never be called from a
+render path.** It was in the calculation sheet, in `redrawAll` (which 62
+settings controls call) and at startup. On the data hall that is 44 seconds of
+dead browser, and Michael reported it as "the simulation is not converging" —
+a frozen tab is indistinguishable from a solve that will not finish. All three
+now use `scheduleSolve`. The CSV-export and print sites are deliberate user
+actions and still solve synchronously.
+
+**The 44 seconds itself is real compute and is NOT to be optimised** — his
+decision, WORKLIST PERF.1, with the measured breakdown.
 
 ---
 
