@@ -24,3 +24,11 @@ Previous Version/
 # instead — which is what the tests read.
 debug/
 *.kate-swp
+
+# Michael's internal developer notes. These stay on his machine only (his
+# instruction, 2026-08-31). They were tracked and the markdown is already public
+# in pushed history; untracking stops any FURTHER change going up. The folder
+# also holds a licensed single-user copy of the Idelchik handbook, which must
+# never reach GitHub — the same goes for the ASHRAE chapters, so do not copy any
+# of them into the repo.
+docs_internal/
