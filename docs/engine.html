@@ -1270,6 +1270,16 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 <p>The isolation valve is close to a straight line in coefficient. It still holds most of its flow at three-quarters open, and does most of its work in the last quarter of travel. This is what an isolation valve is for: it is made to be open or shut, not to regulate.</p>
 <p>The control valve is <strong>equal percentage</strong>. Each equal step of travel changes the flow by an equal <em>percentage</em> of the flow already passing, not by an equal amount. So the coefficient rises slowly at first and steeply near the top. At half travel a control valve passes only 15% of its coefficient, which is 44 times its open resistance; the isolation valve at the same travel passes 38%, which is only 7 times.</p>
+<p>This is the table the solver reads. Every control valve — a drawn one, or the valve built into a coil (section 8.1) — takes its part-open coefficient from it. It is tabulated at every 10% of travel and interpolated in a straight line between:</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Opening %</th><th class="num">0</th><th class="num">10</th><th class="num">20</th><th class="num">30</th><th class="num">40</th><th class="num">50</th><th class="num">60</th><th class="num">70</th><th class="num">80</th><th class="num">90</th><th class="num">100</th></tr></thead>
+  <tbody>
+    <tr><td>f(x) — fraction of full K<sub>v</sub></td><td class="num">0</td><td class="num">0.01</td><td class="num">0.02</td><td class="num">0.04</td><td class="num">0.08</td><td class="num">0.15</td><td class="num">0.25</td><td class="num">0.40</td><td class="num">0.65</td><td class="num">0.85</td><td class="num">1.00</td></tr>
+  </tbody>
+</table>
+</div>
+<p>So a control valve rated K<sub>v</sub> = 50 passes an effective K<sub>v</sub> of 50 × 0.40 = 20 at 70% travel, and 50 × 0.15 = 7.5 at half travel.</p>
 <div class="note rule">
   <span class="tag">NOTE:</span>
   <p>Equal percentage is chosen so the valve keeps control across its whole range when it sits in series with fixed pipe. As the valve closes, more of the loop's pressure falls across it, which would make a linear valve act mostly near the shut end. The rising shape cancels that, so a given step of travel gives a similar change in flow wherever the valve is. This is standard control-valve theory (ISA-75.01 / IEC 60534).</p>
