@@ -5863,6 +5863,67 @@
      * units, so showing both invited typing into the one being ignored. Which
      * one appears is a display choice (SETTINGS ▸ Display units). */
     var useCv = (d.valveCoef === 'Cv');
+
+    /* ---- CV SIZE: pick a product and the coefficient follows ------------
+     *
+     * Michael, 2026-08-31: "In CV properties, add a drop down for CV Size with
+     * automatically generated Kv not editable. Leave a Manual option at the
+     * top, which unlocks Kv editing."
+     *
+     * The sizes and their Kvs come from the Belimo data sheets in
+     * `data/picv.js` — the "Kvs theor." column those sheets publish FOR
+     * pressure drop calculation. Choosing a size writes the coefficient and
+     * locks the box, because on a real product the two are not independent:
+     * a DN50 EPIV has Kvs 30.4 and typing anything else describes no valve you
+     * can order. MANUAL is kept at the top for a coefficient off a
+     * manufacturer's sheet this program does not carry.
+     *
+     * MANUAL IS THE DEFAULT FOR EVERY EXISTING FILE. `picvDN` is absent in
+     * every model saved before this, so they all read as Manual and their
+     * stored Kv is untouched. Nothing is re-baselined by adding this.
+     *
+     * CONTROL VALVES ONLY. A PICV is a control valve; an isolation valve is
+     * not one, and offering it a PICV selection would say it was. */
+    var picvDN = (isControl && v.picvDN !== undefined && v.picvDN !== null)
+      ? Number(v.picvDN) : null;
+    var picvEntry = (FD.picv && picvDN !== null) ? FD.picv.bySize(picvDN) : null;
+    var locked = !!picvEntry;
+
+    if (isControl && FD.picv) {
+      var szSel = el('select');
+      var manOpt = el('option', '', 'Manual'); manOpt.value = '';
+      if (!picvEntry) manOpt.selected = true;
+      szSel.appendChild(manOpt);
+      FD.picv.sizes.forEach(function (e2) {
+        var o = el('option', '', 'DN' + e2.dn + '  —  Kv ' + e2.kvs);
+        o.value = String(e2.dn);
+        if (picvEntry && e2.dn === picvEntry.dn) o.selected = true;
+        szSel.appendChild(o);
+      });
+      field(des.box, 'CV size', szSel);
+      infoMark(fieldLabel(szSel),
+               'Selecting a size writes that valve’s published Kv and locks ' +
+               'the box. Manual unlocks it for a coefficient off a sheet this ' +
+               'program does not carry. Sizes are Belimo EPIV (DN15–50) and ' +
+               'Energy Valve (DN65–150).');
+      szSel.addEventListener('change', function () {
+        pushUndo();
+        if (szSel.value === '') {
+          delete v.picvDN;                 // Manual: keep the Kv it already has
+        } else {
+          var e3 = FD.picv.bySize(Number(szSel.value));
+          if (e3) { v.picvDN = e3.dn; v.kv = e3.kvs; }
+        }
+        renderProperties(); changed();
+      });
+      if (picvEntry) {
+        des.ro('Selection', picvEntry.model);
+        des.ro('Nominal flow',
+               FD.units.fmtFlow(picvEntry.vnom, d.flow, true) +
+               '  (PN ' + picvEntry.pn + ')');
+      }
+    }
+
     var coefIn = el('input'); coefIn.type = 'text';
     coefIn.value = useCv ? FD.valves.kvToCv(v.kv).toFixed(1) : String(v.kv);
     field(des.box, useCv ? 'Cv (US gpm at 1 psi)' : 'Kv (m³/h at 1 bar)', coefIn)
@@ -5877,15 +5938,29 @@
           toast((useCv ? 'Cv' : 'Kv') + ' must be a positive number.', 'error');
         }
       });
-    var reset = el('button', 'btn', 'Reset for this size');
-    reset.title = 'Back to the default ' + (useCv ? 'Cv' : 'Kv') + ' for this bore';
-    reset.addEventListener('click', function () {
-      pushUndo();
-      v.kv = FD.valves.defaultKv(v.type, M.pipeBore(m, p) * 1000);
-      renderProperties(); changed();
-    });
-    var rrow = el('div', 'btn-row'); rrow.appendChild(reset);
-    des.box.appendChild(rrow);
+    if (locked) {
+      /* DISABLED, not merely annotated — the same rule a controlled valve's
+       * position follows. A live box invites typing a number the size
+       * selection immediately contradicts. */
+      coefIn.disabled = true;
+      coefIn.parentNode.classList.add('is-disabled');
+      coefIn.parentNode.appendChild(el('span', 'hint',
+        'Set by the selected CV size. Choose Manual to enter it yourself.'));
+    }
+
+    /* The bore default is only meaningful when nothing is selected: with a size
+     * chosen, "this size" is the product, not the pipe. */
+    if (!locked) {
+      var reset = el('button', 'btn', 'Reset for this size');
+      reset.title = 'Back to the default ' + (useCv ? 'Cv' : 'Kv') + ' for this bore';
+      reset.addEventListener('click', function () {
+        pushUndo();
+        v.kv = FD.valves.defaultKv(v.type, M.pipeBore(m, p) * 1000);
+        renderProperties(); changed();
+      });
+      var rrow = el('div', 'btn-row'); rrow.appendChild(reset);
+      des.box.appendChild(rrow);
+    }
 
     /* VALVE POSITION, on a control valve only. Full range in 1% steps
      * (Michael, 2026-08-03): it snapped to five positions, which is not how a
@@ -5954,9 +6029,21 @@
     des.ro('Effective ' + (useCv ? 'Cv' : 'Kv'),
            (useCv ? FD.valves.kvToCv(effKv) : effKv).toFixed(1) +
            (v.opening < 100 ? '  (' + v.opening + '% open)' : ''));
-    des.box.appendChild(el('p', 'hint',
-      'Default Kv values are derived from typical resistance coefficients, not ' +
-      'manufacturer data. Replace with published Kv for real design work.'));
+    /* THE PROVENANCE OF THE NUMBER IN FRONT OF YOU, and it now differs. A
+     * selected CV size carries a Kv off a published data sheet; everything else
+     * is still the derived default. Saying "not manufacturer data" over a
+     * Belimo Kvs would be false, and it is the one caveat that has to stay
+     * true — it is what stops a derived figure being used as a selection. */
+    if (picvEntry) {
+      des.box.appendChild(el('p', 'hint',
+        'Kv is the published Kvs for ' + picvEntry.model + ' (' +
+        picvEntry.rangeName + '), the figure the data sheet gives for pressure ' +
+        'drop calculation.'));
+    } else {
+      des.box.appendChild(el('p', 'hint',
+        'Default Kv values are derived from typical resistance coefficients, not ' +
+        'manufacturer data. Replace with published Kv for real design work.'));
+    }
 
     // ----------------------------------------------------------- L2 ACTUAL
     var res = app.results;

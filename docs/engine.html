@@ -219,6 +219,7 @@ footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);
         <li><a href="#kv">Kv and Cv</a></li>
         <li><a href="#valve-types">Valve types</a></li>
         <li><a href="#valve-opening">How Kv changes with opening</a></li>
+        <li><a href="#picv">Selecting a control valve by size</a></li>
         <li><a href="#valve-sources">Where these numbers come from</a></li>
       </ol>
     </li>
@@ -1294,7 +1295,38 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </ol>
 <p>The test is on <strong>head</strong>, not flow. Testing flow oscillates forever: shut the valve because flow was negative. The next pass reports ~zero flow, which is not negative, so it reopens. The adverse head difference is stable because it persists while the valve is held shut.</p>
 
-<h3 id="valve-sources">11.5 Where these numbers come from</h3>
+<h3 id="picv">11.5 Selecting a control valve by size</h3>
+<p>A control valve can take its coefficient from a <strong>product</strong> instead of from the bore. Choosing a size on the valve panel writes that valve's published K<sub>v</sub> and locks the box; <strong>Manual</strong>, at the top of the list, unlocks it for a coefficient off a sheet this program does not carry.</p>
+<p>The sizes are Belimo pressure independent valves — the EPIV from DN15 to DN50 and the Energy Valve from DN65 to DN150. The two ranges meet without a gap, so they read as one selection:</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>DN</th><th>Model</th><th class="num">V′<sub>nom</sub> [l/s]</th><th class="num">V′<sub>nom</sub> [m³/h]</th><th class="num">K<sub>vs</sub> theor. [m³/h]</th><th class="num">PN</th></tr></thead>
+  <tbody>
+    <tr><td>15</td><td>EP015R2+BAC</td><td class="num">0.42</td><td class="num">1.5</td><td class="num">3.2</td><td class="num">25</td></tr>
+    <tr><td>20</td><td>EP020R2+BAC</td><td class="num">0.69</td><td class="num">2.5</td><td class="num">5.3</td><td class="num">25</td></tr>
+    <tr><td>25</td><td>EP025R2+BAC</td><td class="num">0.97</td><td class="num">3.5</td><td class="num">8.8</td><td class="num">25</td></tr>
+    <tr><td>32</td><td>EP032R2+BAC</td><td class="num">1.67</td><td class="num">6</td><td class="num">14.1</td><td class="num">25</td></tr>
+    <tr><td>40</td><td>EP040R2+BAC</td><td class="num">2.78</td><td class="num">10</td><td class="num">19.2</td><td class="num">25</td></tr>
+    <tr><td>50</td><td>EP050R2+BAC</td><td class="num">4.17</td><td class="num">15</td><td class="num">30.4</td><td class="num">25</td></tr>
+    <tr><td>65</td><td>EV065F+BAC</td><td class="num">8</td><td class="num">28.8</td><td class="num">50</td><td class="num">16</td></tr>
+    <tr><td>80</td><td>EV080F+BAC</td><td class="num">11</td><td class="num">39.6</td><td class="num">75</td><td class="num">16</td></tr>
+    <tr><td>100</td><td>EV100F+BAC</td><td class="num">20</td><td class="num">72</td><td class="num">127</td><td class="num">16</td></tr>
+    <tr><td>125</td><td>EV125F+BAC</td><td class="num">31</td><td class="num">111.6</td><td class="num">195</td><td class="num">16</td></tr>
+    <tr><td>150</td><td>EV150F+BAC</td><td class="num">45</td><td class="num">162</td><td class="num">254</td><td class="num">16</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Sources: Belimo <em>EP..R2+BAC</em> (EPIV, PN 25), en-gb 2026-05-13, and <em>EV..F+BAC</em> (Energy Valve, PN 16), en-gb 2026-06-09. Both sheets print the K<sub>vs</sub> column under the footnote <em>"K<sub>vs</sub> theor.: theoretical K<sub>vs</sub> value for pressure drop calculation"</em>, so this is the manufacturer's own figure for the calculation done here.</p>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>A newly placed control valve takes the size of the pipe it is dropped into. That is a starting point, not a selection. The usual rule of thumb puts a pressure independent valve one size below the line and then checks it has enough control authority, and that sizing method is not yet built. Set the size yourself until it is.</p>
+</div>
+<div class="note limit">
+  <span class="tag">IMPORTANT:</span>
+  <p>Selecting one of these sizes does <strong>not</strong> make the program model pressure independence. The solver still charges &Delta;P = (Q/K<sub>v</sub>)², which is the pressure <em>dependent</em> relation. A real pressure independent valve holds its set flow while the differential across it stays inside its working range, and the program does not do that. What the selection gives you is the right coefficient and the right size, not the right control behaviour.</p>
+</div>
+
+<h3 id="valve-sources">11.6 Where these numbers come from</h3>
 <p>The valve model has two kinds of number in it, and they are not on the same footing. The definitions are standard. The specific coefficients and characteristics are representative figures, put here so the model runs with sensible values, and are meant to be replaced by product data.</p>
 <div class="scroll">
 <table>

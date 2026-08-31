@@ -2480,13 +2480,30 @@
     var hit = this.pipeAt(w.x, w.y, DEVICE_SNAP_PX);
     var bore = hit ? M.pipeBore(m, hit.pipe) * 1000 : 50;
     var type = this.toolVariant || this.valveType || 'gate';
-    this.insertInline(w, 'valve', {
-      valve: {
-        type: type,
-        kv: FD.valves.defaultKv(type, bore),
-        opening: 100
-      }
-    }, 'valve');
+    var vv = {
+      type: type,
+      kv: FD.valves.defaultKv(type, bore),
+      opening: 100
+    };
+    /* A CONTROL VALVE FOLLOWS THE PIPE SIZE when it is placed — Michael,
+     * 2026-08-31: "when placing CVs is to follow Pipe Size until we figure out
+     * an easy sizing method."
+     *
+     * So a CV dropped into a DN50 line comes out as the DN50 PICV, with that
+     * valve's published Kvs rather than a coefficient derived from the bore.
+     * It is a STARTING POINT, not a selection: the rule of thumb is a PICV one
+     * size below the line, adjusted for control authority, and that method is
+     * not decided. The size dropdown on the panel is where it gets changed.
+     *
+     * Only when the pipe carries a DN size the ranges actually cover. An
+     * imperial or HDPE line, or a DN90, has no row — those keep the derived
+     * default and read as Manual, because inventing a product selection from a
+     * bore is exactly what this table exists to stop. */
+    if (type === 'globe' && FD.picv && hit) {
+      var pick = FD.picv.forPipeSize(hit.pipe.size);
+      if (pick) { vv.picvDN = pick.dn; vv.kv = pick.kvs; }
+    }
+    this.insertInline(w, 'valve', { valve: vv }, 'valve');
   };
 
   /* ADD RISER: place a riser column at the clicked point on the active level
