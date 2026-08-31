@@ -2485,23 +2485,25 @@
       kv: FD.valves.defaultKv(type, bore),
       opening: 100
     };
-    /* A CONTROL VALVE FOLLOWS THE PIPE SIZE when it is placed — Michael,
-     * 2026-08-31: "when placing CVs is to follow Pipe Size until we figure out
-     * an easy sizing method."
+    /* A CONTROL VALVE COMES IN ONE SIZE BELOW THE PIPE — Michael, 2026-08-31:
+     * "Use next size down DN as default."
      *
-     * So a CV dropped into a DN50 line comes out as the DN50 PICV, with that
-     * valve's published Kvs rather than a coefficient derived from the bore.
-     * It is a STARTING POINT, not a selection: the rule of thumb is a PICV one
-     * size below the line, adjusted for control authority, and that method is
-     * not decided. The size dropdown on the panel is where it gets changed.
+     * A control valve is not line size. A full-bore valve in the line drops
+     * almost nothing and has no authority over the branch, so one size down is
+     * the rule of thumb. A CV dropped into a DN50 line therefore comes out as a
+     * DN40 valve carrying that valve's published coefficient rather than one
+     * derived from the bore.
      *
-     * Only when the pipe carries a DN size the ranges actually cover. An
-     * imperial or HDPE line, or a DN90, has no row — those keep the derived
-     * default and read as Manual, because inventing a product selection from a
-     * bore is exactly what this table exists to stop. */
-    if (type === 'globe' && FD.picv && hit) {
-      var pick = FD.picv.forPipeSize(hit.pipe.size);
-      if (pick) { vv.picvDN = pick.dn; vv.kv = pick.kvs; }
+     * A STARTING POINT, NOT A SIZING CALCULATION. The authority-based method is
+     * not built (WORKLIST CV.1), and the size selector on the panel is where it
+     * gets changed.
+     *
+     * Nothing is guessed. A pipe smaller than the smallest valve, or one whose
+     * size is not a DN — an HDPE "110 mm" is an outside diameter — gets no
+     * selection at all and stays on Manual with the derived coefficient. */
+    if (type === 'globe' && FD.controlValves && hit) {
+      var pick = FD.controlValves.defaultForPipe(hit.pipe.size);
+      if (pick) { vv.cvDN = pick.dn; vv.kv = pick.kvs; }
     }
     this.insertInline(w, 'valve', { valve: vv }, 'valve');
   };

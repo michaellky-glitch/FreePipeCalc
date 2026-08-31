@@ -5870,10 +5870,11 @@
      * automatically generated Kv not editable. Leave a Manual option at the
      * top, which unlocks Kv editing."
      *
-     * The sizes and their Kvs come from the Belimo data sheets in
-     * `data/picv.js` — the "Kvs theor." column those sheets publish FOR
-     * pressure drop calculation. Choosing a size writes the coefficient and
-     * locks the box, because on a real product the two are not independent:
+     * The sizes and their Kvs come from manufacturers' published data sheets,
+     * transcribed into `data/controlvalves.js`. No product is named here or in
+     * the interface (Michael, 2026-08-31); `docs_internal` records exactly
+     * which sheets. Choosing a valve writes the coefficient and locks the box,
+     * because on a real product the two are not independent:
      * a DN50 EPIV has Kvs 30.4 and typing anything else describes no valve you
      * can order. MANUAL is kept at the top for a coefficient off a
      * manufacturer's sheet this program does not carry.
@@ -5884,43 +5885,48 @@
      *
      * CONTROL VALVES ONLY. A PICV is a control valve; an isolation valve is
      * not one, and offering it a PICV selection would say it was. */
-    var picvDN = (isControl && v.picvDN !== undefined && v.picvDN !== null)
-      ? Number(v.picvDN) : null;
-    var picvEntry = (FD.picv && picvDN !== null) ? FD.picv.bySize(picvDN) : null;
-    var locked = !!picvEntry;
+    /* THE SELECTION IS A SIZE AND A COEFFICIENT TOGETHER, because a nominal size
+     * does not determine one. A DN50 body is sold with Kvs 25, 40, 58 and 70 —
+     * different valves in the same pipe — so the stored selection carries both
+     * and the list offers every one. */
+    var cvDN = (isControl && v.cvDN !== undefined && v.cvDN !== null)
+      ? Number(v.cvDN) : null;
+    var cvEntry = (FD.controlValves && cvDN !== null)
+      ? FD.controlValves.find(cvDN, v.kv) : null;
+    var locked = !!cvEntry;
 
-    if (isControl && FD.picv) {
+    if (isControl && FD.controlValves) {
       var szSel = el('select');
       var manOpt = el('option', '', 'Manual'); manOpt.value = '';
-      if (!picvEntry) manOpt.selected = true;
+      if (!cvEntry) manOpt.selected = true;
       szSel.appendChild(manOpt);
-      FD.picv.sizes.forEach(function (e2) {
+      FD.controlValves.sizes.forEach(function (e2) {
         var o = el('option', '', 'DN' + e2.dn + '  —  Kv ' + e2.kvs);
-        o.value = String(e2.dn);
-        if (picvEntry && e2.dn === picvEntry.dn) o.selected = true;
+        o.value = e2.dn + ':' + e2.kvs;
+        if (cvEntry && e2.dn === cvEntry.dn && e2.kvs === cvEntry.kvs) {
+          o.selected = true;
+        }
         szSel.appendChild(o);
       });
       field(des.box, 'CV size', szSel);
       infoMark(fieldLabel(szSel),
-               'Selecting a size writes that valve’s published Kv and locks ' +
-               'the box. Manual unlocks it for a coefficient off a sheet this ' +
-               'program does not carry. Sizes are Belimo EPIV (DN15–50) and ' +
-               'Energy Valve (DN65–150).');
+               'Selecting a valve writes its published Kv and locks the box. ' +
+               'Manual unlocks it. A size can offer several coefficients — ' +
+               'they are different valves in the same pipe.');
       szSel.addEventListener('change', function () {
         pushUndo();
         if (szSel.value === '') {
-          delete v.picvDN;                 // Manual: keep the Kv it already has
+          delete v.cvDN;                   // Manual: keep the Kv it already has
         } else {
-          var e3 = FD.picv.bySize(Number(szSel.value));
-          if (e3) { v.picvDN = e3.dn; v.kv = e3.kvs; }
+          var parts = szSel.value.split(':');
+          var e3 = FD.controlValves.find(Number(parts[0]), Number(parts[1]));
+          if (e3) { v.cvDN = e3.dn; v.kv = e3.kvs; }
         }
         renderProperties(); changed();
       });
-      if (picvEntry) {
-        des.ro('Selection', picvEntry.model);
-        des.ro('Nominal flow',
-               FD.units.fmtFlow(picvEntry.vnom, d.flow, true) +
-               '  (PN ' + picvEntry.pn + ')');
+      if (cvEntry) {
+        des.ro('Body', cvEntry.body === 'threaded' ? 'Threaded' : 'Flanged');
+        des.ro('Rating', 'PN ' + cvEntry.pn);
       }
     }
 
@@ -6032,13 +6038,12 @@
     /* THE PROVENANCE OF THE NUMBER IN FRONT OF YOU, and it now differs. A
      * selected CV size carries a Kv off a published data sheet; everything else
      * is still the derived default. Saying "not manufacturer data" over a
-     * Belimo Kvs would be false, and it is the one caveat that has to stay
+     * published Kv would be false, and it is the one caveat that has to stay
      * true — it is what stops a derived figure being used as a selection. */
-    if (picvEntry) {
+    if (cvEntry) {
       des.box.appendChild(el('p', 'hint',
-        'Kv is the published Kvs for ' + picvEntry.model + ' (' +
-        picvEntry.rangeName + '), the figure the data sheet gives for pressure ' +
-        'drop calculation.'));
+        'Kv is the published figure for a DN' + cvEntry.dn + ' characterised ' +
+        'control valve, equal percentage.'));
     } else {
       des.box.appendChild(el('p', 'hint',
         'Default Kv values are derived from typical resistance coefficients, not ' +
