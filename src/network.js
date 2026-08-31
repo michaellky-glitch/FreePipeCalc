@@ -1200,6 +1200,124 @@
     return r.value;
   }
 
+  /* ============ AUTOMATIC dP SETPOINT — "reset" in the trade sense
+   *
+   * Michael, 2026-08-31, on Tutorial 2 at part load: "The intended end state of
+   * this scenario is for the CV to be near 100% open, and the VFD ramp down
+   * further."
+   *
+   * WHY A FIXED SETPOINT CANNOT DO THAT, and it is not a fault. A pump holding
+   * a constant differential holds it at every load. At part load a terminal
+   * needs less flow, its branch needs less pressure, and the surplus has to be
+   * burned somewhere — so the valve throttles and stays throttled. Measured on
+   * Tutorial 2 at 79% load: the pump sits at 87%, every coil valve at about
+   * 76%, and 67 of the 110 kPa is spent across the valve doing nothing.
+   *
+   * RESET is the answer real plant uses, and ASHRAE 90.1 effectively requires
+   * it on variable flow: lower the differential setpoint until the most open
+   * valve is nearly wide open, and let the pump follow it down. On the same
+   * model that takes the pump to 79.6%, the valves to 88-93%, and the hydraulic
+   * power from 4.83 kW to 3.86 kW — a fifth of the pumping energy — with every
+   * coil still holding its design dT.
+   *
+   * HOW THE SEARCH WORKS. Feasibility is monotone in the setpoint: high enough
+   * and every device holds, and below some value the valves run out of travel
+   * and lose setpoint. So it bisects the fraction of the stated setpoint,
+   * keeping the LOWEST value at which nothing is lost, and stops early once the
+   * most open valve has reached `AUTO_OPEN_TARGET`.
+   *
+   * IT IS OPT-IN, AND THAT IS DELIBERATE. Each trial is a full control loop.
+   * Tutorial 2 costs about 1.7 s and 190 control solves, so a search multiplies
+   * that by the number of trials. On a large model this is minutes, which is
+   * why it is a switch on the sensor and not the default.
+   *
+   * `dpSet` is never written. It is the engineer's design figure and the
+   * ceiling; `dpAuto` carries the answer. */
+  var AUTO_MIN_FRAC = 0.05;      // never search below 5% of the stated setpoint
+  var AUTO_STEPS = 7;            // bisections; 1/128 of the range
+  var AUTO_OPEN_TARGET = 0.95;   // most-open valve, at which the search stops
+
+  function autoSetpointSensors(m) {
+    return m.pipes.filter(function (p) {
+      return p.kind === 'sensor' && p.sensor && p.sensor.mode === 'dP' &&
+             p.sensor.autoSet && p.sensor.ref && Number(p.sensor.dpSet) > 0;
+    });
+  }
+
+  function* runControlsAutoGen(m, core, maxPasses, opts) {
+    var autos = autoSetpointSensors(m);
+    if (!autos.length) {
+      /* Nothing on Auto: clear any stale answer so the panel cannot show a
+       * figure from a setting that has since been switched off. */
+      m.pipes.forEach(function (p) {
+        if (p.kind === 'sensor' && p.sensor) delete p.sensor.dpAuto;
+      });
+      return yield* runControlsGen(m, core, maxPasses, opts);
+    }
+
+    var design = autos.map(function (p) { return Number(p.sensor.dpSet); });
+    var apply = function (frac) {
+      autos.forEach(function (p, i) { p.sensor.dpAuto = design[i] * frac; });
+    };
+    var lost = function (r) {
+      return !!(r && r.errors || []).length &&
+             (r.errors || []).some(function (e) { return e.code === 'SETPOINT_LOST'; });
+    };
+    /* The most open MODULATING VALVE. A pump's speed is not a travel and must
+     * not be read as one, or a pump at 87% would look like a wide open valve
+     * and stop the search before it started. */
+    var maxOpen = function (r) {
+      var mx = -1;
+      (((r && r.report) || {}).devices || []).forEach(function (d) {
+        if (d.quantity === 'opening' && typeof d.value === 'number') {
+          mx = Math.max(mx, d.value);
+        }
+      });
+      return mx;
+    };
+
+    apply(1);
+    var best = yield* runControlsGen(m, core, maxPasses, opts);
+    var bestFrac = 1, lastFrac = 1;
+
+    /* NOTHING TO OPEN, NOTHING TO SEARCH FOR. Without a modulating valve the
+     * setpoint has no upper bound to press against and the bisection would run
+     * to the floor for no reason. */
+    if (maxOpen(best) < 0) return best;
+    /* If the DESIGN setpoint already fails, lowering it can only fail harder.
+     * That is a plant problem and is reported as it already would be. */
+    if (lost(best)) return best;
+
+    var lo = AUTO_MIN_FRAC, hi = 1;
+    for (var i = 0; i < AUTO_STEPS; i++) {
+      if (maxOpen(best) >= AUTO_OPEN_TARGET) break;
+      var mid = (lo + hi) / 2;
+      apply(mid);
+      lastFrac = mid;
+      var trial = yield* runControlsGen(m, core, maxPasses, opts);
+      if (lost(trial)) {
+        lo = mid;                       // too low, the coils ran out of travel
+      } else {
+        hi = mid; bestFrac = mid; best = trial;
+      }
+    }
+
+    /* LEAVE THE MODEL HOLDING THE ANSWER. The last trial may have been a
+     * rejected one, and its valve positions are still written on the model, so
+     * the accepted setpoint is re-run unless it was the last thing tried. */
+    apply(bestFrac);
+    if (lastFrac !== bestFrac) {
+      best = yield* runControlsGen(m, core, maxPasses, opts);
+    }
+    if (best && best.report) {
+      best.report.autoSetpoint = autos.map(function (p) {
+        return { pipe: p.id, tag: p.tag || null,
+                 design: Number(p.sensor.dpSet), chosen: p.sensor.dpAuto };
+      });
+    }
+    return best;
+  }
+
   function* solveModelGen(m, maxPasses, opts) {
     /* 3 is plenty for tee reassignment alone; check valves can need another
      * round or two to seat, so the ceiling is a little higher. */
@@ -1212,7 +1330,7 @@
      * hydraulics. It re-runs the core several times and leaves the settled
      * modulation on the model, so everything below sees a single consistent
      * answer. §17C. */
-    var controls = yield* runControlsGen(m, core, maxPasses, opts);
+    var controls = yield* runControlsAutoGen(m, core, maxPasses, opts);
     if (controls.acted) core = controls.core;
 
     var net = core.net, res = core.res, passes = core.passes, sizing = core.sizing;

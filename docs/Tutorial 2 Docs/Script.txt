@@ -24,8 +24,8 @@ Important: Most Chilled Water headers are located at high level. This can be mod
 - Go back to Levels, click C to copy. Select New Floor Above (Level 2). Repeat for L3 to L5. Note: Simulating now will result in warnings about being unable to achieve setpoint. This is because our Chiller Capacity was based on peak load, the simulation is based on connected load.
 - Select the L1 AHU, under Controls set Sync Part Load % with the L5 AHU. Repeat for L2 to L4. This makes it easier to examine the system under various loads by just changing MECH-L5-AHU01.
 - Change the part load to 80% and mode to Simulate. An warning will appear saying MECH-L0-WCCH01 & 02 is overloaded. This is because we did not consider minor heat gain from piping when sizing our Chillers. See Calculations>Thermal for details.
-- Reduce the part load to 79% to continue the tutorial. Look at MECH-L5-AHU01 properties. The ICV is partially closed while pump VFDs are at 100%.
-- Change mode to Control and add a DP sensor across the CHWS & CHWR at Level 5. Change setpoint to 110kPa (10% above AHU rated pressure drop to account for piping losses)
+- Reduce the part load to 79% to continue the tutorial. Look at MECH-L5-AHU01 properties. The ICV is partially closed while pump VFDs are at 100%. Note:
+- Change mode to Control and add a Differential Pressure sensor across the CHWS & CHWR at Level 5. Change setpoint to 110kPa (10% above AHU rated pressure drop to account for piping losses). With the DP Sensor still selected, click Add Control,
 
 ---
 

@@ -1514,4 +1514,97 @@ section('The control loop accepts a 0% minimum valve opening');
      ten.valve.valve.opening + '% open');
 }
 
+/* ==================================================================
+ * AUTOMATIC dP SETPOINT — reset, in the trade sense.
+ *
+ * Michael, 2026-08-31, on Tutorial 2 at part load: "The intended end state of
+ * this scenario is for the CV to be near 100% open, and the VFD ramp down
+ * further."
+ *
+ * A FIXED setpoint cannot do that, and it is not a fault: a pump holding a
+ * constant differential holds it at every load, so a part-loaded coil throttles
+ * its valve and stays throttled while the surplus pressure is burned across it.
+ * On Auto the solve lowers the setpoint until the most open valve is nearly
+ * wide open and lets the pump follow it down.
+ * ================================================================== */
+section('Automatic dP setpoint');
+{
+  /* FROZEN INTO `test/fixtures/`, not read from `debug/`. Michael's working
+   * folder is gitignored, so a test that reached into it would pass here and
+   * fail on a clean checkout — and CI gates the Pages deploy. This is the
+   * standing rule for any of his drawings that produces a fix. */
+  const file = __dirname + '/fixtures/tutorial2-partload.pnet.json';
+  {
+    function run(loadPct, auto) {
+      const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
+      m.pipes.forEach(p => {
+        if (p.kind === 'equip' && p.equip.equipType === 'exchanger') {
+          p.equip.loadPct = loadPct;
+        }
+      });
+      const sn = m.pipes.filter(p => p.id === 'P151')[0].sensor;
+      if (auto) sn.autoSet = true; else delete sn.autoSet;
+      const res = NET.solveModel(m);
+      const opens = m.pipes.filter(p => p.kind === 'equip' &&
+        p.equip.equipType === 'exchanger').map(p => p.equip.icv.opening);
+      return {
+        res, sn, opens,
+        maxOpen: Math.max(...opens),
+        speed: m.pipes.filter(p => p.id === 'P26')[0].pump.speed,
+        dT: res.thermal.links.P117.dT,
+        lost: (res.errors || []).some(e => e.code === 'SETPOINT_LOST')
+      };
+    }
+
+    /* AT PART LOAD, FIXED, the valves throttle and stay throttled. This is the
+     * state Michael reported: 79% load, valves near 76%, pump near 87%. */
+    const fixed = run(79, false);
+    ok('fixed: the valves are throttled well short of open', fixed.maxOpen < 85,
+       fixed.opens.join(','));
+    ok('fixed: every coil still holds its ΔT', !fixed.lost);
+    near('fixed: the setpoint is the one that was typed',
+         fixed.sn.dpSet, 110e3, 1);
+    ok('fixed: nothing is written to the auto figure',
+       fixed.sn.dpAuto === undefined, String(fixed.sn.dpAuto));
+
+    /* ON AUTO, the same plant opens its valves and slows its pump. */
+    const auto = run(79, true);
+    ok('auto: the most open valve reaches the target', auto.maxOpen >= 95,
+       auto.opens.join(','));
+    ok('auto: the pump runs slower than it did', auto.speed < fixed.speed,
+       fixed.speed + ' -> ' + auto.speed);
+    ok('auto: every coil still holds its ΔT', !auto.lost,
+       JSON.stringify((auto.res.errors || []).map(e => e.code)));
+    near('auto: ...and holds it at the design 7.5 K', auto.dT, 7.5, 0.15);
+
+    /* THE TYPED FIGURE IS NEVER OVERWRITTEN. It is the design differential and
+     * the ceiling the search starts from, and it must survive so switching Auto
+     * off restores it. */
+    near('auto: the typed setpoint is untouched', auto.sn.dpSet, 110e3, 1);
+    ok('auto: the chosen setpoint is below it',
+       auto.sn.dpAuto < auto.sn.dpSet, (auto.sn.dpAuto / 1000).toFixed(1) + ' kPa');
+    ok('auto: ...and above the search floor',
+       auto.sn.dpAuto > auto.sn.dpSet * 0.05,
+       (auto.sn.dpAuto / 1000).toFixed(1) + ' kPa');
+
+    /* IT TRACKS THE LOAD, which is the whole point: the lighter the load, the
+     * lower the setpoint the plant can hold. */
+    const light = run(40, true);
+    ok('a lighter load chooses a lower setpoint still',
+       light.sn.dpAuto < auto.sn.dpAuto,
+       (auto.sn.dpAuto / 1000).toFixed(1) + ' -> ' + (light.sn.dpAuto / 1000).toFixed(1) + ' kPa');
+    ok('...with the valves still near open', light.maxOpen >= 90,
+       light.opens.join(','));
+    ok('...and the pump slower again', light.speed < auto.speed,
+       auto.speed + ' -> ' + light.speed);
+
+    /* SWITCHING AUTO OFF CLEARS THE ANSWER, so a stale figure cannot be shown
+     * beside a setting that is no longer on. */
+    const back = run(79, false);
+    ok('switching Auto off clears the chosen figure',
+       back.sn.dpAuto === undefined, String(back.sn.dpAuto));
+  }
+}
+
+
 report();

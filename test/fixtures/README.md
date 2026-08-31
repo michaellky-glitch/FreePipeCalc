@@ -30,3 +30,17 @@ values in the same commit.
   differential and four coils on integrated control valves. It is the model
   that would not settle until the deadband went to 0.5 K.
 
+## `tutorial2-partload.pnet.json`
+
+Michael's finished Tutorial 2, frozen 2026-08-31. Five 200 kW AHUs on a
+variable-primary loop, all at `loadPct 79` — the part-load case that produced
+the automatic dP setpoint (`simulation.test.js`, "Automatic dP setpoint").
+
+With a FIXED 110 kPa setpoint the coil valves sit near 76% and the pump at 87%.
+On Auto the solve picks about 64 kPa, the valves open to 93-100% and the pump
+drops to 78%, with every coil still holding its 7.5 K design dT.
+
+Note the plant is deliberately short at full load: five 200 kW coils against two
+running 400 kW chillers, so `loadPct 100` loses a setpoint. That is a plant
+limitation, not a control one, and the auto search returns the design setpoint
+untouched when the ceiling itself cannot be held.

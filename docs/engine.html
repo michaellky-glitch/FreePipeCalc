@@ -958,6 +958,24 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 
 <!-- ===================================================== 8 -->
+
+<h4>Automatic differential setpoint</h4>
+<p>A differential pressure sensor can hold a <strong>fixed</strong> setpoint or work one out. A fixed setpoint is held at every load, so as terminals throttle back the surplus pressure has to be burned across their valves — the valves close and stay closed while the pump keeps pushing against them.</p>
+<p>On <strong>Auto</strong> the solve lowers the setpoint until the most open control valve is nearly wide open, and lets the pump follow it down. This is the strategy usually called <em>setpoint reset</em>.</p>
+<div class="eq">
+  <span class="lbl">Accepted setpoint</span>
+  the lowest value at which every controlled device still holds its setpoint
+</div>
+<p>Feasibility moves one way with the setpoint: high enough and every device holds; below some value the valves run out of travel and a coil misses its temperature. So the search halves the interval, keeps the lowest value that still works, and stops once the most open valve reaches about 95%.</p>
+<p>The typed figure is never overwritten. It is the design differential and the ceiling the search starts from, and it returns the moment Auto is switched off.</p>
+<div class="note check">
+  <span class="tag">SUGGESTION:</span>
+  <p>On a five-storey example at 79% load, a fixed 110 kPa setpoint leaves the coil valves near 76% and the pump at 87%. On Auto the same plant settles at about 64 kPa with the valves at 93 to 100% and the pump at 78%, which is roughly a fifth less pumping power, and every coil still holds its design &Delta;T.</p>
+</div>
+<div class="note limit">
+  <span class="tag">IMPORTANT:</span>
+  <p>Each trial is a complete control loop, so the search multiplies the cost of a simulation several times over. It is a switch on the sensor rather than the default for that reason. If the design setpoint cannot itself be held, the search does nothing and leaves it alone — that is a plant problem, not a setpoint one.</p>
+</div>
 <h2 id="equipment">8. Equipment</h2>
 <p>Equipment is any in-line device that adds or removes heat, or drops pressure without a thermal effect. Three types share one hydraulic resistance model. They differ in their thermal behaviour.</p>
 

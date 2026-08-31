@@ -4430,9 +4430,9 @@
     var sec = section(host, 'Setpoints');
     opts.forEach(function (o) {
       var sel = el('select');
-      [['set', 'SET  — hold this value'],
-       ['min', 'MIN  — a floor, act only below it'],
-       ['max', 'MAX  — a ceiling, act only above it']].forEach(function (c) {
+      /* JUST THE THREE WORDS — Michael, 2026-08-31. What SET, MIN and MAX mean
+       * is documentation, not a dropdown. */
+      [['set', 'SET'], ['min', 'MIN'], ['max', 'MAX']].forEach(function (c) {
         var opt = el('option', '', c[1]); opt.value = c[0];
         if (c[0] === (o.cmp || 'set')) opt.selected = true;
         sel.appendChild(opt);
@@ -4444,11 +4444,6 @@
         renderProperties(); changed();
       });
     });
-    infoMark(sec.box.firstChild && sec.box.firstChild.querySelector('label'),
-             'SET holds the value. MIN is a floor: a controller watching it acts ' +
-             'only when the reading falls below, and otherwise sits where it does ' +
-             'least — a bypass valve holding a chiller’s minimum flow sits ' +
-             'shut until the flow drops. MAX is the mirror.');
   }
 
   function fmtSetpoint(o) {
@@ -4916,8 +4911,13 @@
        * an answer to it (§17B). */
       var isDP = (sn.mode === 'dP');
       var dIn = el('input'); dIn.type = 'text';
+      /* ON AUTO THE BOX SHOWS WHAT THE SOLVE CHOSE, not what was typed. The
+       * typed figure is kept as the design differential and the ceiling the
+       * search starts from; it comes back the moment Auto is switched off. */
+      var autoOn = isDP && !!sn.autoSet;
+      var shown = (autoOn && isFinite(Number(sn.dpAuto))) ? sn.dpAuto : sn.dpSet;
       dIn.value = isDP
-        ? (sn.dpSet ? FD.units.fmtPressure(sn.dpSet, d.pressure) : '')
+        ? (shown ? FD.units.fmtPressure(shown, d.pressure) : '')
         : (sn.dtSet === undefined || sn.dtSet === null ? '' : sn.dtSet);
       field(host, isDP ? 'Δp setpoint (' + d.pressure + ')' : 'ΔT setpoint (K)', dIn)
         .addEventListener('change', function () {
@@ -4931,6 +4931,45 @@
           }
           renderProperties(); changed();
         });
+
+      /* AUTOMATIC SETPOINT — Michael, 2026-08-31, after Tutorial 2 at part
+       * load. A fixed differential is held at every load, so a part-loaded coil
+       * throttles its valve and stays throttled while the pump keeps pushing.
+       * On Auto the solve lowers the setpoint until the most open valve is
+       * nearly wide open and the pump follows it down. Measured on Tutorial 2
+       * at 79% load: 110 -> 64 kPa, pump 87% -> 78%, valves 76% -> 93-100%,
+       * and a fifth off the pumping power with every coil still on its dT.
+       *
+       * A SWITCH ON THE SETPOINT ROW, in his sketch: the label carries it, so
+       * the field reads "this number, or work it out for me". */
+      if (isDP) {
+        var lab = dIn.parentNode.querySelector('label');
+        var aw = el('span', 'field-accessory');
+        var at = el('span', 'accessory-label', 'Auto');
+        aw.appendChild(at);
+        infoMark(aw, 'Automatically selects setpoint to maintain minimum flow ' +
+                     'and VFD speed.');
+        var asw = el('button', 'switch plain' + (autoOn ? ' on' : ' off'));
+        asw.type = 'button';
+        asw.setAttribute('role', 'switch');
+        asw.setAttribute('aria-checked', autoOn ? 'true' : 'false');
+        asw.setAttribute('aria-label', 'Automatic Δp setpoint');
+        asw.appendChild(el('span', 'switch-track', ''));
+        asw.addEventListener('click', function () {
+          pushUndo();
+          if (autoOn) { delete sn.autoSet; delete sn.dpAuto; }
+          else { sn.autoSet = true; }
+          renderProperties(); changed();
+        });
+        aw.appendChild(asw);
+        if (lab) lab.appendChild(aw);
+        /* The chosen value is the solve's answer, so the box is not typed in —
+         * the same rule an auto-sized pump duty and a DN-selected Kv follow. */
+        if (autoOn) {
+          dIn.disabled = true;
+          dIn.parentNode.classList.add('is-disabled');
+        }
+      }
 
       var refPipe = sn.ref ? M.pipe(m, sn.ref) : null;
       var rrow = el('div', 'btn-row');

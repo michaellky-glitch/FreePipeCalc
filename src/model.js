@@ -2081,7 +2081,14 @@
      * you would actually fit. */
     if (sn.mode === 'dP' || sn.mode === 'dT') {
       if (!sn.ref) return null;
-      var dv = Number(sn.mode === 'dP' ? sn.dpSet : sn.dtSet);
+      /* ON AUTO THE SETPOINT IS AN OUTPUT. `dpSet` stays exactly as the
+       * engineer typed it — it is the DESIGN differential and the ceiling the
+       * search starts from — and `dpAuto` is what the solve chose. Reading the
+       * chosen value here is what makes every controller downstream follow it
+       * without knowing the search exists. */
+      var dv = Number(sn.mode === 'dP'
+        ? ((sn.autoSet && isFinite(Number(sn.dpAuto))) ? sn.dpAuto : sn.dpSet)
+        : sn.dtSet);
       /* Reported as 'dPdiff'/'dTdiff' rather than 'dP'/'dT'. A piece of
        * EQUIPMENT already offers a setpoint called 'dT' — its own Design ΔT —
        * and the two are different measurements: one is the difference across a

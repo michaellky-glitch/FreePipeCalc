@@ -1527,3 +1527,22 @@ body.sim-static #prop-body .field textarea {
 .find-hit:hover { border-color: var(--line); background: var(--bg-panel); }
 .find-tag { font-size: 12.5px; }
 .find-meta { font-size: 10.5px; color: var(--text-mute); }
+
+
+/* AN ACCESSORY ON A FIELD'S LABEL ROW — the Auto switch beside the Δp setpoint
+ * (Michael's sketch, 2026-08-31). The label keeps the left, the accessory sits
+ * hard right on the same line, so the field reads as one question: this number,
+ * or work it out for me. */
+.field label { display: flex; align-items: center; gap: 6px; }
+.field-accessory {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
+}
+.field-accessory .accessory-label {
+  font-size: 11px; color: var(--text-mute); text-transform: none;
+  letter-spacing: 0;
+}
+/* The switch here is an icon, not a labelled control — the word is beside it. */
+.field-accessory .switch { padding: 0; border: 0; background: none; flex: 0 0 auto; }
+.field-accessory .switch .switch-track { width: 28px; height: 15px; border-radius: 8px; }
+.field-accessory .switch .switch-track::after { width: 11px; height: 11px; }
+.field-accessory .switch.on .switch-track::after { transform: translateX(13px); }
