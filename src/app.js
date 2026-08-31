@@ -5429,7 +5429,11 @@
       if (icvAuto) sec.ro('Holding', 'Design \u0394T of ' + (p.tag || p.id));
     }
 
-    setpointCmpSection(host, p);
+    /* NO SETPOINTS SECTION ON EQUIPMENT — Michael, 2026-08-31: "Remove
+     * Setpoints section from HX Properties." A machine states what it is FOR —
+     * its leaving temperature, its design ΔT — on the panel above. The
+     * comparator list belongs to the SENSOR that holds a setpoint, which is
+     * where `setpointCmpSection` still runs. */
 
     /* ---- PART LOAD ----------------------------------------------------
      * Renamed from "Capacity override" — Michael, 2026-08-09. It never was an
@@ -6089,11 +6093,15 @@
      * is still the derived default. Saying "not manufacturer data" over a
      * published Kv would be false, and it is the one caveat that has to stay
      * true — it is what stops a derived figure being used as a selection. */
-    if (cvEntry) {
-      des.box.appendChild(el('p', 'hint',
-        'Kv is the published figure for a DN' + cvEntry.dn + ' globe valve, ' +
-        'equal percentage. Based on ' + FD.controlValves.range + '.'));
-    } else {
+    /* WHERE THE COEFFICIENT COMES FROM IS DOCUMENTATION, not panel furniture —
+     * Michael, 2026-08-31: "This should be in documentation, not in UI." The
+     * published-range explanation now lives in engine.html 11.5 only.
+     *
+     * The DERIVED caveat stays, because it is not an explanation: it is a
+     * warning that the number in the box was never measured, and it is the one
+     * thing that stops a made-up figure being used as a selection. It shows
+     * only when no size is chosen, which is exactly when it is true. */
+    if (!cvEntry) {
       des.box.appendChild(el('p', 'hint',
         'Default Kv values are derived from typical resistance coefficients, not ' +
         'manufacturer data. Replace with published Kv for real design work.'));
@@ -7656,7 +7664,7 @@
         }, '1');
     num(gc, 'Minimum valve opening (%)', ctl.minOpening,
         function (v) {
-          m.settings.control.minOpening = Math.min(100, Math.max(1, v));
+          m.settings.control.minOpening = Math.min(100, Math.max(0, v));
           renderSettings(); redrawAll();
         }, '1');
     num(gc, 'Deadband (K)', ctl.tol,

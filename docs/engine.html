@@ -452,6 +452,10 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 <p>Laminar sections usually appear on oversized pipe at low demand, or on a branch that is nearly shut. You can switch this check off on the HYDRAULIC tab.</p>
 
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>A pipe whose flow prints as 0.00 L/s raises no regime warning. A dead leg, or a branch behind a shut valve, carries a few thousandths of a litre a second and would otherwise be reported as laminar against a figure the sheet shows as nothing. The warning exists to flag an unreliable <em>friction loss</em>, and the loss through a pipe carrying nothing is nothing.</p>
+</div>
 <h3 id="lowflow">3.6 Very low flow</h3>
 <p>At <code>Q = 0</code> the slope of the loss curve is zero: the slope is <code>n·r·|Q|<sup>n−1</sup></code>, which falls to zero as <code>Q</code> approaches zero for any <code>n</code> above 1. The solver divides by that slope, so it cannot use the curve at the origin.</p>
 <p>Below <code>Q_MIN = 1×10⁻⁶ m³/s</code> the program replaces the curve with its tangent at <code>Q_MIN</code>. The tangent passes through the origin. The loss stays continuous, odd, and increasing. The slope stays finite.</p>

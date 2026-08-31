@@ -1440,5 +1440,78 @@ section('A dP setpoint equal to the rating delivers rated flow');
   near('...and the flow stays at rated', high.frac, 1, 0.01);
 }
 
+/* ==================================================================
+ * A ZERO MINIMUM VALVE OPENING — Michael, 2026-08-31: "Settings > Setpoint
+ * Control: Allow Minimum Valve Opening 0%. Right now min 1%."
+ *
+ * The floor used to be rejected unless it was strictly above zero, so a valve
+ * could never be driven fully shut by the control loop however the setting was
+ * typed. A valve that may close completely is a real control strategy.
+ * ================================================================== */
+section('The control loop accepts a 0% minimum valve opening');
+{
+  /* THE FLOOR HAS TO BIND for the change to be visible, and this rig makes it
+   * bind. An exchanger holds its DESIGN ΔT, and design ΔT = duty/(rho.c.qRated).
+   * 2 kW across 0.05 L/s is 9.6 K, which the circuit can only reach by
+   * throttling hard — the loop wants about 6% open. So a 10% floor makes the
+   * setpoint unreachable while a 0% floor does not, which is the whole of it. */
+  function rig(minOpening) {
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    m.settings.control = { minSpeed: 0.25, minOpening: minOpening, tol: 0.05,
+                           maxSolves: 0, sweeps: 10 };
+    m.settings.thermal = { ambient: 20, supplyTemp: 6, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 10 };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const c = M.addNode(m, lv, 20, 0), d = M.addNode(m, lv, 22, 0);
+    const e = M.addNode(m, lv, 22, 10);
+    a.device = { kind: 'source', head: 400e3, temperature: 6 };
+    e.device = { kind: 'demand', flow: 0.004, reqPressure: 50e3, include: true };
+    const pump = M.addPipe(m, a.id, b.id, { kind: 'pump', tag: 'PMP' });
+    pump.pump = { mode: 'fixed', head: 30, sizing: 'manual', speed: 1,
+                  qDesign: 0.004, hDesign: 30, curve: P.singlePoint(30, 0.004) };
+    M.addPipe(m, b.id, c.id, { size: 'DN50', schedule: 'sch40' });
+    const valve = M.addPipe(m, c.id, d.id, { size: 'DN50', kind: 'valve', tag: 'CV' });
+    valve.valve = { type: 'globe', kv: 16, opening: 100 };
+    const coil = M.addPipe(m, d.id, e.id, { size: 'DN50', kind: 'equip', tag: 'AHU' });
+    coil.equip = { qRated: 5e-5, pdRated: 20e3, qOut: 5e-5,
+                   equipType: 'exchanger', duty: 2000 };
+    valve.valve.control = { equip: coil.id, key: 'dT' };
+    m.pipes.forEach(p => { if (p.kind !== 'equip') p.insulation_mm = 0; });
+    return { m, valve, coil };
+  }
+  const lost = r => (r.errors || []).some(e => e.code === 'SETPOINT_LOST');
+
+  /* A ZERO FLOOR IS READ, not replaced by the 10% default. It used to fail the
+   * `> 0` test, so a valve could never be driven below 10% however the setting
+   * was typed. */
+  const zero = rig(0);
+  const rz = NET.solveModel(zero.m);
+  ok('a 0% floor solves', rz.converged === true, JSON.stringify(rz.errors));
+  ok('...and the valve settles below the old 10% default',
+     zero.valve.valve.opening < 10, zero.valve.valve.opening + '% open');
+  ok('...without going negative', zero.valve.valve.opening >= 0,
+     String(zero.valve.valve.opening));
+  ok('...and it holds its setpoint there', !lost(rz),
+     JSON.stringify((rz.errors || []).map(e => e.code)));
+
+  /* THE SAME PLANT AT THE OLD FLOOR CANNOT. This is the assertion that says the
+   * change is worth something rather than cosmetic: the setpoint is reachable
+   * at 6% and not at 10%, so the floor decides whether the model works. */
+  const ten = rig(10);
+  const r10 = NET.solveModel(ten.m);
+  ok('the same plant at a 10% floor loses the setpoint', lost(r10),
+     JSON.stringify((r10.errors || []).map(e => e.code)));
+
+  /* AND A NON-ZERO FLOOR IS STILL HONOURED — this is not "the floor is now
+   * ignored". A device that loses its setpoint is parked at full travel, which
+   * is the documented rule, so what is checked is that it never rests BETWEEN
+   * zero and its floor. */
+  ok('a valve never rests inside its own floor',
+     ten.valve.valve.opening === 100 || ten.valve.valve.opening >= 10,
+     ten.valve.valve.opening + '% open');
+}
 
 report();

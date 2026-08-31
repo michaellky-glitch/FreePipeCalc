@@ -954,10 +954,24 @@ section('Laminar flow warning');
     return NET.solveModel(m);
   }
 
-  const slow = run(2e-6, 'DN300');       // 0.002 L/s in DN300 -> deeply laminar
+  /* 0.1 L/s in DN300 is Re = 416, deeply laminar, and it PRINTS as 0.10 L/s.
+   * The rig used 0.002 L/s, which is laminar too but shows as 0.00 L/s
+   * everywhere in the interface — and since 2026-08-31 a pipe that prints as
+   * carrying nothing raises no regime warning, because the engineer cannot
+   * reconcile the warning with the zero beside it. The laminar cutoff in this
+   * pipe is 0.48 L/s, so there is plenty of room between the two. */
+  const slow = run(1e-4, 'DN300');       // 0.1 L/s in DN300 -> Re 416, laminar
   ok('Very low flow in a big pipe is flagged laminar',
      (slow.warnings || []).some(w => w.code === 'LAMINAR'),
      JSON.stringify((slow.warnings || []).map(w => w.code)));
+
+  /* AND THE NEW RULE ITSELF. The same pipe carrying a flow that rounds to zero
+   * says nothing, however laminar it is. */
+  const dead = run(2e-6, 'DN300');       // 0.002 L/s -> prints as 0.00 L/s
+  ok('A pipe that prints as zero flow raises no regime warning',
+     !(dead.warnings || []).some(w => w.code === 'LAMINAR' ||
+                                      w.code === 'TRANSITIONAL'),
+     JSON.stringify((dead.warnings || []).map(w => w.code)));
   ok('...and the message names Hazen-Williams as inapplicable',
      (slow.warnings || []).some(w => w.code === 'LAMINAR' && /Hazen-Williams/.test(w.message)));
 
@@ -966,7 +980,7 @@ section('Laminar flow warning');
      !(fast.warnings || []).some(w => w.code === 'LAMINAR'),
      JSON.stringify((fast.warnings || []).map(w => w.code)));
 
-  const off = run(2e-6, 'DN300', false);
+  const off = run(1e-4, 'DN300', false);
   ok('The warning can be switched off',
      !(off.warnings || []).some(w => w.code === 'LAMINAR'));
 

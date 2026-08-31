@@ -1434,6 +1434,12 @@
    * warning about the method, not just about the velocity. Typically it shows
    * up on oversized pipes at low demand, or on a branch that is nearly shut.
    */
+  /* Below this the flow prints as 0.00 L/s, so a regime warning about it cannot
+   * be reconciled with the figure shown beside it. Deliberately NOT
+   * `hydraulics.Q_MIN`, which is the solver's linearisation floor and five
+   * times smaller. */
+  var Q_REGIME_MIN = 5e-6;                       // m3/s = 0.005 L/s
+
   function flowRegimeWarnings(m, net, res) {
     var out = [];
     var warn = m.settings.warn || {};
@@ -1485,6 +1491,23 @@
       }
 
       if (warn.laminar === false) return;
+
+      /* A PIPE THAT CARRIES NOTHING HAS NO FLOW REGIME WORTH REPORTING —
+       * Michael, 2026-08-31: "No laminar flow warnings for pipes with 0 flow."
+       *
+       * `Q_MIN` above is the SOLVER's linearisation floor, 0.001 L/s, and it is
+       * far below what the sheet prints. A dead leg or a branch behind a shut
+       * valve trickles a few thousandths of a litre a second, shows as
+       * "0.00 L/s" everywhere in the interface, and was still raising a laminar
+       * warning against itself — which reads as a bug, because the engineer is
+       * being told a pipe carrying nothing is calculated unreliably.
+       *
+       * The threshold is what the DISPLAY rounds away: below 0.005 L/s the
+       * flow prints as 0.00, so a warning about it can never be reconciled with
+       * the number beside it. And the warning has nothing to say in any case —
+       * it exists to flag an unreliable FRICTION LOSS, and the loss through a
+       * pipe carrying nothing is nothing. */
+      if (Math.abs(q) < Q_REGIME_MIN) return;
 
       var Re = FD.hydraulics.reynolds(q, l._d, nu);
       l._Re = Re;
@@ -1863,8 +1886,13 @@
      * resolution and floor as a drawn globe valve, because it is one — the only
      * difference is that it lives on the machine instead of beside it. */
     if (p.kind === 'equip' && p.equip && p.equip.icv && M.icvMode(p) === 'auto') {
+      /* ZERO IS A LEGITIMATE FLOOR — Michael, 2026-08-31: "Allow Minimum Valve
+       * Opening 0%". A valve that may shut completely is a real control
+       * strategy, and `>= 0` rather than `> 0` is the whole change. A shut
+       * valve is charged `CLOSED_R`, which is large but FINITE, so the solver
+       * matrix stays non-singular. */
       var le = Number(cfg.minOpening);
-      le = (isFinite(le) && le > 0 && le < 100) ? le : CTRL_DEFAULTS.minOpening;
+      le = (isFinite(le) && le >= 0 && le < 100) ? le : CTRL_DEFAULTS.minOpening;
       return {
         pipe: p, kind: 'valve', quantity: 'opening',
         min: le / 100,
@@ -1883,7 +1911,7 @@
        * percent, not a float. Bisecting past it would be inventing precision
        * the actuator does not have. */
       var lv = Number(cfg.minOpening);
-      lv = (isFinite(lv) && lv > 0 && lv < 100) ? lv : CTRL_DEFAULTS.minOpening;
+      lv = (isFinite(lv) && lv >= 0 && lv < 100) ? lv : CTRL_DEFAULTS.minOpening;
       return {
         pipe: p, kind: 'valve', quantity: 'opening',
         min: lv / 100,
