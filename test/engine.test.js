@@ -1128,7 +1128,7 @@ section('Darcy-Weisbach fittings use the K method');
  *   - two codes are assigned by expression rather than as a literal, so they
  *     are listed here by hand.
  * ----------------------------------------------------------------------- */
-section('docs_internal/MESSAGES.md covers every message the app can emit');
+section('docs/MESSAGES.md covers every message the app can emit');
 {
   const fs = require('fs');
   const path = require('path');
@@ -1145,13 +1145,17 @@ section('docs_internal/MESSAGES.md covers every message the app can emit');
   const computed = ['PUMP_DEAD_END', 'PUMP_NO_FLOW'];
   const codes = [...new Set(literal.concat(computed))].sort();
 
-  /* The catalogue moved to docs_internal/ with the rest of the developer docs
-   * (Michael, 2026-08-23): docs/ is now USER documentation only. */
-  const doc = fs.readFileSync(path.join(ROOT, 'docs_internal', 'MESSAGES.md'), 'utf8');
+  /* THE CATALOGUE LIVES IN `docs/`, and it has to. It went to `docs_internal/`
+   * with the developer docs in 2026-08, and when that folder was untracked on
+   * 2026-08-31 this check started reading a file the repository no longer
+   * carried — green on a machine that had it, and a hard failure on CI, which
+   * is what broke the v0.18.41 deploy. It is user documentation in any case:
+   * `docs/MESSAGES.html` is the published version of this very list. */
+  const doc = fs.readFileSync(path.join(ROOT, 'docs', 'MESSAGES.md'), 'utf8');
 
   ok('There are message codes to check', codes.length > 40, String(codes.length));
   const missing = codes.filter(c => doc.indexOf('`' + c + '`') < 0);
-  ok('Every code appears in docs_internal/MESSAGES.md', missing.length === 0,
+  ok('Every code appears in docs/MESSAGES.md', missing.length === 0,
      'undocumented: ' + missing.join(', '));
 
   /* And the other way: nothing in the doc that the app cannot produce, so the
