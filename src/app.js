@@ -5357,14 +5357,29 @@
         /* Same defaults a drawn control valve gets, so the two behave
          * identically — this is a placement convenience, not a second kind of
          * valve with its own rules. */
-        e.icv = { kv: FD.valves.defaultKv('globe', M.pipeBore(m, p) * 1000),
-                  opening: 100 };
+        /* ONE SIZE BELOW THE PIPE, exactly as a drawn control valve is placed.
+         * Falls back to the bore-derived coefficient where the range has no
+         * size to offer — a pipe at or below DN15, or one whose size is not a
+         * DN at all. */
+        var icvPick = FD.controlValves &&
+                      FD.controlValves.defaultForPipe(p.size);
+        e.icv = icvPick
+          ? { kv: icvPick.kvs, opening: 100, cvDN: icvPick.dn }
+          : { kv: FD.valves.defaultKv('globe', M.pipeBore(m, p) * 1000),
+              opening: 100 };
       }
       e.icv.mode = modeSel.value;
       changed(); renderProperties();
     });
     var hasICV = !!e.icv;
     if (hasICV) {
+      /* THE SAME TREATMENT AS A DRAWN CONTROL VALVE — Michael, 2026-08-31:
+       * "CVs in Equipment should have the same treatment as external." One
+       * helper serves both, so the two cannot drift apart. */
+      var icvLocked = cvSelectionFields(sec.box, e.icv, function () {
+        changed(); renderProperties();
+      });
+
       var useCv = (m.settings.display.valveCoef === 'Cv');
       var kvIn = el('input'); kvIn.type = 'text';
       kvIn.value = useCv ? FD.valves.kvToCv(e.icv.kv).toFixed(1) : String(e.icv.kv);
@@ -5376,6 +5391,10 @@
           e.icv.kv = useCv ? Math.round(FD.valves.cvToKv(val) * 10) / 10 : val;
           changed(); renderProperties();
         }));
+      if (icvLocked) {
+        kvIn.disabled = true;
+        kvIn.parentNode.classList.add('is-disabled');
+      }
       /* THE RATING INCLUDES THE VALVE — Michael's wording, 2026-08-31 (DP.1).
        * Without this the engineer has no way to know that the number typed as
        * the machine's rated dP is the coil AND the valve together, which is
@@ -5803,6 +5822,76 @@
    * A check valve is neither: it has no position anyone sets and no status
    * anyone chooses, so it gets the isolation shape without the switch.
    */
+  /* ============ THE VALVE SELECTION CONTROLS, shared by a DRAWN control valve
+   * and by the one integrated into a coil.
+   *
+   * Michael, 2026-08-31: "CVs in Equipment should have the same treatment as
+   * external." So both get the same two dropdowns and the same locked
+   * coefficient, and there is one implementation rather than two that drift.
+   *
+   *   TYPE   Control Valve, or PICV. PICV is listed so it reads as coming
+   *          rather than missing; it is not implemented and selecting it does
+   *          not change the calculation, which the panel says plainly.
+   *   DN     a plain nominal size. The coefficient is NOT in the list — one
+   *          size means one Kv in this range, so putting it in the option text
+   *          only made the list harder to read.
+   *
+   * `host` is the section to build into, `v` the object carrying `kv`, `cvType`
+   * and `cvDN` (a valve's `p.valve`, or an equipment's `p.equip.icv`), and
+   * `onChange` is called after any edit. Returns whether the coefficient is
+   * locked, so the caller can disable its own Kv field. */
+  function cvSelectionFields(host, v, onChange) {
+    if (!FD.controlValves) return false;
+    var CVD = FD.controlValves;
+    var typeKey = (v.cvType === 'picv') ? 'picv' : 'cv';
+    var dn = (v.cvDN !== undefined && v.cvDN !== null) ? Number(v.cvDN) : null;
+    var entry = (dn !== null) ? CVD.bySize(dn) : null;
+
+    var tSel = el('select');
+    CVD.types.forEach(function (t) {
+      var o = el('option', '', t.name); o.value = t.key;
+      if (t.key === typeKey) o.selected = true;
+      tSel.appendChild(o);
+    });
+    field(host, 'Type', tSel);
+    tSel.addEventListener('change', function () {
+      pushUndo();
+      if (tSel.value === 'cv') delete v.cvType; else v.cvType = tSel.value;
+      onChange();
+    });
+
+    var dSel = el('select');
+    var manOpt = el('option', '', 'Manual'); manOpt.value = '';
+    if (!entry) manOpt.selected = true;
+    dSel.appendChild(manOpt);
+    CVD.sizes.forEach(function (e2) {
+      var o = el('option', '', 'DN' + e2.dn); o.value = String(e2.dn);
+      if (entry && e2.dn === entry.dn) o.selected = true;
+      dSel.appendChild(o);
+    });
+    field(host, 'DN', dSel);
+    dSel.addEventListener('change', function () {
+      pushUndo();
+      if (dSel.value === '') {
+        delete v.cvDN;                     // Manual: keep the Kv it already has
+      } else {
+        var e3 = CVD.bySize(Number(dSel.value));
+        if (e3) { v.cvDN = e3.dn; v.kv = e3.kvs; }
+      }
+      onChange();
+    });
+
+    /* NOT IMPLEMENTED MEANS NOT IMPLEMENTED, and the panel must not let that
+     * pass silently — a PICV that is quietly solved as an ordinary control
+     * valve would give a confidently wrong answer. */
+    if (typeKey === 'picv') {
+      host.appendChild(el('p', 'hint',
+        'Pressure independent valves are not modelled yet. This is solved as ' +
+        'an ordinary control valve.'));
+    }
+    return !!entry;
+  }
+
   function renderValveProps(host, p) {
     var m = app.model, d = m.settings.display;
     var v = p.valve;
@@ -5885,50 +5974,12 @@
      *
      * CONTROL VALVES ONLY. A PICV is a control valve; an isolation valve is
      * not one, and offering it a PICV selection would say it was. */
-    /* THE SELECTION IS A SIZE AND A COEFFICIENT TOGETHER, because a nominal size
-     * does not determine one. A DN50 body is sold with Kvs 25, 40, 58 and 70 —
-     * different valves in the same pipe — so the stored selection carries both
-     * and the list offers every one. */
-    var cvDN = (isControl && v.cvDN !== undefined && v.cvDN !== null)
-      ? Number(v.cvDN) : null;
-    var cvEntry = (FD.controlValves && cvDN !== null)
-      ? FD.controlValves.find(cvDN, v.kv) : null;
-    var locked = !!cvEntry;
-
-    if (isControl && FD.controlValves) {
-      var szSel = el('select');
-      var manOpt = el('option', '', 'Manual'); manOpt.value = '';
-      if (!cvEntry) manOpt.selected = true;
-      szSel.appendChild(manOpt);
-      FD.controlValves.sizes.forEach(function (e2) {
-        var o = el('option', '', 'DN' + e2.dn + '  —  Kv ' + e2.kvs);
-        o.value = e2.dn + ':' + e2.kvs;
-        if (cvEntry && e2.dn === cvEntry.dn && e2.kvs === cvEntry.kvs) {
-          o.selected = true;
-        }
-        szSel.appendChild(o);
-      });
-      field(des.box, 'CV size', szSel);
-      infoMark(fieldLabel(szSel),
-               'Selecting a valve writes its published Kv and locks the box. ' +
-               'Manual unlocks it. A size can offer several coefficients — ' +
-               'they are different valves in the same pipe.');
-      szSel.addEventListener('change', function () {
-        pushUndo();
-        if (szSel.value === '') {
-          delete v.cvDN;                   // Manual: keep the Kv it already has
-        } else {
-          var parts = szSel.value.split(':');
-          var e3 = FD.controlValves.find(Number(parts[0]), Number(parts[1]));
-          if (e3) { v.cvDN = e3.dn; v.kv = e3.kvs; }
-        }
-        renderProperties(); changed();
-      });
-      if (cvEntry) {
-        des.ro('Body', cvEntry.body === 'threaded' ? 'Threaded' : 'Flanged');
-        des.ro('Rating', 'PN ' + cvEntry.pn);
-      }
-    }
+    /* Type and DN, exactly as an integrated valve gets them. */
+    var locked = isControl ? cvSelectionFields(des.box, v, function () {
+      renderProperties(); changed();
+    }) : false;
+    var cvEntry = (isControl && v.cvDN !== undefined && v.cvDN !== null)
+      ? FD.controlValves.bySize(Number(v.cvDN)) : null;
 
     var coefIn = el('input'); coefIn.type = 'text';
     coefIn.value = useCv ? FD.valves.kvToCv(v.kv).toFixed(1) : String(v.kv);
@@ -5950,8 +6001,6 @@
        * selection immediately contradicts. */
       coefIn.disabled = true;
       coefIn.parentNode.classList.add('is-disabled');
-      coefIn.parentNode.appendChild(el('span', 'hint',
-        'Set by the selected CV size. Choose Manual to enter it yourself.'));
     }
 
     /* The bore default is only meaningful when nothing is selected: with a size
@@ -6042,8 +6091,8 @@
      * true — it is what stops a derived figure being used as a selection. */
     if (cvEntry) {
       des.box.appendChild(el('p', 'hint',
-        'Kv is the published figure for a DN' + cvEntry.dn + ' characterised ' +
-        'control valve, equal percentage.'));
+        'Kv is the published figure for a DN' + cvEntry.dn + ' globe valve, ' +
+        'equal percentage. Based on ' + FD.controlValves.range + '.'));
     } else {
       des.box.appendChild(el('p', 'hint',
         'Default Kv values are derived from typical resistance coefficients, not ' +

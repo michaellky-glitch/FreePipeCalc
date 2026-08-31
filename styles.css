@@ -1229,12 +1229,34 @@ a.brand:hover { color: var(--accent); }
  * auto-sized pump. Shown, not hidden, so the panel keeps its shape whichever
  * sizing mode is chosen; greyed and unfocusable so it is clearly not yours to
  * type in. */
-.field input[readonly], .field select[disabled] {
+.field input[readonly], .field input[disabled],
+.field select[disabled], .field textarea[disabled] {
   color: var(--text-mute);
   background: var(--bg);
   border-style: dashed;
   cursor: default;
 }
+
+/* A LOCKED VALUE MUST LOOK LOCKED — Michael, 2026-08-31: "Values that are
+ * locked should be greyed out. See Pumps in Auto for reference. This should
+ * apply to all elements that can be auto sized."
+ *
+ * The rule above used to name `input[readonly]` and `select[disabled]` only.
+ * The pump's auto-sized boxes are READONLY and greyed correctly; everything
+ * added since — an equipment flow and capacity on Auto sizing, a valve Kv held
+ * by a DN selection — was DISABLED instead, which matched no selector and left
+ * a live-looking white box that could not be typed in. `input[disabled]` is now
+ * in the same rule, so the two ways of locking a field look identical.
+ *
+ * The LABEL dims with it. A greyed box under a normal label reads as a fault;
+ * greying both says the whole row is not yours to set. */
+.field.is-disabled label,
+.slider-row.is-disabled label { color: var(--text-mute); }
+.field.is-disabled > .hint { color: var(--text-mute); }
+/* The signed Capacity control is a button and a box in a row, not a `.field`
+ * input, so it needs the same treatment stated separately. */
+.btn-row.is-disabled { opacity: .55; }
+.btn-row.is-disabled .switch { cursor: default; }
 
 /* Sub-heading inside an L3 group — "Holding" over the setpoint list. */
 .kv-head { font-size: 11px; color: var(--text-mute); margin: 8px 0 4px; }
