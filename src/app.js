@@ -5574,7 +5574,7 @@
      *
      * Typing a signed number still works and MOVES THE TOGGLE, because someone
      * who knows the convention should not be fought. */
-    function signedField(key, label, getW, setW, hoverText) {
+    function signedField(key, label, getW, setW, hoverText, locked) {
       var w = getW();
       var has = (w !== undefined && w !== null && w !== '' && isFinite(Number(w)));
       /* THE DIRECTION IS A UI INTENT UNTIL THERE IS A NUMBER.
@@ -5633,6 +5633,17 @@
       });
       row.appendChild(sw);
       row.appendChild(box);
+      /* LOCKED means this number is the solve's answer, not the engineer's
+       * input. Disabled rather than annotated, for the same reason a controlled
+       * valve's position is: leaving it live invites typing a value the next
+       * solve discards. */
+      if (locked) {
+        sw.disabled = true;
+        box.disabled = true;
+        row.classList.add('is-disabled');
+        wrap.appendChild(el('span', 'hint',
+          'Set by the solve on Auto sizing. Switch Sizing to Manual to state it.'));
+      }
       wrap.appendChild(row);
       host.appendChild(wrap);
     }
@@ -5691,10 +5702,17 @@
         renderProperties(); changed();
       });
 
+      /* CAPACITY IS AN OUTPUT ON AUTO — Michael, 2026-08-31: "In Auto mode,
+       * lock out Flow from user editing. Only allow the user to change PD, LWT
+       * & dT." Flow was already locked; the nameplate is the other number that
+       * is not an input on Auto, because Auto MEANS "no nameplate, size it for
+       * me". The Sizing select above is how you leave Auto, so nothing becomes
+       * unreachable — and the answer is read off Required capacity below. */
       signedField('qMax', 'Capacity (kW)',
           function () { return e.qMax; },
           function (w) { M.setEquipTrio(m, p, 'duty', w); },
-          SIGN + ' Blank = Auto: unlimited, and sized by the solve.');
+          SIGN + ' Blank = Auto: unlimited, and sized by the solve.',
+          eAuto);
 
       num('LWT setpoint (°C)', function () { return e.tSet; },
           function (v) { e.tSet = v; },
@@ -7703,7 +7721,10 @@
                  'and what makes a sealed circuit need a pinned reference.');
     host.appendChild(ah);
 
-    h2('Plausibility band');
+    /* TEMPERATURE RANGE, renamed from "Plausibility band" with its explanation
+     * removed — Michael, 2026-08-31. OVERLOAD CAPACITY joins it here because it
+     * is the other bound on what a machine is allowed to do. */
+    h2('Temperature Range');
     var g3 = grid();
     numField(g3, 'Minimum temperature', th.tempMin,
       function (v) { m.settings.thermal.tempMin = v; renderThermal(); redrawAll(); },
@@ -7711,11 +7732,13 @@
     numField(g3, 'Maximum temperature', th.tempMax,
       function (v) { m.settings.thermal.tempMax = v; renderThermal(); redrawAll(); },
       '(°C)');
-    var pb = el('p', 'hint', 'Outside the band is an error, not a printed value. ');
-    infoMark(pb, 'The solve is exact — but a load with nowhere to go settles ' +
-                 'somewhere ridiculous, which is about the design, not the ' +
-                 'arithmetic.');
-    host.appendChild(pb);
+    var ovIn = numField(g3, 'Overload capacity',
+      th.overloadPct === undefined ? 10 : th.overloadPct,
+      function (v) { m.settings.thermal.overloadPct = v; renderThermal(); redrawAll(); },
+      '(%)');
+    infoMark(fieldLabel(ovIn),
+             'How far past its nameplate a machine may run before its duty is ' +
+             'held and it reports. 0 holds it at exactly its rating.');
     if ((th.tempMax || 0) <= 60) {
       host.appendChild(el('p', 'hint', 'Suits chilled water. LTHW at 80 °C ' +
                                        'flow will trip it — raise the maximum.'));

@@ -1057,7 +1057,7 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 <ul>
   <li>If the capacity is blank, the machine is unlimited.</li>
   <li>If the required duty and the signed capacity have opposite signs, the machine cannot work that way. It delivers nothing, and the program reports "Capacity (wrong direction)".</li>
-  <li>If the magnitude of the required duty exceeds |q<sub>max</sub>|, the duty is capped to |q<sub>max</sub>| and the program reports "Capacity".</li>
+  <li>If the magnitude of the required duty exceeds the ceiling below, the duty is capped there and the program reports "Capacity".</li>
 </ul>
 <p>The outlet is T<sub>out</sub> = T<sub>in</sub> + Q<sub>delivered</sub> / (ṁ · C<sub>p</sub>), in the correct direction. The temperature limit (T<sub>limit</sub>) is not applied to a source/sink: whether a leaving temperature is physically achievable is a judgement the engineer makes.</p>
 
@@ -1072,6 +1072,22 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   <li><strong>Design ΔT</strong> (ΔT<sub>max</sub>): if the actual ΔT would exceed the design value, the duty is capped.</li>
   <li><strong>Temperature limit</strong> (T<sub>limit</sub>): the machine cannot take the fluid past this physical limit. The limit is applied on whichever side the machine works from.</li>
 </ul>
+<h4>Overload capacity</h4>
+<p>Plant does not stop dead at its nameplate. A machine may run a stated percentage past it before the duty is held:</p>
+<div class="eq">
+  <span class="lbl">Ceiling</span>
+  |q<sub>max</sub>| &times; (1 + Overload capacity / 100)
+</div>
+<p><strong>Overload capacity</strong> is on the THERMAL tab under Temperature Range, and is 10% by default. Set it to 0 to hold a machine at exactly its rating.</p>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>The pressure drop is not part of this. Equipment resistance is fixed by the rated point, so a machine carrying more than its rated flow pays the square law: 10% more flow costs 21% more head, whatever the capacity is doing.</p>
+</div>
+<div class="note check">
+  <span class="tag">SUGGESTION:</span>
+  <p>A machine is reported only when it is doing more than its nameplate. One held by its Design &Delta;T, or one working inside its rating, is not reported. A machine asked to work in the wrong direction is always reported, because that is a data error rather than an operating condition.</p>
+</div>
+
 <p>There is no capacity limit. The duty <em>is</em> the stated quantity.</p>
 
 <h4>Adiabatic</h4>

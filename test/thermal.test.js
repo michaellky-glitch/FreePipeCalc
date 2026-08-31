@@ -18,6 +18,30 @@ const path = require('path');
 
 const RHO = 998, CP = 4187;
 
+/* ==================================================================
+ * THIS FILE TESTS THE HARD CAPACITY CLAMP, and it predates the Overload
+ * Capacity allowance added on 2026-08-31 (THERMAL tab, default 10%).
+ *
+ * Every capacity expectation below is an independent hand calculation against a
+ * machine held at EXACTLY its nameplate — "rated 100 kW, asked for more, does
+ * 100 kW". Those calculations are still correct and still worth keeping; what
+ * changed is that the ceiling is now nameplate x (1 + allowance), so with the
+ * default they would each be out by precisely 1.10.
+ *
+ * Rather than renumber 27 hand calculations into figures read back out of the
+ * code, every model built in this file is pinned at ZERO allowance, which is
+ * the exact behaviour they were written against. The allowance has its own
+ * section at the end of the file, where it is opted back in deliberately.
+ * ================================================================== */
+const NO_OVERLOAD = m => {
+  if (m && m.settings && m.settings.thermal) m.settings.thermal.overloadPct = 0;
+  return m;
+};
+const _create = M.create.bind(M);
+M.create = function () { return NO_OVERLOAD(_create.apply(null, arguments)); };
+const _fromJSON = M.fromJSON.bind(M);
+M.fromJSON = function () { return NO_OVERLOAD(_fromJSON.apply(null, arguments)); };
+
 /* A straight run: source -> pipe -> [device] -> pipe -> outflow. */
 function line(opts) {
   opts = opts || {};
@@ -182,7 +206,8 @@ section('Equipment: dT and dQ are the same equation read two ways');
   function withEquip(equip, flow) {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: 6, insulationK: 0.02,
-                           surfaceCoeff: 8, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 8, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0);
     const j = M.addNode(m, lv, 1, 0);
@@ -268,7 +293,8 @@ section('Mixing at a junction');
    * whatever the split turns out to be. */
   const m = M.create();
   m.settings.thermal = { ambient: 20, supplyTemp: 6, insulationK: 0.02,
-                         surfaceCoeff: 8, tempMin: -100, tempMax: 200 };
+                         surfaceCoeff: 8, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
   const lv = m.levels[0].id;
   const hot = M.addNode(m, lv, 0, 10);
   const cold = M.addNode(m, lv, 0, -10);
@@ -319,7 +345,8 @@ section('A closed circuit pins its own reference temperature');
    * temperature floats, so one node is pinned and it is reported. */
   const m = M.create();
   m.settings.thermal = { ambient: 20, supplyTemp: 6, insulationK: 0.02,
-                         surfaceCoeff: 8, tempMin: -100, tempMax: 200 };
+                         surfaceCoeff: 8, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
   const lv = m.levels[0].id;
   const n = [];
   for (let i = 0; i < 4; i++) n.push(M.addNode(m, lv, i * 10, 0));
@@ -366,7 +393,8 @@ section('Pumps and valves pass temperature straight through');
 {
   const m = M.create();
   m.settings.thermal = { ambient: 20, supplyTemp: 6, insulationK: 0.02,
-                         surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                         surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
   const lv = m.levels[0].id;
   const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
   const c = M.addNode(m, lv, 2, 0), d = M.addNode(m, lv, 3, 0);
@@ -544,7 +572,8 @@ section('A 100 kW load with no heat rejection finds its own equilibrium');
     const m = M.create();
     m.settings.thermal = { ambient: ambient, supplyTemp: 6,
                            insulationK: 0.02, surfaceCoeff: 8,
-                           tempMin: -100, tempMax: 500 };
+                           tempMin: -100, tempMax: 500,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0);
     const b = M.addNode(m, lv, 2, 0);
@@ -716,7 +745,8 @@ section('Temperatures outside the plausible band are an error');
    * it is adjustable. Recorded rather than left to be discovered. */
   const lthw = M.create();
   lthw.settings.thermal = { ambient: 20, supplyTemp: 80, insulationK: 0.02,
-                            surfaceCoeff: 8 };
+                            surfaceCoeff: 8,
+                           overloadPct: 0 };
   const lv2 = lthw.levels[0].id;
   const s1 = M.addNode(lthw, lv2, 0, 0), s2 = M.addNode(lthw, lv2, 30, 0);
   M.setSource(lthw, s1.id, 400e3); s1.device.temperature = 80;
@@ -761,7 +791,8 @@ section('Source / Sink holds a setpoint until a limit binds');
   function plant(equip, flow, inletT) {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: inletT, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0), j = M.addNode(m, lv, 1, 0);
     const k = M.addNode(m, lv, 2, 0), b = M.addNode(m, lv, 3, 0);
@@ -876,7 +907,8 @@ section('Source / Sink holds a setpoint until a limit binds');
      * in disguise, which is a stated condition rather than a judgement. */
     const m2 = M.create();
     m2.settings.thermal = { ambient: 20, supplyTemp: 30, insulationK: 0.02,
-                            surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                            surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m2.levels[0].id;
     const a = M.addNode(m2, lv, 0, 0), j = M.addNode(m2, lv, 1, 0);
     const k = M.addNode(m2, lv, 2, 0), b = M.addNode(m2, lv, 3, 0);
@@ -954,7 +986,8 @@ section('Source / Sink holds a setpoint until a limit binds');
   {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: 30, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const n = [];
     for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i, 0));
@@ -1027,7 +1060,8 @@ section('Design ΔT is a design point, not a limit');
   function chiller(flow, inletT) {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: inletT, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0), j = M.addNode(m, lv, 1, 0);
     const k = M.addNode(m, lv, 2, 0), b = M.addNode(m, lv, 3, 0);
@@ -1131,7 +1165,8 @@ section('Required capacity: the duty a machine needs, reported');
   function plant2(equip, flow, inletT) {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: inletT, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0), j = M.addNode(m, lv, 1, 0);
     const k = M.addNode(m, lv, 2, 0), b = M.addNode(m, lv, 3, 0);
@@ -1237,7 +1272,8 @@ section('Variable-speed control: a pump ramps DOWN to hold a setpoint');
     m.settings.calcMode = opts.mode || 'simulation';
     /* Adiabatic pipework: the machine is the only thermal element. */
     m.settings.thermal = { ambient: 18, supplyTemp: 30, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
     const c = M.addNode(m, lv, 2, 0), d = M.addNode(m, lv, 3, 0);
@@ -1520,7 +1556,8 @@ section('Pipe sensor: thermostatic mixing');
     const m = M.create();
     m.settings.calcMode = 'simulation';
     m.settings.thermal = { ambient: 20, supplyTemp: 45, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const h = M.addNode(m, lv, 0, 2), c = M.addNode(m, lv, 0, -2);
     const hv = M.addNode(m, lv, 2, 2), cv = M.addNode(m, lv, 2, -2);
@@ -1767,7 +1804,8 @@ section('Control authority: a setpoint nothing can move is not being held');
     const m = M.create();
     m.settings.calcMode = 'simulation';
     m.settings.thermal = { ambient: 20, supplyTemp: 20, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const n = [];
     for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 2, 0));
@@ -1888,7 +1926,8 @@ section('Adiabatic equipment: pressure drop, no thermal side');
   function rig(type) {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: 30, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0), j = M.addNode(m, lv, 1, 0);
     const k = M.addNode(m, lv, 2, 0), b = M.addNode(m, lv, 3, 0);
@@ -1974,7 +2013,8 @@ section('A dead leg takes the temperature of the water it is connected to');
   function rig(seedTemp) {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: seedTemp, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0), tee = M.addNode(m, lv, 4, 0);
     const out = M.addNode(m, lv, 8, 0);
@@ -2014,7 +2054,8 @@ section('A dead leg takes the temperature of the water it is connected to');
   {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: 33, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 4, 0);
     const c = M.addNode(m, lv, 8, 0);
@@ -2050,7 +2091,8 @@ section('Pressure and differential sensors');
     const m = M.create();
     m.settings.calcMode = 'simulation';
     m.settings.thermal = { ambient: 20, supplyTemp: 20, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const n = [];
     for (let i = 0; i < 7; i++) n.push(M.addNode(m, lv, i * 2, 0));
@@ -2240,7 +2282,8 @@ section('The heat balance closes, sealed or open');
   {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: 10, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0), j = M.addNode(m, lv, 1, 0);
     const k = M.addNode(m, lv, 2, 0), b = M.addNode(m, lv, 3, 0);
@@ -2272,7 +2315,8 @@ section('The heat balance closes, sealed or open');
   {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: 11, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const n = [];
     for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 2, 0));
@@ -2318,7 +2362,8 @@ section('The heat balance closes, sealed or open');
   {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: 11, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const n = [];
     for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 2, 0));
@@ -2366,7 +2411,8 @@ section('The heat balance closes, sealed or open');
   {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: 6, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const n = [];
     for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 2, 0));
@@ -2398,7 +2444,8 @@ section('The heat balance closes, sealed or open');
     const m = M.create();
     m.settings.warn.heatBalance = 0;
     m.settings.thermal = { ambient: 20, supplyTemp: 11, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const n = [];
     for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 2, 0));
@@ -2424,7 +2471,8 @@ section('The heat balance closes, sealed or open');
   {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: 6, insulationK: 0.02,
-                           surfaceCoeff: 8, tempMin: -100, tempMax: 500 };
+                           surfaceCoeff: 8, tempMin: -100, tempMax: 500,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const n = [];
     for (let i = 0; i < 4; i++) n.push(M.addNode(m, lv, i * 20, 0));
@@ -2469,7 +2517,8 @@ section('A fill on a dead leg absorbs nothing; one in the return line does');
   function circuit(where, cap) {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: 11, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const n = [];
     for (let i = 0; i < 6; i++) n.push(M.addNode(m, lv, i * 3, 0));
@@ -2562,7 +2611,8 @@ section('A fill on a dead leg absorbs nothing; one in the return line does');
   {
     const m = M.create();
     m.settings.thermal = { ambient: 20, supplyTemp: 11, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     const lv = m.levels[0].id;
     const n = [];
     for (let i = 0; i < 4; i++) n.push(M.addNode(m, lv, i * 3, 0));
@@ -2785,7 +2835,8 @@ section('A source teed into a live main mixes with it');
    * Adiabatic pipework throughout, so nothing else can move a temperature. */
   const m = M.create();
   m.settings.thermal = { ambient: 20, supplyTemp: 60, insulationK: 0.02,
-                         surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                         surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
   const lv = m.levels[0].id;
   const hot = M.addNode(m, lv, 0, 0);
   const mid = M.addNode(m, lv, 1, 0);
@@ -2839,7 +2890,8 @@ section('A source at the end of a branch is unchanged');
    * workaround worked and why this must not move. */
   const m = M.create();
   m.settings.thermal = { ambient: 20, supplyTemp: 60, insulationK: 0.02,
-                         surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                         surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
   const lv = m.levels[0].id;
   const s = M.addNode(m, lv, 0, 0);
   const j = M.addNode(m, lv, 0, 5);
@@ -3191,7 +3243,8 @@ section('A mixing circuit: the response falls, then rises');
     /* Adiabatic pipework: the two machines and the coil are the only thermal
      * elements, so every number below is a hand calculation. */
     m.settings.thermal = { ambient: 20, supplyTemp: 30, insulationK: 0.02,
-                           surfaceCoeff: 0, tempMin: -100, tempMax: 200 };
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
     m.settings.control = { minSpeed: 0.25, minOpening: 10, tol: 0.05, maxSolves: 0 };
     const lv = m.levels[0].id;
     const N = (x, y) => M.addNode(m, lv, x, y);
@@ -4158,6 +4211,162 @@ section('Required capacity is not inflated by the runaway it causes');
   ok('...and a second solve gives the same answer',
      Math.abs(NET.solveModel(small.m).thermal.links[small.ch.id].qNeed - th.qNeed) < 1,
      'not idempotent');
+}
+
+/* ==================================================================
+ * OVERLOAD CAPACITY — how far past its nameplate a machine may run.
+ *
+ * Michael, 2026-08-31: "Add a setting in Thermal under Temperature Range called
+ * 'Overload Capacity' %. This is how much over capacity an equipment can run.
+ * Default 10%... Only show warnings for equipment that is over capacity."
+ *
+ * The rest of this file is pinned at zero allowance (see the shim at the top),
+ * which is the old hard clamp. This section opts back in and states the
+ * allowance on every rig, so each expectation is a hand calculation against a
+ * stated number rather than against whatever the default happens to be.
+ * ================================================================== */
+section('Overload capacity');
+{
+  function plant(pct, qMax) {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: 18, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: pct };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), j = M.addNode(m, lv, 1, 0);
+    const k = M.addNode(m, lv, 2, 0), b = M.addNode(m, lv, 3, 0);
+    M.setSource(m, a.id, 600e3); a.device.temperature = 18;
+    b.device = { kind: 'demand', flow: 0.005, reqPressure: 100e3, include: true };
+    M.addPipe(m, a.id, j.id, { size: 'DN50', schedule: 'sch40' });
+    const e = M.addPipe(m, j.id, k.id, { kind: 'equip' });
+    e.equip = { qRated: 0.005, pdRated: 20e3, equipType: 'source',
+                tSet: 6, qMax: qMax };
+    M.addPipe(m, k.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(p => { if (p.kind !== 'equip') p.insulation_mm = 0; });
+    return { m, e };
+  }
+  /* The same rig the clamp section uses: 0.005 m3/s of water is
+   * C = 998 x 0.005 x 4187 = 20893.13 W/K, and an 18 C inlet asked for 6 C
+   * wants 12 x 20893.13 = 250.72 kW. A 100 kW machine is therefore well short
+   * and sits on whatever ceiling it is given. */
+  const C = RHO * 0.005 * CP;
+
+  /* ZERO IS THE OLD BEHAVIOUR, EXACTLY. */
+  {
+    const t = plant(0, -100000);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('at 0% the machine is held at its nameplate', l.qW, -100000, 1e-6);
+    ok('...and reports the capacity limit', l.limit === 'Capacity', String(l.limit));
+  }
+
+  /* TEN PER CENT LETS IT DO 110 kW, and the leaving temperature follows:
+   * 18 - 110000/20893.13 = 12.735 C. */
+  {
+    const t = plant(10, -100000);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('at 10% it may do 110 kW', l.qW, -110000, 1e-6);
+    near('...and the leaving temperature follows', l.tOut, 18 - 110000 / C, 1e-9);
+    near('...which is 12.735 C', l.tOut, 12.7351, 1e-3);
+    ok('...still reporting the capacity limit', l.limit === 'Capacity', String(l.limit));
+  }
+
+  /* THE ALLOWANCE IS A PLAIN PERCENTAGE, so 25% is 125 kW. */
+  {
+    const t = plant(25, -100000);
+    near('at 25% it may do 125 kW',
+         NET.solveModel(t.m).thermal.links[t.e.id].qW, -125000, 1e-6);
+  }
+
+  /* A NEGATIVE ENTRY MUST NOT DERATE THE MACHINE — the field says how far OVER
+   * it may run, so the floor is zero and not a silent reduction. */
+  {
+    const t = plant(-40, -100000);
+    near('a negative allowance is floored at zero, not a derate',
+         NET.solveModel(t.m).thermal.links[t.e.id].qW, -100000, 1e-6);
+  }
+
+  /* A MACHINE INSIDE ITS RATING IS UNAFFECTED. 300 kW of capacity against a
+   * 250.72 kW demand: it reaches setpoint and nothing binds, whatever the
+   * allowance says. */
+  {
+    const t = plant(10, -300000);
+    const l = NET.solveModel(t.m).thermal.links[t.e.id];
+    near('a machine inside its rating still reaches setpoint', l.tOut, 6, 1e-9);
+    ok('...and nothing limits it', !l.limit, String(l.limit));
+  }
+
+  /* ---- THE WARNING IS ONLY FOR WHAT IS OVER CAPACITY ------------------- */
+  const codes = r => (r.warnings || []).filter(w => w.code === 'EQUIP_LIMITED');
+
+  {
+    /* Over its nameplate: 110 kW against 100 kW, so it is reported, and the
+     * message quotes the percentage rather than naming a constraint. */
+    const t = plant(10, -100000);
+    const r = NET.solveModel(t.m);
+    const w = codes(r);
+    ok('a machine over its nameplate is reported', w.length === 1,
+       JSON.stringify((r.warnings || []).map(x => x.code)));
+    near('...and the message quotes 110%', w[0].pct, 110, 1e-6);
+    ok('...in words', /110\.0% of its capacity/.test(w[0].message), w[0].message);
+  }
+
+  {
+    /* HELD BY DESIGN ΔT, NOT BY CAPACITY. An EXCHANGER states its load and is
+     * limited by its Design ΔT — a source/sink is not, because for a source the
+     * only constraints are its capacity, its direction and a physical
+     * temperature limit. So the exchanger is the honest case here: genuinely
+     * constrained, carrying no nameplate to be over, and therefore silent.
+     * This is the case that used to warn alongside a chiller out of capacity. */
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, supplyTemp: 18, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 10 };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), j = M.addNode(m, lv, 1, 0);
+    const k = M.addNode(m, lv, 2, 0), b = M.addNode(m, lv, 3, 0);
+    M.setSource(m, a.id, 600e3); a.device.temperature = 18;
+    b.device = { kind: 'demand', flow: 0.005, reqPressure: 100e3, include: true };
+    M.addPipe(m, a.id, j.id, { size: 'DN50', schedule: 'sch40' });
+    const e = M.addPipe(m, j.id, k.id, { kind: 'equip' });
+    /* 250 kW of load across 20893 W/K is 12 K, held down to 2 K. */
+    e.equip = { qRated: 0.005, pdRated: 20e3, equipType: 'exchanger',
+                duty: -250000, dTMax: 2 };
+    M.addPipe(m, k.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(p => { if (p.kind !== 'equip') p.insulation_mm = 0; });
+
+    const r = NET.solveModel(m);
+    const l = r.thermal.links[e.id];
+    ok('the ΔT limit really is what binds', l.limit === 'Design ΔT', String(l.limit));
+    near('...so it works across 2 K, not 12', l.dT, -2, 1e-9);
+    ok('...so nothing is reported', codes(r).length === 0,
+       JSON.stringify(codes(r).map(x => x.message)));
+  }
+
+  {
+    /* A CHILLER ASKED TO HEAT is a data error, not an operating condition, so
+     * it is reported whatever its duty. */
+    const t = plant(10, 100000);           // positive capacity, cooling demand
+    const r = NET.solveModel(t.m);
+    const l = r.thermal.links[t.e.id];
+    ok('a machine asked to work the wrong way is still reported',
+       l.limit === 'Capacity (wrong direction)' &&
+       codes(r).some(w => /wrong direction/.test(w.message)),
+       String(l.limit) + ' / ' + JSON.stringify(codes(r).map(x => x.message)));
+  }
+
+  /* ---- AND THE PRESSURE DROP FOLLOWS THE SQUARE LAW -------------------
+   * Michael: "When HSS goes over capacity, the PD increases as expected with K
+   * factor." Equipment resistance is r = dP_rated / (rho g Q_rated^2), so the
+   * loss is r Q^2 and a machine carrying more than its rated flow pays the
+   * square. This is the K-factor behaviour, checked at the ratio he means. */
+  {
+    const rr = FD.hydraulics.equipmentR(20000, 0.005, RHO);
+    const at100 = rr * 0.005 * 0.005;
+    const at110 = rr * 0.0055 * 0.0055;
+    near('10% more flow costs 21% more head', at110 / at100, 1.21, 1e-12);
+    near('...and at rated flow the loss is the rated drop',
+         at100 * RHO * 9.81, 20000, 1e-6);
+  }
 }
 
 

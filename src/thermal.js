@@ -123,7 +123,12 @@
       h: (t.surfaceCoeff === 0 || t.surfaceCoeff > 0) ? t.surfaceCoeff : 8,
       supply: t.supplyTemp !== undefined ? t.supplyTemp : 6,
       tMin: t.tempMin !== undefined ? t.tempMin : -50,
-      tMax: t.tempMax !== undefined ? t.tempMax : 50
+      tMax: t.tempMax !== undefined ? t.tempMax : 50,
+      /* The overload allowance as a FACTOR, so the clamp is a multiplication.
+       * Floored at zero per cent: a negative entry would silently DERATE the
+       * machine, which is not what the field says it does. */
+      overload: 1 + Math.max(0, (t.overloadPct !== undefined
+                                   ? Number(t.overloadPct) : 10)) / 100
     };
   }
 
@@ -329,7 +334,7 @@
     return C * (set - tIn);
   }
 
-  function equipOutlet(e, tIn, C) {
+  function equipOutlet(e, tIn, C, overload) {
     var lim = null;
 
     /* ADIABATIC — a filter, a strainer, a flow meter. Real pipework with a real
@@ -396,13 +401,24 @@
        * Older files that carry a positive capacity on a cooling machine will
        * hit that branch rather than cooling silently at the wrong sign — see
        * KNOWN-ISSUES. */
+      /* THE MACHINE MAY RUN PAST ITS NAMEPLATE, by the Overload Capacity set on
+       * the THERMAL tab (Michael, 2026-08-31: "This is how much over capacity
+       * an equipment can run. Default 10%").
+       *
+       * A hard clamp at exactly 100% was never how plant behaves. A chiller
+       * asked for 103% of its rating delivers it and runs a little harder; the
+       * ceiling that matters is the one it genuinely cannot pass. So the clamp
+       * moves to capacity x the allowance. An allowance of zero restores the
+       * old behaviour exactly. */
       var qCap = capacityOf(e);
       if (isFinite(qCap) && qCap !== 0 && C > 0) {
+        var over = (isFinite(overload) && overload >= 1) ? overload : 1;
+        var ceiling = Math.abs(qCap) * over;
         if (got !== 0 && (got > 0) !== (qCap > 0)) {
           got = 0;
           lim = 'Capacity (wrong direction)';
-        } else if (Math.abs(got * C) > Math.abs(qCap)) {
-          got = (got < 0 ? -1 : 1) * Math.abs(qCap) / C;
+        } else if (Math.abs(got * C) > ceiling) {
+          got = (got < 0 ? -1 : 1) * ceiling / C;
           lim = 'Capacity';
         }
       }
@@ -502,7 +518,7 @@
       }
       if (p.kind === 'equip' && p.equip && !p.equip.off &&
           p.equip.equipType !== 'adiabatic') {
-        return equipOutlet(p.equip, tIn, c.C).tOut;
+        return equipOutlet(p.equip, tIn, c.C, prm.overload).tOut;
       }
       /* Pumps, valves, SENSORS, isolated equipment: straight through. A
        * thermometer that changed the reading would not be one. */
@@ -721,7 +737,7 @@
         if (p.equip.equipType === 'adiabatic') return;
         var e = p.equip;
         var tIn = T[c.from];
-        var r2 = equipOutlet(e, tIn, c.C);
+        var r2 = equipOutlet(e, tIn, c.C, prm.overload);
         c.activeDT = r2.tOut - tIn;
         c.limit = r2.limit;
         if (e.equipType === 'source') {
@@ -838,7 +854,22 @@
         limit: (c.limit === undefined ? null : c.limit)
       };
       if (c.limit) {
-        limited.push({ pipe: c.pipe.id, tag: c.pipe.tag || null, limit: c.limit });
+        /* IS IT ACTUALLY PAST ITS NAMEPLATE? Michael, 2026-08-31: "Only show
+         * warnings for equipment that is over capacity." With an overload
+         * allowance a machine can be capacity-limited at 110% of its rating —
+         * that is worth saying — while a machine held by its Design ΔT or by a
+         * physical temperature limit is not over capacity at all and should not
+         * be reported as though it were.
+         *
+         * Measured against the NAMEPLATE, not against the overload ceiling, so
+         * the test is "is it doing more than it is rated for", which is the
+         * question the engineer asked. */
+        var nameplate = Math.abs(capacityOf(c.pipe.equip || {}) || 0);
+        limited.push({
+          pipe: c.pipe.id, tag: c.pipe.tag || null, limit: c.limit,
+          over: nameplate > 0 && Math.abs(qW) > nameplate * (1 + 1e-9),
+          pct: nameplate > 0 ? Math.abs(qW) / nameplate * 100 : null
+        });
       }
       if (c.pipe.kind === 'pipe' || c.pipe.kind === 'riser') pipeLoss += qW;
       else if (c.pipe.kind === 'equip') equipDuty += qW;
@@ -933,11 +964,28 @@
      * conditional on a system that cannot exist. The band is adjustable: what
      * counts as absurd depends on the service, and the default ±50 °C suits
      * chilled water rather than LTHW. */
+    /* ONLY WHAT IS OVER CAPACITY — Michael, 2026-08-31.
+     *
+     * Every binding constraint used to raise this, so a plant sitting inside
+     * its rating and merely held by its Design ΔT reported alongside a chiller
+     * genuinely out of capacity. They are not the same news. A machine is
+     * reported when it is doing MORE than its nameplate, and the message says
+     * by how much. 'Capacity (wrong direction)' is kept whatever the duty,
+     * because that one is a data error rather than an operating condition. */
     limited.forEach(function (L) {
+      if (L.limit === 'Capacity (wrong direction)') {
+        warnings.push({
+          code: 'EQUIP_LIMITED', pipe: L.pipe, limit: L.limit,
+          message: (L.tag || L.pipe) + ' is limited by ' + L.limit +
+                   ' and is not reaching its setpoint.'
+        });
+        return;
+      }
+      if (!L.over) return;
       warnings.push({
-        code: 'EQUIP_LIMITED', pipe: L.pipe, limit: L.limit,
-        message: (L.tag || L.pipe) + ' is limited by ' + L.limit +
-                 ' and is not reaching its setpoint.'
+        code: 'EQUIP_LIMITED', pipe: L.pipe, limit: L.limit, pct: L.pct,
+        message: (L.tag || L.pipe) + ' is running at ' + L.pct.toFixed(1) +
+                 '% of its capacity and is not reaching its setpoint.'
       });
     });
 
@@ -1005,7 +1053,7 @@
         message: 'Temperature at ' + worst.node + ' solves to ' +
                  worst.t.toFixed(1) + ' °C, outside the limits set in THERMAL. ' +
                  'Check the heat balance of the system, or widen the ' +
-                 'plausibility band in the THERMAL tab if correct.'
+                 'temperature range in the THERMAL tab if correct.'
       });
     }
 

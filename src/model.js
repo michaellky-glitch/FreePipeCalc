@@ -111,7 +111,13 @@
          * an LTHW circuit at 80 °C flow needs tempMax raised, and the fields
          * are on the THERMAL tab for exactly that. */
         tempMin: -50,                  // °C
-        tempMax: 50                    // °C
+        tempMax: 50,                   // °C
+        /* HOW FAR PAST ITS NAMEPLATE A MACHINE MAY RUN, per cent (Michael,
+         * 2026-08-31). A chiller does not stop dead at 100% of its rating; it
+         * carries a margin and runs into it. Below this the machine is doing
+         * its job and says nothing; above it the duty is clamped and it
+         * reports. Zero restores the old hard clamp exactly. */
+        overloadPct: 10                // %
       },
 
       /* Setpoint control — how far a linked pump or globe valve is allowed to
