@@ -1085,7 +1085,11 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 <div class="note check">
   <span class="tag">SUGGESTION:</span>
-  <p>A machine is reported only when it is doing more than its nameplate. One held by its Design &Delta;T, or one working inside its rating, is not reported. A machine asked to work in the wrong direction is always reported, because that is a data error rather than an operating condition.</p>
+  <p>Two different things are reported, and only for capacity. A machine over its nameplate that is still holding its setpoint is <strong>overloaded</strong> — the allowance in use, and the machine is named with its percentage. A machine pinned at the ceiling and still short of its setpoint is <strong>limited</strong>, which is a failure. A machine held by its Design &Delta;T, or working inside its rating, is not reported at all. A machine asked to work in the wrong direction is always reported, because that is a data error rather than an operating condition.</p>
+</div>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>This matters most on a plant of several machines sharing one loop. When they are near full load, a fraction of a per cent of difference in the flow each receives is enough to put one of them over while the others sit under. Treating the capacity as a hard wall made that one machine clamp, which dragged the loop temperature up until the rest clamped too. The allowance lets it carry the small excess, and the report names the single machine that is doing so.</p>
 </div>
 
 <p>There is no capacity limit. The duty <em>is</em> the stated quantity.</p>

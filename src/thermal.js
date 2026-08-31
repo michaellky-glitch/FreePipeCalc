@@ -853,22 +853,29 @@
          * Design ΔT" beats an unexplained leaving temperature. */
         limit: (c.limit === undefined ? null : c.limit)
       };
-      if (c.limit) {
-        /* IS IT ACTUALLY PAST ITS NAMEPLATE? Michael, 2026-08-31: "Only show
-         * warnings for equipment that is over capacity." With an overload
-         * allowance a machine can be capacity-limited at 110% of its rating —
-         * that is worth saying — while a machine held by its Design ΔT or by a
-         * physical temperature limit is not over capacity at all and should not
-         * be reported as though it were.
-         *
-         * Measured against the NAMEPLATE, not against the overload ceiling, so
-         * the test is "is it doing more than it is rated for", which is the
-         * question the engineer asked. */
-        var nameplate = Math.abs(capacityOf(c.pipe.equip || {}) || 0);
+      /* TWO DIFFERENT PIECES OF NEWS ABOUT A MACHINE, and they are not the
+       * same one (Michael, 2026-08-31).
+       *
+       *   OVERLOADING  it is doing MORE than its nameplate and coping. The
+       *                setpoint is held. This is the condition the overload
+       *                allowance exists to permit, and he wants the specific
+       *                machine named: "I would still rather the warning is
+       *                triggered for that specific equipment that is
+       *                overloading."
+       *   LIMITED      it is pinned at its ceiling and STILL short of setpoint.
+       *                That is a failure, not a margin, and it must be reported
+       *                whether or not the ceiling happens to sit above the
+       *                nameplate — with a zero allowance it sits exactly ON it.
+       *
+       * Measured against the NAMEPLATE, never against the ceiling, because "is
+       * it doing more than it is rated for" is the question being asked. */
+      var nameplate = Math.abs(capacityOf(c.pipe.equip || {}) || 0);
+      var overBy = nameplate > 0 ? Math.abs(qW) / nameplate * 100 : null;
+      if (c.limit || (overBy !== null && overBy > 100 + 1e-9)) {
         limited.push({
-          pipe: c.pipe.id, tag: c.pipe.tag || null, limit: c.limit,
-          over: nameplate > 0 && Math.abs(qW) > nameplate * (1 + 1e-9),
-          pct: nameplate > 0 ? Math.abs(qW) / nameplate * 100 : null
+          pipe: c.pipe.id, tag: c.pipe.tag || null, limit: c.limit || null,
+          over: overBy !== null && overBy > 100 + 1e-9,
+          pct: overBy
         });
       }
       if (c.pipe.kind === 'pipe' || c.pipe.kind === 'riser') pipeLoss += qW;
@@ -964,29 +971,35 @@
      * conditional on a system that cannot exist. The band is adjustable: what
      * counts as absurd depends on the service, and the default ±50 °C suits
      * chilled water rather than LTHW. */
-    /* ONLY WHAT IS OVER CAPACITY — Michael, 2026-08-31.
-     *
-     * Every binding constraint used to raise this, so a plant sitting inside
-     * its rating and merely held by its Design ΔT reported alongside a chiller
-     * genuinely out of capacity. They are not the same news. A machine is
-     * reported when it is doing MORE than its nameplate, and the message says
-     * by how much. 'Capacity (wrong direction)' is kept whatever the duty,
-     * because that one is a data error rather than an operating condition. */
+    /* CAPACITY CONDITIONS ONLY — Michael, 2026-08-31: "Only show warnings for
+     * equipment that is over capacity." A machine held by its Design ΔT or by a
+     * physical temperature limit is constrained but is not out of capacity, and
+     * used to be reported alongside a chiller that genuinely was. It no longer
+     * is. Each machine is named individually: this is a per-equipment fact, and
+     * on a plant of several the one that matters is the one that is short. */
     limited.forEach(function (L) {
-      if (L.limit === 'Capacity (wrong direction)') {
+      /* PINNED AT THE CEILING AND STILL SHORT — a real failure. Reported
+       * whatever the allowance is, because with a zero allowance the ceiling IS
+       * the nameplate and this is exactly the thermal runaway TH.1 was about. */
+      if (L.limit === 'Capacity' || L.limit === 'Capacity (wrong direction)') {
         warnings.push({
           code: 'EQUIP_LIMITED', pipe: L.pipe, limit: L.limit,
+          pct: (L.pct === null ? undefined : L.pct),
           message: (L.tag || L.pipe) + ' is limited by ' + L.limit +
                    ' and is not reaching its setpoint.'
         });
         return;
       }
-      if (!L.over) return;
-      warnings.push({
-        code: 'EQUIP_LIMITED', pipe: L.pipe, limit: L.limit, pct: L.pct,
-        message: (L.tag || L.pipe) + ' is running at ' + L.pct.toFixed(1) +
-                 '% of its capacity and is not reaching its setpoint.'
-      });
+      if (!L.limit && L.over) {
+        /* OVER ITS NAMEPLATE AND COPING. The setpoint is held, so this is not a
+         * failure — it is the machine using the overload allowance, and the
+         * engineer is told which one and by how much. */
+        warnings.push({
+          code: 'EQUIP_OVERLOAD', pipe: L.pipe, pct: L.pct,
+          message: (L.tag || L.pipe) + ' is overloaded, running at ' +
+                   L.pct.toFixed(1) + '% of its capacity.'
+        });
+      }
     });
 
     /* ---- A HEAT IMBALANCE ABSORBED AT A PINNED NODE ---------------------

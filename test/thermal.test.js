@@ -4295,19 +4295,61 @@ section('Overload capacity');
     ok('...and nothing limits it', !l.limit, String(l.limit));
   }
 
-  /* ---- THE WARNING IS ONLY FOR WHAT IS OVER CAPACITY ------------------- */
-  const codes = r => (r.warnings || []).filter(w => w.code === 'EQUIP_LIMITED');
+  /* ---- TWO DIFFERENT PIECES OF NEWS, PER MACHINE -----------------------
+   * Michael, 2026-08-31: "I would still rather the warning is triggered for
+   * that specific equipment that is overloading."
+   *
+   *   EQUIP_OVERLOAD  over its nameplate and COPING — the allowance in use.
+   *   EQUIP_LIMITED   pinned at the ceiling and STILL short — a failure.
+   * -------------------------------------------------------------------- */
+  const limitedOf  = r => (r.warnings || []).filter(w => w.code === 'EQUIP_LIMITED');
+  const overloadOf = r => (r.warnings || []).filter(w => w.code === 'EQUIP_OVERLOAD');
+  const codes = limitedOf;
 
   {
-    /* Over its nameplate: 110 kW against 100 kW, so it is reported, and the
-     * message quotes the percentage rather than naming a constraint. */
+    /* OVER ITS NAMEPLATE AND HOLDING. 240 kW of capacity against a 250.72 kW
+     * demand is 104.5%, inside the 10% allowance — so it reaches setpoint and
+     * is reported as overloaded, not as failed. */
+    const t = plant(10, -240000);
+    const r = NET.solveModel(t.m);
+    const l = r.thermal.links[t.e.id];
+    near('it still reaches setpoint', l.tOut, 6, 1e-9);
+    ok('...so nothing limits it', !l.limit, String(l.limit));
+    const w = overloadOf(r);
+    ok('...but it IS reported as overloaded', w.length === 1,
+       JSON.stringify((r.warnings || []).map(x => x.code)));
+    near('...at 104.5% of its nameplate', w[0].pct, 250.7 / 240 * 100, 0.1);
+    ok('...naming that specific machine', w[0].pipe === t.e.id);
+    ok('...in words', /is overloaded, running at 104\.\d% of its capacity/
+       .test(w[0].message), w[0].message);
+    ok('...and it is NOT reported as limited', limitedOf(r).length === 0);
+  }
+
+  {
+    /* PINNED AT THE CEILING AND STILL SHORT. 100 kW against the same 250.72 kW
+     * demand: 110 kW is all it can do and the setpoint is missed. That is a
+     * failure and reports as one, whatever the allowance. */
     const t = plant(10, -100000);
     const r = NET.solveModel(t.m);
-    const w = codes(r);
-    ok('a machine over its nameplate is reported', w.length === 1,
+    ok('a machine at its ceiling and short of setpoint is reported',
+       limitedOf(r).length === 1,
        JSON.stringify((r.warnings || []).map(x => x.code)));
-    near('...and the message quotes 110%', w[0].pct, 110, 1e-6);
-    ok('...in words', /110\.0% of its capacity/.test(w[0].message), w[0].message);
+    ok('...as limited by Capacity',
+       /is limited by Capacity and is not reaching its setpoint/
+         .test(limitedOf(r)[0].message), limitedOf(r)[0].message);
+    ok('...and not as merely overloaded', overloadOf(r).length === 0);
+  }
+
+  {
+    /* THE ZERO-ALLOWANCE CASE STILL REPORTS. With no allowance the ceiling IS
+     * the nameplate, so a machine clamped there is not "over" anything — and it
+     * must still be reported, because this is exactly the thermal runaway TH.1
+     * was about. */
+    const t = plant(0, -100000);
+    const r = NET.solveModel(t.m);
+    ok('a machine clamped at exactly its nameplate is still reported',
+       limitedOf(r).length === 1,
+       JSON.stringify((r.warnings || []).map(x => x.code)));
   }
 
   {
