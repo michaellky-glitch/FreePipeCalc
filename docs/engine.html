@@ -218,7 +218,8 @@ footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);
       <ol>
         <li><a href="#kv">Kv and Cv</a></li>
         <li><a href="#valve-types">Valve types</a></li>
-        <li><a href="#valve-opening">Opening characteristic</a></li>
+        <li><a href="#valve-opening">How Kv changes with opening</a></li>
+        <li><a href="#valve-sources">Where these numbers come from</a></li>
       </ol>
     </li>
     <li><a href="#thermal-summary">Thermal summary</a></li>
@@ -1234,32 +1235,45 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 <p>where A is the pipe bore area. The default K<sub>v</sub> values are derived, not manufacturer data. They are here so the model runs with sensible figures and are explicitly intended to be replaced by product data.</p>
 
-<h3 id="valve-opening">11.3 Opening characteristic</h3>
-<p>At any opening percentage x (0–100%), the effective K<sub>v</sub> is:</p>
+<h3 id="valve-opening">11.3 How K<sub>v</sub> changes with opening</h3>
+<p>A valve does not open in proportion to its travel. The flow coefficient at a part-open position is a fraction of the full-open value:</p>
 <div class="eq">
-  K<sub>v,eff</sub> = K<sub>v,full</sub> · f(x)
+  <span class="lbl">Effective coefficient</span>
+  K<sub>v,eff</sub>(x) = K<sub>v,full</sub> · f(x)
 </div>
-<p>where f(x) is interpolated linearly from the characteristic curve:</p>
+<p>x is the opening from 0 to 100%. f(x) is the <strong>characteristic</strong> of the valve — the fraction of full coefficient it passes at that travel. The program stores f(x) as a table for each valve type and interpolates between the tabulated points in a straight line. Outside the table it holds the end value.</p>
+<p>What the solver actually uses is the resistance, and the resistance is the square of the inverse of the coefficient (section 11.1). So a small coefficient at part travel becomes a large resistance:</p>
+<div class="eq">
+  <span class="lbl">Resistance against travel</span>
+  r(x) = r<sub>full</sub> / f(x)²
+</div>
+<p>This square is why the shape of f(x) matters so much. The table below gives f(x) for the two adjustable valves, and beside each the resistance it produces as a multiple of the full-open resistance.</p>
 <div class="scroll">
 <table>
-  <thead><tr><th>Opening %</th><th>f(x) — gate</th><th>f(x) — globe (equal %)</th></tr></thead>
+  <thead><tr><th>Opening %</th><th>Isolation f(x)</th><th>Isolation r / r<sub>full</sub></th><th>Control f(x)</th><th>Control r / r<sub>full</sub></th></tr></thead>
   <tbody>
-    <tr><td>0</td><td>0</td><td>0</td></tr>
-    <tr><td>10</td><td>—</td><td>0.01</td></tr>
-    <tr><td>20</td><td>—</td><td>0.02</td></tr>
-    <tr><td>30</td><td>—</td><td>0.04</td></tr>
-    <tr><td>40</td><td>—</td><td>0.08</td></tr>
-    <tr><td>50</td><td>0.38</td><td>0.15</td></tr>
-    <tr><td>60</td><td>—</td><td>0.25</td></tr>
-    <tr><td>70</td><td>—</td><td>0.40</td></tr>
-    <tr><td>75</td><td>0.72</td><td>—</td></tr>
-    <tr><td>80</td><td>—</td><td>0.65</td></tr>
-    <tr><td>90</td><td>—</td><td>0.85</td></tr>
-    <tr><td>100</td><td>1.00</td><td>1.00</td></tr>
+    <tr><td>0</td><td>0</td><td>shut</td><td>0</td><td>shut</td></tr>
+    <tr><td>10</td><td class="num">—</td><td class="num">—</td><td>0.01</td><td class="num">10000</td></tr>
+    <tr><td>20</td><td class="num">—</td><td class="num">—</td><td>0.02</td><td class="num">2500</td></tr>
+    <tr><td>25</td><td>0.12</td><td class="num">69</td><td class="num">—</td><td class="num">—</td></tr>
+    <tr><td>30</td><td class="num">—</td><td class="num">—</td><td>0.04</td><td class="num">625</td></tr>
+    <tr><td>40</td><td class="num">—</td><td class="num">—</td><td>0.08</td><td class="num">156</td></tr>
+    <tr><td>50</td><td>0.38</td><td class="num">6.9</td><td>0.15</td><td class="num">44</td></tr>
+    <tr><td>60</td><td class="num">—</td><td class="num">—</td><td>0.25</td><td class="num">16</td></tr>
+    <tr><td>70</td><td class="num">—</td><td class="num">—</td><td>0.40</td><td class="num">6.2</td></tr>
+    <tr><td>75</td><td>0.72</td><td class="num">1.9</td><td class="num">—</td><td class="num">—</td></tr>
+    <tr><td>80</td><td class="num">—</td><td class="num">—</td><td>0.65</td><td class="num">2.4</td></tr>
+    <tr><td>90</td><td class="num">—</td><td class="num">—</td><td>0.85</td><td class="num">1.4</td></tr>
+    <tr><td>100</td><td>1.00</td><td class="num">1.0</td><td>1.00</td><td class="num">1.0</td></tr>
   </tbody>
 </table>
 </div>
-<p>The globe valve's equal-percentage characteristic means each equal increment of travel changes flow by an equal <em>percentage</em> of the current flow. This gives the valve controllable authority across its range when it sits in series with fixed pipe resistance.</p>
+<p>The isolation valve is close to a straight line in coefficient. It still holds most of its flow at three-quarters open, and does most of its work in the last quarter of travel. This is what an isolation valve is for: it is made to be open or shut, not to regulate.</p>
+<p>The control valve is <strong>equal percentage</strong>. Each equal step of travel changes the flow by an equal <em>percentage</em> of the flow already passing, not by an equal amount. So the coefficient rises slowly at first and steeply near the top. At half travel a control valve passes only 15% of its coefficient, which is 44 times its open resistance; the isolation valve at the same travel passes 38%, which is only 7 times.</p>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>Equal percentage is chosen so the valve keeps control across its whole range when it sits in series with fixed pipe. As the valve closes, more of the loop's pressure falls across it, which would make a linear valve act mostly near the shut end. The rising shape cancels that, so a given step of travel gives a similar change in flow wherever the valve is. This is standard control-valve theory (ISA-75.01 / IEC 60534).</p>
+</div>
 
 <h3>11.4 Check valve</h3>
 <p>A check valve blocks reverse flow. Direction is only known after the solve. This uses a two-pass approach:</p>
@@ -1269,6 +1283,49 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   <li>Solve again.</li>
 </ol>
 <p>The test is on <strong>head</strong>, not flow. Testing flow oscillates forever: shut the valve because flow was negative. The next pass reports ~zero flow, which is not negative, so it reopens. The adverse head difference is stable because it persists while the valve is held shut.</p>
+
+<h3 id="valve-sources">11.5 Where these numbers come from</h3>
+<p>The valve model has two kinds of number in it, and they are not on the same footing. The definitions are standard. The specific coefficients and characteristics are representative figures, put here so the model runs with sensible values, and are meant to be replaced by product data.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Quantity</th><th>Value</th><th>Basis</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>K<sub>v</sub> / C<sub>v</sub> definition and the square law</td>
+      <td>C<sub>v</sub> ≈ 1.156 · K<sub>v</sub>; ΔP = (Q/K<sub>v</sub>)²</td>
+      <td>Standard flow-coefficient definitions for control-valve sizing (ISA-75.01 / IEC 60534). The 1.156 is the fixed conversion between the metric K<sub>v</sub> and the US C<sub>v</sub>. These are exact and are not adjustable.</td>
+    </tr>
+    <tr>
+      <td>Full-open K value — isolation 0.15, control 6.0, check 2.0</td>
+      <td>velocity heads</td>
+      <td><strong>Representative.</strong> Typical order-of-magnitude figures for each valve style. The tortuous seat of a control valve makes it about forty times more resistant open than an isolation valve, which is the ratio that matters; the absolute numbers are indicative.</td>
+    </tr>
+    <tr>
+      <td>Default full-open K<sub>v</sub></td>
+      <td>back-calculated from K and bore (section 11.2)</td>
+      <td><strong>Derived, not measured.</strong> It gives a valve a sensible size before any product is chosen. Replace it with the manufacturer's published K<sub>v</sub> for anything that matters.</td>
+    </tr>
+    <tr>
+      <td>Isolation and check characteristic f(x)</td>
+      <td>0 / 0.12 / 0.38 / 0.72 / 1 at 0 / 25 / 50 / 75 / 100%</td>
+      <td><strong>Representative shape</strong>, not a cited standard. It captures the one fact that matters for an on-off valve — that it throttles late, in the last quarter of travel.</td>
+    </tr>
+    <tr>
+      <td>Control-valve equal-percentage characteristic f(x)</td>
+      <td>the 10%-interval table in section 11.3</td>
+      <td><strong>Supplied by the author, and it is the operative choice here.</strong> It replaced a near-linear default that gave the valve almost no authority — at half travel that curve passed 55% of the coefficient, so nothing happened until the valve was nearly shut and then everything happened at once. The table is the equal-percentage <em>shape</em>, tabulated by hand at 10% steps; it is not a fit to a particular rangeability R, and a real valve should use its own manufacturer curve.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<div class="note limit">
+  <span class="tag">IMPORTANT:</span>
+  <p>Every K value, every default K<sub>v</sub> and both characteristic tables are indicative. They let the network solve with reasonable numbers. For anything safety-critical, or for a valve whose authority you are checking, enter the manufacturer's K<sub>v</sub> and, where the tool allows it, the manufacturer's own opening characteristic.</p>
+</div>
+<div class="note check">
+  <span class="tag">SUGGESTION:</span>
+  <p>The opening is a full range from 0 to 100% in 1% steps. A balancing valve settles wherever it settles, so quoting the nearest quarter throws away most of the adjustment. Set the position to the figure the commissioning sheet gives.</p>
+</div>
 
 <!-- ===================================================== 12 -->
 <h2 id="thermal-summary">12. Thermal summary</h2>
