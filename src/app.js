@@ -2000,7 +2000,8 @@
     (function () {
       var sim = res && res.simulation;
       var devCols = ['Node', 'Actual flow ' + d.flow, 'Design flow ' + d.flow, '% of design',
-                     'Actual pressure ' + d.pressure, 'Design pressure ' + d.pressure, '% of design'];
+                     'Actual pressure ' + d.pressure, 'Design pressure ' + d.pressure, '% of design',
+                     'CV opening'];
       var groups = [];
 
       function pct(a, b) { return (b > 0) ? (a / b * 100) : null; }
@@ -2037,13 +2038,34 @@
       if (pumpRows.length) groups.push({ title: 'Pumps', rows: pumpRows });
 
       // equipment
+      /* THE CONTROL VALVE SERVING A MACHINE, wherever it lives — Michael,
+       * 2026-09-01: "Add a column for CV opening." A coil is throttled either
+       * by the valve built into it or by one drawn in its branch and linked to
+       * it, and the sheet should not care which. Anything with no control valve
+       * shows a dash. */
+      function cvOpeningOf(p) {
+        if (p.equip && p.equip.icv && M.icvActive(p)) {
+          var o = Number(p.equip.icv.opening);
+          return isFinite(o) ? o : null;
+        }
+        var drawn = m.pipes.filter(function (q2) {
+          var c = q2.kind === 'valve' && q2.valve ? M.controlOf(q2) : null;
+          return c && c.equip === p.id;
+        })[0];
+        if (!drawn) return null;
+        var dv = Number(drawn.valve.opening);
+        return isFinite(dv) ? dv : null;
+      }
+
       var eqRows = m.pipes.filter(function (p) { return p.kind === 'equip' && p.equip; })
         .map(function (p) {
           var q = res && res.flow ? Math.abs(res.flow[p.id] || 0) : null;
           var link = res && res.network
             ? res.network.links.filter(function (l) { return l.id === p.id; })[0] : null;
           var aP = link ? headToPa(Math.abs(FD.hydraulics.linkLoss(link, q || 0))) : null;
-          return row(p.tag || p.id, q, p.equip.qRated || null, aP, p.equip.pdRated || null);
+          var r3 = row(p.tag || p.id, q, p.equip.qRated || null, aP, p.equip.pdRated || null);
+          r3.cv = cvOpeningOf(p);
+          return r3;
         });
       if (eqRows.length) groups.push({ title: 'Equipment', rows: eqRows });
 
@@ -2094,6 +2116,12 @@
           c(r.aP === null ? '—' : FD.units.fmtPressure(r.aP, d.pressure));
           c(r.dP === null ? '—' : FD.units.fmtPressure(r.dP, d.pressure), 'dim');
           c(r.pPct === null ? '—' : r.pPct.toFixed(1) + '%');
+          /* WIDE OPEN IS WORTH SEEING. A valve at full travel has nothing left
+           * to give, so it is the one that decides how far a differential
+           * setpoint can fall — the same fact the sensor panel reports as
+           * "Limited by". */
+          c(r.cv === null || r.cv === undefined ? '—' : Math.round(r.cv) + '%',
+            (r.cv >= 99.5) ? 'bad' : '');
           tb2.appendChild(tr);
         });
         t.appendChild(tb2);
@@ -5066,6 +5094,26 @@
           : 'linked');
       });
     }
+
+    /* WHAT IS STOPPING THE SETPOINT GOING LOWER — Michael, 2026-09-01.
+     *
+     * He rejected showing the chosen figure beside the typed one, and he is
+     * right: on Auto the setpoint field is not the engineer's to change, so a
+     * "chosen versus design" line explains a control they cannot touch. The
+     * useful fact is WHICH terminal has run out of travel, because that is the
+     * one deciding the answer — a valve at full travel has nothing left to give,
+     * so the differential cannot fall past the point where it opens fully.
+     *
+     * Listed on any dP sensor, not only on Auto: knowing the index terminal is
+     * wide open is worth as much when the setpoint is fixed, and it is the same
+     * fact the Device Flow sheet now carries as a CV opening column. */
+    var wide = (res && res.controls && res.controls.devices ? res.controls.devices : [])
+      .filter(function (x) {
+        return x.quantity === 'opening' && typeof x.value === 'number' &&
+               x.value >= 0.995;
+      })
+      .map(function (x) { return x.tag || x.equipTag || x.pipe; });
+    box.ro('Limited by', wide.length ? wide.join(', ') : '—');
 
     /* THE LIST OFFERS WHAT THIS SENSOR MEASURES, and nothing else.
      *
@@ -10220,6 +10268,20 @@
       if (t && /INPUT|TEXTAREA|SELECT/.test(t.tagName)) return;
       if (FD.dialog.isOpen()) return;
       if ($('pane-network').dataset.active !== 'true') return;
+      /* ONLY IN TRACE — Michael, 2026-09-01: "Ctrl-V still tries to paste the
+       * last screenshot as a tracing when not in Trace mode."
+       *
+       * Ctrl-V means two different things in this app: paste the model
+       * fragment you copied, or lay a drawing under the level. This handler sat
+       * on the WINDOW and took any image on the clipboard whatever tool was
+       * active — so a screenshot taken hours earlier, still sitting in the
+       * clipboard, became a tracing the moment you pressed Ctrl-V meaning to
+       * paste pipework. The image path now belongs to the TRACE tool alone; the
+       * ordinary paste is left to the canvas.
+       *
+       * Dropping a file on the canvas is untouched. That names its own file at
+       * the moment it happens and cannot be a stale surprise. */
+      if (app.view.tool !== 'trace') return;
       var file = FD.trace.imageFromEvent(e);
       if (!file) return;
       e.preventDefault();
