@@ -2959,6 +2959,13 @@
 
   /* Copy this level's layout onto another. Offered as part of level properties
    * rather than as a toolbar action, because it is a property OF a level. */
+  /* "and 12 annotations" — the labels and detail lines that now travel with a
+   * copied floor (WORKLIST UI.1). Silent when there were none. */
+  function annotationsCopied(r) {
+    var n = (r.details || 0) + (r.notes || 0);
+    return n ? ' and ' + n + ' annotation' + (n > 1 ? 's' : '') : '';
+  }
+
   function copyLevelTo(lv) {
     var m = app.model;
     var targets = m.levels.filter(function (o) { return o.id !== lv.id; });
@@ -2973,8 +2980,9 @@
       title: 'Copy ' + lv.name + ' layout',
       ok: 'Copy',
       message: 'Everything drawn on ' + lv.name + ' is copied to the target level at the ' +
-               'same coordinates. Riser columns touching this floor are extended to the ' +
-               'target so the stack stays connected.\n\n' +
+               'same coordinates, including labels and detail lines. Riser columns ' +
+               'touching this floor are extended to the target so the stack stays ' +
+               'connected.\n\n' +
                'Equipment tags are re-numbered on the new floor to follow the ' +
                'naming convention set on the SETTINGS tab.',
       fields: [{
@@ -3004,7 +3012,7 @@
         renderLevels();
         changed();
         toast('Created ' + made.name + ' and copied ' + rn.nodes + ' nodes and ' +
-              rn.pipes + ' pipes to it' +
+              rn.pipes + ' pipes' + annotationsCopied(rn) + ' to it' +
               (rn.risers ? ', extending ' + rn.risers + ' riser column' +
                            (rn.risers > 1 ? 's' : '') : '') +
               (rt ? ', re-tagging ' + rt + ' item' + (rt > 1 ? 's' : '') : '') + '.');
@@ -3018,7 +3026,8 @@
         var rt2 = M.retagLevelEquipment(m, v.to);
         renderLevels();
         changed();
-        toast('Copied ' + r.nodes + ' nodes and ' + r.pipes + ' pipes to ' + dst.name +
+        toast('Copied ' + r.nodes + ' nodes and ' + r.pipes + ' pipes' +
+              annotationsCopied(r) + ' to ' + dst.name +
               (r.risers ? ', extended ' + r.risers + ' riser column' +
                           (r.risers > 1 ? 's' : '') : '') +
               (rt2 ? ', re-tagging ' + rt2 + ' item' + (rt2 > 1 ? 's' : '') : '') + '.');

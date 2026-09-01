@@ -3621,4 +3621,97 @@ section('Copying a floor re-tags its equipment');
   ok('the original floor keeps its tags', ge.join(',') === 'L0-AHU01,L0-AHU02', ge.join(','));
 }
 
+/* ==================================================================
+ * COPYING A LEVEL CARRIES ITS ANNOTATION — WORKLIST UI.1.
+ *
+ * Michael, 2026-08-31: "Copying a level should copy annotations."
+ *
+ * `extractFragment` and `insertFragment` have handled details and notes since
+ * 2026-08-10, and an ordinary copy-paste of a selection carried them. Copying a
+ * LEVEL did not: its selection was built from nodes and pipes only, so a
+ * duplicated floor arrived stripped of its labels and detail lines — which on a
+ * repeated floor plate is most of the drawing work, silently lost.
+ * ================================================================== */
+section('Copying a level carries its annotation');
+{
+  function rig() {
+    const m = M.create();
+    const a = m.levels[0];
+    const b = M.addLevel(m, { name: 'Level 2', altitude: 3.5 });
+    const n1 = M.addNode(m, a.id, 0, 0), n2 = M.addNode(m, a.id, 5, 0);
+    M.addPipe(m, n1.id, n2.id, { size: 'DN50', schedule: 'sch40' });
+    /* Two labels and one detail line on the source floor... */
+    M.addNote(m, a.id, 1, 1, 'CHILLER PLANT', { colour: 'line', size: 13 });
+    M.addNote(m, a.id, 2, 2, 'RISER SHAFT', { colour: 'line', size: 13 });
+    M.addDetail(m, a.id, [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }],
+                { colour: 'line', width: 1.5 });
+    /* ...and one of each on ANOTHER floor, which must not travel. */
+    M.addNote(m, b.id, 9, 9, 'DO NOT COPY ME', {});
+    M.addDetail(m, b.id, [{ x: 9, y: 9 }, { x: 9, y: 8 }], {});
+    return { m, from: a, to: b };
+  }
+  const on = (m, k, lv) => (m[k] || []).filter(x => x.level === lv);
+
+  const t = rig();
+  const before = { notes: on(t.m, 'notes', t.to.id).length,
+                   details: on(t.m, 'details', t.to.id).length };
+  const r = M.copyLevel(t.m, t.from.id, t.to.id);
+
+  /* THE COUNTS. Two notes and one detail arrive on the target, on top of the
+   * one of each that was already there. */
+  ok('the copy reports the notes it moved', r.notes === 2, String(r.notes));
+  ok('...and the details', r.details === 1, String(r.details));
+  ok('the target gains two notes', on(t.m, 'notes', t.to.id).length === before.notes + 2,
+     String(on(t.m, 'notes', t.to.id).length));
+  ok('...and one detail', on(t.m, 'details', t.to.id).length === before.details + 1,
+     String(on(t.m, 'details', t.to.id).length));
+
+  /* THE CONTENT, not just the count — a copy that arrives blank would pass a
+   * count test. */
+  const texts = on(t.m, 'notes', t.to.id).map(n => n.text).sort();
+  ok('the label text comes with it',
+     texts.indexOf('CHILLER PLANT') >= 0 && texts.indexOf('RISER SHAFT') >= 0,
+     texts.join(' | '));
+  const copiedDetail = on(t.m, 'details', t.to.id)
+    .filter(d => (d.pts || []).length === 3)[0];
+  ok('the detail line keeps its shape', !!copiedDetail,
+     JSON.stringify(on(t.m, 'details', t.to.id).map(d => (d.pts || []).length)));
+
+  /* IT IS A COPY, NOT A MOVE. The source floor keeps everything. */
+  ok('the source floor still has its notes', on(t.m, 'notes', t.from.id).length === 2);
+  ok('...and its detail', on(t.m, 'details', t.from.id).length === 1);
+
+  /* NEW IDENTITIES, so editing the copy cannot reach back into the original. */
+  const srcIds = on(t.m, 'notes', t.from.id).map(n => n.id);
+  const dstIds = on(t.m, 'notes', t.to.id).map(n => n.id);
+  ok('the copies are their own objects',
+     dstIds.every(id => srcIds.indexOf(id) < 0), srcIds + ' vs ' + dstIds);
+
+  /* ANOTHER FLOOR'S ANNOTATION IS LEFT ALONE — the filter is by level, and a
+   * copy that swept up the whole model would pass every test above. */
+  ok('a third floor keeps exactly what it had',
+     on(t.m, 'notes', t.to.id).filter(n => n.text === 'DO NOT COPY ME').length === 1);
+
+  /* AND IT STILL COPIES THE PIPEWORK, which is what the function was for. */
+  ok('the pipework came too', r.nodes === 2 && r.pipes === 1,
+     r.nodes + ' nodes, ' + r.pipes + ' pipes');
+
+  /* A FLOOR WITH NO ANNOTATION reports none rather than undefined, so the
+   * toast can say nothing without a guard. */
+  const bare = M.create();
+  /* CAPTURE THE SOURCE ID FIRST. `addLevel` re-sorts `m.levels` by altitude, so
+   * `levels[0]` is the NEW floor afterwards — reading it late copies a level
+   * onto itself, which `copyLevel` correctly refuses with null. */
+  const bareFrom = bare.levels[0].id;
+  const l2 = M.addLevel(bare, { name: 'B', altitude: 3.5 });
+  const p1 = M.addNode(bare, bareFrom, 0, 0);
+  const p2 = M.addNode(bare, bareFrom, 3, 0);
+  M.addPipe(bare, p1.id, p2.id, { size: 'DN50' });
+  const rb = M.copyLevel(bare, bareFrom, l2.id);
+  ok('the bare copy ran at all', !!rb, String(rb));
+  ok('a floor with no annotation reports zero, not undefined',
+     rb.notes === 0 && rb.details === 0, JSON.stringify([rb.notes, rb.details]));
+}
+
+
 report();

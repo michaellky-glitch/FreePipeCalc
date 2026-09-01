@@ -1175,6 +1175,46 @@ section('docs/MESSAGES.md covers every message the app can emit');
   ['ERROR', 'WARNING', 'NOTICE'].forEach(function (lvl) {
     ok('The severity table defines ' + lvl, doc.indexOf('**' + lvl + '**') > 0);
   });
+
+  /* ---- AND THE PAGE A USER ACTUALLY READS ---------------------------------
+   *
+   * `docs/MESSAGES.html` is the published catalogue — it is in the DOCUMENTATION
+   * tab, and it is the version anyone but a developer will ever see. Only the
+   * MARKDOWN was pinned here, so the two drifted: by 2026-09-01 the page was
+   * missing four codes outright (EQUIP_AUTO_SIM, HW_TEE_LIMIT, EQUIP_OVERLOAD,
+   * ICV_EXCEEDS_PD) and carried the pre-v0.18.35 wording for eight more. A
+   * catalogue that quietly falls behind is worse than none, and that applies to
+   * the published one first.
+   *
+   * Codes only, not prose: the two files are formatted differently and holding
+   * their sentences identical would fail on an em dash. What must not differ is
+   * WHICH MESSAGES EXIST. */
+  const page = fs.readFileSync(path.join(ROOT, 'docs', 'MESSAGES.html'), 'utf8');
+  /* THREE LETTERS IS A CODE TOO. `PDM` is the shortest the app emits, and a
+   * `{3,}` tail after the leading letter quietly demanded four — which reported
+   * a perfectly documented code as missing. */
+  const inPage = [...new Set(
+    [...page.matchAll(/<td><code>([A-Z][A-Z0-9_]{2,})<\/code><\/td>/g)].map(m => m[1])
+  )];
+  ok('The published page lists message codes at all', inPage.length > 40,
+     String(inPage.length));
+
+  const notOnPage = codes.filter(c => inPage.indexOf(c) < 0);
+  ok('Every code the app can emit is on docs/MESSAGES.html', notOnPage.length === 0,
+     'missing from the page: ' + notOnPage.join(', '));
+
+  const notInApp = inPage.filter(c => codes.indexOf(c) < 0);
+  ok('...and the page lists nothing the app cannot emit', notInApp.length === 0,
+     'stale on the page: ' + notInApp.join(', '));
+
+  /* The two documents must agree with EACH OTHER, not merely with the source —
+   * otherwise one could be updated and the other left, and both tests above
+   * would still pass while the pair disagreed. */
+  const inMd = codes.filter(c => doc.indexOf('`' + c + '`') >= 0);
+  const disagree = inMd.filter(c => inPage.indexOf(c) < 0)
+    .concat(inPage.filter(c => inMd.indexOf(c) < 0));
+  ok('The markdown and the published page list the same codes',
+     disagree.length === 0, 'differ: ' + disagree.join(', '));
 }
 
 /* =====================================================================

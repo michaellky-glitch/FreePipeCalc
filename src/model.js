@@ -1462,6 +1462,23 @@
     }).map(function (p) { return { kind: 'pipe', id: p.id }; })
       .concat(here.map(function (n) { return { kind: 'node', id: n.id }; }));
 
+    /* ANNOTATION COPIES WITH THE FLOOR — Michael, 2026-09-01 (WORKLIST UI.1).
+     *
+     * `extractFragment` and `insertFragment` have handled details and notes
+     * since 2026-08-10, and an ordinary copy-paste of a selection has always
+     * carried them. Copying a LEVEL did not, because this selection was built
+     * from nodes and pipes only — so a duplicated floor arrived stripped of its
+     * labels and its detail lines, which on a repeated floor plate is most of
+     * the drawing work.
+     *
+     * Both are scoped to a level exactly as nodes are, so the same filter
+     * serves. Nothing in the engine reads them, so there is nothing to remap. */
+    sel = sel
+      .concat((m.details || []).filter(function (d) { return d.level === fromLevelId; })
+        .map(function (d) { return { kind: 'detail', id: d.id }; }))
+      .concat((m.notes || []).filter(function (n2) { return n2.level === fromLevelId; })
+        .map(function (n2) { return { kind: 'note', id: n2.id }; }));
+
     var frag = extractFragment(m, sel);
     if (!frag) return { nodes: 0, pipes: 0, risers: 0 };
 
@@ -1488,6 +1505,7 @@
     riserPipes(m);
 
     return { nodes: res.nodes.length, pipes: res.pipes.length, risers: extended,
+             details: (res.details || []).length, notes: (res.notes || []).length,
              retagged: res.retagged, dropped: res.dropped };
   }
 
