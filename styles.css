@@ -937,12 +937,48 @@ table.doc-table th { background: var(--bg-raised); color: var(--text-dim); font-
      worse than a narrow column — which is what keeps the fix honest: the
      widths above fall to 634px (plumbing) and 679px (hydronic), inside the
      page with room to spare, and no figure can be split. */
-  table.sheet { font-size: 9pt; width: 100%; max-width: 100%; }
+  /* MEASURED 2026-09-01, because the 2026-08 fix was not enough. Against the
+     703px between A4 portrait's margins, five of the eight sheet tables still
+     overflowed and were CUT OFF at the right edge: All Pipes needed 959px,
+     Pumps 832, Equipment 816, the machine-duty table 747 and Sources 757.
+     Michael saw it on Linux and again on Windows, which is what ruled out the
+     platform and left the stylesheet.
+
+     `width: 100%` alone cannot fix that. It sets the PREFERRED width, and a
+     table whose content will not fit simply grows past it — auto layout treats
+     the content as a floor. `table-layout: fixed` removes that floor: the
+     columns are sized from the declared widths and share whatever the page
+     gives them, so the table fits ANY paper size by construction, which is what
+     was asked for. Nothing has to know how wide the paper is.
+
+     THE COST, AND IT REVERSES AN EARLIER DECISION. Numbers were kept `nowrap`
+     so a pressure could never be split across two lines. Under a fixed layout a
+     `nowrap` cell that will not fit overflows and prints ON TOP of its
+     neighbour, which is worse than either. So figures may now wrap. A wrapped
+     number is legible; a column that is not on the page at all is not.
+
+     The font drops to 8pt and the padding tightens to buy the width back, so in
+     practice wrapping is rare — see the measurements in Human-Test.md. */
+  table.sheet {
+    font-size: 8pt; width: 100%; max-width: 100%;
+    table-layout: fixed;
+  }
   table.sheet th, table.sheet td { border-color: #999; color: #000; background: #fff; }
-  table.sheet th, table.sheet td { padding: 3px 5px; }
-  table.sheet th,
-  table.sheet tr > :first-child,
-  table.sheet td.txt { white-space: normal; overflow-wrap: break-word; }
+  /* 3px, not 4. A single extra pixel each side costs 28px across a fourteen
+     column table, and that is the difference between 20.8% of the figures
+     wrapping and 37.5% of them. Measured. */
+  table.sheet th, table.sheet td { padding: 2px 3px; }
+  table.sheet th, table.sheet td {
+    white-space: normal; overflow-wrap: break-word; word-break: break-word;
+  }
+  /* The tag or section name takes a fixed share and the rest divide what is
+     left. SIXTEEN PER CENT, chosen by measurement rather than taste: on the
+     fourteen-column All Pipes table, 20% left the thirteen numeric columns
+     43px each and 37.5% of the figures wrapped; 16% gives them 47px and that
+     falls to 20.8%. Going below 8pt buys nothing — the residual wrapping is
+     long TAGS in this very column, which is what it is for and what the sheet
+     has always allowed. */
+  table.sheet tr > :first-child { width: 16%; }
   /* A row is one section of pipe — do not split it down the middle of a page.
      The header repeats on every page on its own, because the sheet tables are
      built with a real `thead`. */

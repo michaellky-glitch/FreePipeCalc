@@ -5104,16 +5104,20 @@
      * one deciding the answer — a valve at full travel has nothing left to give,
      * so the differential cannot fall past the point where it opens fully.
      *
-     * Listed on any dP sensor, not only on Auto: knowing the index terminal is
-     * wide open is worth as much when the setpoint is fixed, and it is the same
-     * fact the Device Flow sheet now carries as a CV opening column. */
-    var wide = (res && res.controls && res.controls.devices ? res.controls.devices : [])
-      .filter(function (x) {
-        return x.quantity === 'opening' && typeof x.value === 'number' &&
-               x.value >= 0.995;
-      })
-      .map(function (x) { return x.tag || x.equipTag || x.pipe; });
-    box.ro('Limited by', wide.length ? wide.join(', ') : '—');
+     * ON AUTO ONLY — Michael, 2026-09-01. With a FIXED setpoint a wide-open
+     * valve is worth knowing but it is not LIMITING anything: the differential
+     * is the engineer's own figure and nothing is searching for it. On Auto it
+     * genuinely is the binding constraint. The Device Flow sheet carries the
+     * openings in either mode for anyone who wants them. */
+    if (sn.mode === 'dP' && sn.autoSet) {
+      var wide = (res && res.controls && res.controls.devices ? res.controls.devices : [])
+        .filter(function (x) {
+          return x.quantity === 'opening' && typeof x.value === 'number' &&
+                 x.value >= 0.995;
+        })
+        .map(function (x) { return x.tag || x.equipTag || x.pipe; });
+      box.ro('Limited by', wide.length ? wide.join(', ') : '—');
+    }
 
     /* THE LIST OFFERS WHAT THIS SENSOR MEASURES, and nothing else.
      *
