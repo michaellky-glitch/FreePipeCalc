@@ -4669,5 +4669,116 @@ section('The three states of an integrated control valve');
   }
 }
 
+/* ==================================================================
+ * WHAT A COIL'S INTEGRATED VALVE HOLDS.
+ *
+ * Michael, 2026-09-07: "the LWT setpoint to be based on the dT given (Design
+ * EWT + or - dT) = LWT", options Flow or LWT, "Default LWT", and existing
+ * valves left on their ΔT.
+ *
+ * LWT IS DERIVED, NEVER STORED. Change the duty or the flow and the leaving
+ * temperature follows, exactly as it does in the plant — a stored setpoint
+ * would drift out of step with the ΔT it came from.
+ * ================================================================== */
+section('The integrated valve target');
+{
+  function coil(duty, opts) {
+    const m = M.create();
+    m.settings.calcMode = (opts && opts.mode) || 'design';
+    m.settings.thermal = { ambient: 20, supplyTemp: 20, insulationK: 0.02,
+                           surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                           overloadPct: 0 };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 5, 0);
+    const c = M.addNode(m, lv, 10, 0);
+    a.device = { kind: 'source', pressure: 400e3, temperature: 6 };
+    c.device = { kind: 'demand', flow: 0.005, reqPressure: 0, include: true };
+    M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    const eq = M.addPipe(m, b.id, c.id,
+      { size: 'DN50', schedule: 'sch40', kind: 'equip', tag: 'COIL' });
+    eq.equip = { qRated: 0.005, pdRated: 100e3, equipType: 'exchanger',
+                 duty: duty, icv: { kv: 25, opening: 100 } };
+    if (opts && opts.target) eq.equip.icv.target = opts.target;
+    m.pipes.forEach(p => { if (p.kind !== 'equip') p.insulation_mm = 0; });
+    return { m, eq };
+  }
+
+  /* ---- THE DESIGN ENTERING TEMPERATURE IS RECORDED, AND ONLY IN DESIGN --- */
+  {
+    const t = coil(100000);
+    ok('nothing is recorded before a solve', t.eq.equip.ewtDesign === undefined);
+    NET.solveModel(t.m);
+    near('a DESIGN solve records the entering temperature',
+         t.eq.equip.ewtDesign, 6, 1e-6);
+
+    /* IN SIMULATION IT IS AN ANSWER, not a design figure, and writing it back
+     * would let the target chase the result it is meant to judge. */
+    const before = t.eq.equip.ewtDesign;
+    t.m.settings.calcMode = 'simulation';
+    t.eq.equip.ewtDesign = 99;
+    NET.solveModel(t.m);
+    near('a SIMULATION solve leaves it alone', t.eq.equip.ewtDesign, 99, 1e-9);
+    ok('...so the design figure is the one from DESIGN', before === 6);
+  }
+
+  /* ---- LWT = EWT ± ΔT, WITH THE SIGN FROM THE DUTY --------------------- */
+  {
+    /* 100 kW into 0.005 m3/s is ΔT = 100000/(998*0.005*4187) = 4.786 K.
+     * A POSITIVE duty adds heat to the water, so a cooling coil leaves it
+     * WARMER: 6 + 4.786 = 10.786 °C. */
+    const cool = coil(100000);
+    NET.solveModel(cool.m);
+    const oc = M.controlOptions(cool.m, cool.eq.id);
+    const lwtC = oc.filter(o => o.key === 'lwt')[0];
+    ok('a cooling coil offers an LWT', !!lwtC, JSON.stringify(oc.map(o => o.key)));
+    near('...at EWT + ΔT', lwtC.value, 6 + 4.786262278557593, 1e-6);
+    ok('...reported as a temperature', lwtC.mode === 'temperature');
+
+    /* A NEGATIVE duty removes heat, so the water leaves COLDER. */
+    const heat = coil(-100000);
+    NET.solveModel(heat.m);
+    const lwtH = M.controlOptions(heat.m, heat.eq.id).filter(o => o.key === 'lwt')[0];
+    near('a heating coil leaves the water colder, EWT − ΔT',
+         lwtH.value, 6 - 4.786262278557593, 1e-6);
+  }
+
+  /* ---- NO DESIGN EWT MEANS NO LWT TO OFFER ----------------------------- */
+  {
+    const t = coil(100000);
+    ok('a coil never solved in DESIGN offers no LWT',
+       M.controlOptions(t.m, t.eq.id).filter(o => o.key === 'lwt').length === 0);
+    ok('...but still offers its ΔT and its flow',
+       M.controlOptions(t.m, t.eq.id).map(o => o.key).join(',') === 'flow,dt');
+  }
+
+  /* ---- WHAT THE LOOP ACTUALLY DRIVES ----------------------------------- */
+  function held(target) {
+    const t = coil(100000, { target: target });
+    NET.solveModel(t.m);                       // DESIGN, to record the EWT
+    t.m.settings.calcMode = 'simulation';
+    const r = NET.solveModel(t.m);
+    const d = ((r.controls && r.controls.devices) || [])
+      .filter(x => x.quantity === 'opening')[0];
+    return d ? { of: d.setpointOf, target: d.target } : null;
+  }
+
+  /* ABSENT MEANS ΔT, which is what every model drawn before today holds. This
+   * is the assertion that says nothing saved has moved. */
+  const legacy = held(undefined);
+  ok('a valve with no stated target holds its Design ΔT',
+     legacy && legacy.of === 'dT', JSON.stringify(legacy));
+  near('...at the design ΔT', legacy.target, 4.786262278557593, 1e-6);
+
+  const onLwt = held('lwt');
+  ok('a valve targeting LWT holds a temperature',
+     onLwt && onLwt.of === 'temperature', JSON.stringify(onLwt));
+  near('...at EWT + ΔT', onLwt.target, 6 + 4.786262278557593, 1e-6);
+
+  const onFlow = held('flow');
+  ok('a valve targeting flow holds a flow',
+     onFlow && onFlow.of === 'flow', JSON.stringify(onFlow));
+  near('...at the design flow', onFlow.target, 0.005, 1e-9);
+}
+
 
 report();

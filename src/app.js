@@ -5491,9 +5491,9 @@
         var icvPick = FD.controlValves &&
                       FD.controlValves.defaultForPipe(p.size);
         e.icv = icvPick
-          ? { kv: icvPick.kvs, opening: 100, cvDN: icvPick.dn }
+          ? { kv: icvPick.kvs, opening: 100, cvDN: icvPick.dn, target: 'lwt' }
           : { kv: FD.valves.defaultKv('globe', M.pipeBore(m, p) * 1000),
-              opening: 100 };
+              opening: 100, target: 'lwt' };
       }
       e.icv.mode = modeSel.value;
       changed(); renderProperties();
@@ -5506,6 +5506,12 @@
       var icvLocked = cvSelectionFields(sec.box, e.icv, function () {
         changed(); renderProperties();
       });
+      /* Only on AUTO: a valve fixed by hand is not modulating to hold
+       * anything, so asking what it targets would be a question with no
+       * answer. */
+      if (M.icvMode(p) === 'auto') {
+        cvTargetField(sec.box, e.icv, function () { changed(); renderProperties(); });
+      }
 
       var useCv = (m.settings.display.valveCoef === 'Cv');
       var kvIn = el('input'); kvIn.type = 'text';
@@ -5975,6 +5981,39 @@
    * and `cvDN` (a valve's `p.valve`, or an equipment's `p.equip.icv`), and
    * `onChange` is called after any edit. Returns whether the coefficient is
    * locked, so the caller can disable its own Kv field. */
+  /* WHAT AN INTEGRATED VALVE HOLDS — Michael, 2026-09-07: "Change 'Type' to
+   * 'Target', give options to hold DP, Flow, or LWT. Default LWT." DP was
+   * dropped in the same conversation, being the same control as Flow.
+   *
+   * ΔT IS OFFERED TOO, and that is a deliberate addition to his list: every
+   * valve drawn before today holds it, and a panel that could not show the
+   * setpoint a model is actually using would be lying about it. New valves
+   * default to LWT.
+   *
+   * LWT and ΔT are near enough the same control while the plant holds its
+   * supply temperature — measured at 0.01 K apart across the load range on
+   * three shipped models — and diverge only when it cannot. */
+  function cvTargetField(host, icv, onChange) {
+    var cur = (icv.target === 'lwt' || icv.target === 'flow') ? icv.target : 'dt';
+    var sel = el('select');
+    [['lwt', 'LWT'], ['flow', 'Flow'], ['dt', 'Design ΔT']].forEach(function (o) {
+      var opt = el('option', '', o[1]); opt.value = o[0];
+      if (o[0] === cur) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    field(host, 'Target', sel);
+    infoMark(fieldLabel(sel),
+             'What the valve modulates to hold. LWT is the leaving water ' +
+             'temperature, taken as the design entering temperature plus or ' +
+             'minus the design ΔT — so it follows the ΔT rather than being set ' +
+             'separately.');
+    sel.addEventListener('change', function () {
+      pushUndo();
+      if (sel.value === 'dt') delete icv.target; else icv.target = sel.value;
+      onChange();
+    });
+  }
+
   function cvSelectionFields(host, v, onChange) {
     if (!FD.controlValves) return false;
     var CVD = FD.controlValves;

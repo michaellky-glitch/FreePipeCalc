@@ -2310,6 +2310,28 @@
     if (isFinite(dt) && dt > 1e-9) {
       out.push({ key: 'dt', pipe: p, mode: 'dT', value: dt,
                  cmp: setpointCmp(p, 'dt'), label: 'Design ΔT' });
+
+      /* LEAVING WATER TEMPERATURE = DESIGN EWT ± ΔT — Michael, 2026-09-07:
+       * "the LWT setpoint to be based on the dT given (Design EWT + or - dT)".
+       *
+       * It is DERIVED, never stored, so it cannot drift out of step with the
+       * ΔT it comes from — change the duty or the flow and the leaving
+       * temperature follows, exactly as it does in the plant.
+       *
+       * THE SIGN COMES FROM THE DUTY. Positive duty adds heat to the water, so
+       * a cooling coil leaves it WARMER than it arrived; a heating coil leaves
+       * it cooler. The direction is inferred and never asked for (§18).
+       *
+       * The design entering temperature is written by a DESIGN solve
+       * (`recordDesignTemperatures`). Without one there is no LWT to offer, and
+       * the caller falls back to the ΔT — the same answer at design. */
+      var ewt = Number(e.ewtDesign);
+      if (isFinite(ewt)) {
+        var signed = Number(e.duty) || 0;
+        var lwt = ewt + (signed < 0 ? -dt : dt);
+        out.push({ key: 'lwt', pipe: p, mode: 'temperature', value: lwt,
+                   cmp: setpointCmp(p, 'lwt'), label: 'Design LWT' });
+      }
     }
     return out;
   }

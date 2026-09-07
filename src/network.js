@@ -1527,6 +1527,7 @@
      * once the flows are known — and it feeds nothing back, because fluid
      * properties are held at one temperature. Last, and one-way. */
     res.thermal = FD.thermal ? FD.thermal.solve(m, res) : null;
+    recordDesignTemperatures(m, res);
     applyRequiredCapacity(m, res);
     if (res.thermal) {
       if (res.thermal.warnings.length) {
@@ -1559,6 +1560,31 @@
    * Recorded in DESIGN only. Writing it in SIMULATION would overwrite the
    * design point with the operating point, which is the one comparison the
    * panel exists to make. */
+  /* THE ENTERING WATER TEMPERATURE AT DESIGN, recorded on each coil.
+   *
+   * Michael, 2026-09-07: the leaving-temperature setpoint "should be based on
+   * the dT given (Design EWT +/- dT) = LWT". So an LWT target needs a FIXED
+   * entering temperature to be built on — take it live and "hold LWT" collapses
+   * into "hold dT", because EWT + dT is dT by construction.
+   *
+   * DESIGN MODE ONLY, and for the same reason a pump's duty is only written
+   * there: in SIMULATION the entering temperature is an ANSWER, and writing it
+   * back would let the target chase the result it is supposed to be judging.
+   *
+   * The sign is not stored. It comes from the duty, which already carries the
+   * direction — a coil that adds heat to the water leaves it warmer. */
+  function recordDesignTemperatures(m, res) {
+    if (m.settings.calcMode === 'simulation') return;
+    if (!res.thermal || !res.thermal.links) return;
+    m.pipes.forEach(function (p) {
+      if (p.kind !== 'equip' || !p.equip || p.equip.off) return;
+      if (p.equip.equipType !== 'exchanger') return;
+      var l = res.thermal.links[p.id];
+      if (!l || !isFinite(l.tIn)) return;
+      p.equip.ewtDesign = l.tIn;
+    });
+  }
+
   function recordDesignPoint(m, res) {
     if (m.settings.calcMode === 'simulation') return;
     m.pipes.forEach(function (p) {
@@ -2160,9 +2186,31 @@
       if (p.kind === 'equip' && p.equip && p.equip.icv && !p.equip.off &&
           M.icvMode(p) === 'auto') {
         var iAct = actuatorFor(m, p);
+        /* WHICH SETPOINT THE VALVE HOLDS is now the engineer's — Michael,
+         * 2026-09-07. A coil valve held to its LEAVING WATER TEMPERATURE is
+         * what commissioning actually sets, and holding a flow is the other
+         * thing asked for.
+         *
+         * `icv.target` absent means the design ΔT, which is what every valve
+         * held before this and what every saved model still holds. New valves
+         * are created with `target: 'lwt'`. Nothing drawn already changes
+         * unless it is asked to. */
+        var want = (p.equip.icv.target === 'lwt') ? 'temperature'
+                 : (p.equip.icv.target === 'flow') ? 'flow'
+                 : 'dT';
         var iOpts = M.controlOptions(m, p.id).filter(function (o) {
-          return o.mode === 'dT';
+          return o.mode === want;
         });
+        /* A TARGET THAT CANNOT BE FORMED FALLS BACK rather than leaving the
+         * valve uncontrolled. An LWT needs a recorded design entering
+         * temperature, and a model that has never been solved in DESIGN has
+         * none yet — holding the ΔT until it does is the same answer at the
+         * design point and keeps the coil under control meanwhile. */
+        if (!iOpts.length) {
+          iOpts = M.controlOptions(m, p.id).filter(function (o) {
+            return o.mode === 'dT';
+          });
+        }
         if (iAct && iOpts.length) {
           pairs.push({ act: iAct, equip: p, target: iOpts[0].value,
                        mode: iOpts[0].mode, label: iOpts[0].label,

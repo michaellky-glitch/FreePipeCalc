@@ -2462,10 +2462,13 @@
        * valve and must arrive the same way. */
       var icvPick = FD.controlValves &&
                     FD.controlValves.defaultForPipe(eq.size);
+      /* NEW COILS HOLD THEIR LEAVING WATER TEMPERATURE (Michael, 2026-09-07).
+       * Anything drawn before today has no `target` and goes on holding its
+       * design ΔT, so no saved model moves. */
       eq.equip.icv = icvPick
-        ? { kv: icvPick.kvs, opening: 100, cvDN: icvPick.dn }
+        ? { kv: icvPick.kvs, opening: 100, cvDN: icvPick.dn, target: 'lwt' }
         : { kv: FD.valves.defaultKv('globe', M.pipeBore(this.getModel(), eq) * 1000),
-            opening: 100 };
+            opening: 100, target: 'lwt' };
       this.changed();
     }
 
