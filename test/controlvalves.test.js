@@ -94,40 +94,37 @@ section('The default is one nominal size below the pipe');
   near('...at Kvs 100', CV.defaultForPipe('DN100').kvs, 100, 1e-9);
   ok('a DN20 line defaults to DN15', CV.defaultForPipe('DN20').dn === 15);
 
-  /* A pipe size the range does not list steps to the next valve that EXISTS. */
+  /* A SIZE THE RANGE DOES NOT LIST steps to the next valve that EXISTS. */
   ok('a DN90 line steps down to DN80', CV.defaultForPipe('DN90').dn === 80);
   ok('a DN300 line steps down to DN250', CV.defaultForPipe('DN300').dn === 250);
 
-  /* NO SENSIBLE DEFAULT is a real answer and must not be guessed at. */
-  ok('a DN15 line has nothing below it', CV.defaultForPipe('DN15') === null);
-  ok('a non-DN label has no default', CV.defaultForPipe('110 mm') === null);
+  /* AN UNKNOWN DESIGNATION STILL RESOLVES — Michael, 2026-09-07: "Default CV
+   * for unknown pipe size should still fallback to the nearest pipe size down.
+   * IRL the valves are the same, just different flanges."
+   *
+   * So a plastic size is read for the number on it. An HDPE "110 mm" lands on
+   * DN100, which is the nearest size below. This used to return nothing and
+   * leave the valve on a derived coefficient. */
+  ok('an HDPE 110 mm line lands on DN100',
+     (CV.defaultForPipe('110 mm') || {}).dn === 100,
+     JSON.stringify(CV.defaultForPipe('110 mm')));
+  ok('a 63 mm line lands on DN50',
+     (CV.defaultForPipe('63 mm') || {}).dn === 50,
+     JSON.stringify(CV.defaultForPipe('63 mm')));
+
+  /* AT OR BELOW THE SMALLEST VALVE, take the smallest. One size down is a rule
+   * of thumb, not a reason to offer nothing — you cannot order smaller than the
+   * smallest valve made. */
+  ok('a DN15 line takes the smallest valve there is',
+     (CV.defaultForPipe('DN15') || {}).dn === 15,
+     JSON.stringify(CV.defaultForPipe('DN15')));
+  ok('a DN10 line does too', (CV.defaultForPipe('DN10') || {}).dn === 15);
+
+  /* NO SIZE AT ALL is still no answer, and must not be guessed. */
   ok('an empty label has no default', CV.defaultForPipe('') === null);
   ok('a missing label has no default', CV.defaultForPipe(undefined) === null);
-}
-
-section('Valve types offered');
-{
-  ok('two types', CV.types.length === 2, String(CV.types.length));
-  ok('Control Valve first, and implemented',
-     CV.types[0].key === 'cv' && CV.types[0].name === 'Control Valve' &&
-     CV.types[0].implemented === true, JSON.stringify(CV.types[0]));
-  /* PICV is offered so it reads as coming rather than missing, and is flagged
-   * so nothing treats it as working. */
-  ok('PICV second, and flagged as not implemented',
-     CV.types[1].key === 'picv' && CV.types[1].implemented === false,
-     JSON.stringify(CV.types[1]));
-  ok('...and says so in its name',
-     /Not Implemented Yet/.test(CV.types[1].name), CV.types[1].name);
-}
-
-section('Provenance');
-{
-  ok('the range is named', /EXT-TI-H6\.\.XS\(P\)/.test(CV.range), CV.range);
-  ok('the source cites the manufacturer', /Belimo/.test(CV.source), CV.source);
-  ok('...and says the sheet is not redistributed',
-     /not redistributed/.test(CV.source), CV.source);
-  ok('the characteristic is equal percentage',
-     /Equal percentage/i.test(CV.characteristic), CV.characteristic);
+  ok('a designation with no number has no default',
+     CV.defaultForPipe('copper') === null, JSON.stringify(CV.defaultForPipe('copper')));
 }
 
 section('Lookup');

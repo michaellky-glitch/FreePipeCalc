@@ -5674,8 +5674,12 @@
     var OPTIONAL = 'Optional — leave blank for unlimited.';
     /* The sign convention, identical on the load and the capacity because they
      * are the same quantity read from two directions. */
-    var SIGN = 'Positive value indicates heat entering fluid. Negative value ' +
-               'indicates heat removed from fluid.';
+    /* SIGN CONVENTION, spelled out in the panel rather than hidden behind an
+     * info mark — Michael, 2026-09-07. It is the one thing about this field a
+     * reader has to know before typing, so it does not belong on hover. */
+    var SIGN = 'Negative heat transfer removes heat from fluid. Positive adds ' +
+               'heat to fluid. Example: Chiller removes heat (-ve), while ' +
+               'cooling AHU adds (+ve).';
 
     /* ADIABATIC has no thermal side at all — a filter, a strainer, a flow
      * meter. It keeps its hydraulics (a filter has a real pressure drop) and
@@ -7379,6 +7383,43 @@
           } else { spIn.value = readSp(); }
         });
 
+      /* THE WATER TEMPERATURE BELONGS TO THE SOURCE — Michael, 2026-09-07:
+       * "move Source Water Temperature directly to Source properties rather
+       * than keep it in Thermal."
+       *
+       * The engine has read it here all along: `thermal.js` takes
+       * `device.temperature` and falls back to the model-wide figure only when
+       * a source does not state one. So this exposes what was already
+       * supported, and it is the better place — a model with two sources at
+       * different temperatures could never have been described by one setting
+       * on a tab.
+       *
+       * BLANK MEANS "USE THE MODEL DEFAULT", which is what every existing file
+       * relies on: none of them carry a per-source temperature, and they must
+       * go on reading exactly as before. */
+      var stIn = el('input'); stIn.type = 'text';
+      var readSt = function () {
+        var t = n.device.temperature;
+        return (t === undefined || t === null || t === '') ? '' : String(t);
+      };
+      stIn.value = readSt();
+      stIn.placeholder = String((m.settings.thermal || {}).supplyTemp);
+      field(sdes.box, 'Water temperature (°C)', stIn)
+        .addEventListener('change', function () {
+          var raw = stIn.value.trim();
+          pushUndo();
+          if (raw === '') delete n.device.temperature;
+          else {
+            var v = FD.units.parse(raw);
+            if (isFinite(v)) n.device.temperature = v;
+            else { stIn.value = readSt(); return; }
+          }
+          changed(); renderProperties();
+        });
+      sdes.box.appendChild(el('p', 'hint',
+        'Blank uses the system flow temperature set on THERMAL (' +
+        Number((m.settings.thermal || {}).supplyTemp).toFixed(1) + ' °C).'));
+
       // ---- ACTUAL
       var sact = section(host, 'Actual');
       sact.ro('Elevation', elev());
@@ -7911,12 +7952,15 @@
     var fluid = FD.fluids.resolve(m.settings);
 
     // ------------------------------------------------- 1. sign convention
-    var sh = el('h2', '', 'Sign');
-    infoMark(sh, 'Q is about the fluid. −Q removes heat from it (chiller, hot ' +
-                 'pipe losing). +Q adds heat to it (boiler, CHW coil).');
-    host.appendChild(sh);
-    host.appendChild(el('p', 'hint', '−Q removes heat from the fluid · +Q adds it. ' +
-                                     'A CHW coil is +.'));
+    /* Michael, 2026-09-07: renamed, the info mark removed, and his wording used
+     * verbatim. The convention is the one thing a reader must know before
+     * typing a duty, so it is stated on the page rather than hidden on hover —
+     * and the worked example is what makes it stick, because "positive adds
+     * heat" reads as counter-intuitive on a cooling coil until you see why. */
+    host.appendChild(el('h2', '', 'Sign Convention'));
+    host.appendChild(el('p', 'hint',
+      'Negative heat transfer removes heat from fluid. Positive adds heat to ' +
+      'fluid. Example: Chiller removes heat (-ve), while cooling AHU adds (+ve).'));
 
     // ------------------------------------------------- 2. fluid (read-only)
     var fh = el('h2', '', 'Fluid');

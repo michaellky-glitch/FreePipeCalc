@@ -2455,10 +2455,17 @@
      * to Heat Exchanger in the panel: this is what a NEW coil starts as, not a
      * rule about what a coil must be. */
     if (eq && def.equipType === 'exchanger') {
-      eq.equip.icv = {
-        kv: FD.valves.defaultKv('globe', M.pipeBore(this.getModel(), eq) * 1000),
-        opening: 100
-      };
+      /* ONE SIZE BELOW THE PIPE, exactly as a drawn control valve is placed —
+       * Michael, 2026-09-07: the coils were coming up "Manual" while drawn
+       * valves were sized, because this site still derived a Kv from the bore
+       * and never set `cvDN`. An integrated valve and a drawn one are the same
+       * valve and must arrive the same way. */
+      var icvPick = FD.controlValves &&
+                    FD.controlValves.defaultForPipe(eq.size);
+      eq.equip.icv = icvPick
+        ? { kv: icvPick.kvs, opening: 100, cvDN: icvPick.dn }
+        : { kv: FD.valves.defaultKv('globe', M.pipeBore(this.getModel(), eq) * 1000),
+            opening: 100 };
       this.changed();
     }
 

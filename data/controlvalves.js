@@ -52,12 +52,15 @@
     { dn: 250, kvs: 700, stroke: 40, dpS: 1600e3, dpMax: 1000e3 }
   ];
 
-  /* The kinds of valve the interface offers. PICV is listed so an engineer can
-   * see it is coming and is not simply missing; selecting it does not change
-   * the calculation, and the panel says so. */
+  /* ONE TYPE ON THE FRONT END — Michael, 2026-09-07: "Remove PICV option from
+   * front end, so only 1 option in Design>Type."
+   *
+   * The PICV tables stay below, transcribed and unused. Offering a type that
+   * does nothing invited a reader to select it and believe the answer, and the
+   * note saying otherwise was doing all the work. It comes back when the
+   * behaviour does. */
   var TYPES = [
-    { key: 'cv',   name: 'Control Valve',              implemented: true },
-    { key: 'picv', name: 'PICV (Not Implemented Yet)', implemented: false }
+    { key: 'cv', name: 'Control Valve', implemented: true }
   ];
 
   function nominalSizes() {
@@ -86,14 +89,36 @@
    * nothing. This steps against the sizes the RANGE offers, so a DN90 line
    * lands on DN80 — the next valve that exists rather than one that does not.
    *
-   * Returns null when the pipe is at or below the smallest valve, or carries a
-   * size that is not a DN. Both mean "no sensible default", and the valve is
-   * left unselected with its derived coefficient. */
+   * Returns null only when the designation carries no size at all. */
   function defaultForPipe(label) {
+    /* THE SIZE IS RESOLVED IN MILLIMETRES, not matched as a label — Michael,
+     * 2026-09-07: "Default CV for unknown pipe size should still fallback to
+     * the nearest pipe size down. IRL the valves are the same, just different
+     * flanges."
+     *
+     * So a line the range does not list is not a dead end. An HDPE "110 mm" is
+     * 110 on the designation and lands on DN100; a DN90 lands on DN80. What is
+     * ordered is a nominal size, and a valve exists at every nominal size below
+     * this one — only the connection changes.
+     *
+     * `nominalMm` reads the number out of the designation, which is what a
+     * valve is ordered by. It is NOT the bore: for plastics the designation is
+     * an outside diameter. That is the right basis here even so, because it is
+     * the basis the valve itself is sold on. */
     var dn = dnOfLabel(label);
-    if (dn === null) return null;
-    var below = nominalSizes().filter(function (n) { return n < dn; });
-    return below.length ? bySize(below[below.length - 1]) : null;
+    if (dn === null) {
+      dn = (FD.schedules && FD.schedules.nominalMm)
+        ? FD.schedules.nominalMm(label) : 0;
+    }
+    if (!(dn > 0)) return null;                 // no size at all to work from
+
+    var all = nominalSizes();
+    var below = all.filter(function (n) { return n < dn; });
+    /* NOTHING BELOW MEANS THE SMALLEST, not nothing. One size down is the rule
+     * of thumb, but you cannot order smaller than the smallest valve made, and
+     * leaving a DN15 line unselected sends the engineer to a derived
+     * coefficient when a real product would do. */
+    return bySize(below.length ? below[below.length - 1] : all[0]);
   }
 
   /* ---- PRESSURE INDEPENDENT VALVES — stored, NOT used ------------------
