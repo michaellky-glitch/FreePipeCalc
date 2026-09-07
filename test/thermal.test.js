@@ -4550,5 +4550,124 @@ section('A coil with no integrated control valve');
   ok('...and the coil still solves', NET.solveModel(withV.m).converged === true);
 }
 
+/* ==================================================================
+ * THE THREE STATES OF AN INTEGRATED CONTROL VALVE.
+ *
+ * Michael, 2026-09-07, stating what each one means:
+ *
+ *   AUTO    the loop modulates it to hold the machine's own Design ΔT.
+ *   MANUAL  "fixes the CV position to whatever the user wants it to be."
+ *   NONE    "no control at all, and its PD is 'returned' to the coil design PD."
+ *
+ * That last one is the subtle one and is the reason this section exists. The
+ * rated dP of a machine is the BRANCH TOTAL — coil and integrated valve
+ * together — so the coil's own resistance is the rating LESS the valve's
+ * full-open drop. Take the valve away and the coil gets that share back, which
+ * is exactly what "returned to the coil design PD" means. The branch therefore
+ * costs the SAME with the valve at full travel and with no valve at all, and
+ * that is right rather than a bug.
+ * ================================================================== */
+section('The three states of an integrated control valve');
+{
+  const RHO = 998, G = 9.81;
+  function rig(icv) {
+    const m = M.create();
+    m.settings.calcMode = 'design';
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 5, 0);
+    const c = M.addNode(m, lv, 10, 0);
+    a.device = { kind: 'source', pressure: 600e3 };
+    c.device = { kind: 'demand', flow: 0.005, reqPressure: 0, include: true };
+    M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    const eq = M.addPipe(m, b.id, c.id,
+      { size: 'DN50', schedule: 'sch40', kind: 'equip', tag: 'AHU' });
+    eq.equip = { qRated: 0.005, pdRated: 100e3, equipType: 'exchanger',
+                 duty: 50000 };
+    if (icv) eq.equip.icv = icv;
+    const res = NET.solveModel(m);
+    const link = res.network.links.filter(l => l.id === eq.id)[0];
+    return { m, eq, res, r: link.r, icvFlag: !!link.icv };
+  }
+
+  /* The coil at its FULL rating, by hand: r = dP / (rho g Q^2). This is the
+   * number "returned to the coil" has to reproduce. */
+  const rFull = FD.hydraulics.equipmentR(100e3, 0.005, RHO);
+
+  /* ---- NONE: the valve's share goes back to the coil ------------------- */
+  const none = rig(null);
+  near('with no valve the branch is the coil at its full rating', none.r, rFull, 1e-6);
+  ok('...and nothing reports an integrated valve', none.icvFlag === false);
+  ok('...and no valve is active', M.icvActive(none.eq) === false);
+
+  /* ---- AUTO at full travel: coil (rating less valve) + valve = rating --- */
+  const auto = rig({ kv: 25, opening: 100 });
+  near('a valve at full travel costs the branch the same as none',
+       auto.r, none.r, 1e-6);
+  ok('...but the branch IS carrying a valve', auto.icvFlag === true);
+  ok('...and it is active, so the loop can move it',
+     M.icvActive(auto.eq) === true);
+
+  /* ---- MANUAL at 100%: not a valve at all ------------------------------ */
+  const man100 = rig({ kv: 25, opening: 100, mode: 'manual' });
+  /* Michael confirmed this independently, 2026-09-07: "Manual at 100% was
+   * essentially the same as 'None' at design flow rates." It is the same to
+   * the last digit, and it has to be — a valve at full travel spends exactly
+   * the share the coil gave up for it. */
+  near('a manual valve left fully open costs the same again',
+       man100.r, none.r, 1e-6);
+  ok('...and is NOT active, because at full travel it is not a valve',
+     M.icvActive(man100.eq) === false);
+
+  /* ---- MANUAL part open: the position is the user's, and it is held ----- */
+  const man40 = rig({ kv: 25, opening: 40, mode: 'manual' });
+  ok('a manual valve at 40% adds real resistance', man40.r > none.r * 10,
+     man40.r + ' vs ' + none.r);
+  ok('...and the position the user set is still there after solving',
+     man40.eq.equip.icv.opening === 40, String(man40.eq.equip.icv.opening));
+  ok('...and it is active', M.icvActive(man40.eq) === true);
+
+  /* A POSITION THAT ABSURD IS NOT SWALLOWED. In DESIGN the demand imposes the
+   * flow, so a valve throttled to 40% at design flow needs a pressure nothing
+   * would ever be built to. It must be reported, not printed. */
+  const codes = [].concat(man40.res.warnings || [], man40.res.errors || [])
+    .map(w => w.code);
+  ok('...and a throttled manual valve at design flow is reported, not printed',
+     codes.indexOf('PRESSURE_IMPLAUSIBLE') >= 0, codes.join(','));
+  ok('...with the solve marked not converged', man40.res.converged === false);
+
+  /* ---- THE LOOP ONLY DRIVES AUTO --------------------------------------- */
+  {
+    /* A manual valve must not be modulated: it is somebody's balancing
+     * decision. Checked through the control report, which lists every device
+     * the loop actually searched. */
+    const m2 = M.create();
+    m2.settings.calcMode = 'simulation';
+    m2.settings.thermal = { ambient: 20, supplyTemp: 20, insulationK: 0.02,
+                            surfaceCoeff: 0, tempMin: -100, tempMax: 200,
+                            overloadPct: 0 };
+    const lv = m2.levels[0].id;
+    const a = M.addNode(m2, lv, 0, 0), b = M.addNode(m2, lv, 1, 0);
+    const c = M.addNode(m2, lv, 10, 0), d = M.addNode(m2, lv, 20, 0);
+    a.device = { kind: 'source', pressure: 400e3, temperature: 12 };
+    d.device = { kind: 'demand', flow: 0.005, reqPressure: 0, include: true };
+    const pump = M.addPipe(m2, a.id, b.id, { kind: 'pump', tag: 'P' });
+    pump.pump = { mode: 'fixed', head: 30, sizing: 'manual', speed: 1,
+                  qDesign: 0.005, hDesign: 30, curve: FD.pumps.singlePoint(30, 0.005) };
+    M.addPipe(m2, b.id, c.id, { size: 'DN50', schedule: 'sch40' });
+    const eq = M.addPipe(m2, c.id, d.id,
+      { size: 'DN50', schedule: 'sch40', kind: 'equip', tag: 'COIL' });
+    eq.equip = { qRated: 0.005, pdRated: 100e3, equipType: 'exchanger',
+                 duty: 40000, dTMax: 5, icv: { kv: 25, opening: 55, mode: 'manual' } };
+    m2.pipes.forEach(p => { if (p.kind !== 'equip') p.insulation_mm = 0; });
+    const r2 = NET.solveModel(m2);
+    const driven = ((r2.controls && r2.controls.devices) || [])
+      .filter(x => x.quantity === 'opening');
+    ok('the loop does not drive a MANUAL integrated valve', driven.length === 0,
+       JSON.stringify(driven.map(x => x.tag || x.pipe)));
+    ok('...and it stays exactly where it was set',
+       eq.equip.icv.opening === 55, String(eq.equip.icv.opening));
+  }
+}
+
 
 report();

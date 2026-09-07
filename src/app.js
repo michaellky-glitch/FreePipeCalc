@@ -5456,12 +5456,19 @@
       modeSel.appendChild(opt);
     });
     field(sec.box, 'Control valve', modeSel);
+    /* THE THREE MEANINGS, in Michael's words (2026-09-07):
+     *   AUTO    the loop modulates it to hold this machine's Design ΔT.
+     *   MANUAL  "fixes the CV position to whatever the user wants it to be."
+     *   NONE    "no control at all, and its PD is 'returned' to the coil
+     *            design PD."
+     * The last is the one worth stating: the rating is the BRANCH total, so
+     * removing the valve gives the coil back the share it had given up. */
     infoMark(fieldLabel(modeSel),
-             'Auto: a control valve built into the machine, modulating to hold ' +
-             'this machine\u2019s own Design \u0394T. Manual: a balancing valve you ' +
-             'set yourself, read in both DESIGN and SIMULATION \u2014 at 100% there ' +
-             'is no valve. None: no integrated valve at all \u2014 for a coil ' +
-             'whose control valve is drawn in the branch.');
+             'Auto: modulates to hold this machine\u2019s own Design \u0394T. ' +
+             'Manual: fixed at the position you set, in both DESIGN and ' +
+             'SIMULATION. None: no integrated valve \u2014 its pressure drop ' +
+             'returns to the coil, for a coil whose control valve is drawn in ' +
+             'the branch instead.');
     modeSel.addEventListener('change', function () {
       pushUndo();
       /* NONE REMOVES THE VALVE. The rated pressure drop is the branch total
