@@ -1240,7 +1240,35 @@
   function autoSetpointSensors(m) {
     return m.pipes.filter(function (p) {
       return p.kind === 'sensor' && p.sensor && p.sensor.mode === 'dP' &&
-             p.sensor.autoSet && p.sensor.ref && Number(p.sensor.dpSet) > 0;
+             p.sensor.autoSet && p.sensor.ref;
+    });
+  }
+
+  /* AUTO MUST NOT NEED A SETPOINT TYPED INTO IT — Michael, 2026-09-07: a dP
+   * sensor on Auto and linked to a pump was refusing to do anything until a
+   * figure was entered, which is the opposite of what Auto means.
+   *
+   * The search needs a CEILING to bisect down from, and `dpSet` was serving as
+   * one. Where none is given, the differential the sensor reads on the
+   * uncontrolled solve is the natural substitute: it is what this system
+   * produces with the pump as it stands, which is the design condition the
+   * setpoint would have been chosen at anyway.
+   *
+   * The search only ever goes DOWN from the ceiling, so a generous one costs a
+   * bisection and nothing else. Seeded into `dpAuto`, so every controller
+   * downstream — `controlOptions` included — sees a target and none of them
+   * needs to know the figure was derived rather than typed. */
+  function seedAutoCeiling(m, core, autos) {
+    autos.forEach(function (p) {
+      if (Number(p.sensor.dpSet) > 0) return;          // the engineer said
+      var ref = M.pipe(m, p.sensor.ref);
+      var pr = core && core.res && core.res.pressure;
+      if (!ref || !pr) return;
+      var d = Math.abs((pr[p.a] || 0) - (pr[ref.a] || 0));
+      /* Nothing measurable means nothing to hold. Leaving `dpAuto` unset lets
+       * CONTROL_NO_SETPOINT fire as it should, rather than inventing a target
+       * out of a solve that has not moved any water. */
+      if (isFinite(d) && d > 1e-6) p.sensor.dpAuto = d;
     });
   }
 
@@ -1255,7 +1283,17 @@
       return yield* runControlsGen(m, core, maxPasses, opts);
     }
 
-    var design = autos.map(function (p) { return Number(p.sensor.dpSet); });
+    /* A ceiling first, for any sensor left without one. */
+    seedAutoCeiling(m, core, autos);
+    var design = autos.map(function (p) {
+      var typed = Number(p.sensor.dpSet);
+      return (typed > 0) ? typed : Number(p.sensor.dpAuto) || 0;
+    });
+    /* A sensor with neither a typed setpoint nor a measurable differential has
+     * nothing to search between; leave it to report as unset. */
+    if (!design.every(function (d) { return d > 0; })) {
+      return yield* runControlsGen(m, core, maxPasses, opts);
+    }
     var apply = function (frac) {
       autos.forEach(function (p, i) { p.sensor.dpAuto = design[i] * frac; });
     };

@@ -5978,22 +5978,18 @@
   function cvSelectionFields(host, v, onChange) {
     if (!FD.controlValves) return false;
     var CVD = FD.controlValves;
-    var typeKey = (v.cvType === 'picv') ? 'picv' : 'cv';
     var dn = (v.cvDN !== undefined && v.cvDN !== null) ? Number(v.cvDN) : null;
     var entry = (dn !== null) ? CVD.bySize(dn) : null;
 
-    var tSel = el('select');
-    CVD.types.forEach(function (t) {
-      var o = el('option', '', t.name); o.value = t.key;
-      if (t.key === typeKey) o.selected = true;
-      tSel.appendChild(o);
-    });
-    field(host, 'Type', tSel);
-    tSel.addEventListener('change', function () {
-      pushUndo();
-      if (tSel.value === 'cv') delete v.cvType; else v.cvType = tSel.value;
-      onChange();
-    });
+    /* NO TYPE ROW — Michael, 2026-09-07: "Remove CV>Properties>Design>Type
+     * (Since PICVs can be adequately modeled with CVs)."
+     *
+     * It had been down to one option since v0.18.45, and his own test settled
+     * the reason: an external valve held to a leaving-water temperature
+     * modulates exactly as a PICV does, because holding a temperature and
+     * holding a flow are the same search. A separate type was describing a
+     * distinction the engine does not have. What stays valve-specific — the
+     * flow limit — is a threshold on HYDRAULIC, not a type. */
 
     var dSel = el('select');
     var manOpt = el('option', '', 'Manual'); manOpt.value = '';
@@ -6016,14 +6012,6 @@
       onChange();
     });
 
-    /* NOT IMPLEMENTED MEANS NOT IMPLEMENTED, and the panel must not let that
-     * pass silently — a PICV that is quietly solved as an ordinary control
-     * valve would give a confidently wrong answer. */
-    if (typeKey === 'picv') {
-      host.appendChild(el('p', 'hint',
-        'Pressure independent valves are not modelled yet. This is solved as ' +
-        'an ordinary control valve.'));
-    }
     return !!entry;
   }
 
