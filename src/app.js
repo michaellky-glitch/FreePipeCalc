@@ -2221,33 +2221,27 @@
       /* ONE EXPLANATION SURVIVES ON THIS SHEET, and it is the sign convention —
        * Michael, 2026-09-07: "Remove all explanations except thermal sign
        * convention (Repeat the section in Thermal)." So it is his wording from
-       * the THERMAL tab, verbatim, rather than a second telling of it. The
-       * conditions the numbers were produced under stay: they are data, not
-       * explanation, and a sheet that does not state them cannot be checked. */
+       * the THERMAL tab, verbatim, rather than a second telling of it.
+       *
+       * TWO MORE LINES WENT ON 2026-09-08, and the argument for keeping them
+       * is recorded here so it is not made again. They stated the conditions
+       * the numbers were computed under - ambient and Cp, then insulation and
+       * surface coefficient - and I kept them on the grounds that a sheet
+       * that does not state its assumptions cannot be checked. His answer was
+       * to remove them: they are ALREADY on the THERMAL tab, which is where he
+       * sets them, so the sheet was repeating an input back at the person who
+       * typed it. The APPENDIX above still carries the hydraulic parameters,
+       * which is the one place assumptions travel with the result. */
       secT.appendChild(el('h4', 'sheet-sub', 'Sign Convention'));
       secT.appendChild(el('p', 'legend',
         'Negative heat transfer removes heat from fluid. Positive adds heat to ' +
         'fluid. Example: Chiller removes heat (-ve), while cooling AHU adds (+ve).'));
-      secT.appendChild(el('p', 'legend',
-        'Q = ṁ·Cp·ΔT. Ambient ' + (m.settings.thermal.ambient).toFixed(1) +
-        ' °C, ' + fluid.name + ' at Cp = ' +
-        fluid.specificHeat.toFixed(0) + ' J/(kg·K).'));
-
       if (!fluid.verified) {
         secT.appendChild(el('div', 'notice warn-notice')).appendChild(el('p', '',
           fluid.name + ': the fluid properties used here are NOT verified ' +
           'against a printed table. Specific heat scales every duty below ' +
           'linearly. Check before issue.'));
       }
-      /* Insulation thickness is now the engineer's own — one global default,
-       * overridden per pipe — so it is no longer flagged. The surface
-       * coefficient still is: it is a default, and on a BARE pipe it is the
-       * entire resistance. */
-      secT.appendChild(el('p', 'legend',
-        'Pipe gains and losses use ' + FD.thermal.defaultThicknessMm(m).toFixed(0) +
-        ' mm insulation (overridden per pipe where set) and an outside surface ' +
-        'coefficient of ' + (m.settings.thermal.surfaceCoeff).toFixed(1) +
-        ' W/(m²·K).'));
       if (th.pinned) {
         secT.appendChild(el('p', 'legend',
           'No source, so ' + m.settings.thermal.supplyTemp.toFixed(1) + ' °C was ' +
