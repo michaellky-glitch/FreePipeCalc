@@ -101,14 +101,6 @@
   FD.dialog = {
     isOpen: function () { return openCount > 0; },
 
-    /* The bare modal, for a body this file has no business knowing about —
-     * the EXAMPLES picker is a list of rich rows, not fields and not a report.
-     * Same contract as everything below it: `build(body, close)` fills the
-     * body, `buttons` render in the footer, the Promise resolves the chosen
-     * value. Reach for `confirm`, `prompt`, `choose`, `report` or `form`
-     * first; this is for when none of them is the shape you need. */
-    custom: modal,
-
     /* Replaces alert(). */
     alert: function (opts) {
       return modal({

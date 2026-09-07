@@ -3745,8 +3745,6 @@ section('Examples — the shipped catalogue');
    * render as an empty box in the picker rather than fail anywhere. */
   FD.examples.forEach(e => {
     ok(`"${e.file}": has a display name`, !!e.name && e.name.length > 2);
-    ok(`"${e.file}": has a blurb`, !!e.blurb && e.blurb.length > 20);
-    ok(`"${e.file}": scale is small or large`, e.scale === 'small' || e.scale === 'large');
   });
 
   /* No duplicates — two rows for one file would load the same model twice
@@ -3786,6 +3784,52 @@ section('Examples — the shipped catalogue');
     let net = null, nerr = '';
     try { net = NET.build(m); } catch (e) { nerr = e.message; }
     ok(`"${f}" builds a network`, !!net, nerr);
+  });
+
+  /* EVERY `data-model` IN THE DOCUMENTATION MUST NAME A REAL EXAMPLE.
+   *
+   * `docs/open-model.js` turns that attribute into an "Open this model in the
+   * editor" button, and `app.js` answers it by looking the value up in the
+   * catalogue. A typo in the attribute is therefore a button that is drawn,
+   * looks live, and does nothing when pressed — silent, and only findable by
+   * clicking it. This makes it a test failure instead.
+   *
+   * The attribute is read out of the HTML rather than from a list, so a
+   * document that adds one is covered the moment it is written. */
+  const docsDir = path.join(ROOT, 'docs');
+  const pages = fs.readdirSync(docsDir).filter(f => f.endsWith('.html'));
+  let hooks = 0;
+  pages.forEach(page => {
+    const html = fs.readFileSync(path.join(docsDir, page), 'utf8');
+    const found = html.match(/data-model="([^"]+)"/g) || [];
+    found.forEach(attr => {
+      /* The one entity these names can carry — "Data Hall &amp; Yard.json". */
+      const want = attr.slice(12, -1).replace(/&amp;/g, '&');
+      hooks++;
+      ok(`docs/${page}: data-model "${want}" is in the catalogue`,
+         listed.indexOf(want) >= 0,
+         'the button would render and do nothing');
+    });
+    /* A page that names a model must also load the script that acts on it. */
+    if (found.length) {
+      ok(`docs/${page}: loads open-model.js`,
+         html.indexOf('src="open-model.js"') >= 0);
+    }
+  });
+  ok('The documentation offers at least one model to open', hooks > 0);
+  /* And every example must be reachable from SOME page — the ribbon button
+   * that used to reach them all is gone, so an uncatalogued route is now the
+   * only route, and a model no document mentions cannot be opened at all. */
+  const mentioned = new Set();
+  pages.forEach(page => {
+    const html = fs.readFileSync(path.join(docsDir, page), 'utf8');
+    (html.match(/data-model="([^"]+)"/g) || []).forEach(a => {
+      mentioned.add(a.slice(12, -1).replace(/&amp;/g, '&'));
+    });
+  });
+  listed.forEach(f => {
+    ok(`"${f}" is reachable from the documentation`, mentioned.has(f),
+       'no page carries a data-model for it, so nothing can open it');
   });
 }
 

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FreePipeCalc — Piping Friction Loss Calculator</title>
-<link rel="stylesheet" href="styles.css?v=0.18.53">
+<link rel="stylesheet" href="styles.css?v=0.18.54">
 </head>
 <body>
 
@@ -44,9 +44,6 @@
       <button class="btn" id="btn-new">NEW</button>
       <button class="btn" id="btn-save">SAVE</button>
       <button class="btn" id="btn-load">LOAD</button>
-      <!-- The models that ship with the site. LOAD needs a file on disk; this
-           needs nothing, which is the whole point of it. -->
-      <button class="btn" id="btn-examples" title="Open one of the example models that ship with FreePipeCalc — nothing to download">EXAMPLES</button>
       <button class="btn" id="btn-print">PRINT</button>
       <button class="btn" id="btn-repair" title="Find and fix tags that have an automatically generated tag stuck on the end of them">REPAIR</button>
       <button class="btn" id="btn-dxf" title="Export the drawing as a DXF (experimental) — geometry and text only, no properties or reports">DXF</button>
@@ -299,35 +296,35 @@
      the query when resolving a file:// path, so double-clicking still works;
      over HTTP, changing the token forces a reload instead of a stale copy.
      Bump the token on release, or during development after editing a module. -->
-<script src="data/schedules.js?v=0.18.53"></script>
-<script src="data/fittings.js?v=0.18.53"></script>
-<script src="data/valves.js?v=0.18.53"></script>
-<script src="data/controlvalves.js?v=0.18.53"></script>
-<script src="data/tees.js?v=0.18.53"></script>
-<script src="data/ktable.js?v=0.18.53"></script>
-<script src="data/pumps.js?v=0.18.53"></script>
-<script src="data/fluids.js?v=0.18.53"></script>
-<script src="data/plumbing.js?v=0.18.53"></script>
-<script src="src/units.js?v=0.18.53"></script>
-<script src="src/hydraulics.js?v=0.18.53"></script>
-<script src="src/solver.js?v=0.18.53"></script>
-<script src="src/model.js?v=0.18.53"></script>
-<script src="src/geometry.js?v=0.18.53"></script>
-<script src="src/network.js?v=0.18.53"></script>
-<script src="src/thermal.js?v=0.18.53"></script>
-<script src="src/dialog.js?v=0.18.53"></script>
-<script src="src/trace.js?v=0.18.53"></script>
-<script src="src/canvas.js?v=0.18.53"></script>
-<script src="src/printer.js?v=0.18.53"></script>
-<script src="src/dxf.js?v=0.18.53"></script>
-<script src="src/tools.js?v=0.18.53"></script>
-<script src="src/examples.js?v=0.18.53"></script>
-<script src="src/docs.js?v=0.18.53"></script>
-<script src="src/app.js?v=0.18.53"></script>
+<script src="data/schedules.js?v=0.18.54"></script>
+<script src="data/fittings.js?v=0.18.54"></script>
+<script src="data/valves.js?v=0.18.54"></script>
+<script src="data/controlvalves.js?v=0.18.54"></script>
+<script src="data/tees.js?v=0.18.54"></script>
+<script src="data/ktable.js?v=0.18.54"></script>
+<script src="data/pumps.js?v=0.18.54"></script>
+<script src="data/fluids.js?v=0.18.54"></script>
+<script src="data/plumbing.js?v=0.18.54"></script>
+<script src="src/units.js?v=0.18.54"></script>
+<script src="src/hydraulics.js?v=0.18.54"></script>
+<script src="src/solver.js?v=0.18.54"></script>
+<script src="src/model.js?v=0.18.54"></script>
+<script src="src/geometry.js?v=0.18.54"></script>
+<script src="src/network.js?v=0.18.54"></script>
+<script src="src/thermal.js?v=0.18.54"></script>
+<script src="src/dialog.js?v=0.18.54"></script>
+<script src="src/trace.js?v=0.18.54"></script>
+<script src="src/canvas.js?v=0.18.54"></script>
+<script src="src/printer.js?v=0.18.54"></script>
+<script src="src/dxf.js?v=0.18.54"></script>
+<script src="src/tools.js?v=0.18.54"></script>
+<script src="src/examples.js?v=0.18.54"></script>
+<script src="src/docs.js?v=0.18.54"></script>
+<script src="src/app.js?v=0.18.54"></script>
 <script>
   window.FD.APP_NAME = 'FreePipeCalc';
   window.FD.APP_SHORT = 'FPC';
-  window.FD.VERSION = '0.18.53';
+  window.FD.VERSION = '0.18.54';
   window.FD.FORMAT_VERSION = 1;
   try {
     window.FD.initApp();

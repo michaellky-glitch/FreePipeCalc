@@ -1,8 +1,8 @@
 /* FreePipeCalc — the shipped example models
  *
- * The catalogue only. Nothing here loads anything: it names the files in
- * `examples/` and says what each one is, so the picker can be built without
- * reading 122 kB off the disk to find out.
+ * The catalogue only. Nothing here loads anything: it names the four files in
+ * `examples/` and gives each a readable name, so a document can ask for one by
+ * key and `app.js` can refuse anything that is not on this list.
  *
  * WHY A HARD-CODED LIST RATHER THAN A DIRECTORY READ. A static site cannot
  * list a directory — there is no server-side index to ask — so the list has
@@ -18,39 +18,24 @@
 (function (FD) {
   'use strict';
 
+  /* NAME AND FILE, AND NOTHING ELSE.
+   *
+   * It carried a blurb and a size flag while EXAMPLES was a ribbon button and
+   * the picker had to describe each model. The picker is gone (see `app.js`),
+   * the descriptions now live in the user manual beside the buttons that open
+   * them, and a second copy here would be a second thing to keep true. The
+   * `name` stays because it is what the toast and the discard prompt say, and
+   * "Tutorial 01 - Basics.json" is not a sentence.
+   *
+   * `file` is the name under `examples/`, and it is also what the tutorials,
+   * `engine.html` and every `data-model` attribute quote, so it must match
+   * those pages exactly. Do not rename one without the others — `model.test.js`
+   * checks all of it, both ways. */
   FD.examples = [
-    {
-      file: 'Tutorial 01 - Basics.json',
-      name: 'Tutorial 01 — Basics',
-      blurb: 'One level, a source and a short branched run — the smallest ' +
-             'complete design. The finished model from the tutorial.',
-      scale: 'small'
-    },
-    {
-      file: 'Tutorial 02 - Hydronic System.json',
-      name: 'Tutorial 02 — Hydronic System',
-      blurb: 'Six levels and two riser columns, saved in Simulation with ' +
-             'Darcy-Weisbach. The finished model from the tutorial.',
-      scale: 'small'
-    },
-    {
-      file: 'GGA example.json',
-      name: 'GGA example',
-      blurb: 'Eleven pipes and three outflows — small enough to check by ' +
-             'hand, and the worked example in DOCUMENTATION ▸ Engine.',
-      scale: 'small'
-    },
-    {
-      file: 'Data Hall & Yard.json',
-      name: 'Data Hall & Yard',
-      blurb: 'Four levels, 278 pipes, fifty riser columns. A real-sized ' +
-             'model, and it is slow on purpose: the solve is minutes of ' +
-             'genuine work, not a hang.',
-      /* The one flag the picker acts on. The data hall's simulation is 634
-       * control solves and takes tens of seconds on this machine — long
-       * enough that a user who was not told would reach for the reload. */
-      scale: 'large'
-    }
+    { file: 'Tutorial 01 - Basics.json',           name: 'Tutorial 01 — Basics' },
+    { file: 'Tutorial 02 - Hydronic System.json',  name: 'Tutorial 02 — Hydronic System' },
+    { file: 'GGA example.json',                    name: 'GGA example' },
+    { file: 'Data Hall & Yard.json',               name: 'Data Hall & Yard' }
   ];
 
   /* The folder every `file` above is relative to. Separated so a caller never

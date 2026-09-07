@@ -274,7 +274,6 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
     <tr><td>NEW</td><td>Start an empty model.</td></tr>
     <tr><td>SAVE</td><td>Save the model to a file (<kbd>Ctrl</kbd>+<kbd>S</kbd>).</td></tr>
     <tr><td>LOAD</td><td>Open a saved model file.</td></tr>
-    <tr><td>EXAMPLES</td><td>Open one of the models that ship with FreePipeCalc — the two tutorial models, the worked example from the Engine page, and a full-sized data hall. Nothing is downloaded; they are already part of the program. If you opened this page from a file on your own disk rather than from a web address, the browser will not let the program read them for you, and the list says which file to pick with LOAD instead.</td></tr>
     <tr><td>PRINT</td><td>Print the drawing. The program asks whether to print the level plans or the calculation sheet. Level plans print one page per level. The calculation sheet prints the open sections only, so you choose what to issue by collapsing the sections you do not need. The sheet turns to landscape by itself when its table is wider than a portrait page.</td></tr>
     <tr><td>REPAIR</td><td>Find and fix tags that have an automatically generated tag stuck on the end of them.</td></tr>
     <tr><td>DXF</td><td>Export the drawing as a DXF file. The program asks for one of two forms. The 3D model puts every level at its real height in one file. By Level writes one file per level and keeps the height ordinates, so the sheets still stack when referenced together. The export carries geometry and text only, not properties or reports. It is experimental; check that it opens in your CAD.</td></tr>
@@ -282,6 +281,16 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
   </tbody>
 </table>
 </div>
+
+<h4 id="example-models">The example models</h4>
+<p>Four finished models ship with the program. They are already part of it, so there is nothing to download: where you are reading this inside FreePipeCalc, each one has a button that opens it straight onto the canvas. Opening one replaces the drawing, and the program asks first if you have drawn anything.</p>
+<p>If you opened FreePipeCalc from a file on your own disk rather than from a web address, the buttons are not shown — a browser will not let a page read another file directly. Use LOAD and pick the file named below; it is in the <code>examples</code> folder beside the program.</p>
+<ul>
+  <li data-model="Tutorial 01 - Basics.json"><strong>Tutorial 01 — Basics.</strong> One level, a source and a short branched run. The finished model from Tutorial 01. <code>examples/Tutorial 01 - Basics.json</code></li>
+  <li data-model="Tutorial 02 - Hydronic System.json"><strong>Tutorial 02 — Hydronic System.</strong> Six levels and two riser columns, saved in Simulation with Darcy-Weisbach. The finished model from Tutorial 02. <code>examples/Tutorial 02 - Hydronic System.json</code></li>
+  <li data-model="GGA example.json"><strong>GGA example.</strong> Eleven pipes and three outflows, small enough to check by hand. It is the worked example in the Calculation Method page, and the one the Engine Verification page recomputes. <code>examples/GGA example.json</code></li>
+  <li data-model="Data Hall &amp; Yard.json"><strong>Data Hall &amp; Yard.</strong> Four levels, 278 pipes and fifty riser columns — a real-sized model. It is slow on purpose: the solve is minutes of genuine work, not a hang. <code>examples/Data Hall &amp; Yard.json</code></li>
+</ul>
 
 <h4>Copying elements and properties</h4>
 <p>There are two kinds of copy.</p>
@@ -650,5 +659,6 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
 </footer>
 </main>
 </div>
+<script src="open-model.js"></script>
 </body>
 </html>

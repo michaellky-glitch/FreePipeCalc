@@ -310,29 +310,36 @@
   /* ---------------------------------------------------------- EXAMPLES
    *
    * Michael, 2026-09-08: "a way to open the example files without needing to
-   * download new files." The four models in `examples/` ship with the site and
-   * are quoted by name in the tutorials, but the only way in was LOAD — which
-   * means finding the file on disk, which means having downloaded it.
+   * download new files" — and then, on seeing it as a ribbon button: "the
+   * ribbon is already a bit busy and the user will only really use the
+   * tutorials a handful of times before not needing them. Not worth a ribbon
+   * spot." He is right: a control the same person presses three times in their
+   * life should not sit next to SAVE forever.
    *
-   * IT IS A `fetch`, AND THAT HAS ONE LIMIT WORTH KNOWING. Served over http
-   * (GitHub Pages, or a local server) this just works. Opened as a `file://`
-   * URL it cannot: every browser blocks `fetch` on `file://` as a
-   * cross-origin read, and there is no way around it from inside the page.
-   * That case is DETECTED rather than left to fail as a bare network error,
-   * and the dialog says which file to open with LOAD instead — a `file://`
-   * user necessarily has the folder on disk already, which is the one case
-   * where LOAD is no hardship.
+   * SO THE WAY IN IS THE DOCUMENT THAT TALKS ABOUT THE MODEL. Each tutorial
+   * carries "Open this model in the editor" at the top, beside the sentence
+   * that already names the file; `engine.html` does the same for the worked
+   * example it checks by hand. The button is IN THE FRAMED PAGE, which is a
+   * separate opaque origin, so it cannot call in here — it posts a message and
+   * this listens.
    *
-   * The alternative was shipping each example a second time as a `.js` that
-   * registers itself, which a `<script>` tag will read from `file://`. That is
-   * 170 kB of duplicated model that two files must be kept in step, for a case
-   * where the files are already to hand. Not done; say if it is wanted. */
+   * IT IS A `fetch`, SO IT WORKS OVER http AND NOT FROM A `file://` PAGE —
+   * every browser blocks `fetch` on `file://` as a cross-origin read. The
+   * framed page checks its own protocol and does not draw the button at all
+   * there, so a `file://` reader sees the sentence naming the file and uses
+   * LOAD, as they always did. This end refuses it too rather than trusting
+   * that: two places to change is one too many for a rule this quiet.
+   *
+   * The alternative was shipping each example a second time as a `.js` a
+   * `<script>` tag can read from `file://`. That is ~170 kB of duplicated
+   * model kept in step by hand, for a case where the files are already on the
+   * disk in front of the reader. Not done. */
   function isFileUrl() {
     return String(location.protocol).toLowerCase() === 'file:';
   }
 
   function loadExample(entry) {
-    toast('Opening ' + entry.name + '…');
+    toast('Opening ' + entry.name + '\u2026');
     /* The version token matters here for the same reason it does on every
      * other asset: an example edited between releases must not be served from
      * cache. See the note at the head of index.html. */
@@ -342,7 +349,15 @@
       if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
       return r.text();
     }).then(function (text) {
-      adoptModelText(text, entry.name);
+      if (!adoptModelText(text, entry.name)) return;
+      /* THE POINT OF THE BUTTON IS TO BE LOOKING AT THE MODEL. It is pressed
+       * from the DOCUMENTATION tab, so leaving the reader there would load a
+       * drawing they cannot see and look like nothing happened. */
+      if (app.showTab) app.showTab('pane-network');
+      /* Resize BEFORE fitting: the canvas was hidden behind the docs pane when
+       * `adoptModelText` fitted it, so it fitted to the wrong box. */
+      app.view.resize();
+      app.view.zoomToFit();
     })['catch'](function (e) {
       toast('Could not open ' + entry.name + ': ' + e.message, 'error');
     });
@@ -351,6 +366,16 @@
   /* Guarded exactly as NEW is: an example REPLACES the drawing, and a model
    * with pipes in it is work someone did. */
   function openExample(entry) {
+    if (isFileUrl()) {
+      FD.dialog.alert({
+        title: 'Open it with LOAD',
+        message: 'This page is open from a file rather than from a web ' +
+                 'address, and a browser will not let it read another file ' +
+                 'directly.\n\nUse LOAD and pick ' + FD.examplesDir +
+                 entry.file + ' \u2014 it is in the folder beside this page.'
+      });
+      return;
+    }
     if (!app.model.pipes.length) { loadExample(entry); return; }
     FD.dialog.confirm({
       title: 'Discard current model?',
@@ -360,48 +385,29 @@
     }).then(function (yes) { if (yes) loadExample(entry); });
   }
 
-  function openExamplePicker() {
-    var offline = isFileUrl();
-    FD.dialog.custom({
-      title: 'Examples',
-      cancelValue: null,
-      submitOnEnter: false,
-      build: function (body, close) {
-        if (offline) {
-          /* Not an error — the app is working exactly as it should. It is a
-           * statement of which door to use. */
-          var n = el('div', 'notice');
-          n.appendChild(el('p', '',
-            'This page is open from a file rather than from a web address, ' +
-            'and a browser will not let it read another file directly. Use ' +
-            'LOAD and pick the file named beside each example below — they ' +
-            'are in the "examples" folder next to this page.'));
-          body.appendChild(n);
-        }
-        var list = el('div', 'example-list');
-        FD.examples.forEach(function (entry) {
-          var row = el(offline ? 'div' : 'button', 'example-row');
-          if (!offline) row.type = 'button';
-          row.appendChild(el('div', 'example-name', entry.name));
-          row.appendChild(el('div', 'example-blurb', entry.blurb));
-          row.appendChild(el('div', 'example-file', FD.examplesDir + entry.file));
-          if (entry.scale === 'large') {
-            row.appendChild(el('div', 'example-note',
-              'Large model — the first solve takes a while.'));
-          }
-          if (!offline) {
-            row.addEventListener('click', function () {
-              close(null);
-              openExample(entry);
-            });
-          }
-          list.appendChild(row);
-        });
-        body.appendChild(list);
-      },
-      buttons: [{ label: 'Close', value: null }]
-    });
-  }
+  /* THE ONLY THING THAT MAY ARRIVE THROUGH THIS WINDOW, and it is treated as
+   * untrusted even though we wrote the page that sends it.
+   *
+   * The message must come from the documentation frame itself — comparing
+   * `event.source` against the frame's own window works even though the frame
+   * is an opaque origin, which is why the check is that and not `event.origin`
+   * (over `file://` the origin is the string "null" for every page, ours and
+   * anyone else's alike, so it distinguishes nothing).
+   *
+   * And the payload is not a path. It is a KEY looked up in the catalogue, so
+   * the only files this can ever open are the four `src/examples.js` names.
+   * A message asking for anything else falls out of the lookup and is dropped
+   * in silence: there is no user waiting on an answer to it. */
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || typeof d !== 'object' || d.fpc !== 'open-example') return;
+    var frame = document.querySelector('#pane-docs .doc-frame');
+    if (!frame || e.source !== frame.contentWindow) return;
+    var entry = null;
+    (FD.examples || []).forEach(function (x) { if (x.file === d.file) entry = x; });
+    if (!entry) return;
+    openExample(entry);
+  });
 
   // -------------------------------------------------------------- toast
   function toast(msg, kind) {
@@ -10398,7 +10404,6 @@
     $('btn-print-2').addEventListener('click', function () { printAs('sheet'); });
 
     $('btn-load').addEventListener('click', function () { $('file-input').click(); });
-    $('btn-examples').addEventListener('click', openExamplePicker);
     $('file-input').addEventListener('change', function (e) {
       if (e.target.files && e.target.files[0]) loadModelFile(e.target.files[0]);
       e.target.value = '';
