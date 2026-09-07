@@ -458,6 +458,66 @@ section('The system curve is traced by solving, not assumed');
        t.pump.pump.speed === undefined);
   }
 
+  /* ---- A SYNC GROUP. Michael, 2026-09-07: "Pump curve for second (or more)
+   * pump synced to first shows design point at 100% VFD rather than system
+   * curve."
+   *
+   * `applySyncs` runs at the top of every build and copies the leader's speed
+   * onto its followers, and the sweep rebuilds on every probe. Two faults fell
+   * out of that, and both are asserted here. */
+  {
+    /* Two identical pumps in parallel between the same pair of nodes, the
+     * second following the first, and a leader left part way down its range so
+     * that "restored" and "full speed" are different numbers. */
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+    const c = M.addNode(m, lv, 2, 0);
+    a.device = { kind: 'source', head: 0 };
+    c.device = { kind: 'demand', flow: 0.020, reqPressure: 100e3, include: true };
+    const lead = M.addPipe(m, a.id, b.id, { kind: 'pump', tag: 'PMP-01' });
+    const follow = M.addPipe(m, a.id, b.id, { kind: 'pump', tag: 'PMP-02' });
+    lead.pump = { mode: 'fixed', head: 40, speed: 0.8, curve: P.singlePoint(40, 0.020) };
+    follow.pump = { mode: 'fixed', head: 40, curve: P.singlePoint(40, 0.020) };
+    M.setSync(m, follow, lead.id);
+    M.addPipe(m, b.id, c.id, { size: 'DN100', schedule: 'sch40' });
+    NET.solveModel(m);
+
+    ok('The follower takes the leader\'s speed to begin with',
+       Math.abs(follow.pump.speed - 0.8) < 1e-9, String(follow.pump.speed));
+
+    /* FAULT ONE: sweeping the LEADER wrote each probe speed onto the gang, and
+     * only the swept pump was put back — so drawing the leader's chart left the
+     * follower standing at the last probe. Every readout of that pump was then
+     * wrong until the next solve, the chart included. */
+    NET.systemCurve(m, lead.id);
+    near('Tracing the leader leaves its own speed alone', lead.pump.speed, 0.8, 1e-9);
+    near('...and does not leave the follower at full speed',
+         follow.pump.speed, 0.8, 1e-9);
+
+    /* FAULT TWO: a follower has no speed of its own. Sweeping it was undone by
+     * `applySyncs` on the very next build, so all thirteen probes solved at one
+     * speed, collapsed onto a single abscissa and returned nothing at all. */
+    const sys = NET.systemCurve(m, follow.id);
+    ok('A synced pump has a system curve of its own', !!sys && sys.length >= 5,
+       sys ? String(sys.length) : 'null');
+    ok('...spanning a real range of flow',
+       sys[sys.length - 1].q > sys[0].q * 1.5,
+       (sys[0].q * 1000).toFixed(2) + ' to ' +
+       (sys[sys.length - 1].q * 1000).toFixed(2) + ' L/s');
+    ok('...rising', sys.every((pt, i) => i === 0 || pt.h > sys[i - 1].h));
+    near('...and it too leaves the group as it was found',
+         follow.pump.speed, 0.8, 1e-9);
+    near('...leader included', lead.pump.speed, 0.8, 1e-9);
+
+    /* The gang runs together, so the two machines see the same system. */
+    const sysLead = NET.systemCurve(m, lead.id);
+    near('The two pumps of a gang trace the same system',
+         sys[sys.length - 1].q, sysLead[sysLead.length - 1].q,
+         sysLead[sysLead.length - 1].q * 0.02);
+  }
+
   /* ---- STATIC LIFT moves the intercept off zero, which is the case the
    * parabola-through-the-origin gets wrong. With 25 m of lift the system needs
    * 25 m before it will pass any flow at all, so extrapolating the traced curve

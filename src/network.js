@@ -4563,13 +4563,43 @@
     if (!p || p.kind !== 'pump' || !p.pump || !p.pump.curve) return null;
     if (p.pump.mode === 'off') return null;
 
-    var had = Object.prototype.hasOwnProperty.call(p.pump, 'speed');
-    var saved = p.pump.speed;
     /* A control link would fight the speed being imposed here, so the iteration
-     * calls solveCore directly — it runs the hydraulics and nothing else. */
+     * calls solveCore directly — it runs the hydraulics and nothing else.
+     *
+     * THE SWEEP DRIVES THE SYNC LEADER, AND EVERY PUMP'S SPEED IS RESTORED.
+     * Michael, 2026-09-07: "Pump curve for second (or more) pump synced to
+     * first shows design point at 100% VFD rather than system curve."
+     *
+     * Two faults with one cause: every probe calls `solveCore`, which rebuilds,
+     * and `applySyncs` runs at the top of every build and copies the leader's
+     * speed onto its followers.
+     *
+     *   Sweeping the LEADER wrote each probe speed onto the whole gang, and
+     *   restoring only the swept pump left the followers standing at the last
+     *   probe — full speed. Drawing one chart left the live model wrong, so the
+     *   follower's own chart, its panel and the device sheet all read 100%.
+     *
+     *   Sweeping a FOLLOWER did nothing at all: `applySyncs` put the leader's
+     *   speed back on the next build, so all thirteen probes solved at one
+     *   speed, collapsed onto one abscissa and returned no curve.
+     *
+     * A follower has no speed of its own to sweep. The gang moves together, so
+     * the LEADER is driven and the follower's own flow is read off the result —
+     * which is the curve the system actually imposes on that machine. */
+    var driver = M.pipe(m, M.syncOf(p));
+    if (!driver || driver.kind !== 'pump' || !driver.pump) driver = p;
+
+    var saved = [];
+    m.pipes.forEach(function (q) {
+      if (q.kind !== 'pump' || !q.pump) return;
+      saved.push({ pump: q.pump,
+                   had: Object.prototype.hasOwnProperty.call(q.pump, 'speed'),
+                   speed: q.pump.speed });
+    });
+
     var pts = [];
     function probe(n) {
-      p.pump.speed = n;
+      driver.pump.speed = n;
       var core;
       try { core = solveCore(m, 5); } catch (e) { return; }
       if (!core || !core.res || !core.res.flow) return;
@@ -4604,7 +4634,9 @@
         probe(n);
       }
     }
-    if (had) p.pump.speed = saved; else delete p.pump.speed;
+    saved.forEach(function (sv) {
+      if (sv.had) sv.pump.speed = sv.speed; else delete sv.pump.speed;
+    });
 
     pts.sort(function (a, b) { return a.q - b.q; });
     /* Two solves can land on the same flow when the pump is already choked by

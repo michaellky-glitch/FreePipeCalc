@@ -1999,9 +1999,18 @@
      * in a table of their own — they are part of the same question. */
     (function () {
       var sim = res && res.simulation;
-      var devCols = ['Node', 'Actual flow ' + d.flow, 'Design flow ' + d.flow, '% of design',
-                     'Actual pressure ' + d.pressure, 'Design pressure ' + d.pressure, '% of design',
-                     'CV opening'];
+      /* THE COLUMNS ARE PER GROUP — Michael, 2026-09-07: "Remove CV opening
+       * from Sources & Pumps." A source has no control valve and a pump is not
+       * throttled by one, so the column was a row of dashes on both. It is
+       * carried only where it can be filled, which is EQUIPMENT.
+       *
+       * The tables no longer line up column-for-column, and that is the trade:
+       * a column that never says anything is worse than two tables of
+       * different widths. */
+      var devColsBase = ['Node', 'Actual flow ' + d.flow, 'Design flow ' + d.flow,
+                         '% of design', 'Actual pressure ' + d.pressure,
+                         'Design pressure ' + d.pressure, '% of design'];
+      var devColsCV = devColsBase.concat(['CV opening']);
       var groups = [];
 
       function pct(a, b) { return (b > 0) ? (a / b * 100) : null; }
@@ -2017,7 +2026,7 @@
         var pa = res && res.pressure ? res.pressure[n.id] : null;
         return row(n.tag || n.id, null, null, pa, (n.device.pressure || 0));
       });
-      if (srcRows.length) groups.push({ title: 'Sources', rows: srcRows });
+      if (srcRows.length) groups.push({ title: 'Sources', rows: srcRows, cols: devColsBase });
 
       // pumps
       var pumpRows = m.pipes.filter(function (p) { return p.kind === 'pump'; })
@@ -2035,7 +2044,7 @@
                        off ? 0 : q, design, headToPa(hd), null);
           return r2;
         });
-      if (pumpRows.length) groups.push({ title: 'Pumps', rows: pumpRows });
+      if (pumpRows.length) groups.push({ title: 'Pumps', rows: pumpRows, cols: devColsBase });
 
       // equipment
       /* THE CONTROL VALVE SERVING A MACHINE, wherever it lives — Michael,
@@ -2067,7 +2076,7 @@
           r3.cv = cvOpeningOf(p);
           return r3;
         });
-      if (eqRows.length) groups.push({ title: 'Equipment', rows: eqRows });
+      if (eqRows.length) groups.push({ title: 'Equipment', rows: eqRows, cols: devColsCV });
 
       // outflows
       var ofRows = m.nodes.filter(function (n) {
@@ -2083,7 +2092,7 @@
         var aP = res && res.pressure ? res.pressure[n.id] : null;
         return row(n.tag || n.id, aF, dev.flow, aP, dev.reqPressure || null);
       });
-      if (ofRows.length) groups.push({ title: 'Outflows', rows: ofRows });
+      if (ofRows.length) groups.push({ title: 'Outflows', rows: ofRows, cols: devColsBase });
 
       if (!groups.length) return;
       var secDev = calcSection('Device Flow');
@@ -2097,7 +2106,7 @@
         secDev.appendChild(el('h3', 'sub', g.title));
         var t = el('table', 'sheet device-flow');
         var th = el('thead'), htr2 = el('tr');
-        devCols.forEach(function (c, i) {
+        (g.cols || devColsBase).forEach(function (c, i) {
           htr2.appendChild(el('th', i === 0 ? 'txt' : '', c));
         });
         th.appendChild(htr2); t.appendChild(th);
@@ -2119,9 +2128,11 @@
           /* WIDE OPEN IS WORTH SEEING. A valve at full travel has nothing left
            * to give, so it is the one that decides how far a differential
            * setpoint can fall — the same fact the sensor panel reports as
-           * "Limited by". */
-          c(r.cv === null || r.cv === undefined ? '—' : Math.round(r.cv) + '%',
-            (r.cv >= 99.5) ? 'bad' : '');
+           * "Limited by". Only on the groups that carry the column. */
+          if ((g.cols || devColsBase).length > devColsBase.length) {
+            c(r.cv === null || r.cv === undefined ? '—' : Math.round(r.cv) + '%',
+              (r.cv >= 99.5) ? 'bad' : '');
+          }
           tb2.appendChild(tr);
         });
         t.appendChild(tb2);
@@ -2166,14 +2177,12 @@
         secCurve.appendChild(built.svg);
       });
 
-      var key = el('p', 'hint',
+      /* THE KEY STAYS, THE EXPLANATION GOES — Michael, 2026-09-07. What the
+       * lines are is needed to read the chart; why the system curve is solved
+       * rather than assumed is documentation. */
+      secCurve.appendChild(el('p', 'hint',
         'Solid: rated curve. Dotted: 90–50% speed. Red: system curve. ' +
-        'Plotted to 200% of duty flow. ');
-      infoMark(key, 'The system curve is SOLVED, not assumed — each point is a ' +
-                    'real solve of the network. The parabola through the origin ' +
-                    'that usually gets drawn is only right with no static lift, ' +
-                    'no second pump and a square law everywhere.');
-      secCurve.appendChild(key);
+        'Plotted to 200% of duty flow.'));
     })();
 
     // =============================================================== WARNINGS
@@ -2209,11 +2218,20 @@
               (th.totals.pipeLoss / 1000).toFixed(2) + ' kW pipes'
       });
 
+      /* ONE EXPLANATION SURVIVES ON THIS SHEET, and it is the sign convention —
+       * Michael, 2026-09-07: "Remove all explanations except thermal sign
+       * convention (Repeat the section in Thermal)." So it is his wording from
+       * the THERMAL tab, verbatim, rather than a second telling of it. The
+       * conditions the numbers were produced under stay: they are data, not
+       * explanation, and a sheet that does not state them cannot be checked. */
+      secT.appendChild(el('h4', 'sheet-sub', 'Sign Convention'));
       secT.appendChild(el('p', 'legend',
-        'Q = ṁ·Cp·ΔT. Sign is about the FLUID: negative removes heat from it, ' +
-        'positive adds it — so a chilled-water coil reads positive. Ambient ' +
-        (m.settings.thermal.ambient).toFixed(1) + ' °C, ' + fluid.name +
-        ' at Cp = ' + fluid.specificHeat.toFixed(0) + ' J/(kg·K).'));
+        'Negative heat transfer removes heat from fluid. Positive adds heat to ' +
+        'fluid. Example: Chiller removes heat (-ve), while cooling AHU adds (+ve).'));
+      secT.appendChild(el('p', 'legend',
+        'Q = ṁ·Cp·ΔT. Ambient ' + (m.settings.thermal.ambient).toFixed(1) +
+        ' °C, ' + fluid.name + ' at Cp = ' +
+        fluid.specificHeat.toFixed(0) + ' J/(kg·K).'));
 
       if (!fluid.verified) {
         secT.appendChild(el('div', 'notice warn-notice')).appendChild(el('p', '',
@@ -2228,10 +2246,8 @@
       secT.appendChild(el('p', 'legend',
         'Pipe gains and losses use ' + FD.thermal.defaultThicknessMm(m).toFixed(0) +
         ' mm insulation (overridden per pipe where set) and an outside surface ' +
-        'coefficient of ' +
-        (m.settings.thermal.surfaceCoeff).toFixed(1) + ' W/(m²·K), which is a ' +
-        'DEFAULT rather than sourced data — on a bare pipe it is the whole of ' +
-        'the resistance.'));
+        'coefficient of ' + (m.settings.thermal.surfaceCoeff).toFixed(1) +
+        ' W/(m²·K).'));
       if (th.pinned) {
         secT.appendChild(el('p', 'legend',
           'No source, so ' + m.settings.thermal.supplyTemp.toFixed(1) + ' °C was ' +
@@ -2324,13 +2340,7 @@
       kv0('Temperature range', th.totals.min === null ? '—'
         : th.totals.min.toFixed(2) + ' … ' + th.totals.max.toFixed(2) + ' °C');
       secT.appendChild(g0);
-      secT.appendChild(el('p', 'legend',
-        'At steady state everything put into the water comes out of it, so the ' +
-        'residual is zero by definition — it needs no reference temperature and ' +
-        'no hand calculation to read. A source holds its stated temperature ' +
-        'whatever arrives, so it counts as a duty of its own: on a sealed ' +
-        'circuit with a fill connection, a plant that cannot keep up shows as ' +
-        'heat absorbed there.'));
+
 
       /* ------------------------------------------------------- EQUIPMENT */
       var eqRowsT = m.pipes.filter(function (p) {
@@ -2388,14 +2398,7 @@
       });
       if (plantRows.length) {
         secT.appendChild(el('h4', 'sheet-sub', 'Plant schedule'));
-        secT.appendChild(el('p', 'legend',
-          'What each machine has to do, against what is selected for it. ' +
-          'REQUIRED is the duty needed to hold its setpoint at the flow it is ' +
-          'actually getting — Q = ṁ·Cp·(setpoint − entering) — so it moves with ' +
-          'the system, not with the schedule. A blank capacity is sized here ' +
-          'rather than limited: the machine holds its setpoint and the duty it ' +
-          'lands on IS the selection. Design ΔT is a design-point figure and ' +
-          'does not limit anything.'));
+
         var pt = el('table', 'sheet');
         pt.innerHTML = '<thead><tr><th class="txt">Tag</th>' +
                        '<th>Design flow (' + d.flow + ')</th>' +
@@ -7470,9 +7473,9 @@
           }
           changed(); renderProperties();
         });
-      sdes.box.appendChild(el('p', 'hint',
-        'Blank uses ' +
-        Number((m.settings.thermal || {}).supplyTemp).toFixed(1) + ' °C.'));
+      /* No line explaining the blank case — Michael, 2026-09-07. The
+       * placeholder already shows the figure that will be used, which is the
+       * whole of what a reader needs. */
 
       // ---- ACTUAL
       var sact = section(host, 'Actual');
