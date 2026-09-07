@@ -4411,5 +4411,144 @@ section('Overload capacity');
   }
 }
 
+/* ==================================================================
+ * THE FALLBACK WATER TEMPERATURE — 20 °C, AND NOT ON ANY TAB.
+ *
+ * Michael, 2026-09-07: "We can leave it defaulted to 20C and just not show it."
+ *
+ * A source states its own temperature on the SOURCE. `settings.thermal
+ * .supplyTemp` is what a model falls back to when nothing states one — a source
+ * left blank, and the case that cannot be removed, a sealed circuit with NO
+ * source at all, which still needs a datum to pin against.
+ *
+ * It is no longer editable, which makes the DEFAULT load-bearing: nothing in
+ * the interface can correct it, so it has to be right.
+ * ================================================================== */
+section('The fallback water temperature');
+{
+  ok('a new model defaults to 20 °C',
+     M.create().settings.thermal.supplyTemp === 20,
+     String(M.create().settings.thermal.supplyTemp));
+
+  /* THE CHAIN, in order of precedence. */
+  function rig(sourceTemp, supply) {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, insulationK: 0.02, surfaceCoeff: 0,
+                           tempMin: -100, tempMax: 200, overloadPct: 0 };
+    if (supply !== undefined) m.settings.thermal.supplyTemp = supply;
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 10, 0);
+    a.device = { kind: 'source', pressure: 300e3 };
+    if (sourceTemp !== undefined) a.device.temperature = sourceTemp;
+    b.device = { kind: 'demand', flow: 0.004, reqPressure: 0, include: true };
+    M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(p => { p.insulation_mm = 0; });
+    const res = NET.solveModel(m);
+    return res.thermal.temperature[a.id];
+  }
+
+  /* A SOURCE THAT STATES ITS TEMPERATURE WINS. */
+  near('a source states 8 °C and gets 8 °C', rig(8, 45), 8, 1e-9);
+  near('...and 45 °C', rig(45, 6), 45, 1e-9);
+  /* ZERO IS A TEMPERATURE, not an absent one. A `||` fallback would swallow it
+   * and quietly serve the default instead. */
+  near('a source stating 0 °C gets 0 °C, not the fallback', rig(0, 20), 0, 1e-9);
+
+  /* A SOURCE THAT STATES NOTHING TAKES THE FALLBACK. */
+  near('a blank source takes the model figure', rig(undefined, 12), 12, 1e-9);
+  near('...and 20 °C when the model does not say either',
+       rig(undefined, undefined), 20, 1e-9);
+
+  /* TWO SOURCES AT DIFFERENT TEMPERATURES — the case a single setting on a tab
+   * could never describe, and the reason the field moved. */
+  {
+    const m = M.create();
+    m.settings.thermal = { ambient: 20, insulationK: 0.02, surfaceCoeff: 0,
+                           tempMin: -100, tempMax: 200, overloadPct: 0 };
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 0, 10);
+    const j = M.addNode(m, lv, 10, 5), d = M.addNode(m, lv, 20, 5);
+    a.device = { kind: 'source', pressure: 300e3, temperature: 6 };
+    b.device = { kind: 'source', pressure: 300e3, temperature: 60 };
+    d.device = { kind: 'demand', flow: 0.004, reqPressure: 0, include: true };
+    M.addPipe(m, a.id, j.id, { size: 'DN50', schedule: 'sch40' });
+    M.addPipe(m, b.id, j.id, { size: 'DN50', schedule: 'sch40' });
+    M.addPipe(m, j.id, d.id, { size: 'DN50', schedule: 'sch40' });
+    m.pipes.forEach(p => { p.insulation_mm = 0; });
+    const t = NET.solveModel(m).thermal.temperature;
+    near('the cold source holds 6 °C', t[a.id], 6, 1e-9);
+    near('the hot source holds 60 °C', t[b.id], 60, 1e-9);
+    /* They mix at the junction, so it must sit strictly between them —
+     * whatever the split, which is what makes this a fair test of the two
+     * being independent rather than of one arithmetic answer. */
+    ok('...and they mix somewhere between at the junction',
+       t[j.id] > 6 + 1e-9 && t[j.id] < 60 - 1e-9, String(t[j.id]));
+  }
+}
+
+/* ==================================================================
+ * A COIL MAY HAVE NO INTEGRATED VALVE AT ALL.
+ *
+ * Michael, 2026-09-07: "add option for Control Valve: None (For users to add
+ * external CVs)." A coil valved by a control valve DRAWN in its branch has no
+ * integrated one, and charging it for both would double the valve.
+ *
+ * NONE is stored as the ABSENCE of `icv` — which is exactly what every file
+ * written before integrated valves existed already looks like.
+ * ================================================================== */
+section('A coil with no integrated control valve');
+{
+  function rig(withValve) {
+    const m = M.create();
+    m.settings.calcMode = 'design';
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 5, 0);
+    const c = M.addNode(m, lv, 10, 0);
+    a.device = { kind: 'source', pressure: 400e3 };
+    c.device = { kind: 'demand', flow: 0.005, reqPressure: 0, include: true };
+    M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    const eq = M.addPipe(m, b.id, c.id,
+      { size: 'DN50', schedule: 'sch40', kind: 'equip', tag: 'AHU' });
+    eq.equip = { qRated: 0.005, pdRated: 100e3, equipType: 'exchanger',
+                 duty: 50000 };
+    if (withValve) eq.equip.icv = { kv: 25, opening: 100 };
+    return { m, eq };
+  }
+
+  /* NO `icv` MEANS NO VALVE, and the engine has always known it. */
+  const none = rig(false);
+  ok('a coil without an icv has no active valve',
+     M.icvActive(none.eq) === false);
+  const withV = rig(true);
+  ok('...and one with an icv does', M.icvActive(withV.eq) === true);
+
+  /* THE RATING IS THE BRANCH TOTAL either way, so removing the valve does not
+   * change what the branch costs at full travel — it changes what MODULATES.
+   * Since v0.18.33 the coil's own resistance is the rating LESS the valve's
+   * full-open drop, so coil + valve at 100% is the rating, and coil alone is
+   * the rating too. */
+  const rNone = NET.solveModel(none.m).network.links
+    .filter(l => l.id === none.eq.id)[0].r;
+  const rWith = NET.solveModel(withV.m).network.links
+    .filter(l => l.id === withV.eq.id)[0].r;
+  near('the branch costs the same at full travel with or without', rNone, rWith, 1e-6);
+
+  /* AND THE FLAG THE SHEET READS follows the valve, so a branch with none is
+   * not reported as carrying one. */
+  ok('the link is not flagged as carrying an integrated valve',
+     !NET.solveModel(none.m).network.links
+        .filter(l => l.id === none.eq.id)[0].icv);
+  ok('...and one with a valve is',
+     !!NET.solveModel(withV.m).network.links
+        .filter(l => l.id === withV.eq.id)[0].icv);
+
+  /* REMOVING IT IS A DELETE, not a flag, so a saved file is indistinguishable
+   * from one drawn before integrated valves existed. */
+  delete withV.eq.equip.icv;
+  ok('deleting the valve leaves nothing behind',
+     withV.eq.equip.icv === undefined);
+  ok('...and the coil still solves', NET.solveModel(withV.m).converged === true);
+}
+
 
 report();

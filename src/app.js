@@ -5438,9 +5438,19 @@
      * switch offered are both still reachable and every existing file reads
      * unchanged. A select rather than a switch, matching the pump's Sizing row:
      * a switch says on/off, and these are two ways of working. */
-    var icvMode = e.icv ? M.icvMode(p) : 'manual';
+    /* NONE IS A REAL ANSWER — Michael, 2026-09-07: "add option for Control
+     * Valve: None (For users to add external CVs)."
+     *
+     * A coil valved by a control valve DRAWN in its branch has no integrated
+     * one, and charging it for both would double the valve. NONE is stored as
+     * the ABSENCE of `icv`, which is what every file written before integrated
+     * valves existed already looks like — so those files now read as None
+     * rather than as "Manual", which is what they were being shown as and was
+     * never true: no `icv` means no valve and no resistance, which the engine
+     * has always known (`icvActive` is false without one). */
+    var icvMode = e.icv ? M.icvMode(p) : 'none';
     var modeSel = el('select');
-    [['auto', 'Auto'], ['manual', 'Manual']].forEach(function (o) {
+    [['auto', 'Auto'], ['manual', 'Manual'], ['none', 'None']].forEach(function (o) {
       var opt = el('option', '', o[1]); opt.value = o[0];
       if (o[0] === icvMode) opt.selected = true;
       modeSel.appendChild(opt);
@@ -5450,9 +5460,19 @@
              'Auto: a control valve built into the machine, modulating to hold ' +
              'this machine\u2019s own Design \u0394T. Manual: a balancing valve you ' +
              'set yourself, read in both DESIGN and SIMULATION \u2014 at 100% there ' +
-             'is no valve.');
+             'is no valve. None: no integrated valve at all \u2014 for a coil ' +
+             'whose control valve is drawn in the branch.');
     modeSel.addEventListener('change', function () {
       pushUndo();
+      /* NONE REMOVES THE VALVE. The rated pressure drop is the branch total
+       * including its valve, so a coil that loses its integrated valve keeps
+       * its rating and simply spends none of it on a valve — the drawn one in
+       * the branch is charged instead. */
+      if (modeSel.value === 'none') {
+        delete e.icv;
+        changed(); renderProperties();
+        return;
+      }
       if (!e.icv) {
         /* Same defaults a drawn control valve gets, so the two behave
          * identically — this is a placement convenience, not a second kind of
@@ -7417,8 +7437,8 @@
           changed(); renderProperties();
         });
       sdes.box.appendChild(el('p', 'hint',
-        'Blank uses the system flow temperature set on THERMAL (' +
-        Number((m.settings.thermal || {}).supplyTemp).toFixed(1) + ' °C).'));
+        'Blank uses ' +
+        Number((m.settings.thermal || {}).supplyTemp).toFixed(1) + ' °C.'));
 
       // ---- ACTUAL
       var sact = section(host, 'Actual');
@@ -7987,13 +8007,16 @@
     numField(g1, 'Ambient air temperature', th.ambient,
       function (v) { m.settings.thermal.ambient = v; renderThermal(); redrawAll(); },
       '(°C)');
-    numField(g1, 'Source Water Temperature', th.supplyTemp,
-      function (v) { m.settings.thermal.supplyTemp = v; renderThermal(); redrawAll(); },
-      '(°C)');
-    var ch = el('p', 'hint', 'Flow temperature is the reference. ');
-    infoMark(ch, 'A source without its own temperature holds it. A sealed ' +
-                 'circuit — no source, no ambient exchange — has it pinned at ' +
-                 'the outlet of whatever moves the most heat.');
+    /* SOURCE WATER TEMPERATURE IS NOT HERE ANY MORE — Michael, 2026-09-07:
+     * "We can leave it defaulted to 20C and just not show it." It moved to the
+     * SOURCE, which is the thing that has a temperature; a model with two
+     * sources at different temperatures could never be described by one field
+     * on a tab. `settings.thermal.supplyTemp` survives as the FALLBACK — for a
+     * source left blank, and for a sealed circuit with no source at all, which
+     * still needs a datum — and is no longer editable. */
+    var ch = el('p', 'hint',
+      'Water temperature is set on each source. A sealed circuit with no ' +
+      'source is pinned at the outlet of whatever moves the most heat. ');
     host.appendChild(ch);
 
     h2('Insulation');

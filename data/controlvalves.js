@@ -129,9 +129,17 @@
    * Transcribed in full so picking this up later is a code change and not
    * another reading of the sheets. `vnom_m3h` is the nominal flow the valve is
    * rated to pass; `kvs` is those sheets' own "Kvs theor.", which they publish
-   * for pressure drop calculation. NOTHING READS THIS — modelling pressure
-   * independence needs a valve that holds its flow as the differential moves,
-   * which dP = (Q/Kv)^2 cannot express. See WORKLIST CV.1. */
+   * for pressure drop calculation. NOTHING READS THIS.
+   *
+   * WHAT A PICV ACTUALLY NEEDS, corrected by Michael 2026-09-07: it is NOT a
+   * different physics. A controller commands a flow or a temperature, the valve
+   * moves until the measurement meets it, and the differential across the
+   * element is the RESULT of having achieved it — not a residual, and the same
+   * for an ordinary control valve. The engine already does exactly this
+   * wherever a control link holds a flow or a dT. What is missing is narrower:
+   * the PICV's own FLOW LIMIT, and the minimum differential below which it
+   * drops out of control. `vnom_m3h` and each range's `dpMax` are here for
+   * that. See WORKLIST CV.1. */
   var PICV = {
     note: 'Transcribed and held for a future implementation. Not used by the ' +
           'engine or the interface.',

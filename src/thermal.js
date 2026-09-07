@@ -121,7 +121,7 @@
       ambient: t.ambient !== undefined ? t.ambient : 20,
       k: t.insulationK > 0 ? t.insulationK : 0.02,
       h: (t.surfaceCoeff === 0 || t.surfaceCoeff > 0) ? t.surfaceCoeff : 8,
-      supply: t.supplyTemp !== undefined ? t.supplyTemp : 6,
+      supply: t.supplyTemp !== undefined ? t.supplyTemp : 20,
       tMin: t.tempMin !== undefined ? t.tempMin : -50,
       tMax: t.tempMax !== undefined ? t.tempMax : 50,
       /* The overload allowance as a FACTOR, so the clamp is a multiplication.

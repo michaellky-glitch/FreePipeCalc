@@ -89,7 +89,19 @@
          * temperature of its own, and the level a fully adiabatic circuit is
          * pinned at when nothing else sets one. It is a default for the water
          * arriving, not a setpoint — setpoints live on the equipment. */
-        supplyTemp: 6,                 // °C — chilled water by default
+        /* THE FALLBACK WATER TEMPERATURE, and it is no longer on any tab —
+         * Michael, 2026-09-07: "We can leave it defaulted to 20C and just not
+         * show it."
+         *
+         * A source states its own temperature on the SOURCE now, which is
+         * where it belongs. This is what a model falls back to when nothing
+         * states one: a source left blank, and — the case that cannot be
+         * removed — a sealed circuit with NO source at all, which still needs
+         * a datum to pin its temperatures against. 20 °C is ambient, which is
+         * what water sitting in a room with nothing driving it actually is.
+         *
+         * An existing file keeps whatever it was saved with. */
+        supplyTemp: 20,                // °C — ambient; the fallback datum
         insulationK: 0.02,             // W/(m·K) — polyurethane
         surfaceCoeff: 8,               // W/(m²·K) — still indoor air
         /* INSULATION THICKNESS, decoupled from the schedule (2026-08-10,
