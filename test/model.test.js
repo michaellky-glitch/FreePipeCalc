@@ -3,8 +3,11 @@
  */
 'use strict';
 const { load, ok, near, section, report } = require('./harness');
-const FD = load(['src/model.js', 'src/network.js', 'src/printer.js']);
+const fs = require('fs');
+const path = require('path');
+const FD = load(['src/model.js', 'src/network.js', 'src/printer.js', 'src/examples.js']);
 const M = FD.model, NET = FD.network;
+const ROOT = path.join(__dirname, '..');
 
 /* Every segment of a route must be axis-aligned — the whole point of one. */
 function segsOrtho(pts) {
@@ -3711,6 +3714,79 @@ section('Copying a level carries its annotation');
   ok('the bare copy ran at all', !!rb, String(rb));
   ok('a floor with no annotation reports zero, not undefined',
      rb.notes === 0 && rb.details === 0, JSON.stringify([rb.notes, rb.details]));
+}
+
+
+/* ==================================================================
+ * THE SHIPPED EXAMPLES
+ *
+ * `src/examples.js` is a hard-coded list, because a static site cannot read
+ * its own directory. A hard-coded list is a list that can go stale, so this
+ * section is the thing that stops it: every catalogue row must name a file
+ * that exists AND that still loads through the real `M.fromJSON`, and every
+ * file in `examples/` must be in the catalogue.
+ *
+ * This is worth more than the picker it was written for. `examples/` holds the
+ * models the tutorials tell a reader to open and the one `engine.html` works
+ * through by hand, and until now NOTHING loaded them — `architecture.html`
+ * says in as many words that the tests do not touch this folder. A format
+ * migration that broke one of them would have shipped silently and the first
+ * person to find out would have been someone following a tutorial.
+ * ================================================================== */
+section('Examples — the shipped catalogue');
+{
+  const dir = path.join(ROOT, 'examples');
+  const listed = FD.examples.map(e => e.file);
+
+  ok('There is a catalogue, and it is not empty', Array.isArray(FD.examples) && FD.examples.length > 0);
+  ok('The catalogue names the folder the files are in', FD.examplesDir === 'examples/');
+
+  /* Every row is addressable and describable. A blank name or blurb would
+   * render as an empty box in the picker rather than fail anywhere. */
+  FD.examples.forEach(e => {
+    ok(`"${e.file}": has a display name`, !!e.name && e.name.length > 2);
+    ok(`"${e.file}": has a blurb`, !!e.blurb && e.blurb.length > 20);
+    ok(`"${e.file}": scale is small or large`, e.scale === 'small' || e.scale === 'large');
+  });
+
+  /* No duplicates — two rows for one file would load the same model twice
+   * under two names. */
+  ok('No file is listed twice', new Set(listed).size === listed.length);
+
+  /* THE FOLDER AND THE CATALOGUE MUST AGREE, BOTH WAYS. A missing file is a
+   * dead row in the picker; an unlisted file is a model nobody can reach. */
+  const onDisk = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort();
+  listed.forEach(f => {
+    ok(`"${f}" exists on disk`, fs.existsSync(path.join(dir, f)));
+  });
+  onDisk.forEach(f => {
+    ok(`"${f}" on disk is in the catalogue`, listed.indexOf(f) >= 0,
+       'add it to src/examples.js, or move it out of examples/');
+  });
+
+  /* THE REAL TEST: each one parses and builds through the same entry point the
+   * app uses. Not a JSON.parse — `fromJSON` is where migration happens. */
+  listed.forEach(f => {
+    const full = path.join(dir, f);
+    if (!fs.existsSync(full)) return;          // already reported above
+    let m = null, err = '';
+    try {
+      m = M.fromJSON(JSON.parse(fs.readFileSync(full, 'utf8')));
+    } catch (e) {
+      err = e.message;
+    }
+    ok(`"${f}" loads through M.fromJSON`, !!m, err);
+    if (!m) return;
+    /* A model that loads to nothing is a file that loaded in name only. */
+    ok(`"${f}" has pipes and levels after loading`,
+       m.pipes.length > 0 && m.levels.length > 0,
+       `${m.pipes.length} pipes, ${m.levels.length} levels`);
+    /* And it builds a network — the step between "the file parsed" and "the
+     * app can do anything with it". */
+    let net = null, nerr = '';
+    try { net = NET.build(m); } catch (e) { nerr = e.message; }
+    ok(`"${f}" builds a network`, !!net, nerr);
+  });
 }
 
 

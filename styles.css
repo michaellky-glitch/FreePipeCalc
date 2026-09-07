@@ -1582,3 +1582,43 @@ body.sim-static #prop-body .field textarea {
 .field-accessory .switch .switch-track { width: 28px; height: 15px; border-radius: 8px; }
 .field-accessory .switch .switch-track::after { width: 11px; height: 11px; }
 .field-accessory .switch.on .switch-track::after { transform: translateX(13px); }
+
+
+/* ================================================== THE EXAMPLES PICKER
+ *
+ * A list of the models that ship with the site (Michael, 2026-09-08: "a way to
+ * open the example files without needing to download new files"). Each row is
+ * a BUTTON, not a link with a click handler — it replaces the drawing, which
+ * is an action, and a button is what a keyboard and a screen reader expect to
+ * find for one.
+ *
+ * On a file:// page the rows are rendered as plain divs instead, because
+ * nothing can be fetched there and a control that does nothing when pressed is
+ * worse than no control. They keep the same box so the list does not
+ * rearrange itself between the two cases — only the affordances go. */
+.example-list { display: flex; flex-direction: column; gap: 8px; }
+.example-row {
+  display: block; width: 100%; text-align: left;
+  padding: 10px 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+}
+button.example-row { cursor: pointer; }
+button.example-row:hover { border-color: var(--accent); background: var(--accent-dim); }
+button.example-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.example-name { font-weight: 650; font-size: 13px; margin-bottom: 3px; }
+.example-blurb { font-size: 12px; color: var(--text-dim); line-height: 1.45; }
+/* The path is here for the file:// case, where it is the instruction rather
+ * than a detail — it names the file to pick in LOAD. It is monospaced so it
+ * reads as a filename and not as more prose. */
+.example-file {
+  margin-top: 5px; font-size: 11px; color: var(--text-mute);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+/* The data hall takes tens of seconds to solve. Saying so is the difference
+ * between "it is working" and "it has hung". */
+.example-note { margin-top: 5px; font-size: 11px; color: var(--warn); }

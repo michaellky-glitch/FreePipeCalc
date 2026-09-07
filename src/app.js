@@ -256,38 +256,151 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
+  /* ADOPTING A MODEL IS ONE PATH, and it is this one.
+   *
+   * Split out of `loadModelFile` when the EXAMPLES picker was built (2026-09-08).
+   * An example is a saved model like any other, so it must go through the same
+   * parse, the same `M.fromJSON`, the same undo push and the same migration
+   * warning — anything else would be a second loader that drifts from the
+   * first, and the migration alert is exactly the thing a second loader
+   * silently drops.
+   *
+   * `text` is the file's contents, `label` is what to call it in the toast.
+   * Returns true if the model was adopted. Errors are reported and swallowed:
+   * every caller is a user action, and a thrown exception out of a click
+   * handler leaves the app looking dead. */
+  function adoptModelText(text, label) {
+    var loaded;
+    try {
+      loaded = M.fromJSON(JSON.parse(text));
+    } catch (e) {
+      toast('Could not load: ' + e.message, 'error');
+      return false;
+    }
+    pushUndo();
+    app.model = loaded;
+    forgetResults();
+    afterModelSwap();
+    app.view.zoomToFit();
+    toast('Loaded ' + label);
+    /* A migration that CHANGES GEOMETRY has to be said out loud. The
+     * source-pressure fix puts a node back where it was drawn, which
+     * shortens every pipe on it — correcting a length the engineer may
+     * have read off the panel and written down. A toast is too easy to
+     * miss for that. */
+    if (loaded.migrations && loaded.migrations.length) {
+      FD.dialog.alert({
+        title: 'This file was updated as it loaded',
+        message: loaded.migrations.map(function (x) { return x.message; })
+                   .join('\n\n') +
+                 '\n\nCheck the pipe lengths before you issue anything from ' +
+                 'this model, then save it again.'
+      });
+    }
+    return true;
+  }
+
   function loadModelFile(file) {
     var reader = new FileReader();
-    reader.onload = function () {
-      try {
-        var obj = JSON.parse(reader.result);
-        var loaded = M.fromJSON(obj);
-        pushUndo();
-        app.model = loaded;
-        forgetResults();
-        afterModelSwap();
-        app.view.zoomToFit();
-        toast('Loaded ' + file.name);
-        /* A migration that CHANGES GEOMETRY has to be said out loud. The
-         * source-pressure fix puts a node back where it was drawn, which
-         * shortens every pipe on it — correcting a length the engineer may
-         * have read off the panel and written down. A toast is too easy to
-         * miss for that. */
-        if (loaded.migrations && loaded.migrations.length) {
-          FD.dialog.alert({
-            title: 'This file was updated as it loaded',
-            message: loaded.migrations.map(function (x) { return x.message; })
-                       .join('\n\n') +
-                     '\n\nCheck the pipe lengths before you issue anything from ' +
-                     'this model, then save it again.'
-          });
-        }
-      } catch (e) {
-        toast('Could not load: ' + e.message, 'error');
-      }
-    };
+    reader.onload = function () { adoptModelText(reader.result, file.name); };
     reader.onerror = function () { toast('Could not read the file.', 'error'); };
     reader.readAsText(file);
+  }
+
+  /* ---------------------------------------------------------- EXAMPLES
+   *
+   * Michael, 2026-09-08: "a way to open the example files without needing to
+   * download new files." The four models in `examples/` ship with the site and
+   * are quoted by name in the tutorials, but the only way in was LOAD — which
+   * means finding the file on disk, which means having downloaded it.
+   *
+   * IT IS A `fetch`, AND THAT HAS ONE LIMIT WORTH KNOWING. Served over http
+   * (GitHub Pages, or a local server) this just works. Opened as a `file://`
+   * URL it cannot: every browser blocks `fetch` on `file://` as a
+   * cross-origin read, and there is no way around it from inside the page.
+   * That case is DETECTED rather than left to fail as a bare network error,
+   * and the dialog says which file to open with LOAD instead — a `file://`
+   * user necessarily has the folder on disk already, which is the one case
+   * where LOAD is no hardship.
+   *
+   * The alternative was shipping each example a second time as a `.js` that
+   * registers itself, which a `<script>` tag will read from `file://`. That is
+   * 170 kB of duplicated model that two files must be kept in step, for a case
+   * where the files are already to hand. Not done; say if it is wanted. */
+  function isFileUrl() {
+    return String(location.protocol).toLowerCase() === 'file:';
+  }
+
+  function loadExample(entry) {
+    toast('Opening ' + entry.name + '…');
+    /* The version token matters here for the same reason it does on every
+     * other asset: an example edited between releases must not be served from
+     * cache. See the note at the head of index.html. */
+    var url = FD.examplesDir + encodeURIComponent(entry.file) +
+              '?v=' + encodeURIComponent(FD.VERSION);
+    fetch(url).then(function (r) {
+      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+      return r.text();
+    }).then(function (text) {
+      adoptModelText(text, entry.name);
+    })['catch'](function (e) {
+      toast('Could not open ' + entry.name + ': ' + e.message, 'error');
+    });
+  }
+
+  /* Guarded exactly as NEW is: an example REPLACES the drawing, and a model
+   * with pipes in it is work someone did. */
+  function openExample(entry) {
+    if (!app.model.pipes.length) { loadExample(entry); return; }
+    FD.dialog.confirm({
+      title: 'Discard current model?',
+      message: 'Opening "' + entry.name + '" will replace what is on the ' +
+               'canvas. Unsaved changes will be lost.',
+      ok: 'Open example', cancel: 'Cancel', danger: true
+    }).then(function (yes) { if (yes) loadExample(entry); });
+  }
+
+  function openExamplePicker() {
+    var offline = isFileUrl();
+    FD.dialog.custom({
+      title: 'Examples',
+      cancelValue: null,
+      submitOnEnter: false,
+      build: function (body, close) {
+        if (offline) {
+          /* Not an error — the app is working exactly as it should. It is a
+           * statement of which door to use. */
+          var n = el('div', 'notice');
+          n.appendChild(el('p', '',
+            'This page is open from a file rather than from a web address, ' +
+            'and a browser will not let it read another file directly. Use ' +
+            'LOAD and pick the file named beside each example below — they ' +
+            'are in the "examples" folder next to this page.'));
+          body.appendChild(n);
+        }
+        var list = el('div', 'example-list');
+        FD.examples.forEach(function (entry) {
+          var row = el(offline ? 'div' : 'button', 'example-row');
+          if (!offline) row.type = 'button';
+          row.appendChild(el('div', 'example-name', entry.name));
+          row.appendChild(el('div', 'example-blurb', entry.blurb));
+          row.appendChild(el('div', 'example-file', FD.examplesDir + entry.file));
+          if (entry.scale === 'large') {
+            row.appendChild(el('div', 'example-note',
+              'Large model — the first solve takes a while.'));
+          }
+          if (!offline) {
+            row.addEventListener('click', function () {
+              close(null);
+              openExample(entry);
+            });
+          }
+          list.appendChild(row);
+        });
+        body.appendChild(list);
+      },
+      buttons: [{ label: 'Close', value: null }]
+    });
   }
 
   // -------------------------------------------------------------- toast
@@ -10285,6 +10398,7 @@
     $('btn-print-2').addEventListener('click', function () { printAs('sheet'); });
 
     $('btn-load').addEventListener('click', function () { $('file-input').click(); });
+    $('btn-examples').addEventListener('click', openExamplePicker);
     $('file-input').addEventListener('change', function (e) {
       if (e.target.files && e.target.files[0]) loadModelFile(e.target.files[0]);
       e.target.value = '';
