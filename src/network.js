@@ -1355,6 +1355,7 @@
     res.warnings = res.warnings.concat(flowRegimeWarnings(m, net, res));
     res.warnings = res.warnings.concat(supplyWarnings(m, net, res));
     res.warnings = res.warnings.concat(equipRatingWarnings(m, res));
+    res.warnings = res.warnings.concat(controlValveLimitWarnings(m, net, res));
     /* STATIC PRESSURE, on the GGA path too. Plumbing SIMULATE runs here, and it
      * is the mode where the number gets HIGH: a fixture is a K-terminal, so a
      * quiet system pushes its pump up its curve and the pressure with it.
@@ -3535,6 +3536,122 @@
    * thing an engineer recognises — "this coil is passing 25 times its duty" —
    * and the head follows from it.
    */
+  /* ============ A CONTROL VALVE WORKING OUTSIDE WHAT THE PRODUCT CAN DO
+   *
+   * Michael, 2026-09-07: "The question that remains is what happens if either
+   * limit is reached to which I think that is beyond the scope of this project.
+   * So just throw a warning."
+   *
+   * TWO BOUNDS, and they fail in opposite directions.
+   *
+   *   FLOW LIMIT   a valve has a nominal flow it is rated to pass. Past it the
+   *                selection is wrong however well it is controlling, and on a
+   *                pressure independent valve it is the flow the regulator can
+   *                no longer hold.
+   *   MINIMUM dP   below some differential a valve has nothing left to
+   *                regulate WITH. It is wide open and the branch takes whatever
+   *                the system gives it, which is not control at all.
+   *
+   * WHAT HAPPENS PAST EITHER IS NOT MODELLED, deliberately and on his
+   * instruction. The solve reports the condition and the engineer decides.
+   *
+   * Both thresholds are in `settings.warn` and both are editable on HYDRAULIC.
+   * `cvMinDp` of 0 means OFF and is how it ships, because the data sheets carry
+   * a maximum differential and no minimum — there is no published figure to
+   * default it to and inventing one is not an option.
+   *
+   * Only a CONTROL valve is checked. An isolation valve has no flow rating and
+   * nothing to regulate, and a check valve is not a control at all. */
+  function controlValveLimitWarnings(m, net, res) {
+    var out = [];
+    var w = m.settings.warn || {};
+    var flowLim = (w.cvFlowLimit === undefined) ? 1 : Number(w.cvFlowLimit);
+    var minDp = Number(w.cvMinDp) || 0;
+    if (!(flowLim > 0) && !(minDp > 0)) return out;
+    var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
+
+    /* THE FLOW LIMIT IS A PRESSURE INDEPENDENT VALVE'S PROPERTY, and only
+     * theirs. A PICV's regulator holds a maximum flow; a globe valve has no
+     * such limit and publishes no flow rating at all — its size only fixes a Kv.
+     *
+     * SO IT IS GATED ON THE VALVE BEING A PICV, and today nothing is: the type
+     * came off the front end in v0.18.45 until the behaviour exists. The check
+     * is therefore dormant, and that is correct rather than a gap.
+     *
+     * IT WAS NOT GATED AT FIRST, and reading the PICV table by DN alone put
+     * five false warnings on Michael's own Tutorial 2 — its coils carry about
+     * 5.0 L/s through valves selected DN50, which is over the 4.167 L/s a DN50
+     * PICV is rated for and entirely normal for the DN50 GLOBE valve actually
+     * modelled there (Kv 40, about 20 kPa at that flow). Warning on that would
+     * have been worse than not warning at all. */
+    function isPicv(v) { return !!(v && v.cvType === 'picv'); }
+
+    function ratedFlow(dn) {
+      if (!FD.controlValves || dn === undefined || dn === null) return 0;
+      var P = FD.controlValves.picv;
+      if (!P) return 0;
+      var found = 0;
+      ['threaded', 'flanged'].forEach(function (k) {
+        (P[k] && P[k].sizes || []).forEach(function (r) {
+          if (r.dn === Number(dn)) found = r.vnom_m3h / 3600;   // m3/s
+        });
+      });
+      return found;
+    }
+
+    function check(tag, pipeId, dn, q, dp, picv) {
+      if (flowLim > 0 && picv) {
+        var vnom = ratedFlow(dn);
+        if (vnom > 0 && q > vnom * flowLim) {
+          out.push({
+            code: 'CV_FLOW_LIMIT', pipe: pipeId, flow: q, limit: vnom * flowLim,
+            message: tag + ' is operating beyond its Flow Limit (' +
+                     (vnom * flowLim * 1000).toFixed(2) + ' L/s). Change the ' +
+                     'operating conditions around it, or warning threshold in ' +
+                     'Hydraulics.'
+          });
+        }
+      }
+      /* A valve passing nothing is not short of differential — it is shut, or
+       * on a branch that is doing nothing, and reporting it would bury the
+       * cases that matter. */
+      if (minDp > 0 && q > FD.hydraulics.Q_MIN && dp < minDp) {
+        out.push({
+          code: 'CV_MIN_DP', pipe: pipeId, dp: dp, limit: minDp,
+          message: tag + ' is operating below minimum dP (' +
+                   (minDp / 1000).toFixed(1) + ' kPa). Change the operating ' +
+                   'conditions around it, or warning threshold in Hydraulics.'
+        });
+      }
+    }
+
+    (net.links || []).forEach(function (l) {
+      var p = M.pipe(m, l.id);
+      if (!p) return;
+      var q = Math.abs(res.flow[l.id] || 0);
+
+      if (p.kind === 'valve' && p.valve && p.valve.type === 'globe') {
+        /* The whole link is the valve, so its loss IS the differential. */
+        check(p.tag || p.id, p.id, p.valve.cvDN, q,
+              rho * 9.81 * Math.abs(FD.hydraulics.linkLoss(l, q)),
+              isPicv(p.valve));
+        return;
+      }
+
+      /* AN INTEGRATED VALVE SHARES ITS LINK WITH THE COIL, so the link loss is
+       * both together and the valve's own share has to be taken out — the same
+       * split the panel reports. Without that a coil's 100 kPa would read as
+       * the valve's differential and nothing would ever look starved. */
+      if (p.kind === 'equip' && p.equip && p.equip.icv && M.icvActive(p)) {
+        var rIcv = FD.valves.resistance('globe', p.equip.icv.kv,
+                                        M.icvOpening(p));
+        check(p.tag || p.id, p.id, p.equip.icv.cvDN, q,
+              rho * 9.81 * rIcv * q * q, isPicv(p.equip.icv));
+      }
+    });
+    return out;
+  }
+
   function equipRatingWarnings(m, res) {
     var out = [];
     var lim = (m.settings.warn && m.settings.warn.equipFlowRatio) || 0;

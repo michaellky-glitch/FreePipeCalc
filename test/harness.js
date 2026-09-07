@@ -15,6 +15,12 @@ const FILES = [
   'data/schedules.js',
   'data/fittings.js',
   'data/valves.js',
+  /* THE ENGINE READS THIS, so the harness must load it — `network.js` looks up
+   * a valve's rated flow through `FD.controlValves`. It was only ever loaded by
+   * the one suite that tests the table itself, which meant a check that
+   * depended on it silently did nothing everywhere else. The base list is meant
+   * to mirror index.html; keep it that way. */
+  'data/controlvalves.js',
   'data/ktable.js',
   'data/tees.js',
   'data/pumps.js', 'data/fluids.js', 'data/plumbing.js',

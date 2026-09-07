@@ -233,9 +233,22 @@
        * limit rather than a hard rule (other codes differ, and the figure is
        * Michael's to confirm), checked only in a plumbing file where "static
        * pressure at a fixture" is a defined thing. 0 disables it. */
+      /* `cvFlowLimit` and `cvMinDp` are the two bounds a pressure independent
+       * valve works between, made user-changeable at Michael's instruction
+       * (2026-09-07). What happens PAST them is out of scope — the program
+       * warns and leaves the engineering to the engineer.
+       *
+       *   cvFlowLimit  as a fraction of the valve's own nominal flow. 1 means
+       *                "warn once it is passing more than it is rated for".
+       *   cvMinDp      Pa across the valve, below which it has nothing left to
+       *                regulate with. ZERO MEANS OFF, and it ships off — see
+       *                data/controlvalves.js: the sheets carry a MAXIMUM
+       *                differential and no minimum, so there is no Belimo
+       *                figure to default it to and one must not be invented. */
       warn: { velocity: 2.4, pdm: 400, laminar: true, pumpRunout: 120,
               equipFlowRatio: 2, maxComponentPD: 2000e3, maxStatic: 552e3,
-              valveOversized: 10, heatBalance: 2 },
+              valveOversized: 10, heatBalance: 2,
+              cvFlowLimit: 1, cvMinDp: 0 },
       floorToFloor: 3.5,
       grid: { minor: 0.5, major: 5, snap: true },
 

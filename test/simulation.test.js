@@ -1606,5 +1606,135 @@ section('Automatic dP setpoint');
   }
 }
 
+/* ==================================================================
+ * THE TWO BOUNDS A CONTROL VALVE WORKS BETWEEN.
+ *
+ * Michael, 2026-09-07: "The question that remains is what happens if either
+ * limit is reached to which I think that is beyond the scope of this project.
+ * So just throw a warning."
+ *
+ * So this is a REPORTING feature and nothing else — no clamp, no fallback, no
+ * change to the answer. What is asserted is that each bound is detected, that
+ * the thresholds are the engineer's to move, and that neither fires where it
+ * would be noise.
+ * ================================================================== */
+section('Control valve flow limit and minimum dP');
+{
+  const RHO = 998, G = 9.81;
+  function rig(o) {
+    const m = M.create();
+    m.settings.calcMode = 'design';
+    m.settings.warn.cvFlowLimit = (o.flowLim === undefined) ? 1 : o.flowLim;
+    m.settings.warn.cvMinDp = o.minDp || 0;
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 5, 0);
+    const c = M.addNode(m, lv, 10, 0);
+    a.device = { kind: 'source', pressure: 600e3 };
+    c.device = { kind: 'demand', flow: o.q, reqPressure: 0, include: true };
+    const v = M.addPipe(m, a.id, b.id,
+      { size: 'DN50', schedule: 'sch40', kind: 'valve', tag: 'CV-1' });
+    v.valve = { type: o.type || 'globe', kv: o.kv, opening: 100 };
+    if (o.dn !== undefined) v.valve.cvDN = o.dn;
+    if (o.picv) v.valve.cvType = 'picv';
+    M.addPipe(m, b.id, c.id, { size: 'DN50', schedule: 'sch40' });
+    const res = NET.solveModel(m);
+    const codes = (res.warnings || []).map(w => w.code);
+    return {
+      res, v,
+      flow: codes.filter(c2 => c2 === 'CV_FLOW_LIMIT').length,
+      dp: codes.filter(c2 => c2 === 'CV_MIN_DP').length,
+      msg: (res.warnings || []).filter(w => /^CV_/.test(w.code)).map(w => w.message)
+    };
+  }
+
+  /* THE FLOW LIMIT IS A PICV'S PROPERTY AND ONLY THEIRS. A DN50 pressure
+   * independent valve is rated 15 m3/h = 4.167 L/s; a DN50 GLOBE valve has no
+   * flow rating at all, only a Kv. THE GATE IS THE POINT OF THIS FIRST CASE:
+   * reading the table by DN alone put five false warnings on the shipped
+   * Tutorial 2, whose coils carry about 5.0 L/s through DN50 valves — over a
+   * DN50 PICV's rating and entirely normal for the globe valve modelled. */
+  ok('a globe valve is never flow-limited, whatever it carries',
+     rig({ q: 0.006, kv: 30.4, dn: 50 }).flow === 0);
+  ok('a PICV under its rating is not reported',
+     rig({ q: 0.003, kv: 30.4, dn: 50, picv: true }).flow === 0);
+  ok('a PICV over its rating is',
+     rig({ q: 0.006, kv: 30.4, dn: 50, picv: true }).flow === 1);
+  ok('...and the message quotes the limit, not the flow',
+     /beyond its Flow Limit \(4\.17 L\/s\)/.test(
+       rig({ q: 0.006, kv: 30.4, dn: 50, picv: true }).msg[0]),
+     rig({ q: 0.006, kv: 30.4, dn: 50, picv: true }).msg[0]);
+  ok('...and says where to change it',
+     /warning threshold in Hydraulics/.test(
+       rig({ q: 0.006, kv: 30.4, dn: 50, picv: true }).msg[0]));
+
+  /* THE THRESHOLD IS THE ENGINEER'S. Doubling it silences the same case. */
+  ok('raising the threshold silences it',
+     rig({ q: 0.006, kv: 30.4, dn: 50, picv: true, flowLim: 2 }).flow === 0);
+
+  /* NO SIZE SELECTED MEANS NO RATING TO BREACH. */
+  ok('a PICV with no size selected has no flow limit',
+     rig({ q: 0.006, kv: 30.4, picv: true }).flow === 0);
+
+  /* MINIMUM dP. A very large Kv wide open drops almost nothing, which is
+   * exactly the condition: the valve is open and regulating nothing. */
+  const starved = rig({ q: 0.002, kv: 200, dn: 50, minDp: 20e3 });
+  ok('a valve with nothing across it is reported', starved.dp === 1);
+  ok('...and the message quotes the limit',
+     /below minimum dP \(20\.0 kPa\)/.test(starved.msg.filter(x => /minimum dP/.test(x))[0]),
+     starved.msg.join(' | '));
+
+  /* ZERO MEANS OFF, and that is how it ships — there is no published minimum on
+   * the sheets, so there is no figure to default it to. */
+  ok('zero turns the check off', rig({ q: 0.002, kv: 200, dn: 50, minDp: 0 }).dp === 0);
+
+  /* AND A VALVE PASSING NOTHING IS NOT SHORT OF DIFFERENTIAL — it is shut, or
+   * on a branch doing nothing. Reporting it would bury the cases that matter. */
+  {
+    const m = M.create();
+    m.settings.calcMode = 'design';
+    m.settings.warn.cvMinDp = 50e3;
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 5, 0);
+    const c = M.addNode(m, lv, 10, 0), d = M.addNode(m, lv, 5, 8);
+    a.device = { kind: 'source', pressure: 400e3 };
+    c.device = { kind: 'demand', flow: 0.004, reqPressure: 0, include: true };
+    M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    M.addPipe(m, b.id, c.id, { size: 'DN50', schedule: 'sch40' });
+    /* A dead leg with a shut valve on it. */
+    const dead = M.addPipe(m, b.id, d.id,
+      { size: 'DN50', schedule: 'sch40', kind: 'valve', tag: 'CV-DEAD' });
+    dead.valve = { type: 'globe', kv: 30.4, opening: 0, cvDN: 50 };
+    const codes = (NET.solveModel(m).warnings || []).map(w => w.code);
+    ok('a shut valve is not reported as short of differential',
+       codes.indexOf('CV_MIN_DP') < 0, codes.join(','));
+  }
+
+  /* AN INTEGRATED VALVE IS CHECKED TOO, and its share has to be separated from
+   * the coil's — the link carries both, so using the link loss would read a
+   * coil's 100 kPa as the valve's differential and nothing would ever look
+   * starved. */
+  {
+    const m = M.create();
+    m.settings.calcMode = 'design';
+    m.settings.warn.cvMinDp = 50e3;
+    m.settings.warn.cvFlowLimit = 1;
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 5, 0);
+    const c = M.addNode(m, lv, 10, 0);
+    a.device = { kind: 'source', pressure: 600e3 };
+    c.device = { kind: 'demand', flow: 0.002, reqPressure: 0, include: true };
+    M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    const eq = M.addPipe(m, b.id, c.id,
+      { size: 'DN50', schedule: 'sch40', kind: 'equip', tag: 'COIL' });
+    /* A 100 kPa coil, and a valve so large it drops almost nothing. */
+    eq.equip = { qRated: 0.002, pdRated: 100e3, equipType: 'exchanger',
+                 duty: 20000, icv: { kv: 200, opening: 100, cvDN: 50 } };
+    const w = (NET.solveModel(m).warnings || []).filter(x => x.code === 'CV_MIN_DP');
+    ok('an integrated valve with nothing across it is reported', w.length === 1,
+       JSON.stringify((NET.solveModel(m).warnings || []).map(x => x.code)));
+    ok('...named for its machine', /COIL/.test(w[0].message), w[0].message);
+  }
+}
+
 
 report();

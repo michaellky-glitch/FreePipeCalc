@@ -8986,6 +8986,23 @@
       function (v) {
         pushUndo(); m.settings.warn.maxComponentPD = v * 1000; redrawAll();
       }, '(kPa)');
+    /* THE TWO BOUNDS A CONTROL VALVE WORKS BETWEEN — Michael, 2026-09-07.
+     * Above its flow limit, or below the differential it needs to regulate
+     * with, it is outside what the product can do. What HAPPENS there is
+     * deliberately out of scope: the program says so and stops. */
+    numField(wg, 'Control valve flow limit',
+      m.settings.warn.cvFlowLimit === undefined ? 1 : m.settings.warn.cvFlowLimit,
+      function (v) { pushUndo(); m.settings.warn.cvFlowLimit = v; redrawAll(); },
+      '(×rated)');
+    var mdp = numField(wg, 'Control valve minimum ΔP',
+      (m.settings.warn.cvMinDp || 0) / 1000,
+      function (v) { pushUndo(); m.settings.warn.cvMinDp = v * 1000; redrawAll(); },
+      '(kPa)');
+    infoMark(fieldLabel(mdp),
+             'Below this the valve has nothing left to regulate with. 0 turns ' +
+             'the check off, which is how it ships: the data sheets state a ' +
+             'MAXIMUM differential and no minimum, so there is no published ' +
+             'figure to default it to. Enter your own.');
     /* STATIC PRESSURE AT A FIXTURE — plumbing only. A hydronic circuit is
      * legitimately pressurised past any figure that would mean anything here. */
     if (plumbingTab) {
