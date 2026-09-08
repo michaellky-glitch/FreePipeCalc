@@ -5572,19 +5572,16 @@
       modeSel.appendChild(opt);
     });
     field(sec.box, 'Control valve', modeSel);
-    /* THE THREE MEANINGS, in Michael's words (2026-09-07):
-     *   AUTO    the loop modulates it to hold this machine's Design ΔT.
-     *   MANUAL  "fixes the CV position to whatever the user wants it to be."
-     *   NONE    "no control at all, and its PD is 'returned' to the coil
-     *            design PD."
-     * The last is the one worth stating: the rating is the BRANCH total, so
-     * removing the valve gives the coil back the share it had given up. */
+    /* THE THREE MEANINGS, IN HIS OWN WORDS AND VERBATIM — Michael, 2026-09-08.
+     * The previous text was mine and said the same things at three times the
+     * length; his names the real-world thing each state IS, which is what an
+     * engineer is actually choosing between. "PICV or Equivalent" is his, and
+     * it is the honest description: an Auto valve holding a target modulates
+     * exactly as a PICV does, which is why there is no separate PICV type
+     * (see `cvSelectionFields`). */
     infoMark(fieldLabel(modeSel),
-             'Auto: modulates to hold this machine\u2019s own Design \u0394T. ' +
-             'Manual: fixed at the position you set, in both DESIGN and ' +
-             'SIMULATION. None: no integrated valve \u2014 its pressure drop ' +
-             'returns to the coil, for a coil whose control valve is drawn in ' +
-             'the branch instead.');
+             'Auto: Holds Target (PICV or Equivalent). Manual: Fixed Valve ' +
+             'position (Manual Balancing). None: No Control Valve.');
     modeSel.addEventListener('change', function () {
       pushUndo();
       /* NONE REMOVES THE VALVE. The rated pressure drop is the branch total
@@ -5619,15 +5616,19 @@
       /* THE SAME TREATMENT AS A DRAWN CONTROL VALVE — Michael, 2026-08-31:
        * "CVs in Equipment should have the same treatment as external." One
        * helper serves both, so the two cannot drift apart. */
-      var icvLocked = cvSelectionFields(sec.box, e.icv, function () {
-        changed(); renderProperties();
-      });
-      /* Only on AUTO: a valve fixed by hand is not modulating to hold
-       * anything, so asking what it targets would be a question with no
-       * answer. */
+      /* TARGET SITS DIRECTLY UNDER CONTROL VALVE — Michael, 2026-09-08:
+       * "Move Valve Target to below Control Valve (Auto/Manual/None)." It was
+       * below the size rows, which put the machine's SELECTION between the
+       * mode and what that mode holds. The two questions are one question:
+       * Auto, and Auto holding what. Only on AUTO — a valve fixed by hand is
+       * not modulating to hold anything, so asking what it targets would be a
+       * question with no answer. */
       if (M.icvMode(p) === 'auto') {
         cvTargetField(sec.box, e.icv, function () { changed(); renderProperties(); });
       }
+      var icvLocked = cvSelectionFields(sec.box, e.icv, function () {
+        changed(); renderProperties();
+      });
 
       var useCv = (m.settings.display.valveCoef === 'Cv');
       var kvIn = el('input'); kvIn.type = 'text';
@@ -6117,12 +6118,12 @@
       if (o[0] === cur) opt.selected = true;
       sel.appendChild(opt);
     });
+    /* NO INFO MARK — Michael, 2026-09-08: "Remove (i) for Target." It sat
+     * directly under the Control valve row, whose own mark now says what Auto
+     * holds, and two marks on two adjacent rows explaining one idea is one
+     * too many. What LWT is derived from is in the user manual and on the
+     * Engine page; it does not need repeating at the field. */
     field(host, 'Target', sel);
-    infoMark(fieldLabel(sel),
-             'What the valve modulates to hold. LWT is the leaving water ' +
-             'temperature, taken as the design entering temperature plus or ' +
-             'minus the design ΔT — so it follows the ΔT rather than being set ' +
-             'separately.');
     sel.addEventListener('change', function () {
       pushUndo();
       if (sel.value === 'dt') delete icv.target; else icv.target = sel.value;
