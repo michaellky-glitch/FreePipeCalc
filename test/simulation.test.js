@@ -1637,14 +1637,11 @@ section('Automatic dP setpoint');
        JSON.stringify((auto.res.errors || []).map(e => e.code)));
     near('auto: ...and holds it at the design 7.5 K', auto.dT, 7.5, 0.15);
 
-    /* THE TYPED FIGURE IS NEVER OVERWRITTEN. It is the design differential and
-     * the ceiling the search starts from, and it must survive so switching Auto
-     * off restores it. */
+    /* THE TYPED FIGURE IS NEVER OVERWRITTEN, so switching Auto off restores it.
+     * On SET it no longer STEERS anything either — see the section below. */
     near('auto: the typed setpoint is untouched', auto.sn.dpSet, 110e3, 1);
-    ok('auto: the chosen setpoint is below it',
-       auto.sn.dpAuto < auto.sn.dpSet, (auto.sn.dpAuto / 1000).toFixed(1) + ' kPa');
-    ok('auto: ...and above the search floor',
-       auto.sn.dpAuto > auto.sn.dpSet * 0.05,
+    ok('auto: the chosen setpoint is a real differential',
+       auto.sn.dpAuto > 0 && auto.sn.dpAuto < 110e3,
        (auto.sn.dpAuto / 1000).toFixed(1) + ' kPa');
 
     /* IT TRACKS THE LOAD, which is the whole point: the lighter the load, the
@@ -1663,6 +1660,107 @@ section('Automatic dP setpoint');
     const back = run(79, false);
     ok('switching Auto off clears the chosen figure',
        back.sn.dpAuto === undefined, String(back.sn.dpAuto));
+  }
+
+  /* ================================================================
+   * WHAT THE TYPED FIGURE MEANS ON AUTO — Michael, 2026-09-08.
+   *
+   * HIS BUG REPORT, and it is the reason this section exists: "Turned off
+   * Auto, change setpoint to MIN 50kPa, turned Auto back on. System kept
+   * trying to maintain 50kPa instead of going back to Auto ... deleted the
+   * setpoint, turned Auto back on and it's still trying to hold 50."
+   *
+   * The search only ever descended from the typed figure, so whenever that
+   * figure already left a valve at the open target it returned it untouched
+   * and Auto did nothing. Worse, with the box empty the starting point was
+   * measured off a solve that still carried the LAST run's pump speed, so it
+   * locked onto its own previous answer.
+   *
+   * His ruling: on Auto the box is ignored unless the comparator makes it a
+   * limit. SET = no limit, MIN = never below, MAX = never above.
+   *
+   * The numbers below are RELATIONSHIPS, not magnitudes — that a floor is
+   * honoured exactly, that the answer does not depend on what was in the box.
+   * The magnitudes belong to the fixture and would move if it were re-cut.
+   * ================================================================ */
+  {
+    function auto(loadPct, typedKPa, cmp) {
+      const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
+      m.pipes.forEach(p => {
+        if (p.kind === 'equip' && p.equip.equipType === 'exchanger') {
+          p.equip.loadPct = loadPct;
+        }
+      });
+      const sn = m.pipes.filter(p => p.id === 'P151')[0].sensor;
+      if (typedKPa) sn.dpSet = typedKPa * 1000; else delete sn.dpSet;
+      if (cmp) sn.cmp = cmp; else delete sn.cmp;
+      sn.autoSet = true;
+      const res = NET.solveModel(m);
+      const opens = m.pipes.filter(p => p.kind === 'equip' &&
+        p.equip.equipType === 'exchanger').map(p => p.equip.icv.opening);
+      return {
+        chosen: sn.dpAuto,
+        maxOpen: Math.max(...opens),
+        lost: (res.errors || []).some(e => e.code === 'SETPOINT_LOST'),
+        /* The control loop's report rides on `res.controls`, not `res.report` —
+         * `best.report` inside the solver IS this object. */
+        report: ((res.controls || {}).autoSetpoint || [])[0]
+      };
+    }
+
+    /* ---- SET: the box does not steer the answer, whatever is in it.
+     *
+     * THIS IS THE REGRESSION. Before the fix these five returned 30, 50, 80,
+     * 83.9 and 200 kPa respectively — the number that was typed, four times
+     * out of five. */
+    const free = auto(90, 0, null).chosen;
+    ok('SET: an empty box gives a real answer', free > 0, String(free));
+    [30, 50, 80, 110, 200].forEach(v => {
+      const got = auto(90, v, null).chosen;
+      near(`SET: ${v} kPa in the box does not change the answer`, got, free,
+           Math.max(free * 0.02, 500));
+    });
+
+    /* ---- MIN: a floor, honoured exactly.
+     *
+     * At 40% load the free answer is far below any of these, so each one is
+     * decided by the floor and must land ON it — not above it, which is what a
+     * search that stopped one step early would do. */
+    const light = auto(40, 0, null).chosen;
+    ok('the free answer at 40% load is low enough to test a floor',
+       light < 25e3, (light / 1000).toFixed(1) + ' kPa');
+    [30, 50, 80].forEach(v => {
+      const r = auto(40, v, 'min');
+      near(`MIN ${v} kPa: the answer is exactly the floor`, r.chosen, v * 1000, 50);
+      ok(`MIN ${v} kPa: ...and the panel is told the floor bound it`,
+         r.report && r.report.bound === 'min', JSON.stringify(r.report));
+      ok(`MIN ${v} kPa: ...and it still holds`, !r.lost);
+    });
+    ok('MIN below the free answer does not raise it',
+       Math.abs(auto(40, 5, 'min').chosen - light) < Math.max(light * 0.02, 500),
+       (auto(40, 5, 'min').chosen / 1000).toFixed(1) + ' vs free ' +
+       (light / 1000).toFixed(1));
+
+    /* ---- MAX: a ceiling, honoured exactly, and honest when it is too low.
+     *
+     * A cap below what the coils need is not silently obeyed and not silently
+     * ignored: the setpoint is held at the cap and the coils that cannot make
+     * their ΔT report SETPOINT_LOST, which is the same answer a typed setpoint
+     * that low would give. */
+    const capped = auto(40, 12, 'max');
+    near('MAX 12 kPa: the answer is exactly the cap', capped.chosen, 12e3, 50);
+    ok('MAX 12 kPa: ...and the panel is told the cap bound it',
+       capped.report && capped.report.bound === 'max', JSON.stringify(capped.report));
+    ok('MAX 12 kPa: ...and a cap below what the plant needs is reported, not hidden',
+       capped.lost);
+    ok('MAX above the free answer leaves it alone',
+       Math.abs(auto(40, 60, 'max').chosen - light) < Math.max(light * 0.02, 500),
+       (auto(40, 60, 'max').chosen / 1000).toFixed(1) + ' vs free ' +
+       (light / 1000).toFixed(1));
+
+    /* ---- SET reports no bound at all, so the panel says nothing about one. */
+    ok('SET: nothing is reported as binding',
+       auto(40, 0, null).report && auto(40, 0, null).report.bound === null);
   }
 }
 

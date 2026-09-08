@@ -4576,7 +4576,7 @@
    *
    * Only shown when the thing HAS a setpoint — an adiabatic item states
    * nothing, and a sensor with an empty box has nothing to qualify. */
-  function setpointCmpSection(host, p) {
+  function setpointCmpSection(host, p, valueControl) {
     var m = app.model;
     var opts = M.controlOptions(m, p.id) || [];
     if (!opts.length) return;
@@ -4590,13 +4590,149 @@
         if (c[0] === (o.cmp || 'set')) opt.selected = true;
         sel.appendChild(opt);
       });
-      field(sec.box, o.label + '  ' + fmtSetpoint(o), sel);
+
+      /* THE NUMBER AND ITS COMPARATOR ON ONE ROW, where a caller offers a box
+       * for the number — Michael, 2026-09-08. Everywhere else the value is
+       * edited on its own panel and only echoed into the label here, which is
+       * still true for equipment. A SENSOR states its setpoint and nothing
+       * else, so for one the two halves belong together.
+       *
+       * `pair` gets the label rather than the select, so an accessory hung on
+       * the label — the Auto switch — sits on the row and not on the dropdown. */
+      var extra = valueControl ? valueControl(o, sec.box) : null;
+      if (extra) {
+        var pair = el('div', 'field-pair');
+        pair.appendChild(extra.control);
+        pair.appendChild(sel);
+        field(sec.box, o.label, pair);
+        var lab = pair.parentNode.querySelector('label');
+        if (extra.decorate) extra.decorate(lab, pair.parentNode);
+      } else {
+        field(sec.box, o.label + '  ' + fmtSetpoint(o), sel);
+      }
+
       sel.addEventListener('change', function () {
         pushUndo();
         M.setSetpointCmp(p, o.key, sel.value);
         renderProperties(); changed();
       });
     });
+  }
+
+  /* THE ONE BOX A SENSOR OFFERS, built for the Setpoints section.
+   *
+   * Returns `{ control, decorate }` — the input, and a callback that dresses
+   * the row once it is in the DOM (the Auto switch, the disabled state, and the
+   * line saying what bound the answer).
+   *
+   * ON AUTO THE BOX IS AN OUTPUT — Michael, 2026-09-08: "when Auto is enabled,
+   * ignore previous input in the setpoints box (if any) and just report what
+   * the current setpoint is. The box is already locked against user edits in
+   * Auto mode." So the typed figure survives untouched underneath, ready for
+   * when Auto goes off, and the comparator decides whether it constrains the
+   * search at all: SET no limit, MIN a floor, MAX a ceiling. */
+  function sensorSetpointControl(p, sn, d, o, host) {
+    var isDP = (sn.mode === 'dP');
+    var autoOn = isDP && !!sn.autoSet;
+    var input = el('input');
+    input.type = 'text';
+
+    if (sn.mode === 'flow') {
+      input.value = sn.qSet ? FD.units.fmtFlow(sn.qSet, d.flow) : '';
+    } else if (sn.mode === 'pressure') {
+      input.value = sn.pSet ? FD.units.fmtPressure(sn.pSet, d.pressure) : '';
+    } else if (isDP) {
+      var shown = (autoOn && isFinite(Number(sn.dpAuto))) ? sn.dpAuto : sn.dpSet;
+      input.value = shown ? FD.units.fmtPressure(shown, d.pressure) : '';
+    } else if (sn.mode === 'dT') {
+      input.value = (sn.dtSet === undefined || sn.dtSet === null) ? '' : sn.dtSet;
+    } else {
+      input.value = (sn.tSet === undefined || sn.tSet === null) ? '' : sn.tSet;
+    }
+    noAutofill(input);
+
+    input.addEventListener('change', function () {
+      var v = FD.units.parse(input.value);
+      pushUndo();
+      if (sn.mode === 'flow') {
+        sn.qSet = (isFinite(v) && v > 0) ? FD.units.toSIFlow(v, d.flow) : undefined;
+      } else if (sn.mode === 'pressure') {
+        sn.pSet = (isFinite(v) && v > 0) ? FD.units.toSIPressure(v, d.pressure) : undefined;
+      } else if (isDP) {
+        sn.dpSet = (isFinite(v) && v > 0) ? FD.units.toSIPressure(v, d.pressure) : undefined;
+      } else if (sn.mode === 'dT') {
+        sn.dtSet = isFinite(v) ? Math.abs(v) : undefined;
+      } else {
+        sn.tSet = isFinite(v) ? v : undefined;
+      }
+      renderProperties(); changed();
+    });
+
+    return {
+      control: input,
+      decorate: function (lab) {
+        if (sn.mode === 'pressure') {
+          infoMark(lab, 'Read at the sensor\u2019s inlet \u2014 the water ' +
+                        'arriving, which is what a tapping on that pipe would read.');
+        }
+        if (!isDP) return;
+
+        /* AUTOMATIC SETPOINT — Michael, 2026-08-31, after Tutorial 2 at part
+         * load. A fixed differential is held at every load, so a part-loaded
+         * coil throttles its valve and stays throttled while the pump keeps
+         * pushing. On Auto the solve searches for the setpoint at which the
+         * most open valve is nearly wide open, and the pump follows it down.
+         *
+         * A SWITCH ON THE SETPOINT ROW, in his sketch: the label carries it, so
+         * the row reads "this number, or work it out for me". */
+        var aw = el('span', 'field-accessory');
+        aw.appendChild(el('span', 'accessory-label', 'Auto'));
+        infoMark(aw, 'Automatically selects setpoint to maintain minimum flow ' +
+                     'and VFD speed. The box then reports what it chose. ' +
+                     'SET ignores the typed figure; MIN keeps the chosen ' +
+                     'setpoint at or above it; MAX at or below it.');
+        var asw = el('button', 'switch plain' + (autoOn ? ' on' : ' off'));
+        asw.type = 'button';
+        asw.setAttribute('role', 'switch');
+        asw.setAttribute('aria-checked', autoOn ? 'true' : 'false');
+        asw.setAttribute('aria-label', 'Automatic \u0394p setpoint');
+        asw.appendChild(el('span', 'switch-track', ''));
+        asw.addEventListener('click', function () {
+          pushUndo();
+          if (autoOn) { delete sn.autoSet; delete sn.dpAuto; }
+          else { sn.autoSet = true; }
+          renderProperties(); changed();
+        });
+        aw.appendChild(asw);
+        if (lab) lab.appendChild(aw);
+
+        if (!autoOn) return;
+        /* The chosen value is the solve's answer, so the box is not typed in —
+         * the same rule an auto-sized pump duty and a DN-selected Kv follow. */
+        input.disabled = true;
+        input.parentNode.classList.add('is-disabled');
+
+        /* WITH THE BOX REPORTING THE ANSWER, THE LIMIT IS INVISIBLE unless it
+         * is said out loud — a MIN of 50 kPa is not on screen anywhere once
+         * Auto is holding 64. So the row says which limit is in force, and
+         * whether it is the thing deciding the answer. */
+        var rep = ((app.results && app.results.controls &&
+                    app.results.controls.autoSetpoint) || [])
+                  .filter(function (x) { return x.pipe === p.id; })[0];
+        var cmp = sn.cmp || 'set';
+        var typed = Number(sn.dpSet);
+        if ((cmp === 'min' || cmp === 'max') && typed > 0) {
+          var limit = FD.units.fmtPressure(typed, d.pressure, true);
+          host.appendChild(el('p', 'hint',
+            (rep && rep.bound === cmp)
+              ? ('Held at your ' + cmp.toUpperCase() + ' of ' + limit +
+                 ' \u2014 Auto would otherwise go ' +
+                 (cmp === 'min' ? 'lower' : 'higher') + '.')
+              : ('Auto, ' + (cmp === 'min' ? 'not below ' : 'not above ') +
+                 limit + '.')));
+        }
+      }
+    };
   }
 
   function fmtSetpoint(o) {
@@ -5020,7 +5156,16 @@
     if (!p.sensor) p.sensor = { mode: 'temperature', tSet: 45 };
     var sn = p.sensor;
     host.appendChild(el('h3', '', 'Sensor ' + p.id));
-    tagField(host, p);
+
+    /* ================================================== DETAILS
+     *
+     * Michael, 2026-09-08: "Tag & Measures should be under 'Details' similar to
+     * HX & HS/S." What the instrument IS goes here; what it HOLDS goes in
+     * Setpoints below. The reference pipe joins them: a differential is not a
+     * setpoint, it is half of the measurement, and picking the wrong pipe is a
+     * question about the drawing rather than about control. */
+    var det = section(host, 'Details');
+    tagField(det.box, p);
 
     var modeSel = el('select');
     [['temperature', 'Temperature'], ['flow', 'Flow'],
@@ -5030,101 +5175,17 @@
       if (o[0] === sn.mode) opt.selected = true;
       modeSel.appendChild(opt);
     });
-    field(host, 'Measures', modeSel).addEventListener('change', function () {
+    field(det.box, 'Measures', modeSel).addEventListener('change', function () {
       pushUndo(); sn.mode = modeSel.value; renderProperties(); changed();
     });
 
-    if (sn.mode === 'flow') {
-      var qIn = el('input'); qIn.type = 'text';
-      qIn.value = sn.qSet ? FD.units.fmtFlow(sn.qSet, d.flow) : '';
-      field(host, 'Flow setpoint (' + d.flow + ')', qIn)
-        .addEventListener('change', function () {
-          var v = FD.units.parse(qIn.value);
-          pushUndo();
-          sn.qSet = (isFinite(v) && v > 0) ? FD.units.toSIFlow(v, d.flow) : undefined;
-          renderProperties(); changed();
-        });
-    } else if (sn.mode === 'pressure') {
-      var pIn = el('input'); pIn.type = 'text';
-      pIn.value = sn.pSet ? FD.units.fmtPressure(sn.pSet, d.pressure) : '';
-      var pf = field(host, 'Pressure setpoint (' + d.pressure + ')', pIn);
-      infoMark(pIn.parentNode.querySelector('label'),
-               'Read at the sensor\u2019s inlet — the water arriving, which is ' +
-               'what a tapping on that pipe would read.');
-      pf.addEventListener('change', function () {
-        var v = FD.units.parse(pIn.value);
-        pushUndo();
-        sn.pSet = (isFinite(v) && v > 0) ? FD.units.toSIPressure(v, d.pressure) : undefined;
-        renderProperties(); changed();
-      });
-    } else if (sn.mode === 'dP' || sn.mode === 'dT') {
+    var refPipe = null;
+    if (sn.mode === 'dP' || sn.mode === 'dT') {
       /* TWO PIPES, one sensor. The sensor sits in the first; the second is
        * picked on the drawing, the same gesture as a control link — "which
        * pipe" is a question about the drawing, and a menu of P-numbers is not
        * an answer to it (§17B). */
-      var isDP = (sn.mode === 'dP');
-      var dIn = el('input'); dIn.type = 'text';
-      /* ON AUTO THE BOX SHOWS WHAT THE SOLVE CHOSE, not what was typed. The
-       * typed figure is kept as the design differential and the ceiling the
-       * search starts from; it comes back the moment Auto is switched off. */
-      var autoOn = isDP && !!sn.autoSet;
-      var shown = (autoOn && isFinite(Number(sn.dpAuto))) ? sn.dpAuto : sn.dpSet;
-      dIn.value = isDP
-        ? (shown ? FD.units.fmtPressure(shown, d.pressure) : '')
-        : (sn.dtSet === undefined || sn.dtSet === null ? '' : sn.dtSet);
-      field(host, isDP ? 'Δp setpoint (' + d.pressure + ')' : 'ΔT setpoint (K)', dIn)
-        .addEventListener('change', function () {
-          var v = FD.units.parse(dIn.value);
-          pushUndo();
-          if (isDP) {
-            sn.dpSet = (isFinite(v) && v > 0)
-              ? FD.units.toSIPressure(v, d.pressure) : undefined;
-          } else {
-            sn.dtSet = isFinite(v) ? Math.abs(v) : undefined;
-          }
-          renderProperties(); changed();
-        });
-
-      /* AUTOMATIC SETPOINT — Michael, 2026-08-31, after Tutorial 2 at part
-       * load. A fixed differential is held at every load, so a part-loaded coil
-       * throttles its valve and stays throttled while the pump keeps pushing.
-       * On Auto the solve lowers the setpoint until the most open valve is
-       * nearly wide open and the pump follows it down. Measured on Tutorial 2
-       * at 79% load: 110 -> 64 kPa, pump 87% -> 78%, valves 76% -> 93-100%,
-       * and a fifth off the pumping power with every coil still on its dT.
-       *
-       * A SWITCH ON THE SETPOINT ROW, in his sketch: the label carries it, so
-       * the field reads "this number, or work it out for me". */
-      if (isDP) {
-        var lab = dIn.parentNode.querySelector('label');
-        var aw = el('span', 'field-accessory');
-        var at = el('span', 'accessory-label', 'Auto');
-        aw.appendChild(at);
-        infoMark(aw, 'Automatically selects setpoint to maintain minimum flow ' +
-                     'and VFD speed.');
-        var asw = el('button', 'switch plain' + (autoOn ? ' on' : ' off'));
-        asw.type = 'button';
-        asw.setAttribute('role', 'switch');
-        asw.setAttribute('aria-checked', autoOn ? 'true' : 'false');
-        asw.setAttribute('aria-label', 'Automatic Δp setpoint');
-        asw.appendChild(el('span', 'switch-track', ''));
-        asw.addEventListener('click', function () {
-          pushUndo();
-          if (autoOn) { delete sn.autoSet; delete sn.dpAuto; }
-          else { sn.autoSet = true; }
-          renderProperties(); changed();
-        });
-        aw.appendChild(asw);
-        if (lab) lab.appendChild(aw);
-        /* The chosen value is the solve's answer, so the box is not typed in —
-         * the same rule an auto-sized pump duty and a DN-selected Kv follow. */
-        if (autoOn) {
-          dIn.disabled = true;
-          dIn.parentNode.classList.add('is-disabled');
-        }
-      }
-
-      var refPipe = sn.ref ? M.pipe(m, sn.ref) : null;
+      refPipe = sn.ref ? M.pipe(m, sn.ref) : null;
       var rrow = el('div', 'btn-row');
       var picking = !!(app.view.refPick && app.view.refPick.pipeId === p.id);
       var rb = el('button', 'btn' + (picking ? ' active' : ''),
@@ -5141,24 +5202,29 @@
        * dragged just as far out of reach. */
       if (refPipe) rrow.appendChild(resetRouteBtn(sn.route || (sn.route = {})));
       if (refPipe) rrow.appendChild(el('span', 'hint', refPipe.tag || refPipe.id));
-      host.appendChild(rrow);
+      det.box.appendChild(rrow);
       if (!refPipe) {
-        host.appendChild(el('p', 'hint',
+        det.box.appendChild(el('p', 'hint',
           'A differential needs two pipes. Pick the second one.'));
       }
-    } else {
-      var tIn = el('input'); tIn.type = 'text';
-      tIn.value = (sn.tSet === undefined || sn.tSet === null) ? '' : sn.tSet;
-      field(host, 'Temperature setpoint (°C)', tIn)
-        .addEventListener('change', function () {
-          var v = FD.units.parse(tIn.value);
-          pushUndo();
-          sn.tSet = isFinite(v) ? v : undefined;
-          renderProperties(); changed();
-        });
     }
 
-    setpointCmpSection(host, p);
+    /* ================================================== SETPOINTS
+     *
+     * Michael, 2026-09-08: "we should move dP setpoint down to Setpoints
+     * properties panel, not below Tag>Measures." The number and the SET/MIN/MAX
+     * beside it are one control — the comparator says what the number MEANS —
+     * and they were two panels apart, which is most of why the Auto behaviour
+     * was hard to reason about from the screen.
+     *
+     * The builder below is handed to `setpointCmpSection`, which owns that
+     * section for every kind of device, so a sensor's box lands on the same row
+     * as its comparator without this panel knowing how that section is laid
+     * out. */
+    setpointCmpSection(host, p, function (o, labelHost) {
+      return sensorSetpointControl(p, sn, d, o, labelHost);
+    });
+
 
     var hint = el('p', 'hint', 'Link a pump or globe valve to it with Control. ');
     infoMark(hint, 'The sensor states a setpoint; the linked device modulates ' +

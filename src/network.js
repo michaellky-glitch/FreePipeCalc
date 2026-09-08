@@ -1231,10 +1231,49 @@
    * that by the number of trials. On a large model this is minutes, which is
    * why it is a switch on the sensor and not the default.
    *
-   * `dpSet` is never written. It is the engineer's design figure and the
-   * ceiling; `dpAuto` carries the answer. */
-  var AUTO_MIN_FRAC = 0.05;      // never search below 5% of the stated setpoint
-  var AUTO_STEPS = 7;            // bisections; 1/128 of the range
+   * `dpSet` is never written. `dpAuto` carries the answer.
+   *
+   * ================================================================
+   * WHAT THE TYPED FIGURE MEANS ON AUTO — Michael, 2026-09-08, and it is a
+   * REVERSAL of what this did before.
+   *
+   * It used to be the CEILING the search descended from, and that was the bug
+   * he reported: "Turned off Auto, change setpoint to MIN 50kPa, turned Auto
+   * back on. System kept trying to maintain 50kPa instead of going back to
+   * Auto." A search that only ever goes DOWN returns its own starting point
+   * whenever that point is already low enough, so the typed number became the
+   * answer and Auto did nothing.
+   *
+   * His ruling: *"when Auto is enabled, ignore previous input in the setpoints
+   * box (if any) and just report what the current setpoint is"* — and the
+   * comparator beside the box decides whether it constrains at all:
+   *
+   *     SET   no limit. Pure Auto. What it was always meant to do.
+   *     MIN   Auto, but never below the typed figure.
+   *     MAX   Auto, but never above it.
+   *
+   * MIN is the one he wanted: *"to maintain proper control, the DPS will have
+   * a minimum setting to ensure sufficient DP across the last CV."* On the
+   * frozen Tutorial 2 at 40% load the free answer is about 17 kPa, which is a
+   * valve with nothing left to work against.
+   *
+   * THE SEARCH NOW BRACKETS RATHER THAN ONLY DESCENDING, which is what makes
+   * the answer independent of where it started. `maxOpen` falls as the setpoint
+   * rises — more differential, more throttling — so:
+   *
+   *     most-open valve still at the target   the setpoint is too LOW  -> double
+   *     most-open valve short of the target   the setpoint is too HIGH -> halve
+   *
+   * Expansion stops when the plant cannot make the next step (the pump runs out
+   * of speed and something reports SETPOINT_LOST), because that is a real
+   * ceiling rather than an arithmetic one. Only then does it bisect.
+   *
+   * The seed is therefore no longer load-bearing. It sets where the doubling
+   * starts and nothing else, so a stale `dpAuto`, a previous run's pump speed
+   * or an old typed figure can no longer decide the answer. */
+  var AUTO_MIN_FRAC = 0.05;      // never search below 5% of the seed
+  var AUTO_STEPS = 7;            // bisections; 1/128 of the bracket
+  var AUTO_EXPAND = 5;           // doublings before giving up on a bracket
   var AUTO_OPEN_TARGET = 0.95;   // most-open valve, at which the search stops
 
   function autoSetpointSensors(m) {
@@ -1244,23 +1283,31 @@
     });
   }
 
-  /* AUTO MUST NOT NEED A SETPOINT TYPED INTO IT — Michael, 2026-09-07: a dP
-   * sensor on Auto and linked to a pump was refusing to do anything until a
-   * figure was entered, which is the opposite of what Auto means.
+  /* WHERE THE SEARCH STARTS, and it is only a starting point now.
    *
-   * The search needs a CEILING to bisect down from, and `dpSet` was serving as
-   * one. Where none is given, the differential the sensor reads on the
-   * uncontrolled solve is the natural substitute: it is what this system
-   * produces with the pump as it stands, which is the design condition the
-   * setpoint would have been chosen at anyway.
+   * Michael, 2026-09-07: a dP sensor on Auto and linked to a pump was refusing
+   * to do anything until a figure was typed, which is the opposite of what Auto
+   * means. So the differential the sensor reads on the current solve is used
+   * as the seed.
    *
-   * The search only ever goes DOWN from the ceiling, so a generous one costs a
-   * bisection and nothing else. Seeded into `dpAuto`, so every controller
-   * downstream — `controlOptions` included — sees a target and none of them
-   * needs to know the figure was derived rather than typed. */
-  function seedAutoCeiling(m, core, autos) {
+   * IT USED TO BE THE CEILING, AND THAT MADE IT LOAD-BEARING AND WRONG. The
+   * solve it is measured from runs with whatever speed the LAST controlled run
+   * wrote onto the model, so the seed tracked the previous answer: measured on
+   * the frozen Tutorial 2, a model left at 100% seeded 145.3 kPa, at 60% it
+   * seeded 52.1 and at 40% it seeded 23.1. A search that could only descend
+   * then locked onto its own last answer and never came back up — which is
+   * exactly what Michael saw when he deleted the setpoint and it went on
+   * holding 50 kPa.
+   *
+   * With a bracketing search the seed decides the first doubling and nothing
+   * else, so the contamination no longer reaches the answer. It is kept because
+   * starting near the answer costs fewer trials, and each trial is a full
+   * control loop.
+   *
+   * A TYPED FIGURE IS NO LONGER READ HERE AT ALL. On Auto it is a limit, not a
+   * start — see `autoLimits`. */
+  function seedAutoStart(m, core, autos) {
     autos.forEach(function (p) {
-      if (Number(p.sensor.dpSet) > 0) return;          // the engineer said
       var ref = M.pipe(m, p.sensor.ref);
       var pr = core && core.res && core.res.pressure;
       if (!ref || !pr) return;
@@ -1270,6 +1317,20 @@
        * out of a solve that has not moved any water. */
       if (isFinite(d) && d > 1e-6) p.sensor.dpAuto = d;
     });
+  }
+
+  /* THE COMPARATOR TURNS THE TYPED FIGURE INTO A BOUND — or into nothing.
+   *
+   * Returns `{ floor, cap }` in Pa for one sensor. SET is the default and
+   * leaves both open, which is the state every existing file is in: `cmp` is
+   * only stored when it is not 'set' (`M.setSetpointCmp`), so nothing migrates
+   * and no drawing changes its answer by being opened. */
+  function autoLimits(p) {
+    var typed = Number(p.sensor.dpSet);
+    var cmp = p.sensor.cmp || 'set';
+    if (!(typed > 0) || cmp === 'set') return { floor: 0, cap: Infinity };
+    if (cmp === 'min') return { floor: typed, cap: Infinity };
+    return { floor: 0, cap: typed };
   }
 
   function* runControlsAutoGen(m, core, maxPasses, opts) {
@@ -1283,20 +1344,80 @@
       return yield* runControlsGen(m, core, maxPasses, opts);
     }
 
-    /* A ceiling first, for any sensor left without one. */
-    seedAutoCeiling(m, core, autos);
-    var design = autos.map(function (p) {
-      var typed = Number(p.sensor.dpSet);
-      return (typed > 0) ? typed : Number(p.sensor.dpAuto) || 0;
+    /* A starting point, not a ceiling. */
+    seedAutoStart(m, core, autos);
+    var limits = autos.map(autoLimits);
+    var seed = autos.map(function (p, i) {
+      var d = Number(p.sensor.dpAuto) || 0;
+      /* NOTHING MEASURABLE, BUT A LIMIT WAS TYPED. A model that has not moved
+       * any water yet still has somewhere sensible to start if the engineer has
+       * stated a floor or a ceiling — starting there beats not searching. */
+      if (!(d > 0)) {
+        var L = limits[i];
+        d = (L.floor > 0) ? L.floor : (isFinite(L.cap) ? L.cap : 0);
+      }
+      return d;
     });
-    /* A sensor with neither a typed setpoint nor a measurable differential has
+    /* A sensor with neither a measurable differential nor a typed limit has
      * nothing to search between; leave it to report as unset. */
-    if (!design.every(function (d) { return d > 0; })) {
+    if (!seed.every(function (d) { return d > 0; })) {
       return yield* runControlsGen(m, core, maxPasses, opts);
     }
+    /* THE LIMITS ARE APPLIED HERE, not to the answer afterwards, so every trial
+     * the search judges is a setpoint the engineer would actually allow — and
+     * the value left on the model at the end is the one that was solved for. */
     var apply = function (frac) {
-      autos.forEach(function (p, i) { p.sensor.dpAuto = design[i] * frac; });
+      autos.forEach(function (p, i) {
+        var L = limits[i];
+        p.sensor.dpAuto = Math.min(L.cap, Math.max(L.floor, seed[i] * frac));
+      });
     };
+    /* The setpoints a fraction actually produces, limits included. */
+    var applied = function (frac) {
+      return autos.map(function (p, i) {
+        var L = limits[i];
+        return Math.min(L.cap, Math.max(L.floor, seed[i] * frac));
+      });
+    };
+    /* WHETHER A TRIAL WOULD BE A REPEAT. Two fractions either side of a floor
+     * produce the SAME setpoint once clamped, and a repeat costs a full control
+     * loop to learn nothing.
+     *
+     * This is also what lets a limit be reached EXACTLY. The obvious guard —
+     * stop as soon as the unclamped value crosses the limit — stops one step
+     * too early and leaves the answer above the floor: with a 80 kPa floor and
+     * a free answer near 17, it returned 109.9. Comparing the CLAMPED values
+     * instead lets the search take the step that pins to 80.0 and only then
+     * stop. */
+    var sameApplied = function (a, b) {
+      var x = applied(a), y = applied(b);
+      return x.every(function (v, i) {
+        return Math.abs(v - y[i]) <= Math.max(1e-9, Math.abs(y[i]) * 1e-9);
+      });
+    };
+    /* WHAT THE PANEL IS TOLD, and it must be told on EVERY path out of here —
+     * including the two early returns. A model whose cap is below what the
+     * coils need exits through `lost(best)`, and that is exactly the case where
+     * the engineer most needs to see that their own ceiling is the reason. */
+    var reportAuto = function (r) {
+      if (r && r.report) {
+        r.report.autoSetpoint = autos.map(function (p, i) {
+          var L = limits[i];
+          /* `bound` is what the panel says: the answer is the engineer's own
+           * limit rather than the search's, which is the difference between
+           * "Auto chose this" and "Auto wanted lower and you said no". */
+          var v = Number(p.sensor.dpAuto);
+          return { pipe: p.id, tag: p.tag || null,
+                   design: Number(p.sensor.dpSet), chosen: v,
+                   cmp: p.sensor.cmp || 'set',
+                   bound: (L.floor > 0 && v <= L.floor * (1 + 1e-9)) ? 'min'
+                        : (isFinite(L.cap) && v >= L.cap * (1 - 1e-9)) ? 'max'
+                        : null };
+        });
+      }
+      return r;
+    };
+
     var lost = function (r) {
       return !!(r && r.errors || []).length &&
              (r.errors || []).some(function (e) { return e.code === 'SETPOINT_LOST'; });
@@ -1321,18 +1442,48 @@
     /* NOTHING TO OPEN, NOTHING TO SEARCH FOR. Without a modulating valve the
      * setpoint has no upper bound to press against and the bisection would run
      * to the floor for no reason. */
-    if (maxOpen(best) < 0) return best;
-    /* If the DESIGN setpoint already fails, lowering it can only fail harder.
-     * That is a plant problem and is reported as it already would be. */
-    if (lost(best)) return best;
+    if (maxOpen(best) < 0) return reportAuto(best);
 
-    var lo = AUTO_MIN_FRAC, hi = 1;
-    for (var i = 0; i < AUTO_STEPS; i++) {
+    var lo = AUTO_MIN_FRAC, hi = 1, i, mid, trial;
+
+    /* ---- EXPAND, if the seed was too low to be a bracket at all.
+     *
+     * THIS IS THE HALF THAT WAS MISSING, and its absence is the whole of the
+     * reported bug. A valve still at the open target means the differential is
+     * not yet high enough to be throttling anything, so the answer is ABOVE
+     * this trial, not below it — and a search that could only descend simply
+     * returned the number it came in with.
+     *
+     * Doubling stops at the first trial the plant cannot deliver: a pump at
+     * full speed that cannot make the next differential reports SETPOINT_LOST,
+     * and that is a real ceiling. The last good trial is kept, which is then
+     * also the answer if there is nothing above it. */
+    if (!lost(best)) {
+      for (i = 0; i < AUTO_EXPAND; i++) {
+        if (maxOpen(best) < AUTO_OPEN_TARGET) break;   // bracketed already
+        if (sameApplied(hi * 2, bestFrac)) break;      // pinned against a cap
+        apply(hi * 2);
+        lastFrac = hi * 2;
+        trial = yield* runControlsGen(m, core, maxPasses, opts);
+        if (lost(trial)) break;        // the plant tops out here; keep the last
+        lo = hi; hi = hi * 2; bestFrac = hi; best = trial;
+      }
+    }
+
+    /* If even the starting trial fails, lowering it can only fail harder. That
+     * is a plant problem and is reported as it already would be. Checked AFTER
+     * the expansion so a seed that was merely too low is not mistaken for one
+     * the plant cannot hold. */
+    if (lost(best)) return reportAuto(best);
+
+    /* ---- BISECT DOWN to the lowest setpoint that still holds. */
+    for (i = 0; i < AUTO_STEPS; i++) {
       if (maxOpen(best) >= AUTO_OPEN_TARGET) break;
-      var mid = (lo + hi) / 2;
+      mid = (lo + hi) / 2;
+      if (sameApplied(mid, bestFrac)) break;   // clamped to what we already hold
       apply(mid);
       lastFrac = mid;
-      var trial = yield* runControlsGen(m, core, maxPasses, opts);
+      trial = yield* runControlsGen(m, core, maxPasses, opts);
       if (lost(trial)) {
         lo = mid;                       // too low, the coils ran out of travel
       } else {
@@ -1347,13 +1498,7 @@
     if (lastFrac !== bestFrac) {
       best = yield* runControlsGen(m, core, maxPasses, opts);
     }
-    if (best && best.report) {
-      best.report.autoSetpoint = autos.map(function (p) {
-        return { pipe: p.id, tag: p.tag || null,
-                 design: Number(p.sensor.dpSet), chosen: p.sensor.dpAuto };
-      });
-    }
-    return best;
+    return reportAuto(best);
   }
 
   function* solveModelGen(m, maxPasses, opts) {

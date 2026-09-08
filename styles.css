@@ -1582,3 +1582,13 @@ body.sim-static #prop-body .field textarea {
 .field-accessory .switch .switch-track { width: 28px; height: 15px; border-radius: 8px; }
 .field-accessory .switch .switch-track::after { width: 11px; height: 11px; }
 .field-accessory .switch.on .switch-track::after { transform: translateX(13px); }
+
+
+/* A SETPOINT AND ITS COMPARATOR ON ONE ROW — Michael, 2026-09-08: "we should
+ * move dP setpoint down to Setpoints properties panel". The number and the
+ * SET/MIN/MAX beside it are one control: the comparator says what the number
+ * MEANS, so reading either alone tells you nothing. The box takes the room
+ * that is left, the three-letter dropdown takes what it needs. */
+.field-pair { display: flex; gap: 6px; align-items: center; }
+.field-pair input { flex: 1 1 auto; min-width: 0; }
+.field-pair select { flex: 0 0 auto; width: auto; }
