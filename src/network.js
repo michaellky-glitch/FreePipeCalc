@@ -1356,7 +1356,19 @@
         var L = limits[i];
         d = (L.floor > 0) ? L.floor : (isFinite(L.cap) ? L.cap : 0);
       }
-      return d;
+      /* PULLED INSIDE THE LIMITS, and this is not cosmetic — Michael,
+       * 2026-09-08: "Inputing 50kPa min in auto mode still settles the pump at
+       * 50kPa. It reports being limited by AHUs but does not satisfy them."
+       *
+       * The seed is measured off the last solve, so after part-load testing it
+       * is small. With a 50 kPa floor and a seed of 20, `apply(1)` clamps to 50
+       * and `apply(2)` clamps to 50 as well — doubling 20 to 40 is still under
+       * the floor — so the expansion saw no change and stopped before it had
+       * climbed anywhere. Starting ON the floor makes the first doubling a real
+       * step. Measured before this: MIN 50 on a model left at 30% speed chose
+       * 50.0 with the valves at 100% and SETPOINT_LOST, at every load. */
+      var L0 = limits[i];
+      return Math.min(L0.cap, Math.max(L0.floor, d));
     });
     /* A sensor with neither a measurable differential nor a typed limit has
      * nothing to search between; leave it to report as unset. */
@@ -1458,22 +1470,62 @@
      * full speed that cannot make the next differential reports SETPOINT_LOST,
      * and that is a real ceiling. The last good trial is kept, which is then
      * also the answer if there is nothing above it. */
-    if (!lost(best)) {
-      for (i = 0; i < AUTO_EXPAND; i++) {
-        if (maxOpen(best) < AUTO_OPEN_TARGET) break;   // bracketed already
-        if (sameApplied(hi * 2, bestFrac)) break;      // pinned against a cap
-        apply(hi * 2);
-        lastFrac = hi * 2;
-        trial = yield* runControlsGen(m, core, maxPasses, opts);
-        if (lost(trial)) break;        // the plant tops out here; keep the last
-        lo = hi; hi = hi * 2; bestFrac = hi; best = trial;
-      }
+    /* TWO REASONS TO CLIMB, and the second one used to be a reason to STOP.
+     *
+     * A valve still at the open target means the differential is not yet
+     * throttling anything. A setpoint that is LOST means something cannot hold
+     * at all — and more differential is exactly the cure for that. The old code
+     * returned on a lost start, reasoning that "if the design setpoint already
+     * fails, lowering it can only fail harder"; true when the search could only
+     * descend, and wrong now that it can climb. It is what left Michael's MIN
+     * 50 sitting at 50 with the AHUs unsatisfied and reported as limiting. */
+    var needsMore = function (r) {
+      return lost(r) || maxOpen(r) >= AUTO_OPEN_TARGET;
+    };
+
+    /* WHETHER ASKING FOR MORE COULD POSSIBLY HELP.
+     *
+     * Without this the frozen Tutorial 2 at 100% load, which genuinely cannot
+     * hold its coils at any setpoint, doubled five times and reported 3516.6
+     * kPa. The honest answer there is the highest the plant actually tried,
+     * still reported as SETPOINT_LOST.
+     *
+     * IT MUST ONLY LOOK AT THE DEVICES FOLLOWING THIS SENSOR. The first cut
+     * asked whether ANY device was at the top of its travel, which broke the
+     * very case it was written beside: a coil valve at 100% open is `at-max`,
+     * and a wide-open coil valve is the REASON to climb, not a reason to stop.
+     * A pump that has run out of speed is the reason to stop. So: every device
+     * that follows one of these sensors is flat out, and it is still short.
+     * `every`, not `some` — one follower with travel left can still answer. */
+    var followers = {};
+    m.pipes.forEach(function (q) {
+      var c = M.controlOf(q);
+      if (!c) return;
+      if (autos.some(function (a) { return a.id === c.equip; })) followers[q.id] = true;
+    });
+    var saturated = function (r) {
+      var mine = (((r && r.report) || {}).devices || []).filter(function (d) {
+        return followers[d.pipe];
+      });
+      return mine.length > 0 && mine.every(function (d) { return d.state === 'at-max'; });
+    };
+
+    for (i = 0; i < AUTO_EXPAND && needsMore(best); i++) {
+      if (lost(best) && saturated(best)) break;      // more setpoint cannot help
+      if (sameApplied(hi * 2, bestFrac)) break;      // pinned against a cap
+      apply(hi * 2);
+      lastFrac = hi * 2;
+      trial = yield* runControlsGen(m, core, maxPasses, opts);
+      /* The higher trial is ALWAYS taken while climbing. We are climbing
+       * because the one below it was not good enough, so keeping the lower one
+       * on the grounds that the higher is also short would stop at the worse of
+       * the two. `lo` remembers the rejected step, which is what the bisection
+       * needs as its lower bound. */
+      lo = hi; hi = hi * 2; bestFrac = hi; best = trial;
     }
 
-    /* If even the starting trial fails, lowering it can only fail harder. That
-     * is a plant problem and is reported as it already would be. Checked AFTER
-     * the expansion so a seed that was merely too low is not mistaken for one
-     * the plant cannot hold. */
+    /* Still short after climbing as far as it may: the plant cannot do this,
+     * and that is reported exactly as a typed setpoint that high would be. */
     if (lost(best)) return reportAuto(best);
 
     /* ---- BISECT DOWN to the lowest setpoint that still holds. */

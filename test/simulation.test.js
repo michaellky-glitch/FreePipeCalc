@@ -1684,7 +1684,7 @@ section('Automatic dP setpoint');
    * The magnitudes belong to the fixture and would move if it were re-cut.
    * ================================================================ */
   {
-    function auto(loadPct, typedKPa, cmp) {
+    function auto(loadPct, typedKPa, cmp, seedSpeed) {
       const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
       m.pipes.forEach(p => {
         if (p.kind === 'equip' && p.equip.equipType === 'exchanger') {
@@ -1695,6 +1695,13 @@ section('Automatic dP setpoint');
       if (typedKPa) sn.dpSet = typedKPa * 1000; else delete sn.dpSet;
       if (cmp) sn.cmp = cmp; else delete sn.cmp;
       sn.autoSet = true;
+      /* THE STATE THE MODEL WAS LEFT IN. The seed is measured off the current
+       * solve, so a model that was last run at part load starts the search from
+       * a small differential — which is the condition Michael was testing in,
+       * and the one the bugs hid in. */
+      if (seedSpeed !== undefined) {
+        m.pipes.forEach(p => { if (p.pump) p.pump.speed = seedSpeed; });
+      }
       const res = NET.solveModel(m);
       const opens = m.pipes.filter(p => p.kind === 'equip' &&
         p.equip.equipType === 'exchanger').map(p => p.equip.icv.opening);
@@ -1761,6 +1768,58 @@ section('Automatic dP setpoint');
     /* ---- SET reports no bound at all, so the panel says nothing about one. */
     ok('SET: nothing is reported as binding',
        auto(40, 0, null).report && auto(40, 0, null).report.bound === null);
+
+    /* ================================================================
+     * A FLOOR MUST NOT BECOME A CEILING — Michael, 2026-09-08, testing
+     * v0.18.56: "Inputing 50kPa min in auto mode still settles the pump at
+     * 50kPa. It reports being limited by AHUs but does not satisfy them."
+     *
+     * TWO CAUSES, both only visible from a model left at part load, because
+     * the search is seeded from the differential the sensor currently reads.
+     *
+     *   1. A seed BELOW the floor could not climb. Doubling 20 kPa to 40 is
+     *      still under a 50 kPa floor, so both clamped to 50, the expansion saw
+     *      no change and stopped. The seed is now pulled inside the limits, so
+     *      the first doubling is a real step.
+     *   2. A LOST trial ended the search. The old code returned on one,
+     *      reasoning that a setpoint which already fails cannot be helped by
+     *      lowering it — true when the search could only descend, and exactly
+     *      backwards now that it can climb. More differential is the CURE for
+     *      a coil that cannot hold.
+     *
+     * Measured before the fix: MIN 50 on a model left at 30% pump speed chose
+     * 50.0 kPa with the valves at 100% and SETPOINT_LOST, at every load.
+     * ================================================================ */
+    [79, 90].forEach(loadPct => {
+      const stale = auto(loadPct, 50, 'min', 0.30);
+      ok(`MIN 50 at ${loadPct}% load from a stale part-load state: rises above the floor`,
+         stale.chosen > 50e3 * 1.05, (stale.chosen / 1000).toFixed(1) + ' kPa');
+      ok(`...and the coils are satisfied, not merely reported as limiting`,
+         !stale.lost);
+      ok(`...and the floor is no longer what bound it`,
+         stale.report && stale.report.bound === null, JSON.stringify(stale.report));
+      /* The whole point of the exercise: it lands near the free answer rather
+       * than near the floor. Within a few percent — expansion doubles onto a
+       * power-of-two grid and stops as soon as the most open valve reaches the
+       * target, so two starting points can settle either side of it. */
+      const fresh = auto(loadPct, 0, null);
+      ok(`...and within 10% of the answer reached from a fresh model`,
+         Math.abs(stale.chosen - fresh.chosen) < fresh.chosen * 0.10,
+         (fresh.chosen / 1000).toFixed(1) + ' vs ' + (stale.chosen / 1000).toFixed(1));
+    });
+
+    /* A PLANT THAT GENUINELY CANNOT HOLD ITS COILS must not be answered by
+     * multiplying the setpoint. At 100% load this fixture cannot hold them at
+     * any differential; before the saturation guard the search doubled five
+     * times and reported 3516.6 kPa. It now stops once every device following
+     * the sensor is at the top of its travel — the pump is flat out — and says
+     * so. The guard reads only THIS SENSOR'S followers: a coil valve at 100%
+     * open is also 'at-max', and a wide-open coil valve is the reason to climb,
+     * not a reason to stop. */
+    const hard = auto(100, 50, 'min', 0.30);
+    ok('an unholdable plant is still reported as lost', hard.lost);
+    ok('...and is not answered with an absurd setpoint',
+       hard.chosen < 500e3, (hard.chosen / 1000).toFixed(1) + ' kPa');
   }
 }
 
