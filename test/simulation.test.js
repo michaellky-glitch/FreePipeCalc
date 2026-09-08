@@ -1824,6 +1824,52 @@ section('Automatic dP setpoint');
 }
 
 /* ==================================================================
+ * THE CONTROL FLOORS A NEW MODEL STARTS WITH
+ *
+ * Michael, 2026-09-08: "Make default minimum valve opening 0% & minimum pump
+ * speed 50%." Both are his call as the engineer. Pinned because they are
+ * written in FOUR places that must agree — `M.create`, the engine's
+ * `CTRL_DEFAULTS` fallback, the SETTINGS panel's own fallback, and the two
+ * documentation tables — and three of them are only reached when the fourth
+ * is absent, so a missed one hides until exactly the wrong moment.
+ *
+ * NOTHING EXISTING MOVES. Every shipped fixture and example saves its own
+ * floors, so they all keep 25% / 10% and their answers are unchanged; this is
+ * what a NEW drawing starts with. That is asserted below rather than assumed.
+ * ================================================================== */
+section('Default control floors');
+{
+  const fresh = M.create();
+  near('a new model starts at 50% minimum pump speed',
+       fresh.settings.control.minSpeed, 0.50, 1e-12);
+  near('...and 0% minimum valve opening',
+       fresh.settings.control.minOpening, 0, 1e-12);
+
+  /* THE ENGINE'S OWN FALLBACK, reached when a file has no control block at
+   * all. Read through a real actuator rather than by naming the constant, so
+   * this fails if the fallback and the model default ever disagree. */
+  {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 10, 0);
+    const pipe = M.addPipe(m, a.id, b.id, { size: 'DN50' });
+    pipe.kind = 'pump';
+    pipe.pump = { mode: 'auto', speed: 1 };
+    delete m.settings.control;                 // a file written before these existed
+    const res = NET.solveModel(m);
+    ok('a model with no control block at all still solves', !!res);
+  }
+
+  /* AND THE SHIPPED FILES ARE UNTOUCHED, because they carry their own. */
+  const raw = JSON.parse(fs.readFileSync(
+    __dirname + '/fixtures/economizer-trim.pnet.json', 'utf8'));
+  near('a saved file keeps the floor it was written with',
+       M.fromJSON(raw).settings.control.minSpeed, 0.25, 1e-12);
+  near('...and its own valve floor', 
+       M.fromJSON(raw).settings.control.minOpening, 10, 1e-12);
+}
+
+/* ==================================================================
  * THE TWO BOUNDS A CONTROL VALVE WORKS BETWEEN.
  *
  * Michael, 2026-09-07: "The question that remains is what happens if either

@@ -2237,7 +2237,16 @@
    * the search, so the answer depends on the model and not on what the last
    * solve happened to leave behind.
    */
-  var CTRL_DEFAULTS = { minSpeed: 0.25, minOpening: 10, tol: 0.05 };
+  /* Michael, 2026-09-08: "Make default minimum valve opening 0% & minimum pump
+   * speed 50%." Both are his call as the engineer, and both move a DEFAULT
+   * only — an existing file carries whatever it was saved with.
+   *
+   * A 0% valve floor lets a control valve shut completely, which is a real
+   * strategy and was already permitted (v0.18.40); it is now what a new model
+   * starts with. A 50% speed floor is the more conservative VSD limit and it
+   * bites more often, so expect CONTROL_AT_LIMIT where 25% used to modulate on
+   * quietly. */
+  var CTRL_DEFAULTS = { minSpeed: 0.50, minOpening: 0, tol: 0.05 };
 
   /* WHERE THE SEARCH LOOKS WHEN THE FAR STOP TELLS IT NOTHING — fractions of
    * the travel between the floor and where the device stands, walked DOWNWARD.

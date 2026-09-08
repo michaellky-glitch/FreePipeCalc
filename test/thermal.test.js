@@ -3154,7 +3154,14 @@ section('Settling iterations are configurable');
    * stops early — the setting is a ceiling, not a quota. */
   const m2 = M.fromJSON(JSON.parse(raw));
   m2.settings.calcMode = 'simulation';
-  m2.settings.control = { iterations: 50 };
+  /* MERGED, NOT REPLACED. Assigning a fresh object here threw away the
+   * fixture's own `minSpeed` and `minOpening` and silently fell back to the
+   * engine defaults — so when those defaults changed in v0.18.59 (25% -> 50%
+   * pump floor) this model stopped converging and the assertion below failed
+   * for a reason that had nothing to do with iteration ceilings. A test that
+   * loads a fixture should keep the fixture's settings unless it is
+   * deliberately changing one. */
+  m2.settings.control = Object.assign({}, m2.settings.control, { iterations: 50 });
   const conv = NET.solveModel(m2).controls;
   ok('A model that settles early ignores a high ceiling', conv.iterations < 50,
      `${conv.iterations} iterations`);

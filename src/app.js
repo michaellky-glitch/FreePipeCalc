@@ -4745,14 +4745,23 @@
         var cmp = sn.cmp || 'set';
         var typed = Number(sn.dpSet);
         if ((cmp === 'min' || cmp === 'max') && typed > 0) {
+          /* Michael, 2026-09-08: "Change 'Auto, not below XX kPa' to
+           * 'Minimum: XX kPa'." A label, not a sentence — the comparator is
+           * already on the row saying which way it binds, so the prose was
+           * telling the reader what the dropdown beside it already said. MAX
+           * takes the same treatment, which he did not spell out and which is
+           * the only reading that leaves the row consistent.
+           *
+           * The BINDING form is kept as a sentence on purpose: "your limit is
+           * what decided this" is a different fact from "your limit is 50 kPa",
+           * and it is the one that explains why Auto stopped where it did. */
           var limit = FD.units.fmtPressure(typed, d.pressure, true);
           host.appendChild(el('p', 'hint',
             (rep && rep.bound === cmp)
               ? ('Held at your ' + cmp.toUpperCase() + ' of ' + limit +
                  ' \u2014 Auto would otherwise go ' +
                  (cmp === 'min' ? 'lower' : 'higher') + '.')
-              : ('Auto, ' + (cmp === 'min' ? 'not below ' : 'not above ') +
-                 limit + '.')));
+              : ((cmp === 'min' ? 'Minimum: ' : 'Maximum: ') + limit)));
         }
       }
     };
@@ -5256,19 +5265,28 @@
       label: sensorSetpointLabel(sn, d)
     }]);
 
-
-    var hint = el('p', 'hint', 'Link a pump or globe valve to it with Control. ');
-    infoMark(hint, 'The sensor states a setpoint; the linked device modulates ' +
-                   'to hold it. Nothing happens without a link, and the ' +
-                   'modulation runs in SIMULATION only.');
-    host.appendChild(hint);
-
     /* Who is following it, and what they settled at. A setpoint with nothing
      * wired to it is the failure this panel has to make visible. */
     var followers = m.pipes.filter(function (q) {
       var c = M.controlOf(q);
       return c && c.equip === p.id;
     });
+
+    /* ONLY WHEN THERE IS NOTHING LISTENING — Michael, 2026-09-08: "Remove
+     * explanation about linking if the sensor is already linked."
+     *
+     * Instructions for a job already done are noise, and on a linked sensor
+     * the Actual box below names the device and its position, which says the
+     * same thing by showing it. The wording and the loss of the info mark are
+     * his too: the note is not an explanation of how control works, it is a
+     * statement of what this instrument is currently doing and what to do
+     * about it. */
+    if (!followers.length) {
+      host.appendChild(el('p', 'hint',
+        'Sensor is reporting current readings only. Link sensor to control ' +
+        'device to set setpoints and control it.'));
+    }
+
     var box = readoutBox(host, 'Actual');
     var res = app.results;
     var tl = res && res.thermal && res.thermal.links[p.id];
@@ -8065,8 +8083,8 @@
 
     var gc = group('Setpoint control');
     var ctl = m.settings.control || (m.settings.control =
-      { minSpeed: 0.25, minOpening: 10, tol: 0.05 });
-    num(gc, 'Minimum pump speed (%)', Math.round((ctl.minSpeed || 0.25) * 100),
+      { minSpeed: 0.50, minOpening: 0, tol: 0.05 });
+    num(gc, 'Minimum pump speed (%)', Math.round((ctl.minSpeed || 0.50) * 100),
         function (v) {
           m.settings.control.minSpeed = Math.min(100, Math.max(1, v)) / 100;
           renderSettings(); redrawAll();

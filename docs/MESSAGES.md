@@ -160,8 +160,8 @@ band itself is the meaning.
 | `control.maxSolves` | 0 (auto) | `CONTROL_BUDGET` | THERMAL |
 | `control.sweeps` | 6 | how many settling sweeps | THERMAL |
 | `thermal.tempMin` / `tempMax` | −50 / +50 °C | `THERMAL_LIMIT` | THERMAL |
-| `control.minSpeed` | 0.25 | `CONTROL_AT_LIMIT` | THERMAL |
-| `control.minOpening` | 10% | `CONTROL_AT_LIMIT` | THERMAL |
+| `control.minSpeed` | 0.50 | `CONTROL_AT_LIMIT` | THERMAL |
+| `control.minOpening` | 0% | `CONTROL_AT_LIMIT` | THERMAL |
 | `control.tol` | 0.05 K | the control deadband | THERMAL |
 
 

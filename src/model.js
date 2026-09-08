@@ -136,16 +136,24 @@
        * modulate, and how close to the setpoint counts as arrived. All three
        * are DEFAULTS a user can change, not transcribed data.
        *
-       * `minSpeed` is the VSD floor. Real drives are not run below roughly a
-       * quarter speed, and a pump at no flow makes the thermal solve singular,
-       * so the floor is a numerical necessity as much as a plant one. Sitting
-       * on it is REPORTED rather than hidden — see CONTROL_AT_LIMIT.
+       * `minSpeed` is the VSD floor, and a pump at no flow makes the thermal
+       * solve singular, so the floor is a numerical necessity as much as a
+       * plant one. Sitting on it is REPORTED rather than hidden — see
+       * CONTROL_AT_LIMIT. **HALF SPEED since 2026-09-08, Michael's call** —
+       * "minimum pump speed 50%" — where it was a quarter. The more
+       * conservative figure bites more often, so a model that used to modulate
+       * quietly down to 25% will now sit on its floor and say so.
+       *
+       * `minOpening` is ZERO from the same instruction: "default minimum valve
+       * opening 0%". A valve that may shut completely has been legal since
+       * v0.18.40 (a shut valve is charged a large but FINITE resistance, so the
+       * matrix stays non-singular); this makes it the starting point.
        *
        * `tol` is in kelvin. 0.05 K is far tighter than any real sensor and
        * loose enough that the search stops in a handful of solves. */
       control: {
-        minSpeed: 0.25,                // fraction of rated pump speed
-        minOpening: 10,                // % open, globe valve
+        minSpeed: 0.50,                // fraction of rated pump speed
+        minOpening: 0,                 // % open, globe valve
         tol: 0.05,                     // K
 
         /* How many network solves the control loop may spend. 0 = automatic,
