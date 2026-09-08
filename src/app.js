@@ -4576,9 +4576,24 @@
    *
    * Only shown when the thing HAS a setpoint — an adiabatic item states
    * nothing, and a sensor with an empty box has nothing to qualify. */
-  function setpointCmpSection(host, p, valueControl) {
+  /* `optsOverride` — the rows to draw, when the caller knows them better than
+   * `controlOptions` does.
+   *
+   * IT EXISTS FOR A CHICKEN AND EGG — Michael, 2026-09-08: "I put in a flow
+   * sensor and it's missing." `controlOptions` reports the setpoints a device
+   * HAS, and `sensorSetpoint` returns nothing until a value has been typed. A
+   * freshly placed flow, pressure, ΔP or ΔT sensor has none — only a
+   * temperature sensor is born with one (45 °C) — so the section did not
+   * render, and since v0.18.56 the section is the only place the box lives.
+   * No box, no way to type the value that would make the box appear.
+   *
+   * A SENSOR IS ITS SETPOINT: it has exactly one, always, whether or not a
+   * figure is in it yet. So the sensor panel states its row rather than asking
+   * what the model currently has. Equipment still asks, because a machine's
+   * setpoints genuinely come and go with its sizing mode. */
+  function setpointCmpSection(host, p, valueControl, optsOverride) {
     var m = app.model;
-    var opts = M.controlOptions(m, p.id) || [];
+    var opts = optsOverride || M.controlOptions(m, p.id) || [];
     if (!opts.length) return;
     var sec = section(host, 'Setpoints');
     opts.forEach(function (o) {
@@ -4631,6 +4646,14 @@
    * Auto mode." So the typed figure survives untouched underneath, ready for
    * when Auto goes off, and the comparator decides whether it constrains the
    * search at all: SET no limit, MIN a floor, MAX a ceiling. */
+  function sensorSetpointLabel(sn, d) {
+    if (sn.mode === 'flow') return 'Flow setpoint (' + d.flow + ')';
+    if (sn.mode === 'pressure') return 'Pressure setpoint (' + d.pressure + ')';
+    if (sn.mode === 'dP') return '\u0394p setpoint (' + d.pressure + ')';
+    if (sn.mode === 'dT') return '\u0394T setpoint (K)';
+    return 'Temperature setpoint (\u00b0C)';
+  }
+
   function sensorSetpointControl(p, sn, d, o, host) {
     var isDP = (sn.mode === 'dP');
     var autoOn = isDP && !!sn.autoSet;
@@ -5223,7 +5246,15 @@
      * out. */
     setpointCmpSection(host, p, function (o, labelHost) {
       return sensorSetpointControl(p, sn, d, o, labelHost);
-    });
+    }, [{
+      key: 'set',
+      cmp: M.setpointCmp(p, 'set'),
+      /* THE UNITS BELONG ON THE LABEL, where the number is typed.
+       * `controlOptions` labels a setpoint for a LIST of them on a machine
+       * ("Differential pressure"), which is the wrong shape for the one box a
+       * sensor offers. */
+      label: sensorSetpointLabel(sn, d)
+    }]);
 
 
     var hint = el('p', 'hint', 'Link a pump or globe valve to it with Control. ');

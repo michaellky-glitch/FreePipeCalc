@@ -3834,4 +3834,94 @@ section('Examples — the shipped catalogue');
 }
 
 
+/* ==================================================================
+ * A SENSOR HAS NO SETPOINT UNTIL ONE IS TYPED — and the panel must not
+ * depend on that.
+ *
+ * Michael, 2026-09-08: "I put in a flow sensor and it's missing." The
+ * Setpoints panel was built from `M.controlOptions`, which reports the
+ * setpoints a device HAS. A freshly placed flow, pressure, ΔP or ΔT sensor has
+ * none — only a temperature sensor is born with one — so the section did not
+ * render, and from v0.18.56 that section is the only place the input box
+ * lives. No box, so no way to type the value that would make the box appear.
+ *
+ * The behaviour below is CORRECT and is not what changed: a sensor with an
+ * empty box genuinely has nothing to offer a controller, and `controlOptions`
+ * is what the control loop reads. What changed is that the sensor panel now
+ * states its one row itself instead of asking. This section exists to keep the
+ * contract explicit, so the next person to build a panel on `controlOptions`
+ * knows it can legitimately be empty.
+ *
+ * The panel itself needs a DOM and is verified in the browser — see
+ * `Human-Test.md` for v0.18.58.
+ * ================================================================== */
+section('Sensors — a setpoint that has not been typed yet');
+{
+  function sensorPipe(sensor) {
+    const m = M.create();
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 10, 0);
+    const p = M.addPipe(m, a.id, b.id, { size: 'DN50' });
+    p.kind = 'sensor';
+    p.sensor = sensor;
+    return { m, p };
+  }
+
+  /* Exactly the objects `canvas.js` SENSOR_DEFAULT places. */
+  [['flow', {}], ['pressure', {}], ['dP', {}], ['dT', {}]].forEach(([mode]) => {
+    const { m, p } = sensorPipe({ mode });
+    ok(`a freshly placed ${mode} sensor offers no control option`,
+       (M.controlOptions(m, p.id) || []).length === 0);
+  });
+  {
+    const { m, p } = sensorPipe({ mode: 'temperature', tSet: 45 });
+    ok('a freshly placed temperature sensor DOES, because it is born with 45 °C',
+       (M.controlOptions(m, p.id) || []).length === 1);
+  }
+
+  /* And once a value is typed, each one appears — so the panel and the control
+   * loop agree again the moment there is something to agree about. */
+  [['flow', { qSet: 0.0025 }, 'flow'],
+   ['pressure', { pSet: 300e3 }, 'pressure'],
+   ['temperature', { tSet: 12 }, 'temperature']].forEach(([mode, extra, wantMode]) => {
+    const { m, p } = sensorPipe(Object.assign({ mode }, extra));
+    const opts = M.controlOptions(m, p.id) || [];
+    ok(`a ${mode} sensor with a value offers one`, opts.length === 1);
+    ok(`...reported as ${wantMode}`, opts.length === 1 && opts[0].mode === wantMode,
+       JSON.stringify(opts));
+  });
+
+  /* A DIFFERENTIAL NEEDS BOTH: a value AND the second pipe. Either one missing
+   * and there is no measurement to hold, which is a second way the old panel
+   * could vanish — a ΔP sensor with 80 kPa typed but no reference picked. */
+  {
+    const { m, p } = sensorPipe({ mode: 'dP', dpSet: 80e3 });
+    ok('a ΔP sensor with a value but no reference pipe offers nothing',
+       (M.controlOptions(m, p.id) || []).length === 0);
+    const other = M.addPipe(m, m.nodes[0].id, m.nodes[1].id, { size: 'DN50' });
+    p.sensor.ref = other.id;
+    const opts = M.controlOptions(m, p.id) || [];
+    ok('...and offers one once the reference is picked', opts.length === 1);
+    ok('...reported as a differential, not a plain pressure',
+       opts.length === 1 && opts[0].mode === 'dPdiff', JSON.stringify(opts));
+  }
+
+  /* THE COMPARATOR IS STORED ON THE SENSOR AND SURVIVES AN EMPTY BOX, which is
+   * what lets MIN be chosen before the figure it qualifies is typed. */
+  {
+    const { m, p } = sensorPipe({ mode: 'flow' });
+    M.setSetpointCmp(p, 'set', 'min');
+    ok('MIN can be set on a sensor with no value yet',
+       M.setpointCmp(p, 'set') === 'min');
+    p.sensor.qSet = 0.0025;
+    const opts = M.controlOptions(m, p.id) || [];
+    ok('...and the option carries it once a value arrives',
+       opts.length === 1 && opts[0].cmp === 'min', JSON.stringify(opts));
+    M.setSetpointCmp(p, 'set', 'set');
+    ok('...and SET is stored as the absence of a comparator, so files do not grow',
+       p.sensor.cmp === undefined, JSON.stringify(p.sensor));
+  }
+}
+
+
 report();
