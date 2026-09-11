@@ -4665,7 +4665,18 @@
     } else if (sn.mode === 'pressure') {
       input.value = sn.pSet ? FD.units.fmtPressure(sn.pSet, d.pressure) : '';
     } else if (isDP) {
-      var shown = (autoOn && isFinite(Number(sn.dpAuto))) ? sn.dpAuto : sn.dpSet;
+      /* WHAT THE BOX HOLDS ON AUTO DEPENDS ON THE COMPARATOR — Michael,
+       * 2026-09-15: "Make it editable under MIN/MAX."
+       *
+       *   SET       there is no limit to state, so the box is the READ-OUT:
+       *             locked, showing what the search chose.
+       *   MIN/MAX   the box is the LIMIT, and the engineer must be able to
+       *             change it without switching Auto off first, which is what
+       *             he was having to do. What the search chose then has
+       *             nowhere to live on this row, so it moves to Actual. */
+      var autoLimit = autoOn && (sn.cmp === 'min' || sn.cmp === 'max');
+      var shown = (autoOn && !autoLimit && isFinite(Number(sn.dpAuto)))
+        ? sn.dpAuto : sn.dpSet;
       input.value = shown ? FD.units.fmtPressure(shown, d.pressure) : '';
     } else if (sn.mode === 'dT') {
       input.value = (sn.dtSet === undefined || sn.dtSet === null) ? '' : sn.dtSet;
@@ -4730,38 +4741,29 @@
         if (lab) lab.appendChild(aw);
 
         if (!autoOn) return;
-        /* The chosen value is the solve's answer, so the box is not typed in —
-         * the same rule an auto-sized pump duty and a DN-selected Kv follow. */
-        input.disabled = true;
-        input.parentNode.classList.add('is-disabled');
-
-        /* WITH THE BOX REPORTING THE ANSWER, THE LIMIT IS INVISIBLE unless it
-         * is said out loud — a MIN of 50 kPa is not on screen anywhere once
-         * Auto is holding 64. So the row says which limit is in force, and
-         * whether it is the thing deciding the answer. */
-        var rep = ((app.results && app.results.controls &&
-                    app.results.controls.autoSetpoint) || [])
-                  .filter(function (x) { return x.pipe === p.id; })[0];
         var cmp = sn.cmp || 'set';
         var typed = Number(sn.dpSet);
+
+        /* ONLY THE READ-OUT IS LOCKED. On SET the box carries the search's own
+         * answer, which is not the engineer's to type — the same rule an
+         * auto-sized pump duty and a DN-selected Kv follow. On MIN/MAX it
+         * carries their limit, which is entirely theirs. */
+        if (cmp !== 'min' && cmp !== 'max') {
+          input.disabled = true;
+          input.parentNode.classList.add('is-disabled');
+        }
+
+        /* Michael, 2026-09-08: "Change 'Auto, not below XX kPa' to 'Minimum:
+         * XX kPa'", and 2026-09-15 of the binding form: "Just keep 'Minimum:
+         * X'." So one label in both cases — the comparator on the row already
+         * says which way it binds, and whether the limit happens to be the
+         * thing deciding the answer is visible from the chosen figure beside
+         * it in Actual. MAX takes the same treatment, which he did not spell
+         * out and which is the only reading that leaves the row consistent. */
         if ((cmp === 'min' || cmp === 'max') && typed > 0) {
-          /* Michael, 2026-09-08: "Change 'Auto, not below XX kPa' to
-           * 'Minimum: XX kPa'." A label, not a sentence — the comparator is
-           * already on the row saying which way it binds, so the prose was
-           * telling the reader what the dropdown beside it already said. MAX
-           * takes the same treatment, which he did not spell out and which is
-           * the only reading that leaves the row consistent.
-           *
-           * The BINDING form is kept as a sentence on purpose: "your limit is
-           * what decided this" is a different fact from "your limit is 50 kPa",
-           * and it is the one that explains why Auto stopped where it did. */
-          var limit = FD.units.fmtPressure(typed, d.pressure, true);
           host.appendChild(el('p', 'hint',
-            (rep && rep.bound === cmp)
-              ? ('Held at your ' + cmp.toUpperCase() + ' of ' + limit +
-                 ' \u2014 Auto would otherwise go ' +
-                 (cmp === 'min' ? 'lower' : 'higher') + '.')
-              : ((cmp === 'min' ? 'Minimum: ' : 'Maximum: ') + limit)));
+            (cmp === 'min' ? 'Minimum: ' : 'Maximum: ') +
+            FD.units.fmtPressure(typed, d.pressure, true)));
         }
       }
     };
@@ -5313,6 +5315,17 @@
         }
       }
       box.ro(sn.mode === 'dP' ? 'Δp' : 'ΔT', txt);
+      /* WHAT AUTO CHOSE, once the box above stopped being able to show it.
+       * Under MIN/MAX the setpoint box holds the engineer's limit (Michael,
+       * 2026-09-15), so the searched figure has nowhere else to go — and it is
+       * the number they are actually watching. Shown on SET too, where the box
+       * does carry it, because a reading and the target it is chasing belong
+       * side by side and the small duplication is cheaper than a row that
+       * appears and disappears with a dropdown. */
+      if (sn.mode === 'dP' && sn.autoSet) {
+        box.ro('Setpoint (Auto)', isFinite(Number(sn.dpAuto))
+          ? FD.units.fmtPressure(sn.dpAuto, d.pressure, true) : '—');
+      }
     } else {
       box.ro('Temperature', tl && isFinite(tl.tIn) ? tl.tIn.toFixed(2) + ' °C' : '—');
     }
@@ -5784,14 +5797,14 @@
                        ? 'Full travel \u2014 no valve. Close it to balance the branch.'
                        : 'Set by hand. Read in DESIGN and in SIMULATION.')
                   : (m.settings.calcMode === 'simulation')
-                    ? 'Held by the machine\u2019s own \u0394T in SIMULATION \u2014 the solve writes it.'
+                    ? 'Held by ' + icvTargetLabel(e.icv) + ' in SIMULATION \u2014 the solve writes it.'
                     : 'Not used in DESIGN \u2014 the valve is charged at full travel. ' +
                       'This is where the last simulation left it.');
       if (icvAuto) {
         pos.slider.disabled = true; pos.box.disabled = true;
         pos.slider.parentNode.classList.add('is-disabled');
       }
-      if (icvAuto) sec.ro('Holding', 'Design \u0394T of ' + (p.tag || p.id));
+      if (icvAuto) sec.ro('Holding', icvTargetLabel(e.icv) + ' of ' + (p.tag || p.id));
     }
 
     /* NO SETPOINTS SECTION ON EQUIPMENT — Michael, 2026-08-31: "Remove
@@ -6225,6 +6238,21 @@
    * LWT and ΔT are near enough the same control while the plant holds its
    * supply temperature — measured at 0.01 K apart across the load range on
    * three shipped models — and diverge only when it cannot. */
+  /* WHAT AN AUTO VALVE IS ACTUALLY HOLDING — Michael, 2026-09-15: the position
+   * hint should read "Held by [parameter]".
+   *
+   * It said "the machine's own \u0394T" in both places, written before Target
+   * existed (v0.18.50) and true only while Target is Design \u0394T. On a coil
+   * holding LWT or Flow the panel was naming the wrong quantity. The three
+   * words match `cvTargetField`'s options exactly, because they are the same
+   * three things. */
+  function icvTargetLabel(icv) {
+    var t = icv && icv.target;
+    if (t === 'lwt') return 'LWT';
+    if (t === 'flow') return 'Flow';
+    return 'Design \u0394T';
+  }
+
   function cvTargetField(host, icv, onChange) {
     var cur = (icv.target === 'lwt' || icv.target === 'flow') ? icv.target : 'dt';
     var sel = el('select');
