@@ -1309,4 +1309,114 @@ section('Auto sizing generates a curve; manual sizing is left alone');
   }
 }
 
+/* ==================================================================
+ * WATER PROPERTIES AGAINST TEMPERATURE  (data/water.js)
+ *
+ * EVERY EXPECTED VALUE BELOW IS READ OFF A PRIMARY SOURCE, not back out of the
+ * code. That is stronger than this suite's usual standard of a hand
+ * calculation, and it is the whole point of the exercise.
+ *
+ *   density, specific heat   NISTIR 5078 (Harvey, NIST), "Thermodynamic
+ *                            Properties of Water: Tabulation from the IAPWS
+ *                            Formulation 1995", Table 3, the 0.10 MPa isobar.
+ *                            Cp is derived from that table's enthalpy column
+ *                            as dh/dT by central differences.
+ *   viscosity                Anton Paar published water table, citing
+ *                            IAPWS 2008 (= IAPWS R12-08).
+ *
+ * THE 100 °C DENSITY COMES FROM THE 0.11 MPa ISOBAR, deliberately. At 0.10 MPa
+ * the saturation temperature is 99.606 °C, so that isobar's 100 °C row is
+ * superheated steam at 0.590 kg/m³. Reading straight down the atmospheric
+ * column would put steam into a water table.
+ *
+ * Full working, and the sources themselves, in docs_internal/WATER-PROPERTIES.md.
+ * Nothing here is wired into the solve — that is EQ.5 and it is Michael's call.
+ * ================================================================== */
+section('Water properties against temperature');
+{
+  const W = FD.water;
+
+  /* ---- DENSITY, kg/m³, NISTIR 5078 Table 3 @ 0.10 MPa ---- */
+  const RHO = { 0: 999.84, 10: 999.70, 20: 998.21, 30: 995.65, 40: 992.22,
+                50: 988.03, 60: 983.20, 70: 977.76, 80: 971.79, 90: 965.31,
+                100: 958.35 };
+  let worstRho = 0;
+  Object.keys(RHO).forEach(k => {
+    const t = Number(k), want = RHO[k], got = W.density(t);
+    worstRho = Math.max(worstRho, Math.abs(100 * (got - want) / want));
+    near(`density at ${t} C is the NIST value`, got, want, 0.05);
+  });
+  ok('...and the worst density error across the range is under 0.005%',
+     worstRho < 0.005, worstRho.toFixed(4) + '%');
+
+  /* ---- DYNAMIC VISCOSITY, Pa·s, Anton Paar / IAPWS 2008 ---- */
+  const MU = { 5: 1.5182e-3, 10: 1.3059e-3, 20: 1.0016e-3, 30: 0.7972e-3,
+               40: 0.6527e-3, 50: 0.5465e-3, 60: 0.4660e-3, 70: 0.4035e-3,
+               80: 0.3540e-3 };
+  let worstMu = 0;
+  Object.keys(MU).forEach(k => {
+    const t = Number(k), want = MU[k], got = W.dynamicViscosity(t);
+    worstMu = Math.max(worstMu, Math.abs(100 * (got - want) / want));
+    near(`viscosity at ${t} C is the IAPWS 2008 value`, got, want, want * 0.002);
+  });
+  ok('...and the worst viscosity error across the range is under 0.1%',
+     worstMu < 0.1, worstMu.toFixed(4) + '%');
+
+  /* THE PUBLISHED VOGEL EQUATION IS WORSE AT THE COLD END, which is why it was
+   * not used. Asserted so the reason survives, not as a criticism of Vogel:
+   * it is within its stated 0.8% from 10 C up and only fails below that. */
+  const vogel = t => 2.414e-5 * Math.pow(10, 247.8 / (t + 133.15));
+  const vogelErr = t => Math.abs(100 * (vogel(t) - MU[t]) / MU[t]);
+  ok('Vogel is over 1% out at 5 C, where chilled water runs',
+     vogelErr(5) > 1.0, vogelErr(5).toFixed(2) + '%');
+  ok('...while this fit is under 0.1% there',
+     Math.abs(100 * (W.dynamicViscosity(5) - MU[5]) / MU[5]) < 0.1);
+  ok('...and Vogel is fine from 10 C up, as its publishers claim',
+     vogelErr(10) < 0.8 && vogelErr(40) < 0.8,
+     vogelErr(10).toFixed(2) + '% / ' + vogelErr(40).toFixed(2) + '%');
+
+  /* ---- SPECIFIC HEAT, J/(kg·K), derived from NISTIR 5078 enthalpy ---- */
+  const CP = { 10: 4196, 20: 4184, 30: 4180, 40: 4179, 50: 4182,
+               60: 4185, 70: 4190, 80: 4197, 90: 4205 };
+  Object.keys(CP).forEach(k => {
+    const t = Number(k);
+    near(`specific heat at ${t} C`, W.specificHeat(t), CP[k], 2.5);
+  });
+  ok('Cp barely moves at all — under 1% across the whole span',
+     100 * (W.specificHeat(0) - W.specificHeat(35)) / W.specificHeat(35) < 1.0);
+
+  /* ---- KINEMATIC VISCOSITY is what the engine consumes ---- */
+  near('kinematic viscosity at 20 C matches the value the app ships today',
+       W.kinematicViscosity(20), 1.004e-6, 2e-9);
+  ok('a chilled circuit is about half again as viscous as the 20 C figure',
+     W.kinematicViscosity(5) / 1.004e-6 > 1.5,
+     (W.kinematicViscosity(5) / 1.004e-6).toFixed(3) + 'x');
+  ok('...and an LTHW circuit about a third of it',
+     W.kinematicViscosity(80) / 1.004e-6 < 0.37,
+     (W.kinematicViscosity(80) / 1.004e-6).toFixed(3) + 'x');
+
+  /* ---- THE UNVERIFIED ENDS ARE REPORTED, NOT HIDDEN ---- */
+  ok('20 C is inside every verified span', W.unverifiedAt(20).length === 0);
+  ok('0 C reports viscosity as unverified',
+     W.unverifiedAt(0).indexOf('viscosity') >= 0, W.unverifiedAt(0).join(','));
+  ok('100 C reports viscosity as unverified',
+     W.unverifiedAt(100).indexOf('viscosity') >= 0, W.unverifiedAt(100).join(','));
+  ok('...but density is verified at both ends', W.verifiedAt(0, 'density') &&
+     W.verifiedAt(100, 'density'));
+  ok('an unknown property name gives null, not a confident yes',
+     W.verifiedAt(20, 'nonsense') === null);
+
+  /* ---- `at()` hands back the shape fluids.js uses ---- */
+  const p20 = W.at(20);
+  ok('at() returns the three keys the engine reads',
+     'density' in p20 && 'kinematicViscosity' in p20 && 'specificHeat' in p20);
+  near('...and they agree with the individual functions',
+       p20.kinematicViscosity, W.kinematicViscosity(20), 1e-18);
+
+  /* ---- NOT WIRED IN. The shipped fluid is untouched until EQ.5 is decided. */
+  near('the shipped water preset is still the single 20 C figure',
+       FD.fluids.get('water').kinematicViscosity, 1.004e-6, 1e-12);
+}
+
+
 report();

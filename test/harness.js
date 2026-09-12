@@ -23,7 +23,7 @@ const FILES = [
   'data/controlvalves.js',
   'data/ktable.js',
   'data/tees.js',
-  'data/pumps.js', 'data/fluids.js', 'data/plumbing.js',
+  'data/pumps.js', 'data/fluids.js', 'data/water.js', 'data/plumbing.js',
   'src/units.js',
   'src/hydraulics.js',
   'src/solver.js'

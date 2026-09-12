@@ -678,6 +678,65 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 <p>The default fluid is water at 20 °C (ρ = 998 kg/m³, ν = 1.004×10⁻⁶ m²/s, c<sub>p</sub> = 4187 J/(kg·K)). Fluids whose published properties are not yet verified are marked in the interface — currently the propylene-glycol presets. Check them before you issue a calculation.</p>
 
+<h3 id="fluid-water">5.1 Water properties against temperature</h3>
+<p>Temperature does not drive the properties used in a calculation — see the limitation in section 14. The correlations below are <strong>published here for reference and are not yet used by the solve</strong>. They give liquid water at atmospheric pressure, with <em>T</em> in °C.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Property</th><th>Correlation</th><th>Fitted over</th><th>Max deviation</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Density <code>ρ</code><br>kg/m³</td>
+      <td><code>−1.29371790e-07·T⁴ + 4.13494754e-05·T³ − 7.50992160e-03·T² + 5.14510714e-02·T + 999.871768</code></td>
+      <td class="num">0–100 °C</td><td class="num">0.0032%</td>
+    </tr>
+    <tr>
+      <td>Dynamic viscosity <code>μ</code><br>Pa·s</td>
+      <td><code>exp( 8.82420037e-09·T⁴ − 2.34418222e-06·T³ + 3.06324154e-04·T² − 3.42632736e-02·T − 6.32624250 )</code></td>
+      <td class="num">2–80 °C</td><td class="num">0.072%</td>
+    </tr>
+    <tr>
+      <td>Specific heat <code>c<sub>p</sub></code><br>J/(kg·K)</td>
+      <td><code>−1.51817452e-04·T³ + 3.50653595e-02·T² − 2.03171368·T + 4213.40033</code></td>
+      <td class="num">5–90 °C</td><td class="num">0.045%</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<p>Kinematic viscosity is <code>ν = μ / ρ</code>. Against the single 1.004×10⁻⁶ m²/s the program uses today, that is <strong>1.51×</strong> at 5 °C, <strong>0.47×</strong> at 60 °C and <strong>0.36×</strong> at 80 °C.</p>
+
+<h4>Sources</h4>
+<div class="scroll">
+<table>
+  <thead><tr><th>Property</th><th>Source</th><th>Verified over</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Density</td>
+      <td>NISTIR 5078, A. H. Harvey, <em>Thermodynamic Properties of Water: Tabulation from the IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use</em>, NIST. Table 3, the 0.10 MPa isobar.</td>
+      <td class="num">0–100 °C</td>
+    </tr>
+    <tr>
+      <td>Specific heat</td>
+      <td>Derived from the enthalpy column of the same table as <code>c<sub>p</sub> = ∂h/∂T</code>; that tabulation does not carry c<sub>p</sub> itself.</td>
+      <td class="num">5–90 °C</td>
+    </tr>
+    <tr>
+      <td>Viscosity</td>
+      <td>IAPWS R12-08, <em>Release on the IAPWS Formulation 2008 for the Viscosity of Ordinary Water Substance</em>; also published as Huber et al., <em>J. Phys. Chem. Ref. Data</em> <strong>38</strong>, 101 (2009). Values taken from a published table citing that release.</td>
+      <td class="num">2–80 °C</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<div class="note limit">
+  <span class="tag">IMPORTANT:</span>
+  <p>Viscosity at <strong>0–2 °C and 80–100 °C</strong> is outside the table these values were checked against, and is not verified. The correlation still returns a figure there; treat it as indicative.</p>
+</div>
+<div class="note">
+  <span class="tag">NOTE:</span>
+  <p>The viscosity fit is used in preference to the common Vogel equation <code>μ = 2.414×10⁻⁵ · 10^(247.8/(T + 133.15))</code>, which is within its published 0.8% from 10 °C upward but drifts to 1.1% at 5 °C and 1.7% at 2 °C — the range chilled water runs in.</p>
+  <p>Two cautions apply to anyone reading the sources directly. IAPWS-95 is a <em>thermodynamic</em> formulation and contains no viscosity at all; viscosity is a transport property and belongs to IAPWS R12-08. And in a tabulation by isobar, the saturation temperature bounds the liquid: at 0.10 MPa it is 99.606 °C, so that isobar's 100 °C row is superheated steam, not water. The 100 °C liquid density above comes from the 0.11 MPa isobar.</p>
+</div>
+
 <!-- ===================================================== 6 -->
 <h2 id="solver">6. Network solution</h2>
 
@@ -1516,7 +1575,7 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>
-  <p>Density and viscosity are entered, not calculated from the temperature. A circuit running at 6 °C with 20 °C properties entered will use the 20 °C properties.</p>
+  <p>Density and viscosity are entered, not calculated from the temperature. A circuit running at 6 °C with 20 °C properties entered will use the 20 °C properties. Section 5.1 publishes correlations against temperature and states what that costs: at the same flows, pipework head under Darcy-Weisbach is about 4% higher at 0 °C and about 10% lower at 80 °C than the 20 °C properties give.</p>
 </div>
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>
