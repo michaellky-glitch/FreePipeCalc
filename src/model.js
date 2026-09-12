@@ -1916,6 +1916,111 @@
     return m.settings.fluid;
   }
 
+  /* ============================ FLUID PROPERTIES AT THE CIRCUIT'S TEMPERATURE
+   *
+   * EQ.5, decided by Michael 2026-09-12: *"For ease of checking I think basing
+   * it off source is acceptable."*
+   *
+   * ONE TEMPERATURE PER MODEL, AND IT IS AN INPUT, NOT AN OUTPUT. The
+   * alternative was the local solved temperature per pipe, and it was rejected
+   * for a reason worth keeping written down: properties derived from the solve
+   * feed back into the solve that produced them, so the whole thing needs
+   * iterating and the same drawing stops giving the same answer twice. The
+   * SOURCE states its temperature before anything is solved, so reading it
+   * costs nothing and can be checked by eye against the panel.
+   *
+   * WHY THE SOURCE AND NOT AN AVERAGE OF THE LOOP. Measured across three real
+   * bands, the spread between a loop's coldest point and its average is about
+   * ±1% of friction rate — the design ΔT is only 5–10 K and water barely moves
+   * over that. It is not worth deriving.
+   *
+   * A COLD FILL IS OUT OF SCOPE, and that is Michael's ruling rather than an
+   * oversight: "Cold fill is out of scope also since it's meant for steady
+   * state." An LTHW circuit at 80/70 does start against 20 °C water and does
+   * burn about 11.5% more, and no rule based on the solved temperatures would
+   * ever find it — but this program calculates the condition you state, not the
+   * journey to it. Stated as a limitation in `engine.html`, not built, and NOT
+   * used as a reason to bias the properties: the engineer adds their own
+   * margin, and a hidden conservatism here would be applied twice.
+   *
+   * WATER ONLY. `data/water.js` carries verified correlations for water and
+   * nothing else; the glycol rows are unverified at a single temperature, so
+   * fitting a curve through them would be building on sand. A glycol or custom
+   * fluid keeps exactly the numbers it was given. */
+  function modelFluidTemp(m) {
+    var ts = [];
+    (m.nodes || []).forEach(function (n) {
+      var d = n.device;
+      if (!d || d.kind !== 'source') return;
+      if (d.temperature === undefined || d.temperature === null) return;
+      var t = Number(d.temperature);
+      if (isFinite(t)) ts.push(t);
+    });
+    /* NO SOURCE, OR A SOURCE THAT STATES NOTHING, falls back to the same
+     * THERMAL figure the thermal solve pins to — so the hydraulics and the
+     * temperatures are never quoted at two different data. */
+    if (!ts.length) {
+      var sp = m.settings && m.settings.thermal && m.settings.thermal.supplyTemp;
+      return (sp === undefined || sp === null || !isFinite(Number(sp))) ? 20 : Number(sp);
+    }
+    /* SEVERAL SOURCES AT DIFFERENT TEMPERATURES: the plain AVERAGE.
+     *
+     * Michael, 2026-09-12: "There should only be 1 source, but it should be
+     * average of multiple (if that happens)." He is right that it is nearly
+     * always one, which is what makes the rule for the rare case worth keeping
+     * dull.
+     *
+     * AN UNWEIGHTED MEAN, DELIBERATELY. Weighting by the mass each source
+     * brings in would be more defensible physically and is exactly what must
+     * not be done here: those flows come out of the SOLVE, and a property that
+     * depends on the solve feeds back into the solve that produced it. The
+     * whole reason the source was chosen over the loop's own temperatures is
+     * that it can be read before anything is computed and checked by eye. A
+     * mean of the stated figures keeps both of those.
+     *
+     * `fluidTempSpread` reports the disagreement so the sheet can say the
+     * average is an average rather than hiding it. */
+    var sum = 0;
+    for (var i = 0; i < ts.length; i++) sum += ts[i];
+    return sum / ts.length;
+  }
+
+  /* Whether several sources disagree, for the sheet to report. */
+  function fluidTempSpread(m) {
+    var ts = [];
+    (m.nodes || []).forEach(function (n) {
+      var d = n.device;
+      if (d && d.kind === 'source' && d.temperature !== undefined &&
+          d.temperature !== null && isFinite(Number(d.temperature))) {
+        ts.push(Number(d.temperature));
+      }
+    });
+    if (ts.length < 2) return null;
+    var lo = Math.min.apply(null, ts), hi = Math.max.apply(null, ts);
+    return (hi - lo > 0.05) ? { lo: lo, hi: hi, n: ts.length } : null;
+  }
+
+  /* Rewrite `settings.fluid`'s three numbers for the model's temperature.
+   *
+   * IT WRITES INTO `settings.fluid` rather than being resolved at each reader,
+   * because the engine reads those keys DIRECTLY in a dozen places and a
+   * parallel path would be one more thing to keep in step. Called at the top of
+   * the solve, so it can never be stale, and the saved file then carries the
+   * numbers it was actually solved with — which is what makes a `.pnet` file
+   * readable without this program. */
+  function applyFluidTemperature(m) {
+    var fs = m.settings && m.settings.fluid;
+    if (!fs) return null;
+    if ((fs.preset || 'water') !== 'water') return null;
+    if (!FD.water) return null;                 // data/water.js not loaded
+    var t = modelFluidTemp(m);
+    fs.density = FD.water.density(t);
+    fs.kinematicViscosity = FD.water.kinematicViscosity(t);
+    fs.specificHeat = FD.water.specificHeat(t);
+    fs.temperature = t;
+    return t;
+  }
+
   /* Q_load, ΔT and ṁ are locked by Q = ṁ·Cp·ΔT. At design the rated flow is
    * known, so stating any two gives the third — and the ENGINE only ever sees
    * the duty, so there is one quantity to solve with rather than two ways of
@@ -3591,6 +3696,9 @@
     canSync: canSync, setSync: setSync, syncOf: syncOf,
     syncedPosition: syncedPosition,
     COMPARATORS: COMPARATORS,
+    modelFluidTemp: modelFluidTemp,
+    fluidTempSpread: fluidTempSpread,
+    applyFluidTemperature: applyFluidTemperature,
     setpointCmp: setpointCmp, setSetpointCmp: setSetpointCmp,
     criticalManual: criticalManual, setCriticalManual: setCriticalManual,
     nodeOnPump: nodeOnPump,

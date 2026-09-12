@@ -9,7 +9,7 @@
  *     Q < 0  heat removed from the fluid    Q > 0  heat added to the fluid
  */
 'use strict';
-const { load, ok, near, section, report } = require('./harness');
+const { load, pinFluid, ok, near, section, report } = require('./harness');
 const FD = load(['src/model.js', 'src/geometry.js', 'data/pumps.js', 'data/valves.js',
                  'src/hydraulics.js', 'src/solver.js', 'src/network.js', 'src/thermal.js']);
 const M = FD.model, NET = FD.network, TH = FD.thermal;
@@ -4585,6 +4585,10 @@ section('The three states of an integrated control valve');
     const c = M.addNode(m, lv, 10, 0);
     a.device = { kind: 'source', pressure: 600e3 };
     c.device = { kind: 'demand', flow: 0.005, reqPressure: 0, include: true };
+    /* `rFull` below is r = dP/(rho g Q^2) worked by hand at RHO, so the fluid
+     * is pinned there rather than resolved from the source temperature (EQ.5,
+     * v0.18.62). */
+    pinFluid(m, { density: RHO });
     M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
     const eq = M.addPipe(m, b.id, c.id,
       { size: 'DN50', schedule: 'sch40', kind: 'equip', tag: 'AHU' });

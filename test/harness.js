@@ -42,6 +42,32 @@ function load(extra) {
   return sandbox.window.FD;
 }
 
+/* PIN A MODEL'S FLUID TO THE REFERENCE NUMBERS A HAND CALCULATION USED.
+ *
+ * From v0.18.62 the solve resolves water properties from the SOURCE's
+ * temperature (EQ.5), so a model with 6 °C water no longer runs on
+ * 998 kg/m³ and 1.004e-6 m²/s. Tests whose expected value is an algebraic
+ * hand calculation at those figures must say so, or they are silently
+ * testing the property correlation instead of the law they were written for.
+ *
+ * `custom` is the preset the engine leaves alone — it is the engineer's own
+ * numbers everywhere else, and it serves the same purpose here. The property
+ * resolution itself is tested directly, in `engine.test.js` and `model.test.js`.
+ */
+function pinFluid(m, o) {
+  o = o || {};
+  m.settings = m.settings || {};
+  m.settings.fluid = {
+    preset: 'custom',
+    name: 'Water (pinned for this test)',
+    density: o.density === undefined ? 998 : o.density,
+    kinematicViscosity: o.kinematicViscosity === undefined ? 1.004e-6 : o.kinematicViscosity,
+    specificHeat: o.specificHeat === undefined ? 4187 : o.specificHeat,
+    temperature: 20
+  };
+  return m;
+}
+
 // ------------------------------------------------------------ assertions
 let passed = 0, failed = 0;
 const failures = [];
@@ -70,4 +96,4 @@ function report() {
   process.exitCode = failed ? 1 : 0;
 }
 
-module.exports = { load, ok, near, section, report };
+module.exports = { load, pinFluid, ok, near, section, report };

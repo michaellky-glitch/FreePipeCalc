@@ -211,6 +211,10 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;background
 <div class="note limit"><span class="tag">IMPORTANT:</span>
   <p>The floor heights matter: the static head is what the pump has to lift the water to. Level 1 sits at 35 m, and every floor above it is 3.5 m higher. Set each level's altitude in its properties when you add it. FreePipeCalc adds a new floor 3.5 m above the one you copy, so once Level 1 is right, the floors above follow.</p>
 </div>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p><strong>Set the source's water temperature to 6 °C.</strong> That one figure is what the whole model is calculated at: the program reads it to work out density, viscosity and specific heat, so it sets the friction as well as the temperatures. Leave it at the default and this chilled system would be calculated as though it ran at room temperature, and the pipework would come out roughly 3% light on head.</p>
+  <p>One figure serves the whole model, and it is the one you state rather than one the program derives, so the same drawing always gives the same answer. The temperature used is printed on the calculation sheet under <em>Appendix — Hydraulic Parameters</em>. See the Calculation Method page, section 5.1, for the correlations and their sources.</p>
+</div>
 
 <!-- ============================================ -->
 <h2 id="discipline">2. Set the discipline</h2>

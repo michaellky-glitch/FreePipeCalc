@@ -227,8 +227,13 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;background
   <thead><tr><th>Control</th><th>Set to</th></tr></thead>
   <tbody>
     <tr><td>Static pressure</td><td>0 kPa</td></tr>
+    <tr><td>Water temperature</td><td>6 °C</td></tr>
   </tbody>
 </table>
+</div>
+<div class="note rule"><span class="tag">IMPORTANT:</span>
+  <p>The source also sets <strong>the water temperature the whole model is calculated at</strong>. Its <em>Water temperature</em> field is what the program uses to work out density, viscosity and specific heat, so it changes the friction as well as the temperatures. Set it to your design supply temperature — 6 °C for this chilled loop.</p>
+  <p>One figure serves the whole model, and it is the one you state rather than one the program works out, so the same drawing always gives the same answer. You can see which temperature was used on the calculation sheet under <em>Appendix — Hydraulic Parameters</em>.</p>
 </div>
 <div class="note rule"><span class="tag">NOTE:</span>
   <p>A closed loop has no free surface, so its absolute pressure is arbitrary. The source fixes the datum. 0 kPa gauge at the source is a normal choice.</p>

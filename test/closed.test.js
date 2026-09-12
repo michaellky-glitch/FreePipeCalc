@@ -2,7 +2,7 @@
  * Run:  node test/closed.test.js
  */
 'use strict';
-const { load, ok, near, section, report } = require('./harness');
+const { load, pinFluid, ok, near, section, report } = require('./harness');
 const FD = load(['src/model.js', 'src/geometry.js', 'src/network.js']);
 const M = FD.model, NET = FD.network;
 const fs = require('fs');
@@ -78,6 +78,10 @@ section('Closed circuit gets a pressure datum');
 section('Closed circuit sizes the pump on FLOW, not pressure');
 {
   const { m, pump, eq } = tinyLoop();
+  /* The ΔP check below is an algebraic hand calculation at 998 kg/m³, so the
+   * fluid is pinned there — from v0.18.62 the solve otherwise resolves water
+   * properties from the source temperature (EQ.5). */
+  pinFluid(m);
   const res = NET.solveModel(m);
 
   ok('Pump was sized from a standing start', pump.pump.head > 1,
@@ -976,6 +980,8 @@ section('Design: a controlled valve is at full travel, a balancing valve is not'
     const t = rig('balancing');
     t.valve.valve.kv = 1e9;                        // the drawn valve out of the way
     t.coil.equip.icv = { kv: 40, opening: 33 };    // AUTO: design charges full travel
+    /* `expect` is equipmentR at 998 kg/m³, so the fluid is pinned there. */
+    pinFluid(t.m);
     const res = NET.solveModel(t.m);
     const link = res.network.links.filter(l => l.id === t.coil.id)[0];
     const expect = FD.hydraulics.equipmentR(50000, 0.0024, 998);

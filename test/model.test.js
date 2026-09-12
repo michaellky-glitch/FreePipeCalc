@@ -2,7 +2,7 @@
  * Run:  node test/model.test.js
  */
 'use strict';
-const { load, ok, near, section, report } = require('./harness');
+const { load, pinFluid, ok, near, section, report } = require('./harness');
 const fs = require('fs');
 const path = require('path');
 const FD = load(['src/model.js', 'src/network.js', 'src/printer.js', 'src/examples.js']);
@@ -1197,7 +1197,15 @@ section('Editable coefficients change the answer');
      base.pressure[base.network.nodes[bNode].id],
      'base vs doubled');
 
-  const fluid = build(m => { m.settings.fluid.density = 1200; });   // e.g. glycol-ish
+  /* CUSTOM, not a density typed over the water preset. A named fluid's numbers
+   * are not the engineer's to change — `applyFluidPreset` has always said so,
+   * and since v0.18.62 the solve actively resolves them from the source
+   * temperature, so typing over them would be undone rather than honoured.
+   * `custom` is the escape hatch, in the test exactly as in the app. */
+  const fluid = build(m => {
+    m.settings.fluid = Object.assign({}, m.settings.fluid,
+      { preset: 'custom', density: 1200 });
+  });   // e.g. glycol-ish
   ok('Changing fluid density changes reported pressure',
      Math.abs(fluid.pressure[fluid.network.nodes[bNode].id] -
               base.pressure[base.network.nodes[bNode].id]) > 1,
@@ -1481,9 +1489,12 @@ section('Source static pressure');
    * the pipe's length is its PLAN distance and does not change when one end
    * moves in z. (Such a pipe is illegal under the layout rule; this is the
    * arithmetic, checked on the model that breaks it.) */
+  /* rho.g.dz by hand at RHO, so the fluid is pinned there. */
   const fc = build(200e3, 0);
+  pinFluid(fc.m, { density: RHO });
   const flat = NET.solveModel(fc.m);
   const rc = build(200e3, 10);
+  pinFluid(rc.m, { density: RHO });
   const high = NET.solveModel(rc.m);
 
   near('Raising the source does NOT change the pipe length',
@@ -3920,6 +3931,167 @@ section('Sensors — a setpoint that has not been typed yet');
     M.setSetpointCmp(p, 'set', 'set');
     ok('...and SET is stored as the absence of a comparator, so files do not grow',
        p.sensor.cmp === undefined, JSON.stringify(p.sensor));
+  }
+}
+
+
+/* ==================================================================
+ * THE FLUID FOLLOWS THE SOURCE'S TEMPERATURE  (EQ.5)
+ *
+ * Michael, 2026-09-12: "For ease of checking I think basing it off source is
+ * acceptable." One temperature per model, read from the SOURCE, resolved once
+ * at the top of the solve.
+ *
+ * It is an INPUT, not a result. That is the whole reason the source was chosen
+ * over an average or a minimum of the solved loop temperatures: properties
+ * derived from the solve feed back into the solve that produced them, and the
+ * same drawing stops giving the same answer twice.
+ * ================================================================== */
+section('Fluid properties follow the source temperature');
+{
+  function rig(sourceTemp) {
+    const m = M.create();
+    m.settings.calcMode = 'design';
+    const lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 20, 0);
+    a.device = { kind: 'source', pressure: 400e3 };
+    if (sourceTemp !== undefined) a.device.temperature = sourceTemp;
+    b.device = { kind: 'demand', flow: 0.003, reqPressure: 0, include: true };
+    M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    return m;
+  }
+
+  /* ---- the temperature itself ---- */
+  near('a source states the temperature', M.modelFluidTemp(rig(6)), 6, 1e-12);
+  near('...and another one states another', M.modelFluidTemp(rig(80)), 80, 1e-12);
+
+  /* NO SOURCE TEMPERATURE falls back to the same THERMAL figure the thermal
+   * solve pins to, so the hydraulics and the temperatures cannot be quoted at
+   * two different data. */
+  near('a source with no temperature falls back to the THERMAL datum',
+       M.modelFluidTemp(rig(undefined)), 20, 1e-12);
+  {
+    const m = rig(undefined);
+    m.settings.thermal.supplyTemp = 45;
+    near('...and follows that datum when it is changed',
+         M.modelFluidTemp(m), 45, 1e-12);
+  }
+
+  /* SEVERAL SOURCES DISAGREEING: the plain average — Michael, 2026-09-12,
+   * "There should only be 1 source, but it should be average of multiple (if
+   * that happens)". UNWEIGHTED on purpose: weighting by the mass each source
+   * brings in would take those flows from the solve, and a property that
+   * depends on the solve feeds back into it. */
+  {
+    const m = rig(6);
+    const lv = m.levels[0].id;
+    const c = M.addNode(m, lv, 0, 20);
+    c.device = { kind: 'source', pressure: 400e3, temperature: 30 };
+    near('two sources at different temperatures give their average',
+         M.modelFluidTemp(m), 18, 1e-12);
+    const d = M.addNode(m, lv, 20, 20);
+    d.device = { kind: 'source', pressure: 400e3, temperature: 12 };
+    near('...and three average to their mean, not to the coldest',
+         M.modelFluidTemp(m), 16, 1e-12);
+    delete d.device;
+    const sp = M.fluidTempSpread(m);
+    ok('...and the spread is reported so the sheet can say so',
+       sp && sp.lo === 6 && sp.hi === 30 && sp.n === 2, JSON.stringify(sp));
+  }
+  ok('one source reports no spread', M.fluidTempSpread(rig(6)) === null);
+
+  /* ---- what the solve then uses ---- */
+  {
+    const cold = rig(6), warm = rig(80);
+    NET.solveModel(cold); NET.solveModel(warm);
+    const fc = cold.settings.fluid, fw = warm.settings.fluid;
+
+    /* Against data/water.js, which is itself checked against NIST and IAPWS in
+     * engine.test.js — so this asserts the WIRING, not the correlation. */
+    near('the solve resolves density at the source temperature',
+         fc.density, FD.water.density(6), 1e-9);
+    near('...and kinematic viscosity',
+         fc.kinematicViscosity, FD.water.kinematicViscosity(6), 1e-15);
+    near('...and specific heat',
+         fc.specificHeat, FD.water.specificHeat(6), 1e-9);
+    near('...and records the temperature it used', fc.temperature, 6, 1e-12);
+
+    /* THE DIRECTION IS THE PHYSICS: colder water is denser and much more
+     * viscous. Asserted as a relationship, not as two magnitudes. */
+    ok('a 6 C circuit is denser than an 80 C one',
+       fc.density > fw.density,
+       fc.density.toFixed(2) + ' vs ' + fw.density.toFixed(2));
+    ok('...and far more viscous',
+       fc.kinematicViscosity > fw.kinematicViscosity * 3.5,
+       (fc.kinematicViscosity / fw.kinematicViscosity).toFixed(2) + 'x');
+  }
+
+  /* ---- AND IT ACTUALLY CHANGES THE ANSWER ---- */
+  {
+    const cold = rig(6), warm = rig(80);
+    const rc = NET.solveModel(cold), rw = NET.solveModel(warm);
+    const dpC = Math.abs(rc.pressure[cold.nodes[0].id] - rc.pressure[cold.nodes[1].id]);
+    const dpW = Math.abs(rw.pressure[warm.nodes[0].id] - rw.pressure[warm.nodes[1].id]);
+    ok('the same pipe at the same flow burns more head cold than hot',
+       dpC > dpW, (dpC / 1000).toFixed(3) + ' vs ' + (dpW / 1000).toFixed(3) + ' kPa');
+  }
+
+  /* ---- OUT OF THE WORKING BAND IS A WARNING, NOT A SILENT EXTRAPOLATION.
+   *
+   * Michael, 2026-09-12: "0-2 & 80-100C is beyond our scope. Should return a
+   * warning ... We may revisit if heating becomes a use case."
+   *
+   * The band is 3–79 °C, one degree inside where the checked viscosity data
+   * actually runs out, so the warning fires before the extrapolation does. ---- */
+  {
+    function warned(T) {
+      const r = NET.solveModel(rig(T));
+      return (r.warnings || []).filter(w => w.code === 'FLUID_TEMP_RANGE');
+    }
+    ok('3 C is in scope', warned(3).length === 0);
+    ok('79 C is in scope', warned(79).length === 0);
+    ok('20 C is in scope', warned(20).length === 0);
+    ok('2 C warns', warned(2).length === 1);
+    ok('0 C warns', warned(0).length === 1);
+    ok('80 C warns', warned(80).length === 1);
+    ok('100 C warns', warned(100).length === 1);
+    ok('...in his words, with the band in it',
+       /Temperature is out range \(3–79 °C\)\. We may revisit if heating becomes a use case\./
+         .test(warned(100)[0].message), warned(100)[0].message);
+    ok('...and it is a WARNING, not an error',
+       (NET.solveModel(rig(100)).errors || [])
+         .filter(e => e.code === 'FLUID_TEMP_RANGE').length === 0);
+
+    /* NOT RAISED FOR A FLUID THAT EXTRAPOLATES NOTHING. A glycol or custom
+     * fluid carries its own stated properties, so there is no correlation
+     * being pushed past its data and nothing to warn about. */
+    const g = rig(0);
+    g.settings.fluid = { preset: 'custom', density: 1050,
+                         kinematicViscosity: 4e-6, specificHeat: 3600 };
+    ok('a custom fluid at 0 C does not warn',
+       (NET.solveModel(g).warnings || [])
+         .filter(w => w.code === 'FLUID_TEMP_RANGE').length === 0);
+  }
+
+  /* ---- WATER ONLY. data/water.js carries verified correlations for water and
+   * nothing else; the glycol rows are unverified at a SINGLE temperature, so a
+   * curve through them would be building on sand. ---- */
+  {
+    const m = rig(6);
+    M.applyFluidPreset ? M.applyFluidPreset(m, 'pg30') : (m.settings.fluid.preset = 'pg30');
+    m.settings.fluid.preset = 'pg30';
+    const before = m.settings.fluid.kinematicViscosity;
+    NET.solveModel(m);
+    near('a glycol fluid keeps the numbers it was given', 
+         m.settings.fluid.kinematicViscosity, before, 1e-15);
+  }
+  {
+    const m = rig(6);
+    m.settings.fluid = { preset: 'custom', density: 1200,
+                         kinematicViscosity: 3e-6, specificHeat: 3500 };
+    NET.solveModel(m);
+    near('...and so does a custom one, which is the engineer\u2019s own',
+         m.settings.fluid.density, 1200, 1e-9);
   }
 }
 

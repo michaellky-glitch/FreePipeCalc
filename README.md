@@ -46,10 +46,46 @@ Friction Loss Calculations use 2 methods from ASHRAE Handbook - Fundamentals, Ch
  
  
 * Hazen-Williams (2)
-* Darcy-Weisbach  (Swamee-Jain friction factor).
+* Darcy-Weisbach  (Colebrook-White friction factor by default; Swamee-Jain, Haaland and Churchill are selectable).
  
  
 Network solver uses the Todini Global Gradient Algorithm (GGA). See Engine Documentation for more details.
+
+### Fluid properties
+
+Water properties follow the **temperature stated at the source** — one figure for
+the whole model, resolved before the network is solved. Density, viscosity and
+specific heat all vary with it. The temperature used is printed on the
+calculation sheet under *Appendix — Hydraulic Parameters*, so any answer can be
+checked by hand at the same condition.
+
+A model normally has one source. Where several state different temperatures their
+average is used — an unweighted mean of the stated figures. Where none states
+one, the figure on the THERMAL tab is used instead. A glycol or custom fluid keeps the properties it
+was given: the correlations are for water, and there are no verified equivalents
+for the glycol mixtures.
+
+The correlations, their fitted ranges and their deviations are published in
+`docs/engine.html` §5.1. The underlying values are from:
+
+* **Density and specific heat** — NISTIR 5078, A. H. Harvey, *Thermodynamic
+  Properties of Water: Tabulation from the IAPWS Formulation 1995 for the
+  Thermodynamic Properties of Ordinary Water Substance for General and
+  Scientific Use*, NIST. Specific heat is derived from that tabulation's
+  enthalpy column as `c_p = dh/dT`.
+* **Viscosity** — IAPWS R12-08, *Release on the IAPWS Formulation 2008 for the
+  Viscosity of Ordinary Water Substance*; also published as Huber et al.,
+  *J. Phys. Chem. Ref. Data* **38**, 101 (2009).
+
+The working range is **3–79 °C**. Outside it the program raises
+`FLUID_TEMP_RANGE` and the answer should not be relied on: density is checked
+against its source to 100 °C, but viscosity only to 80 °C, so beyond the band the
+viscosity is an unverified extrapolation. Chilled water and low-temperature hot
+water both sit well inside it.
+
+Transient conditions are out of scope — this is a steady-state calculation. A
+cold fill is the obvious example: a circuit designed for 80/70 °C starts against
+water at room temperature and burns roughly 11% more head than it does hot.
  
  
 *(2) - At time of development, the ASHRAE handbook did not contain a list of equivalent lengths for pipe fittings. FPC uses Carrier Design Handbook values by default, with NFPA 13 equivalent lengths as an alternative. However, NFPA 13 (2019) Table 27.2.3.1.1 has no straight-through tee row, so Carrier values for straight-through tees are used instead.*

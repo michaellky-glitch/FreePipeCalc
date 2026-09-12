@@ -7,7 +7,7 @@
  * without running anything.
  */
 'use strict';
-const { load, ok, near, section, report } = require('./harness');
+const { load, pinFluid, ok, near, section, report } = require('./harness');
 /* THERMAL IS LOADED, and it matters. The control loop measures a machine's
  * Design ΔT through `FD.thermal`; without it every ΔT controller is inert and a
  * simulation reads the same whatever the setpoint says — which silently made
@@ -844,6 +844,8 @@ section('Two curves against a closed-form operating point');
     const pump = M.addPipe(m, s.id, j.id, { kind: 'pump' });
     pump.pump = { mode: 'fixed', head: Hd, curve: P.singlePoint(Hd, 0.020) };
     M.addPipe(m, j.id, t.id, { size: 'DN300', schedule: 'sch40' });
+    /* `rT` below is worked by hand at RHO, so the fluid is pinned there. */
+    pinFluid(m, { density: RHO });
     const res = NET.solveModel(m);
     // singlePoint: H = (4/3)Hd - (1/3)(Hd/Qd²)Q², so H0 = 4Hd/3 and a = Hd/(3Qd²)
     const aC = Hd / (3 * 0.020 * 0.020);

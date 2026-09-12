@@ -1558,6 +1558,17 @@
      * round or two to seat, so the ceiling is a little higher. */
     maxPasses = maxPasses || 5;
 
+    /* THE FLUID IS RESOLVED AT THE CIRCUIT'S TEMPERATURE BEFORE ANYTHING ELSE.
+     *
+     * EQ.5. `M.applyFluidTemperature` reads the SOURCE's stated temperature and
+     * rewrites density, kinematic viscosity and Cp from `data/water.js`. It is
+     * an input, not a result, so this runs once at the top and never needs
+     * revisiting — see the long note at that function for why per-pipe
+     * properties were rejected.
+     *
+     * Water only: a glycol or custom fluid keeps the numbers it was given. */
+    var fluidT = M.applyFluidTemperature ? M.applyFluidTemperature(m) : null;
+
     var core = solveCore(m, maxPasses);
 
     /* CONTROL: a pump or globe valve that follows a setpoint modulates here,
@@ -1585,6 +1596,27 @@
     (net.omitted || []).forEach(function (l) {
       if (res.flow[l.id] === undefined) res.flow[l.id] = 0;
     });
+
+    /* OUT OF THE BAND THIS PROGRAM IS FOR — Michael, 2026-09-12: "0-2 & 80-100C
+     * is beyond our scope. Should return a warning."
+     *
+     * Not an error and not silent. The correlations still return a figure, and
+     * the density half of it is checked to 100 °C — it is the VISCOSITY whose
+     * source table runs out, so a model outside the band is running on an
+     * extrapolation that nobody has verified. Raised on the model rather than
+     * on a pipe, because it is one temperature for the whole thing.
+     *
+     * `fluidT` is null when the fluid is not water, which is correct: a glycol
+     * or custom fluid carries its own stated properties and no correlation is
+     * being extrapolated. */
+    if (fluidT !== null && FD.water && !FD.water.inScope(fluidT)) {
+      res.warnings = (res.warnings || []).concat([{
+        code: 'FLUID_TEMP_RANGE',
+        message: 'Temperature is out range (' + FD.water.SCOPE.lo + '\u2013' +
+                 FD.water.SCOPE.hi + ' \u00b0C). We may revisit if heating ' +
+                 'becomes a use case.'
+      }]);
+    }
 
     res.warnings = (res.warnings || []).concat(net.warnings || []);
     res.warnings = res.warnings.concat(flowRegimeWarnings(m, net, res));

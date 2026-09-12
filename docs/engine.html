@@ -679,7 +679,15 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 <p>The default fluid is water at 20 °C (ρ = 998 kg/m³, ν = 1.004×10⁻⁶ m²/s, c<sub>p</sub> = 4187 J/(kg·K)). Fluids whose published properties are not yet verified are marked in the interface — currently the propylene-glycol presets. Check them before you issue a calculation.</p>
 
 <h3 id="fluid-water">5.1 Water properties against temperature</h3>
-<p>Temperature does not drive the properties used in a calculation — see the limitation in section 14. The correlations below are <strong>published here for reference and are not yet used by the solve</strong>. They give liquid water at atmospheric pressure, with <em>T</em> in °C.</p>
+<p><strong>Water properties follow the temperature stated at the source.</strong> The program reads that one figure, resolves density, viscosity and specific heat from the correlations below, and uses them everywhere in the model. The temperature used is printed on the calculation sheet under <em>Appendix — Hydraulic Parameters</em>, so any result can be checked against a hand calculation at the same condition.</p>
+<p>The rules are:</p>
+<ul>
+  <li><strong>One temperature for the whole model</strong>, taken from the source. It is an input, not a result, so the same drawing always gives the same answer.</li>
+  <li><strong>A model normally has one source.</strong> If several state different temperatures, their <strong>average</strong> is used — an unweighted mean of the stated figures, so it stays something you can work out yourself. The sheet says when it has averaged.</li>
+  <li><strong>If no source states a temperature</strong>, the figure on the THERMAL tab is used instead. That is the same datum the temperature solve pins to, so the two are never quoted at different conditions.</li>
+  <li><strong>Water only.</strong> A glycol or custom fluid keeps exactly the properties it was given; the correlations below are for water and there are no verified equivalents for the glycol mixtures.</li>
+</ul>
+<p>The correlations give liquid water at atmospheric pressure, with <em>T</em> in °C.</p>
 <div class="scroll">
 <table>
   <thead><tr><th>Property</th><th>Correlation</th><th>Fitted over</th><th>Max deviation</th></tr></thead>
@@ -702,7 +710,20 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   </tbody>
 </table>
 </div>
-<p>Kinematic viscosity is <code>ν = μ / ρ</code>. Against the single 1.004×10⁻⁶ m²/s the program uses today, that is <strong>1.51×</strong> at 5 °C, <strong>0.47×</strong> at 60 °C and <strong>0.36×</strong> at 80 °C.</p>
+<p>Kinematic viscosity is <code>ν = μ / ρ</code>. Against the 1.004×10⁻⁶ m²/s that a 20 °C circuit uses, that is <strong>1.51×</strong> at 5 °C, <strong>0.47×</strong> at 60 °C and <strong>0.36×</strong> at 80 °C.</p>
+<p>What that is worth on a real model, at the same flows and the same pipe sizes: pipework head under Darcy-Weisbach is about <strong>4% higher at 0 °C</strong> and about <strong>10% lower at 80 °C</strong> than the same model computed at 20 °C. Under Hazen-Williams, which has no viscosity term, only the density part shows — about a quarter of that.</p>
+<div class="note">
+  <span class="tag">NOTE:</span>
+  <p>The properties follow the <em>stated</em> source temperature, not the temperatures the solve works out. Within one circuit the difference between the supply and the return is worth about ±1% of friction rate at a normal design ΔT, which is not worth chasing.</p>
+</div>
+<div class="note limit">
+  <span class="tag">IMPORTANT:</span>
+  <p>The temperature must be between <strong>3 °C and 79 °C</strong>. Outside that the program raises <code>FLUID_TEMP_RANGE</code> and the answer should not be relied on: density is checked against its source data to 100 °C, but viscosity only to 80 °C, so beyond the band the viscosity is an extrapolation that has not been verified. Chilled water and low-temperature hot water both sit well inside it.</p>
+</div>
+<div class="note limit">
+  <span class="tag">IMPORTANT:</span>
+  <p>This is a <strong>steady-state</strong> calculation, so transient conditions are out of scope — including a cold fill. A circuit designed for 80/70 °C starts against water at room temperature and burns roughly 11% more head than it does hot; the program calculates the condition you state, not the journey to it.</p>
+</div>
 
 <h4>Sources</h4>
 <div class="scroll">
@@ -1575,7 +1596,7 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>
-  <p>Density and viscosity are entered, not calculated from the temperature. A circuit running at 6 °C with 20 °C properties entered will use the 20 °C properties. Section 5.1 publishes correlations against temperature and states what that costs: at the same flows, pipework head under Darcy-Weisbach is about 4% higher at 0 °C and about 10% lower at 80 °C than the 20 °C properties give.</p>
+  <p>Water properties follow the <strong>source</strong> temperature, and one figure serves the whole model — see section 5.1. They do not follow the temperature the solve computes at each pipe, so a circuit whose water warms along its length is calculated throughout at its source condition. For a glycol or custom fluid the properties are entered and are not varied with temperature at all.</p>
 </div>
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>

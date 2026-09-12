@@ -71,6 +71,20 @@
     viscosity:    { lo: 2, hi: 80 }
   };
 
+  /* THE TEMPERATURES THIS PROGRAM IS FOR — Michael, 2026-09-12: "0-2 & 80-100C
+   * is beyond our scope. Should return a warning ... We may revisit if heating
+   * becomes a use case."
+   *
+   * The band is his, not the data's. Density is checked to 100 °C and would
+   * happily carry a steam-adjacent circuit; viscosity is only checked over
+   * 2–80 °C, and this program is for chilled water and low-temperature hot
+   * water. Rather than let a model quietly run on an extrapolated viscosity,
+   * anything outside the band says so — see `FLUID_TEMP_RANGE`.
+   *
+   * 3–79 rather than 2–80 is his figure too, and it is the safer way round: it
+   * warns one degree before the checked data actually runs out. */
+  var SCOPE = { lo: 3, hi: 79 };
+
   /* Where the underlying DATA was checked. Narrower than the fit range for
    * viscosity, and that gap is the honest part. */
   var VERIFIED = {
@@ -110,6 +124,11 @@
   FD.water = {
     FIT: FIT,
     VERIFIED: VERIFIED,
+    SCOPE: SCOPE,
+
+    /* Whether a temperature is one this program is FOR, which is a narrower
+     * question than whether the correlations return a number. */
+    inScope: function (t) { return t >= SCOPE.lo && t <= SCOPE.hi; },
 
     density: function (t) { return horner(RHO, t); },              // kg/m³
     specificHeat: function (t) { return horner(CP, t); },          // J/(kg·K)

@@ -1762,7 +1762,11 @@
       kv2('Fixture units', 'IPC Table E103.3(2), cold');
       kv2('Fixture flow & pressure', 'IPC Table 604.3');
       var fl = m.settings.fluid || {};
-      kv2('Fluid', (fl.name || 'Water') + ', ρ = ' + (fl.density || 998) + ' kg/m³');
+      /* TWO DECIMALS, not whatever the number happens to carry. Raw, this
+       * printed "999.9188810716465 kg/m³" once water properties began
+       * following the source temperature. */
+      kv2('Fluid', (fl.name || 'Water') + ', ρ = ' +
+          Number(fl.density || 998).toFixed(2) + ' kg/m³');
       kv2('Default C factor', String(m.settings.C));
       kv2('Velocity limit', vLimit + ' m/s');
       kv2('Friction rate limit', ((m.settings.warn && m.settings.warn.pdm) || 0) + ' Pa/m');
@@ -2622,6 +2626,48 @@
       }
       kv2('Method', meth.name);
       if (meth.source) kv2('Source', meth.source);
+
+      /* THE FLUID, AND THE TEMPERATURE ITS PROPERTIES WERE TAKEN AT.
+       *
+       * Michael, 2026-09-12: "The parameters will also have to be defined under
+       * Calculation>Appendix-Hydraulic Parameters." This is the one place the
+       * sheet states what the friction was actually computed with, and with
+       * EQ.5 that is no longer a constant — it follows the source. A sheet that
+       * does not say which temperature it used cannot be checked against a hand
+       * calculation, which is the whole reason this appendix exists. */
+      var afl = FD.fluids.resolve(m.settings);
+      var aft = m.settings.fluid || {};
+      kv2('Fluid', afl.name);
+      if ((aft.preset || 'water') === 'water' && FD.water) {
+        var aT = M.modelFluidTemp(m);
+        kv2('Properties at', aT.toFixed(1) + ' °C — from the source water ' +
+                             'temperature');
+        var spread = M.fluidTempSpread(m);
+        if (spread) {
+          kv2('NOTE', spread.n + ' sources state different temperatures (' +
+                      spread.lo.toFixed(1) + '–' + spread.hi.toFixed(1) +
+                      ' °C). The figure above is their AVERAGE.');
+        }
+        /* OUT OF THE WORKING BAND. The same fact the solve raises as
+         * `FLUID_TEMP_RANGE`, repeated here because this appendix is what
+         * travels with an issued sheet — a reader checking the numbers by hand
+         * needs to know the viscosity behind them is an extrapolation. */
+        if (!FD.water.inScope(aT)) {
+          kv2('NOTE', 'OUT OF RANGE. ' + FD.water.SCOPE.lo + '–' +
+                      FD.water.SCOPE.hi + ' °C is the band these properties ' +
+                      'are verified over; viscosity beyond it is ' +
+                      'extrapolated. See Documentation ▸ Calculation Method §5.1.');
+        }
+      } else {
+        kv2('Properties at', (aft.temperature !== undefined
+              ? Number(aft.temperature).toFixed(1) : '20.0') +
+            ' °C — stated, not varied with temperature');
+      }
+      kv2('Density', (aft.density || afl.density).toFixed(2) + ' kg/m³');
+      kv2('Kinematic viscosity',
+          (aft.kinematicViscosity || afl.kinematicViscosity).toExponential(4) + ' m²/s');
+      kv2('Specific heat',
+          (aft.specificHeat || afl.specificHeat).toFixed(0) + ' J/(kg·K)');
       if (m.settings.frictionMethod !== 'DW') {
         var ka = m.settings.ashrae || FD.hydraulics.ASHRAE_DEFAULTS;
         var der = meth.derive({ ashrae: ka });
@@ -2664,8 +2710,12 @@
               'Re 5000 with ε/d 1e-2.');
         }
       }
-      var fl = m.settings.fluid || {};
-      kv2('Fluid', (fl.name || 'Water') + ', ρ = ' + (fl.density || 998) + ' kg/m³');
+      /* THE FLUID IS STATED ONCE, at the top of this appendix with the
+       * temperature its properties were taken at. The row that used to sit
+       * here repeated the name and the density — and printed the density raw,
+       * which was invisible while it was exactly 998 and became
+       * "999.9188810716465 kg/m³" the moment properties started following the
+       * source temperature. */
       kv2('Default C factor', String(m.settings.C));
       kv2('Velocity limit', (m.settings.warn && m.settings.warn.velocity) + ' m/s');
       kv2('Friction rate limit', (m.settings.warn && m.settings.warn.pdm) + ' Pa/m');
