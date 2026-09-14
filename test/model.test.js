@@ -3786,12 +3786,23 @@ section('Examples — the shipped catalogue');
     }
     ok(`"${f}" loads through M.fromJSON`, !!m, err);
     if (!m) return;
-    /* A model that loads to nothing is a file that loaded in name only. */
-    ok(`"${f}" has pipes and levels after loading`,
-       m.pipes.length > 0 && m.levels.length > 0,
-       `${m.pipes.length} pipes, ${m.levels.length} levels`);
+    /* A model that loads to nothing is a file that loaded in name only.
+     *
+     * AN EXAMPLE IS NOT ALWAYS PIPEWORK. Michael rebuilt Tutorial 02 as a
+     * WORKSHEET (2026-09-14): six levels carrying labels and detail lines that
+     * name the plant room, the risers and each AHU floor, and no pipes at all,
+     * because drawing them is the exercise. So "did it load" is levels plus
+     * SOMETHING to work with — pipework or annotation — rather than pipes
+     * alone. An empty file still fails, which is what this guard is for. */
+    const drawn = m.pipes.length + (m.notes || []).length + (m.details || []).length;
+    ok(`"${f}" has levels and something on them after loading`,
+       drawn > 0 && m.levels.length > 0,
+       `${m.pipes.length} pipes, ${(m.notes || []).length} notes, ` +
+       `${(m.details || []).length} details, ${m.levels.length} levels`);
     /* And it builds a network — the step between "the file parsed" and "the
-     * app can do anything with it". */
+     * app can do anything with it". A worksheet with no pipework still has to
+     * build one: an empty network is a valid answer, a thrown exception is not,
+     * and the app calls this the moment the file is opened. */
     let net = null, nerr = '';
     try { net = NET.build(m); } catch (e) { nerr = e.message; }
     ok(`"${f}" builds a network`, !!net, nerr);

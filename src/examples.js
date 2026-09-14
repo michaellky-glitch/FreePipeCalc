@@ -33,7 +33,7 @@
    * checks all of it, both ways. */
   FD.examples = [
     { file: 'Tutorial 01 - Basics.json',           name: 'Tutorial 01 — Basics' },
-    { file: 'Tutorial 02 - Hydronic System.json',  name: 'Tutorial 02 — Hydronic System' },
+    { file: 'Tutorial 02.json',                    name: 'Tutorial 02 — Hydronic System' },
     { file: 'GGA example.json',                    name: 'GGA example' },
     { file: 'Data Hall & Yard.json',               name: 'Data Hall & Yard' }
   ];

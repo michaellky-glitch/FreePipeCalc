@@ -178,6 +178,29 @@
     var m = this.getModel();
     var pts = m.nodes.filter(function (n) { return n.level === m.activeLevel; })
                      .map(function (n) { return M.worldXY(m, n); });
+    /* A FLOOR WITH NOTHING DRAWN ON IT BUT ANNOTATION still has something to
+     * frame, and until now this landed on empty space.
+     *
+     * Michael rebuilt Tutorial 02 as a WORKSHEET (2026-09-14): six levels of
+     * labels and detail lines naming the plant room, the risers and each AHU
+     * floor, and no pipework at all, because drawing it is the exercise.
+     * Opening it fitted to the node set — which is empty — and fell through to
+     * the default view below, so the first thing a student saw was a blank
+     * grid with their instructions somewhere off screen.
+     *
+     * FALLBACK, NOT AN ADDITION. Annotation is only consulted when there are no
+     * nodes, so every model that has pipework frames exactly as it did before.
+     * A stray label far from the plant cannot suddenly zoom a real drawing out
+     * to nothing. */
+    if (!pts.length) {
+      (m.notes || []).forEach(function (n) {
+        if (n.level === m.activeLevel) pts.push({ x: n.x, y: n.y });
+      });
+      (m.details || []).forEach(function (d) {
+        if (d.level !== m.activeLevel) return;
+        (d.pts || []).forEach(function (q) { pts.push({ x: q.x, y: q.y }); });
+      });
+    }
     if (!pts.length) { this.scale = 24; this.originX = 60; this.originY = this.cssH - 60; this.render(); return; }
     var xs = pts.map(function (p) { return p.x; }), ys = pts.map(function (p) { return p.y; });
     var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
