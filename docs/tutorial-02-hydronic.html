@@ -172,205 +172,251 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;background
   <h2>Contents</h2>
   <ol>
     <li><a href="#start">Before you start</a></li>
-    <li><a href="#discipline">Set the discipline</a></li>
-    <li><a href="#plant">Build the plant room</a></li>
-    <li><a href="#floor1">Draw Level 1</a></li>
+    <li><a href="#params">Set the project parameters</a></li>
+    <li><a href="#plant">Draw the plant room</a></li>
+    <li><a href="#chiller1">The first chiller lineup</a></li>
+    <li><a href="#chillers23">Copy the lineup for chillers 2 and 3</a></li>
+    <li><a href="#risers">Take the risers up</a></li>
+    <li><a href="#floor1">Draw Level 1 and its AHU</a></li>
     <li><a href="#copy">Copy the floor upward</a></li>
-    <li><a href="#sim1">Simulate the building</a></li>
-    <li><a href="#sensor">Control the pump from a sensor</a></li>
-    <li><a href="#syncpumps">Run the pumps together</a></li>
+    <li><a href="#sync">Sync the floors together</a></li>
+    <li><a href="#sim1">Simulate at peak load</a></li>
+    <li><a href="#sensor">Control the pumps from a sensor</a></li>
     <li><a href="#sim2">Simulate again</a></li>
-    <li><a href="#chiller3">Add a third chiller</a></li>
   </ol>
 </nav>
 <main>
 <header class="top">
   <h1>Tutorial 02: A multi-storey hydronic system</h1>
-  <p class="sub">Build a five-storey chilled-water system with a central plant, copy a floor up a riser, run pumps in parallel, and control them from a differential-pressure sensor.</p>
+  <p class="sub">Build a six-storey chilled-water system: a central plant with duty and standby chillers, a floor copied up two risers, and the pumps controlled from the pressure at the highest coil.</p>
   <p class="meta" data-model="Tutorial 02.json">Open <code>examples/Tutorial 02.json</code> and draw on it as you go — the plant room, the risers and each AHU floor are already labelled. This tutorial follows on from Tutorial 01.</p>
 </header>
 
 <!-- ============================================ -->
 <h2 id="start">1. Before you start</h2>
-<p class="lead">You will build a central chilled-water plant on the ground floor and serve one air handling unit on each of five floors above it. The floors are stacked on two riser columns. You will then run two pumps in parallel and control them from the pressure across the top-floor coil.</p>
-<p>Tutorial 01 built one loop by hand. This tutorial builds a real building, so it leans on two features that save the repetition: <strong>copying a floor</strong> up the risers, and <strong>synchronising</strong> the pumps so they act as one set. Do Tutorial 01 first if you have not — the drawing tools and the pump, chiller and coil properties are explained there and are not repeated here.</p>
-<p>This tutorial uses the <strong>Darcy-Weisbach</strong> calculation method, which is the setting the finished file carries. Set it on the HYDRAULIC tab if it is not already selected.</p>
+<p class="lead">A six-storey building. Level 0 is the mechanical floor; Levels 1 to 5 are typical, each with one AHU room. You will draw the plant, build one floor, copy it up the building, and then let the pumps follow the load instead of running flat out.</p>
+<p>Tutorial 01 built one loop by hand and explains the drawing tools, the property panels, and the pump, chiller and coil settings. Those are not repeated here. Do it first if you have not.</p>
+
+<h3>The load</h3>
 <div class="scroll">
 <table>
-  <thead><tr><th>The building</th><th class="num">Level</th><th class="num">Height</th><th>Serves</th></tr></thead>
+  <thead><tr><th>Quantity</th><th class="num">Value</th><th>Where it comes from</th></tr></thead>
   <tbody>
-    <tr><td>Plant room</td><td class="num">Level 0</td><td class="num">0 m</td><td>Two duty pumps, two chillers</td></tr>
-    <tr><td>Floor 1</td><td class="num">Level 1</td><td class="num">35.0 m</td><td>AHU-1</td></tr>
-    <tr><td>Floor 2</td><td class="num">Level 2</td><td class="num">38.5 m</td><td>AHU-2</td></tr>
-    <tr><td>Floor 3</td><td class="num">Level 3</td><td class="num">42.0 m</td><td>AHU-3</td></tr>
-    <tr><td>Floor 4</td><td class="num">Level 4</td><td class="num">45.5 m</td><td>AHU-4</td></tr>
-    <tr><td>Floor 5</td><td class="num">Level 5</td><td class="num">49.0 m</td><td>AHU-5</td></tr>
+    <tr><td>Heat load per floor</td><td class="num">200 kW</td><td>One AHU on each of Levels 1–5</td></tr>
+    <tr><td>Total connected load</td><td class="num">1000 kW</td><td>5 × 200 kW</td></tr>
+    <tr><td>Expected peak load</td><td class="num">800 kW</td><td>80% of connected — the floors do not all peak together</td></tr>
+    <tr><td>Chillers</td><td class="num">3 × 400 kW</td><td>Two duty, covering the 800 kW peak. One standby.</td></tr>
   </tbody>
 </table>
 </div>
-<div class="note limit"><span class="tag">IMPORTANT:</span>
-  <p>The floor heights matter: the static head is what the pump has to lift the water to. Level 1 sits at 35 m, and every floor above it is 3.5 m higher. Set each level's altitude in its properties when you add it. FreePipeCalc adds a new floor 3.5 m above the one you copy, so once Level 1 is right, the floors above follow.</p>
-</div>
-<div class="note limit"><span class="tag">IMPORTANT:</span>
-  <p><strong>Set the source's water temperature to 6 °C.</strong> That one figure is what the whole model is calculated at: the program reads it to work out density, viscosity and specific heat, so it sets the friction as well as the temperatures. Leave it at the default and this chilled system would be calculated as though it ran at room temperature, and the pipework would come out roughly 3% light on head.</p>
-  <p>One figure serves the whole model, and it is the one you state rather than one the program derives, so the same drawing always gives the same answer. The temperature used is printed on the calculation sheet under <em>Appendix — Hydraulic Parameters</em>. See the Calculation Method page, section 5.1, for the correlations and their sources.</p>
-</div>
-
-<!-- ============================================ -->
-<h2 id="discipline">2. Set the discipline</h2>
-<p>Check that the discipline chip on the top bar reads HYDRONIC. If it reads PLUMBING, click it to switch.</p>
-
-<!-- ============================================ -->
-<h2 id="plant">3. Build the plant room</h2>
-<p>Work on Level 0. It holds the central plant: the chillers that make the cold water, and the pumps that push it up the building. You will build <strong>two duty pumps and two chillers</strong> now, and add a third chiller at the end.</p>
-<p>Open the HYDRONIC tab in DESIGN mode. Draw the plant headers: a supply header the pumps and chillers sit on, and a return header the water comes back to. Bring the two risers off the headers — you will connect the floors to them next.</p>
-
-<h3>The chillers</h3>
-<p>Place two chillers on the plant pipework with the HEAT SOURCE/SINK tool. Set each one the same.</p>
-<div class="scroll">
-<table class="ctrl">
-  <thead><tr><th>Control</th><th>Set to</th></tr></thead>
-  <tbody>
-    <tr><td>Type</td><td>Source / sink (chiller)</td></tr>
-    <tr><td>Flow</td><td>31 L/s</td></tr>
-    <tr><td>Pressure drop</td><td>45 kPa</td></tr>
-    <tr><td>Cooling / Heating</td><td>Cooling</td></tr>
-    <tr><td>LWT setpoint</td><td>7.5 °C</td></tr>
-    <tr><td>ΔT max</td><td>8.5 K</td></tr>
-    <tr><td>Capacity</td><td>Auto</td></tr>
-  </tbody>
-</table>
-</div>
-<p>31 L/s at a 45 kPa drop is each chiller's rated evaporator point. The two chillers share the building's load; on Auto capacity each removes whatever heat it must to hold 7.5 °C, up to its ΔT limit.</p>
-
-<h3>The pumps</h3>
-<p>Place two pumps on the supply header with the PUMP tool. Set each one the same.</p>
-<div class="scroll">
-<table class="ctrl">
-  <thead><tr><th>Control</th><th>Set to</th></tr></thead>
-  <tbody>
-    <tr><td>Sizing</td><td>Auto</td></tr>
-    <tr><td>Running</td><td>On</td></tr>
-  </tbody>
-</table>
-</div>
-<p>On <strong>Auto</strong> sizing the program works out the duty the system needs, rather than you typing it. Both pumps run, sharing the flow. You will make them act as one set in step 8.</p>
+<p>The standby chiller earns its place twice over: it covers a duty machine taken out for maintenance, and it covers a load above the expected peak. You will draw all three and switch the third off.</p>
 <div class="note rule"><span class="tag">NOTE:</span>
-  <p>A real plant usually has a standby pump as well — a third pump left off, ready to take over. The finished file carries one (PMP-3, standby). Add it the same way as the other two and set its Running switch to Off. It is not needed for the steps that follow.</p>
-</div>
-<div class="note check"><span class="tag">SUGGESTION:</span>
-  <p>An Auto pump has no curve until it has been sized in DESIGN. Run a DESIGN calculation once the building is drawn, before you simulate, so each pump has a curve to run on. Tutorial 01 step 12 explains why.</p>
+  <p>The example file is a <strong>layout to draw on</strong>, not a finished model. The plant, the pipe routes and the sizes are already labelled on the canvas; the pipework is what you add. Work with those labels in front of you rather than from this page alone.</p>
 </div>
 
 <!-- ============================================ -->
-<h2 id="floor1">4. Draw Level 1</h2>
-<p>Add Level 1 above the plant room. Select the plant level, open its properties, and use <strong>Add level above</strong>. Open the new level's properties and set its <strong>altitude to 35 m</strong> — the first occupied floor sits well above the plant.</p>
-<p>On Level 1, draw the floor pipework: a branch off each riser, across to the air handling unit and back. Place one AHU with the HEAT EXCHANGER tool.</p>
+<h2 id="params">2. Set the project parameters</h2>
+<p>Set these before you draw. Each one is quicker to set now than to correct on fifty pipes later.</p>
+
+<h3>Naming</h3>
+<p>Open SETTINGS ▸ Equipment naming. The scheme used here is <strong>[Discipline]-[Floor]-[Type][Number]</strong>, so the first chiller on the mechanical floor comes out as <code>MECH-L0-WCH01</code>.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Equipment</th><th>Field 1</th><th>Number 1</th><th>Field 2</th><th>Number 2</th></tr></thead>
+  <tbody>
+    <tr><td>Heat sources / sinks</td><td><code>MECH-L</code></td><td>Floor</td><td><code>WCH</code></td><td>Sequence</td></tr>
+    <tr><td>Pumps</td><td><code>MECH-L</code></td><td>Floor</td><td><code>CHWP</code></td><td>Sequence</td></tr>
+    <tr><td>Heat exchangers</td><td><code>MECH-L</code></td><td>Floor</td><td><code>AHU</code></td><td>Sequence</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The preview under each row shows the tag a new machine would take. You can rename anything by hand later, but every copy you make from here on arrives numbered for the floor it lands on.</p>
+
+<h3>Thermal</h3>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>Set to</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td>Ambient temperature</td><td>Your plant room and riser condition</td><td>Drives heat gain into the chilled pipework</td></tr>
+    <tr><td>Insulation thickness</td><td>Your specification</td><td>The global default; any pipe can override it</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Hydraulic</h3>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>Set to</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td>Fluid</td><td>Water</td><td>Its properties follow the source temperature — see below</td></tr>
+    <tr><td>Calculation method</td><td>Darcy-Weisbach</td><td>Hazen-Williams cannot charge unequal dividing tees, and this system is full of them</td></tr>
+    <tr><td>Pipe schedule</td><td>Your specification</td><td>If yours is not listed, see the pipe schedules tutorial</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>The <strong>source water temperature sets the fluid properties for the whole model</strong> — density, viscosity and specific heat all follow it. State your design supply temperature on the source; leaving it at the default calculates a 6 °C circuit as though it ran at room temperature. It shows in the design flows before you reach the friction at all: 200 kW across 7.5 K is <strong>6.35 L/s</strong> at 6 °C against 6.38 L/s at 20 °C. The Calculation Method page, section 5.1, carries the correlations and their sources.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="plant">3. Draw the plant room</h2>
+<p>Go back to HYDRONIC, in DESIGN mode, on Level 0. Trace the plant room header and the routes marked on the canvas: the 125 mm supply and return headers, the 100 mm branches at each chiller lineup, and the bypass.</p>
+<p>Add a <strong>source</strong> at the expansion tank. In a closed system the source is the datum — it fixes the pressure everything else is measured from — and it states the water temperature the model is calculated at.</p>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>Most chilled-water headers run at high level, and you would normally model that as its own level — <code>L0-HEADER</code>, say. This tutorial keeps the plant on one level to stay out of its own way. Nothing about the method changes if you add the header level.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="chiller1">4. The first chiller lineup</h2>
+<p>Equipment is modelled <strong>on a pipe</strong>, not floating beside one. Connect the supply and the return first, then put the machines into that pipework.</p>
+<ol class="steps">
+  <li>Draw the branch from the return header, and the branch back to the supply header.</li>
+  <li>Place a <strong>pump</strong> on the return branch with the PUMP tool.</li>
+  <li>Place a <strong>heat source/sink</strong> between the return and the supply with the HEAT SOURCE/SINK tool — this is the chiller.</li>
+</ol>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p><strong>Equipment is directional.</strong> Connected backwards it stops the flow rather than passing it. Place the pump first and orient it the way the water goes; equipment placed downstream then takes the pump's direction automatically.</p>
+</div>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>A pipe must be at least <strong>1 m</strong> long to take a piece of equipment. Draw the branch before you try to place a machine into it.</p>
+</div>
+<p>Select the chiller and set its design properties.</p>
 <div class="scroll">
 <table class="ctrl">
   <thead><tr><th>Control</th><th>Set to</th></tr></thead>
   <tbody>
-    <tr><td>Capacity</td><td>200 kW</td></tr>
-    <tr><td>Flow</td><td>5.63 L/s</td></tr>
-    <tr><td>Pressure drop</td><td>200 kPa</td></tr>
+    <tr><td>Sizing</td><td>Manual</td></tr>
+    <tr><td>Cooling capacity</td><td>400 kW</td></tr>
+    <tr><td>LWT setpoint</td><td>7.5 °C</td></tr>
+    <tr><td>Design ΔT</td><td>7.5 K</td></tr>
+  </tbody>
+</table>
+</div>
+<p><strong>Manual</strong> sizing, not Auto: this is a machine you have selected, so its nameplate is a fact rather than something for the program to work out. On Auto it would report the capacity you need instead of holding you to the one you have.</p>
+
+<!-- ============================================ -->
+<h2 id="chillers23">5. Copy the lineup for chillers 2 and 3</h2>
+<p>The other two lineups are identical. Copy the first rather than drawing it twice.</p>
+<ol class="steps">
+  <li>Click the <strong>return</strong> branch pipe, then hold <kbd>Shift</kbd> and click the <strong>supply</strong> branch pipe. That selects the whole lineup — both pipes and the machines on them.</li>
+  <li>Copy with <kbd>Ctrl</kbd>+<kbd>C</kbd>, or COPY on the Edit ribbon.</li>
+  <li>Paste with <kbd>Ctrl</kbd>+<kbd>V</kbd> and place the copy at the Chiller 2 position. Repeat for Chiller 3.</li>
+</ol>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>While you are placing a copy the preview tells you whether it will connect: a <strong>filled</strong> circle means a tee will be generated automatically, an <strong>empty</strong> one means it will not.</p>
+</div>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p><strong>Check both ends of every paste.</strong> A lineup joined at one end only will not carry water, and the drawing looks the same either way. If a tee was not generated, drag the pasted pipe off the header and back onto it.</p>
+</div>
+<p>Now switch the third lineup off. Select <code>MECH-L0-WCH03</code> and its pump and set Status to <strong>Offline</strong>, or click the power icon beside the machine. That is the standby.</p>
+
+<!-- ============================================ -->
+<h2 id="risers">6. Take the risers up</h2>
+<p>Check that the <strong>view direction</strong> for Level 0 is looking up, then add a RISER to the end of the supply pipe and to the end of the return pipe.</p>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>If you see <em>“Riser column placed. There is no level in the View Direction, so click this floor’s pipework on another level to connect it”</em>, the floor is looking the wrong way. Change the view direction on the level panel and place the riser again.</p>
+</div>
+
+<!-- ============================================ -->
+<h2 id="floor1">7. Draw Level 1 and its AHU</h2>
+<p>Go to Level 1 and draw the pipework across to the AHU room, following the routes marked on the canvas. Join the branches to the riser markers rather than to loose pipe ends. <strong>Flow arrows appear when you close the loop</strong>, which is the quickest check that the floor is connected.</p>
+<p>Place a <strong>heat exchanger</strong> between the AHU supply and return, and set it.</p>
+<div class="scroll">
+<table class="ctrl">
+  <thead><tr><th>Control</th><th>Set to</th></tr></thead>
+  <tbody>
+    <tr><td>Pressure drop</td><td>100 kPa</td></tr>
     <tr><td>Cooling / Heating</td><td>Heating</td></tr>
+    <tr><td>Capacity</td><td>200 kW</td></tr>
+    <tr><td>Design ΔT</td><td>7.5 K</td></tr>
+    <tr><td>Temperature limit (max)</td><td>26 °C</td></tr>
     <tr><td>Control valve</td><td>Auto</td></tr>
   </tbody>
 </table>
 </div>
-<p>200 kW at 5.63 L/s is about an 8.5 K temperature rise, which matches the chillers' ΔT. The coil's <strong>control valve is on Auto</strong>: in SIMULATE it modulates to hold the coil's design ΔT, throttling the flow when the coil has more pressure across it than it needs. Every floor will have one.</p>
+<p>The design flow fills itself in — about <strong>6.35 L/s</strong> with a 6 °C source. Capacity, flow and ΔT are three ways of saying the same thing, so stating two of them gives the third.</p>
 <div class="note rule"><span class="tag">NOTE:</span>
-  <p>Connect the floor branches to the riser columns, not to loose pipe ends. A riser shows as a ringed marker where it meets the floor. Click that marker to join the branch to the column. The riser then carries the flow up and down the building.</p>
+  <p><strong>“Heating” on a chilled-water coil is correct</strong>, and it catches everyone once. The sign convention is written from the water’s point of view: a cooling coil takes heat out of the room and puts it <em>into</em> the water, so it adds heat and is positive. The chiller takes it out again and is negative.</p>
+</div>
+<div class="note limit"><span class="tag">IMPORTANT:</span>
+  <p>The <strong>integrated control valve sits inside the quoted pressure drop</strong>, not on top of it. If your coil schedule lists the coil and its valve separately, add the two together and enter the total. An integrated valve is offered because machines often come with one, and because it saves drawing a valve you would only ever set to match the coil.</p>
 </div>
 
 <!-- ============================================ -->
-<h2 id="copy">5. Copy the floor upward</h2>
-<p>Floors 2 to 5 are the same as Floor 1. You do not draw them again — you copy Floor 1 up the building.</p>
+<h2 id="copy">8. Copy the floor upward</h2>
+<p>Levels 2 to 5 are the same floor again. Copy it rather than drawing it four more times.</p>
 <ol class="steps">
-  <li>Select Level 1 and open its properties.</li>
-  <li>Click <strong>Copy this level's layout</strong>. The target defaults to <em>New floor above</em>, placed 3.5 m higher.</li>
-  <li>Press <strong>Copy</strong>. FreePipeCalc creates Level 2 at 38.5 m, copies the floor to it, and <strong>extends the riser columns</strong> so the new floor joins the stack.</li>
-  <li>Repeat from the new floor: copy Level 2 to make Level 3, then Level 4, then Level 5.</li>
+  <li>Select Level 1 on the level panel and click <strong>C</strong> to copy its layout.</li>
+  <li>Leave the target on <em>New floor above</em> and press <strong>Copy</strong>.</li>
+  <li>Repeat from each new floor until Level 5 exists.</li>
 </ol>
-<div class="note rule"><span class="tag">NOTE:</span>
-  <p>The equipment is re-tagged as it is copied. Floor 1 has AHU-1; the copy on Floor 2 arrives as AHU-2, and so on up to AHU-5 on Floor 5. The tag follows the floor the machine is on, so the numbering stays right without you touching it.</p>
-</div>
+<p>Each copy carries the pipework, the labels and the detail lines, <strong>extends the riser columns</strong> so the new floor joins the stack, and re-tags the equipment for the floor it lands on — Level 2’s coil arrives as <code>MECH-L2-AHU01</code> without you touching it.</p>
 <div class="note check"><span class="tag">SUGGESTION:</span>
-  <p>After the last copy you have five floors, each with one AHU, both risers running the full height. Switch between levels on the level panel to check each floor came across. The riser markers should appear on every floor.</p>
+  <p>Step through the levels afterwards and check the riser markers appear on every floor. A floor that copied but did not connect is the one fault that will not show itself until you simulate.</p>
 </div>
 
 <!-- ============================================ -->
-<h2 id="sim1">6. Simulate the building</h2>
-<p>Run a DESIGN calculation first so the Auto pumps have curves, then switch to SIMULATE.</p>
+<h2 id="sync">9. Sync the floors together</h2>
+<p>Five identical floors are easier to study if they move together.</p>
+<ol class="steps">
+  <li>Select the Level 1 AHU. Under Control, set <strong>Sync part load % with</strong> to the Level 5 AHU.</li>
+  <li>Repeat for Levels 2, 3 and 4.</li>
+</ol>
+<p>Changing <code>MECH-L5-AHU01</code> now drives the whole building, so you can sweep the load from one panel instead of five.</p>
+
+<!-- ============================================ -->
+<h2 id="sim1">10. Simulate at peak load</h2>
+<p>Run a DESIGN calculation first so the pumps have curves, then switch to SIMULATE.</p>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>Simulating at full load reports that a setpoint cannot be held, and that is the model telling the truth: the chillers were sized for the <strong>800 kW peak</strong> while the connected load is <strong>1000 kW</strong>. The plant is not short — the building never asks for all of it at once.</p>
+</div>
+<p>Set the part load to <strong>80%</strong>, the expected peak, and simulate.</p>
 <div class="result">
   <div class="rh">What you should see</div>
   <ul class="tight">
-    <li>Both pumps run at <strong>full speed</strong> — the VFDs are at 100%.</li>
-    <li>The coil control valves <strong>throttle back</strong> — they sit around two-thirds open, holding their ΔT against more pressure than the coils need.</li>
-    <li>The pressure across the top coil, AHU-5, is <strong>about 290 kPa</strong> — well above what the coil requires.</li>
+    <li><code>MECH-L0-WCH01</code> and <code>MECH-L0-WCH02</code> report as <strong>overloaded</strong>.</li>
   </ul>
 </div>
-<p>This is the state a constant-speed system runs in, and it wastes energy. The pumps push at full speed while every coil valve throttles against them. The pumps have no way of knowing the building does not need that much pressure, because nothing is telling them what the building actually needs. You will give them that signal next.</p>
-<div class="note rule"><span class="tag">NOTE:</span>
-  <p>Look at the control valve on the top floor, AHU-5. It is the furthest from the plant, so it has the least pressure to spare — yet it is still throttling. That is the signal a real system uses: hold just enough pressure at the hardest-served coil, and every easier coil looks after itself.</p>
+<p>That is a real finding rather than a modelling error. The chillers were sized on the room loads alone, and the pipework gains heat on its way round the building. CALCULATION ▸ Thermal shows how much. It is the kind of margin that is easy to leave out of a hand calculation and expensive to leave out of a plant.</p>
+<p>Drop the part load to <strong>79%</strong> to carry on.</p>
+<div class="result">
+  <div class="rh">Now look at MECH-L5-AHU01</div>
+  <ul class="tight">
+    <li>Its control valve is <strong>part closed</strong>, throttling away pressure it does not need.</li>
+    <li>The pump VFDs are still at <strong>100%</strong>.</li>
+  </ul>
 </div>
+<p>That is a constant-speed system: the pumps push as hard as they can and every coil valve throttles against them. Nothing has told the pumps what the building actually needs.</p>
 
 <!-- ============================================ -->
-<h2 id="sensor">7. Control the pump from a sensor</h2>
-<p>Add a differential-pressure sensor across the top-floor coil and let it drive the pumps. When the coil valves close, the pressure across them rises; the sensor sees it and the pumps slow down.</p>
+<h2 id="sensor">11. Control the pumps from a sensor</h2>
+<p>Measure the pressure where it is hardest to deliver — the top floor — and let the pumps follow it.</p>
 <ol class="steps">
-  <li>Go to Level 5. Select the SENSOR tool and click the <strong>supply</strong> pipe next to AHU-5.</li>
-  <li>Open the sensor's properties. Set <strong>Measures</strong> to <strong>Differential pressure</strong>.</li>
-  <li>Set the <strong>reference pipe</strong>: click <em>Reference pipe</em>, then click the AHU-5 <strong>return</strong> pipe. The sensor now reads the pressure difference between the coil's supply and return.</li>
-  <li>Set the <strong>Δp setpoint to 200 kPa</strong> — a first estimate of the pressure the top coil needs.</li>
-  <li>Select ADD CONTROL, click <strong>PMP-1</strong>, then click the sensor. PMP-1 will now change speed to hold 200 kPa across AHU-5.</li>
+  <li>Switch to CONTROL mode and go to Level 5.</li>
+  <li>Place a sensor on the AHU supply pipe and set <strong>Measures</strong> to <strong>Differential pressure</strong>.</li>
+  <li>Pick the AHU return pipe as its <strong>reference pipe</strong>. The sensor now reads across the coil.</li>
+  <li>Set the <strong>Δp setpoint to 110 kPa</strong> — the coil’s 100 kPa rating plus about 10% for the pipework around it.</li>
+  <li>With the sensor still selected, click <strong>ADD CONTROL</strong> and link it to the first pump.</li>
+  <li>Select the second pump and set <strong>Sync with</strong> to the first.</li>
 </ol>
 <div class="note rule"><span class="tag">NOTE:</span>
-  <p>The control links to PMP-1 only. In the next step you tie PMP-2 to PMP-1, so the second pump follows the first rather than chasing the same sensor on its own. Two pumps chasing one sensor fight each other; one pump leads and the rest follow.</p>
+  <p>Link <strong>one</strong> pump to the sensor and sync the rest to it. Two pumps chasing the same reading fight each other; one leads and the others follow its speed.</p>
 </div>
 
 <!-- ============================================ -->
-<h2 id="syncpumps">8. Run the pumps together</h2>
-<p>Parallel pumps on a common header share one speed command. Synchronise PMP-2 to PMP-1 so the pair acts as one set.</p>
-<ol class="steps">
-  <li>Select PMP-2 and open its properties.</li>
-  <li>Set <strong>Sync with</strong> to <strong>PMP-1</strong>.</li>
-</ol>
-<p>PMP-2 now copies PMP-1's speed and its sizing. When the sensor slows PMP-1, PMP-2 slows with it. If you added the standby PMP-3, sync it to PMP-1 as well and leave it Off — a synced standby is still a standby, ready at the same duty when it is switched on.</p>
-<div class="note rule"><span class="tag">NOTE:</span>
-  <p>Sync copies the speed and the sizing, not the control valve. Only PMP-1 carries the sensor link; PMP-2 follows PMP-1's speed. This is why you link one pump and sync the rest, rather than linking every pump to the sensor.</p>
-</div>
-
-<!-- ============================================ -->
-<h2 id="sim2">9. Simulate again</h2>
+<h2 id="sim2">12. Simulate again</h2>
 <p>Return to SIMULATE.</p>
 <div class="result">
-  <div class="rh">What you should see, once it settles</div>
+  <div class="rh">What you should see</div>
   <ul class="tight">
-    <li>The pumps <strong>ease off together</strong> — the VFDs drop to about 95% as the sensor holds the pressure at the top coil.</li>
-    <li>The coil valves <strong>open up</strong> — with less pressure to throttle against, they run nearer 80% open.</li>
-    <li>The pressure across AHU-5 is held at the setpoint instead of running high.</li>
+    <li>The pumps <strong>slow down together</strong> as the sensor holds the top-floor pressure.</li>
+    <li>The coil valves <strong>open up</strong>, with less pressure to throttle against.</li>
+    <li>The pressure across the top coil settles at the setpoint instead of running high.</li>
   </ul>
 </div>
-<p>The change is modest here because the plant is close to right for the load. On a system with more spare pump head, the same control saves much more — the pumps follow the building down as floors close their valves.</p>
-<div class="note limit"><span class="tag">IMPORTANT:</span>
-  <p>At 200 kPa the system may not settle: the notification chip reports that the setpoint cannot be held. Raise the setpoint on DPS-01 — typically by about 50 kPa, to <strong>250 kPa</strong> — and simulate again. It should settle, with the pumps near 95% speed. The finished file carries 250 kPa for this reason.</p>
-</div>
-<div class="note limit"><span class="tag">IMPORTANT:</span>
-  <p>Why 200 kPa is not enough is under investigation. The coils' own control valves add pressure drop that the sensor does not see across its two tapping points, so the pump is asked for a differential the system does not present there. This may be corrected in a future version. For now, raise the setpoint until the system settles, and note the value that works.</p>
-</div>
-
-<!-- ============================================ -->
-<h2 id="chiller3">10. Add a third chiller</h2>
-<p>The plant needs more cooling capacity, or a standby chiller. You do not draw it from scratch — you copy one that is already there.</p>
-<ol class="steps">
-  <li>Go to Level 0. Select an existing chiller and the pipe it sits on.</li>
-  <li>Copy the selection with <kbd>Ctrl</kbd>+<kbd>C</kbd>, and place the copy with <kbd>Ctrl</kbd>+<kbd>V</kbd> on the plant pipework. Press <kbd>Tab</kbd> to pick which end joins, and <kbd>R</kbd> to turn it.</li>
-  <li>The copy arrives as WCCH-03, tagged for its place in the plant.</li>
-</ol>
-<p>Simulate once more. With three chillers the plant has the capacity and the redundancy a real system needs. Compare your model with the finished file to check the result.</p>
+<p>The saving is the difference between those two states, and it grows as the building unloads. Sweep <code>MECH-L5-AHU01</code> down through 60% and 40% and watch the pumps follow it.</p>
 <div class="note check"><span class="tag">SUGGESTION:</span>
-  <p>You now have the full system: a central plant with two duty pumps and three chillers, five floors on two risers, and the pumps controlled from the top-floor pressure. This is the pattern most chilled-water buildings follow.</p>
+  <p>If you would rather not choose the setpoint yourself, switch the sensor’s Δp setpoint to <strong>Auto</strong>. The solve then searches for the lowest differential that still holds every coil, which is the reset a real building management system performs. It costs a full control loop per trial, so it is slower than a fixed figure. Set the comparator to MIN if you want a floor under it.</p>
 </div>
 
 <footer>
