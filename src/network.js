@@ -5453,6 +5453,103 @@
    * Returns { ok, q, h, worstNode, error } with q in m³/s and h in metres.
    * `safetyPct` is applied to the DUTY, not to an increment — there is one pass
    * here, so "10%" means a pump selected 10% above the head the design needs. */
+  /* THE PLUMBING INDEX RUN — the critical path, as ONE definition.
+   *
+   * Michael, 2026-10-06: "plumbing design critical path is not exported in
+   * csv." It was not, and the reason it was missed is the reason this function
+   * exists: the derivation lived inside the calculation-sheet renderer, so the
+   * CSV writer had no way to reach it without copying twenty lines of tree
+   * walking. A second copy would have drifted from the first the moment either
+   * changed, which is exactly what happened to the hydronic writer in August
+   * when it exported the wrong columns for a plumbing file.
+   *
+   * THE GOVERNING FIXTURE IS THE ONE WITH THE LEAST MARGIN between the residual
+   * pressure delivered to it and the pressure IPC 604.3 says it needs. Not the
+   * furthest, and not the highest: a close fixture on an undersized branch can
+   * be worse served than a distant one on a generous main, and it is the margin
+   * that decides whether the design works.
+   *
+   * THE PATH IS WALKED SOURCE-WARD from that fixture, parent pipe by parent
+   * pipe, and reversed — so it reads from the origin outward the way an
+   * engineer checks it off. `rep.byPipe[id].from` is already the source-ward
+   * end, so the walk needs no flow-direction reasoning of its own.
+   *
+   * A PRESSURE ORIGIN IS REQUIRED. Residual pressure only means something if
+   * something sets it: a pressurised source, or a booster carrying the head.
+   * Without one there is no critical path to state, and `ok` is false rather
+   * than the function inventing an answer from a floating datum.
+   *
+   * Returns:
+   *   { ok, origin, target, targetNode, pipes, sections,
+   *     required, available, margin, friction, static, pumpHead }
+   * Pressures in Pa, `friction` as a POSITIVE magnitude. */
+  function plumbingCriticalPath(m, rep) {
+    rep = rep || plumbingReport(m);
+    var out = { ok: false, origin: null, target: null, targetNode: null,
+                pipes: [], sections: 0, required: 0, available: 0, margin: 0,
+                friction: 0, static: 0, pumpHead: 0 };
+    if (!rep || !rep.ok || !rep.byPipe) return out;
+
+    var hasOrigin = (m.nodes || []).some(function (n) {
+      return n.device && n.device.kind === 'source' && n.device.pressure > 0;
+    }) || (m.pipes || []).some(function (p) {
+      return p.kind === 'pump' && p.pump && p.pump.mode !== 'off';
+    });
+    if (!hasOrigin) return out;
+
+    var parentPipeOf = {};
+    Object.keys(rep.byPipe).forEach(function (id) {
+      parentPipeOf[rep.byPipe[id].to] = id;
+    });
+
+    var worst = null, worstMargin = Infinity;
+    (m.nodes || []).forEach(function (nn) {
+      var dv = nn.device;
+      if (!(dv && dv.kind === 'demand' && dv.include !== false)) return;
+      if (rep.pressure[nn.id] === undefined) return;
+      var margin = rep.pressure[nn.id] - M.plumbingReqPressure(m, dv);
+      if (margin < worstMargin) { worstMargin = margin; worst = nn; }
+    });
+    if (!worst) return out;
+
+    var pipes = [], node = worst.id, guard = 0;
+    while (parentPipeOf[node] && guard++ < 100000) {
+      var pp = parentPipeOf[node];
+      pipes.unshift(pp);
+      node = rep.byPipe[pp].from;
+    }
+
+    var rho = (m.settings && m.settings.fluid && m.settings.fluid.density) || 998;
+    var fric = 0, stat = 0, head = 0;
+    pipes.forEach(function (id) {
+      fric += Math.abs(rep.dpFric[id] || 0);
+      var sct = rep.byPipe[id];
+      var fn = M.node(m, sct.from), tn = M.node(m, sct.to);
+      /* Static is NEGATIVE going up: lifting water spends pressure. Same sign
+       * convention the sheet's grid prints, so the two agree term for term. */
+      stat += -FD.units.headToPaWith(
+        (tn ? M.elevation(m, tn) : 0) - (fn ? M.elevation(m, fn) : 0), rho);
+      var pp2 = M.pipe(m, id);
+      if (pp2 && pp2.kind === 'pump' && pp2.pump && pp2.pump.mode !== 'off') {
+        head += FD.units.headToPaWith(pp2.pump.head || 0, rho);
+      }
+    });
+
+    out.ok = true;
+    out.origin = node;
+    out.target = worst.tag || worst.id;
+    out.targetNode = worst.id;
+    out.pipes = pipes;
+    out.sections = pipes.length;
+    out.required = M.plumbingReqPressure(m, worst.device);
+    out.available = rep.pressure[worst.id];
+    out.margin = out.available - out.required;
+    out.friction = fric;
+    out.static = stat;
+    out.pumpHead = head;
+    return out;
+  }
+
   function plumbingPumpDuty(m, pipeId, rep) {
     rep = rep || plumbingReport(m);
     if (!rep.ok) return { ok: false, error: rep.error, q: null, h: null };
@@ -5585,6 +5682,7 @@
     build: build,
     plumbingReport: plumbingReport,
     plumbingPumpDuty: plumbingPumpDuty,
+    plumbingCriticalPath: plumbingCriticalPath,
     plumbingSimModel: plumbingSimModel,
     nodeTypeCode: nodeTypeCode,
     flowRegimeWarnings: flowRegimeWarnings,

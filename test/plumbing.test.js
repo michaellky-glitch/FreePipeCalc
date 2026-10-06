@@ -1001,4 +1001,100 @@ function findNode(mm, x, y) {
   return mm.nodes.filter(function (n) { return n.x === x && n.y === y; })[0];
 }
 
+/* ==================================================================
+ * THE CRITICAL PATH — ONE DEFINITION, TWO READERS
+ *
+ * Michael, 2026-10-06: "plumbing design critical path is not exported in csv."
+ * It was not, and the cause is why `plumbingCriticalPath` now exists in
+ * `network.js`: the derivation lived inside the calculation-sheet renderer, so
+ * the CSV writer had no way to reach it without copying the tree walk. These
+ * assertions pin the DEFINITION, which both now read.
+ *
+ * The expected values are relationships and hand checks — which fixture
+ * governs, that the path is connected end to end, that the terms sum — not
+ * magnitudes read back out of the code.
+ * ================================================================== */
+section('plumbingCriticalPath — the index run');
+{
+  const raw = fs.readFileSync(__dirname + '/fixtures/plumbing-booster.pnet.json', 'utf8');
+  const m = M.fromJSON(JSON.parse(raw));
+  const rep = NET.plumbingReport(m);
+  const cp = NET.plumbingCriticalPath(m, rep);
+
+  ok('the booster model has a critical path', cp.ok);
+  ok('...reported from an origin', !!cp.origin);
+  ok('...to a governing fixture', !!cp.targetNode);
+  ok('...with sections on it', cp.sections > 0 && cp.pipes.length === cp.sections,
+     cp.sections + ' sections, ' + cp.pipes.length + ' pipes');
+
+  /* THE GOVERNING FIXTURE IS THE WORST-SERVED ONE, not the furthest. Checked
+   * against every other fixture rather than against a remembered node id. */
+  {
+    let worstId = null, worstMargin = Infinity;
+    m.nodes.forEach(n => {
+      const dv = n.device;
+      if (!(dv && dv.kind === 'demand' && dv.include !== false)) return;
+      if (rep.pressure[n.id] === undefined) return;
+      const margin = rep.pressure[n.id] - M.plumbingReqPressure(m, dv);
+      if (margin < worstMargin) { worstMargin = margin; worstId = n.id; }
+    });
+    ok('the target is the fixture with the least margin',
+       cp.targetNode === worstId, cp.targetNode + ' vs ' + worstId);
+    near('...and the margin it reports is that margin', cp.margin, worstMargin, 1e-6);
+  }
+
+  /* THE PATH IS A CHAIN. Each section must start where the previous one ended,
+   * the first at the origin and the last at the fixture — otherwise it is a
+   * set of pipes rather than a route, and the CSV would print it in an order
+   * that cannot be followed down the page. */
+  {
+    let joined = true, at = cp.origin;
+    cp.pipes.forEach(id => {
+      const sct = rep.byPipe[id];
+      if (!sct || sct.from !== at) joined = false;
+      at = sct ? sct.to : at;
+    });
+    ok('the path is connected from the origin, section by section', joined);
+    ok('...and ends at the governing fixture', at === cp.targetNode,
+       at + ' vs ' + cp.targetNode);
+  }
+
+  /* MARGIN IS AVAILABLE MINUS REQUIRED, and `required` is the fixture's own
+   * 604.3 figure rather than anything the path computed. */
+  near('margin = available - required', cp.margin, cp.available - cp.required, 1e-9);
+  near('required is the fixture\u2019s own 604.3 pressure',
+       cp.required, M.plumbingReqPressure(m, M.node(m, cp.targetNode).device), 1e-9);
+
+  /* FRICTION IS A MAGNITUDE, summed over the path's own sections. The sheet
+   * applies the sign when it prints it, so a negative here would be subtracted
+   * twice. */
+  ok('friction is reported as a positive magnitude', cp.friction >= 0,
+     String(cp.friction));
+  {
+    const byHand = cp.pipes.reduce((a, id) => a + Math.abs(rep.dpFric[id] || 0), 0);
+    near('...and is the sum of the sections on the path', cp.friction, byHand, 1e-9);
+  }
+
+  /* A MODEL WITH NO PRESSURE ORIGIN HAS NO CRITICAL PATH, and must say so
+   * rather than inventing one from a floating datum. */
+  {
+    const m2 = M.fromJSON(JSON.parse(raw));
+    m2.nodes.forEach(n => { if (n.device && n.device.kind === 'source') n.device.pressure = 0; });
+    m2.pipes.forEach(p => { if (p.kind === 'pump' && p.pump) p.pump.mode = 'off'; });
+    const cp2 = NET.plumbingCriticalPath(m2);
+    ok('no source pressure and no running pump gives no critical path', !cp2.ok);
+    ok('...and no pipes with it', cp2.pipes.length === 0);
+  }
+
+  /* IT RESOLVES ITS OWN REPORT when not handed one, so a caller that only has
+   * the model — the CSV writer did — does not have to know how. */
+  {
+    const cp3 = NET.plumbingCriticalPath(m);
+    ok('called without a report it builds its own', cp3.ok);
+    ok('...and reaches the same fixture', cp3.targetNode === cp.targetNode);
+    ok('...over the same sections', cp3.pipes.join(',') === cp.pipes.join(','));
+  }
+}
+
+
 report();

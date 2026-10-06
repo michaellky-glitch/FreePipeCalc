@@ -1336,23 +1336,14 @@
     var parentPipeOf = {};
     ids.forEach(function (id) { parentPipeOf[rep.byPipe[id].to] = id; });
     function reqOf(nn) { return M.plumbingReqPressure(m, nn.device); }
-    var worst = null, worstMargin = Infinity, pathPipes = [], rootId = null, req = 0, pathSet = {};
-    if (anySource) {
-      m.nodes.forEach(function (nn) {
-        if (!(nn.device && nn.device.kind === 'demand' && nn.device.include !== false)) return;
-        if (rep.pressure[nn.id] === undefined) return;
-        var margin = rep.pressure[nn.id] - reqOf(nn);
-        if (margin < worstMargin) { worstMargin = margin; worst = nn; }
-      });
-      if (worst) {
-        var node = worst.id, guard = 0;
-        while (parentPipeOf[node] && guard++ < 100000) {
-          var pp = parentPipeOf[node]; pathPipes.unshift(pp); pathSet[pp] = true;
-          node = rep.byPipe[pp].from;
-        }
-        rootId = node; req = reqOf(worst);
-      }
-    }
+    /* ONE DEFINITION, READ BY BOTH THE SHEET AND THE CSV. The derivation used
+     * to live here, which is why the CSV writer never had it — see
+     * `plumbingCriticalPath` in `network.js` (Michael, 2026-10-06: "plumbing
+     * design critical path is not exported in csv"). */
+    var cp = FD.network.plumbingCriticalPath(m, rep);
+    var worst = cp.ok ? M.node(m, cp.targetNode) : null;
+    var pathPipes = cp.pipes, rootId = cp.origin, req = cp.required, pathSet = {};
+    pathPipes.forEach(function (id) { pathSet[id] = true; });
 
     /* Per-pipe geometry from the built network (length, fittings, resistance),
      * so the plumbing sheet can carry the same columns as the hydronic one. */
@@ -2775,10 +2766,19 @@
                 'Flow ' + d.flow, 'Velocity m/s', 'PD/m ' + d.pdm,
                 'Section PD ' + d.pressure, 'Static ' + d.pressure,
                 'Residual ' + d.pressure];
-    lines = header.slice();
-    lines.push(cols.map(field).join(delim));
 
-    ids.forEach(function (id) {
+    /* ONE ROW BUILDER, TWO TABLES. All Pipes and the Critical Path are the same
+     * columns over different sets of sections, so the row is written once —
+     * otherwise the two drift and the file contradicts itself, which is the
+     * failure this whole export has had before. */
+    /* TAGS, NOT RAW NODE IDS — the sheet prints "SRC-1 → N11" and the file was
+     * printing "N0 → N11" for the same section. This export exists so the two
+     * can be checked against each other, and a reader who cannot match a row to
+     * a row has to do that matching by hand. Pre-existing on All Pipes; fixed
+     * here rather than shipping a second table with it. */
+    function nodeLabel(id) { var n = M.node(m, id); return (n && n.tag) || id; }
+
+    function rowFor(id) {
       var sct = rep.byPipe[id], p = M.pipe(m, id), l = linkById[id];
       var bore = p ? M.pipeBore(m, p) : null, q = sct.flow;
       var fn = M.node(m, sct.from), tn = M.node(m, sct.to);
@@ -2791,8 +2791,8 @@
       var pdV = (l && !isPump)
         ? FD.units.headToPaWith(Math.abs(FD.hydraulics.linkLoss(l, q)), rho) : 0;
       var pr = rep.pressure[sct.to];
-      lines.push([
-        sct.from + ' → ' + sct.to, (p && p.tag) || '',
+      return [
+        nodeLabel(sct.from) + ' → ' + nodeLabel(sct.to), (p && p.tag) || '',
         p ? FD.units.fmtSize(p.size, d.size) : '',
         l ? num((l._d * 1000).toFixed(2)) : '',
         l ? num(FD.units.fmtLength(l._L, d.length)) : '',
@@ -2808,8 +2808,13 @@
         num(FD.units.fmtPressure(pdV, d.pressure)),
         num(FD.units.fmtPressure(statPa, d.pressure)),
         pr === undefined ? '' : num(FD.units.fmtPressure(pr, d.pressure))
-      ].map(field).join(delim));
-    });
+      ].map(field).join(delim);
+    }
+
+    lines = header.slice();
+    lines.push('# Table: All Pipes (Design)');
+    lines.push(cols.map(field).join(delim));
+    ids.forEach(function (id) { lines.push(rowFor(id)); });
 
     lines.push('');
     lines.push('# Total connected load: ' + rep.totalFU.toFixed(1) + ' FU → ' +
@@ -2824,6 +2829,55 @@
       written++;
     }
     emit('pipes', 'all-pipes', lines);
+
+    /* THE CRITICAL PATH — the index run, and the table an engineer actually
+     * checks (Michael, 2026-10-06: "plumbing design critical path is not
+     * exported in csv"). The sheet has carried it since the discipline split;
+     * the writer never did, because the derivation lived in the renderer.
+     *
+     * Same columns as All Pipes over the path's sections only, in order from
+     * the origin outward, then the summary the sheet's grid prints — sections,
+     * friction, static, pump head, available, required, margin — as comment
+     * lines, so the file carries the whole argument rather than just its rows.
+     *
+     * A LOSS READS NEGATIVE here exactly as it does on the sheet: it is a term
+     * subtracted from the available pressure, and printing it positive beside a
+     * signed static made the grid read as though the two worked the same way. */
+    if (!want || want.indexOf('critical') >= 0) {
+      var cp = FD.network.plumbingCriticalPath(m, rep);
+      if (!cp.ok) {
+        toast('No critical path to export — the model has no pressure origin.',
+              'error');
+      } else {
+        var cpl = header.slice();
+        cpl.push('# Table: Critical Path (Design)');
+        cpl.push('# From ' + nodeLabel(cp.origin) + ' to ' + cp.target +
+                 ' — the fixture with the least margin between the pressure ' +
+                 'delivered to it and the pressure it requires.');
+        cpl.push('# DESIGN uses the undiversified IPC 604.3 flow at each fixture ' +
+                 'and the pump design head — the sizing basis.');
+        cpl.push(cols.map(field).join(delim));
+        cp.pipes.forEach(function (id) { cpl.push(rowFor(id)); });
+        cpl.push('');
+        cpl.push('# Sections: ' + cp.sections);
+        cpl.push('# Total friction drop: ' +
+                 num(FD.units.fmtPressure(-Math.abs(cp.friction), d.pressure)) +
+                 ' ' + d.pressure);
+        cpl.push('# Static: ' + num(FD.units.fmtPressure(cp.static, d.pressure)) +
+                 ' ' + d.pressure);
+        if (cp.pumpHead) {
+          cpl.push('# Pump head: ' +
+                   num(FD.units.fmtPressure(cp.pumpHead, d.pressure)) + ' ' + d.pressure);
+        }
+        cpl.push('# Available at fixture: ' +
+                 num(FD.units.fmtPressure(cp.available, d.pressure)) + ' ' + d.pressure);
+        cpl.push('# Required pressure: ' +
+                 num(FD.units.fmtPressure(cp.required, d.pressure)) + ' ' + d.pressure);
+        cpl.push('# Margin: ' + num(FD.units.fmtPressure(cp.margin, d.pressure)) +
+                 ' ' + d.pressure + (cp.margin < 0 ? ' — INSUFFICIENT' : ''));
+        emit('critical', 'critical-path', cpl);
+      }
+    }
 
     /* THE FIXTURE SCHEDULE, as its own file — a different shape from the pipe
      * table, so stacking the two in one sheet would give Excel a grid with two
@@ -2880,6 +2934,7 @@
      * is worse than not offering it — the export looks like it failed. */
     var tables = plumbing
       ? [['pipes', 'All Pipes (Design)', true],
+         ['critical', 'Critical Path (Design)', true],
          ['fixtures', 'Fixture schedule', true]]
       : [['pipes', 'All Pipes', true],
          ['critical', 'Critical Path', true]];
