@@ -209,11 +209,15 @@
         if (na.level !== lv.id || nb.level !== lv.id) return;
         var wa = M.worldXY(m, na), wb = M.worldXY(m, nb);
         var za = M.elevation(m, na), zb = M.elevation(m, nb);
-        line(ents, Lpipe, wa.x, wa.y, za, wb.x, wb.y, zb);
+        /* A point device or sensor (v0.19.0) has no length: no line, and its
+         * symbol takes the angle of the run it sits on. */
+        var isPt = Math.hypot(wb.x - wa.x, wb.y - wa.y) < 1e-6;
+        if (!isPt) line(ents, Lpipe, wa.x, wa.y, za, wb.x, wb.y, zb);
 
         if (p.kind !== 'pipe') {
           var mx = (wa.x + wb.x) / 2, my = (wa.y + wb.y) / 2, mz = (za + zb) / 2;
-          var ang = Math.atan2(wb.y - wa.y, wb.x - wa.x);
+          var ax = isPt ? M.pointAxis(m, p) : null;
+          var ang = ax ? Math.atan2(ax.y, ax.x) : Math.atan2(wb.y - wa.y, wb.x - wa.x);
           var sym = deviceSymbol(ents, Lsym, p.kind, mx, my, mz, ang, p);
 
           /* A DIFFERENTIAL PROBES TWO PIPES, so the second one is drawn — the

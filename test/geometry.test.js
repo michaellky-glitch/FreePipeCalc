@@ -38,9 +38,11 @@ section('TEST 1 — source→pump length change moves all three floors together'
 {
   const m = loadTest();
   // supply chain: source -> (2 m) -> pumpIn ; that first pipe is the one edited
+  /* 2.1 m since v0.19.0: drawn 2 m, plus half of the 0.2 m pump after it,
+   * which the file converts to a point on load (M.migratePointDevices). */
   const source = m.nodes.find(n => n.device && n.device.kind === 'source');
   const supply = M.pipesAt(m, source.id)[0];
-  near('Supply pipe starts at 2 m', len(m, supply.id), 2, 1e-9);
+  near('Supply pipe starts at 2.1 m', len(m, supply.id), 2.1, 1e-9);
 
   // record world positions on every level, and all pipe lengths
   const worldBefore = {};
@@ -77,7 +79,7 @@ section('TEST 1 — source→pump length change moves all three floors together'
   ok('Every downstream node moved by an identical delta',
      vals.every(v => Math.abs(v.dx - dx0) < 1e-9 && Math.abs(v.dy - dy0) < 1e-9),
      `dx=${dx0.toFixed(4)} dy=${dy0.toFixed(4)}`);
-  near('...and the delta is the 3 m the pipe grew by', Math.hypot(dx0, dy0), 3, 1e-9);
+  near('...and the delta is the 2.9 m the pipe grew by', Math.hypot(dx0, dy0), 5 - 2.1, 1e-9);
   near('Source itself did not move', M.worldXY(m, source).x, worldBefore[source.id].x, 1e-12);
 
   // All three floors present in the moved set
@@ -85,7 +87,7 @@ section('TEST 1 — source→pump length change moves all three floors together'
   ok('All three levels moved', levelsMoved.size === 3, String(levelsMoved.size));
   ok('Riser column moved with them', r.movedRisers === 1, String(r.movedRisers));
   near('Column tracked the same delta',
-       Math.hypot(m.risers[0].x - colBefore.x, m.risers[0].y - colBefore.y), 3, 1e-9);
+       Math.hypot(m.risers[0].x - colBefore.x, m.risers[0].y - colBefore.y), 5 - 2.1, 1e-9);
 
   // Riser attachments must still be coincident with the column
   m.risers[0].attachments.forEach(att => {

@@ -1,5 +1,8 @@
 # Feasibility — pumps, valves and sensors as points
 
+**Status: implemented in v0.19.0** (decisions 1 to 5 as recommended). See
+section 10.
+
 Date: 2026-10-10. Base: v0.18.66 (`0e56076`).
 
 Question (owner): can pumps, valves and control points become single
@@ -192,3 +195,32 @@ drawing behaviour and can be checked by the test suites alone.
    length.
 5. **A pipe connected directly to a device point.** Recommended: not
    permitted at first.
+
+---
+
+## 10. Implemented in v0.19.0
+
+All five decisions were taken as recommended. What was built:
+
+- **Fittings** (`network.js`, `pointGroups`): the nodes of a point device
+  are one junction for fitting detection (rule 1).
+- **Sensors** (`model.js`, `network.js`): a sensor is an entry in `m.pipes`
+  with a = b = its node. `pipesAt` does not list it, `network.build` leaves it
+  out, and it reads at its node (`sensorReading`, `nodeThroughFlow`). Its id,
+  tag, control links and copy and paste do not change.
+- **Migration** (`M.migratePointDevices`, file format 2): as in section 6.
+  The load reports `POINT_DEVICES`, and `POINT_DEVICE_KEPT` for each device
+  it cannot convert.
+- **Drawing** (`canvas.js`, `dxf.js`): placing, symbol angle from the run
+  (`M.pointAxis`), the device nodes hidden from picking and labels, slide
+  along the run, delete rejoins the pipe, and no pipe can join a device.
+
+Measured on the shipped files, v0.18.66 against v0.19.0 (DESIGN): every file
+converts with no device kept; all solve with no new warning and no change in
+passes; auto-sized pump heads +0.03% to +0.73%; flows move by at most
+0.06 L/s.
+
+The test fixtures stay in format 1 and are converted on load, so every suite
+exercises the migration. The expected values that moved were re-derived by
+hand or by the independent solver; see `test/fixtures/README.md`.
+

@@ -5407,11 +5407,10 @@
 
     var box = readoutBox(host, 'Actual');
     var res = app.results;
-    var tl = res && res.thermal && res.thermal.links[p.id];
+    /* The engine's one definition of what the sensor reads, at its node. */
+    var rdg = res ? FD.network.sensorReading(m, p, res) : null;
     if (sn.mode === 'flow') {
-      var qa = res && res.flow ? res.flow[p.id] : undefined;
-      box.ro('Flow', qa === undefined ? '—'
-             : FD.units.fmtFlow(Math.abs(qa), d.flow, true));
+      box.ro('Flow', !rdg ? '—' : FD.units.fmtFlow(rdg.value, d.flow, true));
     } else if (sn.mode === 'pressure') {
       var pa = res && res.pressure ? res.pressure[p.a] : undefined;
       box.ro('Pressure', pa === undefined ? '—'
@@ -5443,7 +5442,7 @@
           ? FD.units.fmtPressure(sn.dpAuto, d.pressure, true) : '—');
       }
     } else {
-      box.ro('Temperature', tl && isFinite(tl.tIn) ? tl.tIn.toFixed(2) + ' °C' : '—');
+      box.ro('Temperature', rdg && isFinite(rdg.value) ? rdg.value.toFixed(2) + ' °C' : '—');
     }
     /* "Linked to", not "Controlled by": the SENSOR is the thing doing the
      * controlling — it states the setpoint. Michael, 2026-08-04. */

@@ -1166,9 +1166,20 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
    *              flows (8.90 m at 11.263 L/s, 4.54 at 10.160, 4.54 at 9.839,
    *              20.44 at 8.735, 10.00, 23.05 and 39.45 at 10.676);
    *              the route via P34 closes the loops at the same figure 2.3372 m
-   *   total      27.6759 m x 998 x 9.81 / 1000 = 270.96 kPa */
+   *   total      27.6759 m x 998 x 9.81 / 1000 = 270.96 kPa
+   *
+   * RE-DERIVED AGAIN AT v0.19.0, when devices became points. The file is
+   * converted on load (M.migratePointDevices): pump 1, drawn 0.70 m, and the
+   * equipment P77, drawn 0.487 m, sit in the series path at 20 L/s, and their
+   * length is now DN100 pipe either side of them:
+   *   (0.70 + 0.487) m x 0.071549 m/m = 0.0849 m
+   *   27.6759 + 0.0849 = 27.7608 m x 998 x 9.81 / 1000 = 271.79 kPa
+   * The same independent solver, given the converted geometry and the rule
+   * that a point device sits inside its junction, gives 271.79 / 260.61 /
+   * 256.12 / 252.36. On the unconverted file it still gives 270.96 / 260.17,
+   * so the step is the geometry alone. */
   const file = __dirname + '/fixtures/data_centre_redundant_ring_main.pnet (fixed).json';
-  const expectHead = { 1: 270.96, 2: 260.17, 3: 255.72, 4: 251.98 };   // kPa
+  const expectHead = { 1: 271.79, 2: 260.61, 3: 256.12, 4: 252.36 };   // kPa
 
   [1, 2, 3, 4].forEach(n => {
     const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
@@ -1550,8 +1561,20 @@ section('A dP setpoint equal to the rating delivers rated flow');
 
   /* AHU-10 is rated 200 kPa and the sensor spans it. Setting the sensor to that
    * rating must now give the machine its rated flow, with its own valve wide
-   * open — which is what the index terminal does in a real plant. */
-  const at = atSetpoint(200);
+   * open — which is what the index terminal does in a real plant.
+   *
+   * THE TAPPINGS STRADDLE THE COIL AND SOME PIPE, so "the rating" at the
+   * sensor is the coil's 200 kPa plus the friction of that pipe at rated
+   * flow. Since v0.19.0 the coil is a point and its drawn 0.5 m is pipe, so
+   * the pipe between the tappings is P166 (1.022 m + the 2.29 m DN80 elbow at
+   * N134) and P179 (0.684 m), all DN80 sch 40: 3.995 m. At the rated
+   * 5.631 L/s, Hazen-Williams, C 120, bore 77.92 mm:
+   *   h = 10.6663 x 3.995 x 0.005631^1.852 / (120^1.852 x 0.07792^4.871)
+   *     = 0.1028 m, x 999.92 x 9.81 (water at the 6 °C source) = 1.008 kPa.
+   * Before v0.19.0 the same pipe was 0.82 kPa and the test set exactly 200;
+   * the coils at the margin (AHU-8 and AHU-9 at 99.5% of rated) then sat just
+   * inside the setpoint tolerance, and at 99.4% they no longer do. */
+  const at = atSetpoint(200 + 1.008);
   ok('the equipment the sensor spans is rated 200 kPa',
      at.eq.equip.pdRated === 200000, String(at.eq.equip.pdRated));
   near('a setpoint equal to the rating gives rated flow', at.frac, 1, 0.01);

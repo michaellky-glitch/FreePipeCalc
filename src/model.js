@@ -11,7 +11,9 @@
 (function (FD) {
   'use strict';
 
-  var FORMAT_VERSION = 1;
+  /* 2 (v0.19.0): pumps, valves and equipment are points, sensors sit on a node
+   * (`migratePointDevices`). A file of format 1 is converted on load. */
+  var FORMAT_VERSION = 2;
 
   /* An outflow with zero required pressure is physically meaningless — water
    * does not leave a pipe against nothing — and it makes the terminal
@@ -494,8 +496,58 @@
     m.pipes = m.pipes.filter(function (p) { return p.id !== id; });
   }
 
+  /* A POINT DEVICE (v0.19.0): a pump, valve or piece of equipment whose two
+   * nodes sit on one point. It is still a link — it has a suction and a
+   * discharge, so it needs two heads — but it has no length: the drawn run is
+   * the pipe, and the device is a symbol on it. Until v0.19.0 every device was
+   * drawn 0.5 m long, and that half-metre carried no pipe friction.
+   * `byId` (optional) is a node lookup, for callers that test every pipe. */
+  var POINT_TOL = 1e-6;                // m
+  var POINT_KINDS = { pump: 1, valve: 1, equip: 1 };
+  function isPointDevice(m, p, byId) {
+    if (!p || !POINT_KINDS[p.kind] || p.a === p.b) return false;
+    var a = byId ? byId[p.a] : node(m, p.a), b = byId ? byId[p.b] : node(m, p.b);
+    if (!a || !b || a.level !== b.level) return false;
+    return Math.abs(a.x - b.x) < POINT_TOL && Math.abs(a.y - b.y) < POINT_TOL &&
+           Math.abs((a.dz || 0) - (b.dz || 0)) < POINT_TOL;
+  }
+
+  /* The pipes, risers and devices that meet at a node. A SENSOR is not one of
+   * them: it is an instrument on the node, not a link (v0.19.0, see the note
+   * at `sensorSetpoint`). Use `sensorsAt` for those. */
+  /* THE DIRECTION OF THE RUN A POINT SITS ON, as a world unit vector {x, y}:
+   * the pipe at its inlet, entering, or else the pipe at its outlet, leaving.
+   * A point device or a sensor has no length, so its symbol takes its angle
+   * from the pipework (the canvas and the DXF export both draw it this way).
+   * Null if no pipe touches it. */
+  function pointAxis(m, p) {
+    function unit(fromId, toId) {
+      var f = node(m, fromId), t = node(m, toId);
+      if (!f || !t) return null;
+      var wf = worldXY(m, f), wt = worldXY(m, t);
+      var L = Math.hypot(wt.x - wf.x, wt.y - wf.y);
+      return L > 1e-9 ? { x: (wt.x - wf.x) / L, y: (wt.y - wf.y) / L } : null;
+    }
+    var inP = pipesAt(m, p.a).filter(function (q) { return q.id !== p.id; })[0];
+    var u = inP ? unit(other(inP, p.a), p.a) : null;
+    if (u) return u;
+    var outP = pipesAt(m, p.b).filter(function (q) { return q.id !== p.id; })[0];
+    return outP ? unit(p.b, other(outP, p.b)) : null;
+  }
+
   function pipesAt(m, nodeId) {
-    return m.pipes.filter(function (p) { return p.a === nodeId || p.b === nodeId; });
+    return m.pipes.filter(function (p) {
+      return p.kind !== 'sensor' && (p.a === nodeId || p.b === nodeId);
+    });
+  }
+
+  function sensorsAt(m, nodeId) {
+    return m.pipes.filter(function (p) { return p.kind === 'sensor' && p.a === nodeId; });
+  }
+
+  /* A sensor on a node: an entry in `m.pipes` with a = b = the node. */
+  function addSensor(m, nodeId, opts) {
+    return addPipe(m, nodeId, nodeId, Object.assign({}, opts || {}, { kind: 'sensor' }));
   }
 
   function other(p, nodeId) { return p.a === nodeId ? p.b : p.a; }
@@ -724,7 +776,9 @@
       if (p.a === dropId) p.a = keepId;
       if (p.b === dropId) p.b = keepId;
     });
-    m.pipes = m.pipes.filter(function (p) { return p.a !== p.b; });
+    /* A sensor is ON a node (a = b) and moves with it; anything else that now
+     * runs from the node to itself goes. */
+    m.pipes = m.pipes.filter(function (p) { return p.a !== p.b || p.kind === 'sensor'; });
 
     // A device that was attached to the dropped node keeps working: it now
     // hangs off the kept node instead.
@@ -758,6 +812,7 @@
   function dissolveNode(m, nodeId, straightTolDeg) {
     var n = node(m, nodeId);
     if (!n || n.device) return null;
+    if (sensorsAt(m, nodeId).length) return null;      // a sensor sits here
     var ps = pipesAt(m, nodeId);
     if (ps.length !== 2) return null;
     var p1 = ps[0], p2 = ps[1];
@@ -2183,7 +2238,7 @@
     return (isFinite(q) && q > 0) ? q : undefined;
   }
 
-  /* ---------------------------------------------------------- pipe sensor
+  /* --------------------------------------------------------------- sensor
    *
    * An INSTRUMENT, not a device. It reads the water where it sits and states a
    * setpoint for something else to hold. Michael, 2026-08-04, and the case that
@@ -2191,23 +2246,25 @@
    * downstream of a blend, and the thing holding it is a valve on one leg or a
    * pump on one branch.
    *
-   *   sensor = { mode: 'temperature' | 'flow', tSet: °C, qSet: m³/s }
+   *   sensor = { mode: 'temperature' | 'flow' | 'pressure' | 'dP' | 'dT',
+   *              tSet: °C, qSet: m³/s, pSet / dpSet: Pa, ref: pipe id }
    *
-   * IT IS A PIPE IN EVERY HYDRAULIC SENSE. It has a length, a bore and ordinary
-   * friction, and adds NO resistance of its own — a pocket welded into a run is
-   * a piece of pipe. That is why `network.build` needs no branch for it: a
-   * sensor falls through to the pipe treatment and gets exactly the friction
-   * its own 0.5 m earns.
+   * IT SITS ON A NODE (v0.19.0). It is kept in `m.pipes`, so its id, tag,
+   * panel, control links and copy/paste work as they always did, but with
+   * a = b = its node. It is NOT a link: `network.build` leaves it out,
+   * `pipesAt` does not list it, and it adds no resistance. It reads at its
+   * node: the temperature, the pressure, and for a flow sensor the flow
+   * through the node (on a pipe, that pipe's flow).
    *
-   * The two rejected alternatives are worth recording. Modelling it as
-   * EQUIPMENT would give it a design point and therefore a pressure drop that
-   * does not exist, and would leak it into everything that treats equipment as
-   * plant — the off-rating check, the terminal list, the duty columns. Modelling
-   * it as a ZERO-RESISTANCE link would put a singular row in the Jacobian for
-   * no benefit at all.
+   * Until v0.19.0 it was a 0.5 m pipe "in every hydraulic sense", with the
+   * friction of that half-metre. Collapsing it to a point as a link was
+   * tried and does not work: a pipe of zero length has zero resistance, a
+   * singular row in the Jacobian, and the Data Hall, Tutorial 01 and
+   * economizer-trim stopped converging (docs/FEASIBILITY-point-devices.md).
+   * An instrument that is not in the network cannot do that.
    *
-   * It carries no temperature either: it passes straight through, like a pump
-   * or a valve (§18). A thermometer that changed the reading would not be one. */
+   * It carries no temperature either: a thermometer that changed the reading
+   * would not be one. */
   function sensorSetpoint(p) {
     if (!p || p.kind !== 'sensor' || !p.sensor) return null;
     var sn = p.sensor;
@@ -3553,7 +3610,91 @@
     migrateEquipThermal(m);
     migrateControlIterations(m);
     m.migrations = migrateSourcePressure(m);
+    if (obj.formatVersion < 2) m.migrations = m.migrations.concat(migratePointDevices(m));
     return m;
+  }
+
+  /* FORMAT 1 -> 2: EVERY IN-LINE DEVICE BECOMES A POINT (v0.19.0).
+   *
+   * Until v0.19.0 a pump, valve, piece of equipment or sensor was a link drawn
+   * 0.5 m long (the canvas `DEVICE_LEN`), and that half-metre was not pipe:
+   * the device carried its own characteristic and no friction, and a sensor
+   * carried the friction of a 0.5 m pipe. The drawn run is the real pipe, so
+   * the length goes back to the pipes either side.
+   *
+   *   PUMP, VALVE, EQUIPMENT  Both nodes move to one point: the midpoint, so
+   *                           each adjacent pipe gets half the length; or, if
+   *                           one end is fixed (a junction, a source or demand,
+   *                           a riser attachment), that end, so the junction
+   *                           does not move. The link stays: it still has a
+   *                           suction and a discharge.
+   *   SENSOR                  Its two nodes are joined into one, at the same
+   *                           point, and the sensor sits on it (a = b). Its id,
+   *                           tag and control links do not change.
+   *
+   * KEPT AS DRAWN, WITH A NOTE: a device across two levels or two heights,
+   * one with both ends fixed, and devices back to back (moving one would pull
+   * the other off its point). None is in a shipped file. */
+  function migratePointDevices(m) {
+    var notes = [], moved = 0, sensors = 0, length = 0;
+    function fixedNode(n, without) {
+      if (!n) return true;
+      if (n.device) return true;
+      var deg = m.pipes.filter(function (p) {
+        return p.id !== without && p.kind !== 'sensor' && (p.a === n.id || p.b === n.id);
+      }).length;
+      if (deg >= 2) return true;
+      return m.risers.some(function (r) {
+        return r.attachments.some(function (at) { return at.node === n.id; });
+      });
+    }
+    function isDev(p) { return POINT_KINDS[p.kind] || p.kind === 'sensor'; }
+    function backToBack(p) {
+      return m.pipes.some(function (q) {
+        return q.id !== p.id && isDev(q) && q.a !== q.b &&
+               (q.a === p.a || q.b === p.a || q.a === p.b || q.b === p.b);
+      });
+    }
+    function keep(p, why) {
+      notes.push({ code: 'POINT_DEVICE_KEPT', pipe: p.id,
+                   message: (p.tag || p.id) + ' is kept at its drawn length: ' + why + '.' });
+    }
+    /* Back-to-back is decided on the file as loaded, before anything moves. */
+    var chained = {};
+    m.pipes.forEach(function (p) { if (isDev(p) && p.a !== p.b && backToBack(p)) chained[p.id] = true; });
+
+    m.pipes.slice().forEach(function (p) {
+      if (!isDev(p) || p.a === p.b) return;
+      var A = node(m, p.a), B = node(m, p.b);
+      if (!A || !B) return;
+      if (A.level !== B.level || Math.abs((A.dz || 0) - (B.dz || 0)) > POINT_TOL) {
+        keep(p, 'its ends are at different levels or heights'); return;
+      }
+      if (chained[p.id]) { keep(p, 'it is connected directly to another device'); return; }
+      var fa = fixedNode(A, p.id), fb = fixedNode(B, p.id);
+      if (fa && fb) { keep(p, 'both of its ends are junctions or terminals'); return; }
+      var L = Math.hypot(B.x - A.x, B.y - A.y);
+      var x = fa ? A.x : fb ? B.x : (A.x + B.x) / 2;
+      var y = fa ? A.y : fb ? B.y : (A.y + B.y) / 2;
+      A.x = x; A.y = y; B.x = x; B.y = y;
+      length += L;
+      if (p.kind === 'sensor') {
+        /* Keep the fixed node if there is one; the sensor ends up on it. */
+        if (fb) mergeNodes(m, B.id, A.id); else mergeNodes(m, A.id, B.id);
+        sensors++;
+      } else {
+        moved++;
+      }
+    });
+    if (moved || sensors) {
+      notes.unshift({
+        code: 'POINT_DEVICES',
+        message: 'v0.19.0 draws devices as points. ' + moved + ' pump(s), valve(s) and ' +
+                 'equipment, and ' + sensors + ' sensor(s), were converted. Their drawn ' +
+                 'length, ' + length.toFixed(2) + ' m in total, is now pipe.'
+      });
+    }
+    return notes;
   }
 
   /* `control.sweeps` became `control.iterations` (WORKLIST SW.2).
@@ -3656,7 +3797,9 @@
     addPipe: addPipe, pipe: pipe, removePipe: removePipe,
     flipPipe: flipPipe, isDirectional: isDirectional,
     mergeNodes: mergeNodes, dissolveNode: dissolveNode,
-    pipesAt: pipesAt, other: other, pipeLength: pipeLength, pipeRise: pipeRise,
+    pipesAt: pipesAt, sensorsAt: sensorsAt, addSensor: addSensor,
+    migratePointDevices: migratePointDevices, other: other, pipeLength: pipeLength, pipeRise: pipeRise,
+    isPointDevice: isPointDevice, pointAxis: pointAxis,
     pipeBore: pipeBore,
 
     addRiser: addRiser, attachRiser: attachRiser, riserPipes: riserPipes,

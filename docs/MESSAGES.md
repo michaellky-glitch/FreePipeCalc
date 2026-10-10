@@ -139,6 +139,8 @@ Message text may be edited, but message codes are fixed. The placeholder `[…]`
 | `CHECK_CLOSED` | Check valve \[Tag\] is holding against reverse flow. | Normal operation, reported so the zero flow is not a puzzle. |
 | `VALVE_SHUT` | Valve \[Tag\] is shut. | A fully-closed valve; its branch passes nothing. |
 | `THERMAL_DATUM` | Nothing sets a temperature level in this circuit. … °C has been pinned at the outlet of …, the equipment moving the most heat. Every other temperature is relative to that. | The temperature field needed a datum; one was pinned. Raised only when the solve actually needed it. |
+| `POINT_DEVICES` | v0.19.0 draws devices as points. \[N\] pump(s), valve(s) and equipment, and \[N\] sensor(s), were converted. Their drawn length, \[Length\] m in total, is now pipe. | Migration on load of a format-1 file. Each pump, valve and piece of equipment moves to one point (the midpoint, or its fixed end); each sensor moves onto one node. The pipes either side get the length (Calculation Method, section 4.3). |
+| `POINT_DEVICE_KEPT` | \[Tag\] is kept at its drawn length: \[reason\]. | Migration on load. The device is across two levels or heights, has both ends at junctions or terminals, or is connected directly to another device. It keeps its old length; redraw it to make it a point. |
 | `SOURCE_PRESSURE_MOVED` | \[Node\] static pressure \[Pressure\] \[Units\] is stored as \[Height\] \[Units\] elevation. A vertical pipe was created. Source …: its … kPa static pressure was stored as a … m elevation, which was stretching every pipe on it. The pressure is unchanged; the node is back at its drawn level. | Migration on load. A source's static pressure had been stored as the node's ELEVATION. |
 
 ---

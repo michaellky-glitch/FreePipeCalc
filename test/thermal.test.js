@@ -13,6 +13,18 @@ const { load, pinFluid, ok, near, section, report } = require('./harness');
 const FD = load(['src/model.js', 'src/geometry.js', 'data/pumps.js', 'data/valves.js',
                  'src/hydraulics.js', 'src/solver.js', 'src/network.js', 'src/thermal.js']);
 const M = FD.model, NET = FD.network, TH = FD.thermal;
+
+/* A SENSOR SITS ON A NODE (v0.19.0). These rigs were drawn with the sensor as
+ * the middle link of a run, a pipe "in every hydraulic sense". `sensorOn`
+ * keeps that run as a plain pipe with the same options, so the hydraulics do
+ * not change, and puts the sensor on the run's inlet node, which is where it
+ * always read (`sensorReading` reads at `a`). */
+function sensorOn(m, aId, bId, opts) {
+  const o = Object.assign({}, opts || {});
+  const pipeOpts = Object.assign({}, o); delete pipeOpts.tag; delete pipeOpts.kind;
+  M.addPipe(m, aId, bId, pipeOpts);
+  return M.addSensor(m, aId, o);
+}
 const fs = require('fs');
 const path = require('path');
 
@@ -1597,7 +1609,7 @@ section('Pipe sensor: thermostatic mixing');
     const ph = M.addPipe(m, hv2.id, j.id, { size: 'DN50', schedule: 'sch40' });
     const pc = M.addPipe(m, cv2.id, j.id, { size: 'DN50', schedule: 'sch40' });
     M.addPipe(m, j.id, s1.id, { size: 'DN50', schedule: 'sch40' });
-    const sensor = M.addPipe(m, s1.id, s2.id, { kind: 'sensor' });
+    const sensor = sensorOn(m, s1.id, s2.id, {});
     sensor.tag = 'TS-1';
     sensor.sensor = opts.sensor === null ? { mode: 'temperature' }
                   : (opts.sensor || { mode: 'temperature', tSet: 45 });
@@ -1614,12 +1626,16 @@ section('Pipe sensor: thermostatic mixing');
     const t = blend({ on: null });
     const res = NET.solveModel(t.m);
     ok('Solves', res.converged === true, JSON.stringify(res.errors));
-    const l = res.thermal.links[t.sensor.id];
+    /* The sensor reads its node (v0.19.0), the inlet of the link it used to
+     * be, so `tIn` is the same figure it always was. */
+    const l = { tIn: res.thermal.temperature[t.sensor.a] };
     near('Symmetric legs blend 60 and 10 to their mean', l.tIn, 35, 0.05);
     ok('...which is below the 45 °C setpoint, so there is work to do', l.tIn < 45);
     ok('Nothing is controlled without a link', res.controls === null);
-    near('A sensor passes temperature straight through', l.tOut, l.tIn, 1e-12);
-    near('...and adds no duty', l.qW, 0, 1e-9);
+    ok('A sensor is not a link: it has no thermal link and no flow',
+       res.thermal.links[t.sensor.id] === undefined && res.flow[t.sensor.id] === undefined);
+    near('...and reads the temperature of its node',
+         NET.sensorReading(t.m, t.sensor, res).value, l.tIn, 1e-12);
   }
 
   // ---- 2. CONTROLLED: the cold valve closes until the blend is 45 °C.
@@ -1628,7 +1644,7 @@ section('Pipe sensor: thermostatic mixing');
     const res = NET.solveModel(t.m);
     ok('Solves with the sensor wired up', res.converged === true,
        JSON.stringify(res.errors));
-    const l = res.thermal.links[t.sensor.id];
+    const l = { tIn: res.thermal.temperature[t.sensor.a] };
     /* THE ACTUATOR'S RESOLUTION IS THE LIMIT, and it is worth stating exactly.
      * A globe valve is set in WHOLE PERCENT (Michael, 2026-08-03 — a balancing
      * valve lands wherever it lands), and on this rig one percent of travel is
@@ -1688,7 +1704,7 @@ section('Pipe sensor: thermostatic mixing');
   {
     const t = blend({ on: 'hot', sensor: { mode: 'temperature', tSet: 25 } });
     const res = NET.solveModel(t.m);
-    const l = res.thermal.links[t.sensor.id];
+    const l = { tIn: res.thermal.temperature[t.sensor.a] };
     near('A cooler setpoint is held by closing the HOT leg', l.tIn, 25, 0.15);
     ok('...so the hot valve closed', t.vh.valve.opening < 100,
        t.vh.valve.opening + '% open');
@@ -1716,7 +1732,7 @@ section('Pipe sensor: thermostatic mixing');
     M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
     const v = M.addPipe(m, b.id, c.id, { kind: 'valve' });
     v.tag = 'FCV-1'; v.valve = { type: 'globe', kv: 30, opening: 100 };
-    const sn = M.addPipe(m, c.id, d2.id, { kind: 'sensor' });
+    const sn = sensorOn(m, c.id, d2.id, {});
     sn.tag = 'FS-1'; sn.sensor = { mode: 'flow', qSet: 0.006 };
     M.addPipe(m, d2.id, e.id, { size: 'DN50', schedule: 'sch40' });
     m.pipes.forEach(x => { x.insulation_mm = 0; });
@@ -1728,12 +1744,13 @@ section('Pipe sensor: thermostatic mixing');
 
     const dv = res.controls.devices[0];
     ok('The setpoint is reported as a flow', dv.setpointOf === 'flow', dv.setpointOf);
+    /* The flow through the sensor's node: on a run, that pipe's flow. */
+    const qWide = NET.sensorReading(m, sn, wide).value, qHeld = NET.sensorReading(m, sn, res).value;
     ok('Wide open the branch carries more than the setpoint',
-       Math.abs(wide.flow[sn.id]) > 0.006,
-       (Math.abs(wide.flow[sn.id]) * 1000).toFixed(2) + ' L/s');
+       qWide > 0.006, (qWide * 1000).toFixed(2) + ' L/s');
     /* Within one percent of valve travel, the same limit as the blend above. */
     near('...and the valve throttles it to the 6 L/s asked for',
-         Math.abs(res.flow[sn.id]), 0.006, 0.006 * 0.015);
+         qHeld, 0.006, 0.006 * 0.015);
     ok('...having closed to get there', v.valve.opening < 100,
        v.valve.opening + '% open');
     ok('...reported as on setpoint', dv.state === 'on', dv.state);
@@ -1762,22 +1779,21 @@ section('Pipe sensor: thermostatic mixing');
        JSON.stringify(res.warnings.map(w => w.code)));
   }
 
-  // ---- 7. A sensor is hydraulically a piece of pipe, and nothing more.
+  // ---- 7. A sensor is not in the hydraulic network (v0.19.0).
   {
+    /* Until v0.19.0 a sensor was a 0.5 m pipe "in every hydraulic sense". It
+     * now sits on a node: no link, no resistance, and the run it sits on is
+     * the pipe it always was. */
     const t = blend({ on: null });
     const res = NET.solveModel(t.m);
-    const link = res.network.links.filter(l => l.id === t.sensor.id)[0];
-    ok('It builds as a plain pipe', link.kind === 'pipe', link.kind);
-    const plain = M.create();
-    ok('...with no equipment characteristic on it', link.r !== undefined);
-    /* Its drop is whatever its own length earns and no more: an identical
-     * length of the same pipe must have the same resistance. */
-    const twin = res.network.links.filter(
-      l => l.kind === 'pipe' && l.id !== t.sensor.id &&
-           Math.abs(l._L - link._L) < 1e-9 && Math.abs(l._d - link._d) < 1e-12)[0];
-    ok('...identical to a plain pipe of the same length and bore',
-       !twin || Math.abs(twin.r - link.r) < 1e-9,
-       twin ? `${twin.r} vs ${link.r}` : 'no twin to compare');
+    ok('It builds no link',
+       !res.network.links.some(l => l.id === t.sensor.id));
+    ok('...and every link the network has is a pipe or a device of the model',
+       res.network.links.filter(l => !l._virtual).length ===
+         t.m.pipes.filter(p => p.kind !== 'sensor').length);
+    ok('Its node is solved', isFinite(res.pressure[t.sensor.a]),
+       String(res.pressure[t.sensor.a]));
+    ok('...and the sensor sits on it', t.sensor.a === t.sensor.b);
   }
 
   // ---- 8. DESIGN does not modulate — the flows are imposed there.
@@ -2116,13 +2132,13 @@ section('Pressure and differential sensors');
     M.setSource(m, n[0].id, 400e3); n[0].device.temperature = 60;
     n[6].device = { kind: 'demand', flow: 0.005, reqPressure: 100e3, include: true };
     M.addPipe(m, n[0].id, n[1].id, { size: 'DN50', schedule: 'sch40' });
-    const s1 = M.addPipe(m, n[1].id, n[2].id, { kind: 'sensor' });
+    const s1 = sensorOn(m, n[1].id, n[2].id, {});
     s1.tag = 'PS-1';
     s1.sensor = Object.assign({ mode: mode }, extra || {});
     M.addPipe(m, n[2].id, n[3].id, { size: 'DN50', schedule: 'sch40' });
     const eq = M.addPipe(m, n[3].id, n[4].id, { kind: 'equip' });
     eq.equip = { qRated: 0.005, pdRated: 150e3, equipType: 'exchanger', duty: 40000 };
-    const s2 = M.addPipe(m, n[4].id, n[5].id, { kind: 'sensor' });
+    const s2 = sensorOn(m, n[4].id, n[5].id, {});
     s2.tag = 'REF-1'; s2.sensor = { mode: 'temperature' };
     M.addPipe(m, n[5].id, n[6].id, { size: 'DN50', schedule: 'sch40' });
     m.pipes.forEach(x => { x.insulation_mm = 0; });
@@ -2275,7 +2291,10 @@ section('Pressure and differential sensors');
     const rd = NET.sensorReading(t.m, t.s1, res);
     ok('A flow sensor reads the flow through it', rd && rd.mode === 'flow',
        JSON.stringify(rd));
-    near('...as a magnitude', rd.value, Math.abs(res.flow[t.s1.id]), 1e-12);
+    /* The sensor is on n[1], between two pipes in series: the flow through
+     * the node is the flow in either. */
+    near('...the flow through its node, as a magnitude', rd.value,
+         Math.abs(res.flow[M.pipesAt(t.m, t.s1.a)[0].id]), 1e-12);
   }
 
   /* THE NAME COLLISION THAT BIT. Equipment already offers a setpoint called
@@ -2863,7 +2882,7 @@ section('Overshooting the setpoint still counts as finding it');
   M.addPipe(m, a.id, b.id, { size: 'DN50', schedule: 'sch40' });
   const v = M.addPipe(m, b.id, c.id, { kind: 'valve' });
   v.valve = { type: 'globe', kv: 45, opening: 100 };
-  const sn = M.addPipe(m, c.id, d2.id, { kind: 'sensor' });
+  const sn = sensorOn(m, c.id, d2.id, {});
   /* A setpoint only a little below the wide-open flow, so the far probe
    * overshoots it by a wide margin. */
   sn.sensor = { mode: 'flow', qSet: 0.008 };
@@ -2875,9 +2894,9 @@ section('Overshooting the setpoint still counts as finding it');
   const res = NET.solveModel(m);
 
   ok('Wide open it carries more than the setpoint',
-     Math.abs(wide.flow[sn.id]) > 0.008,
-     (Math.abs(wide.flow[sn.id]) * 1000).toFixed(2) + ' L/s');
-  near('It throttles to the setpoint', Math.abs(res.flow[sn.id]), 0.008, 0.008 * 0.02);
+     NET.sensorReading(m, sn, wide).value > 0.008,
+     (NET.sensorReading(m, sn, wide).value * 1000).toFixed(2) + ' L/s');
+  near('It throttles to the setpoint', NET.sensorReading(m, sn, res).value, 0.008, 0.008 * 0.02);
   ok('...having actually moved', v.valve.opening < 100, v.valve.opening + '%');
   ok('...and reports as holding it', res.controls.devices[0].state === 'on',
      res.controls.devices[0].state);
@@ -3354,7 +3373,7 @@ section('A mixing circuit: the response falls, then rises');
     chk.valve = { type: 'check', kv: 120, opening: 100 };
     chk.tag = 'BYPASS';
 
-    const ts = M.addPipe(m, D.id, E.id, { kind: 'sensor' });
+    const ts = sensorOn(m, D.id, E.id, {});
     ts.sensor = { mode: 'temperature', tSet: 20 };
     ts.tag = 'TS-1';
 
@@ -3503,7 +3522,7 @@ section('Pumps sharing a setpoint run at a common speed');
   M.addPipe(m, c2.id, inlet.id, { size: 'DN65', schedule: 'sch40' });
 
   const sN = M.addNode(m, lv, 13, 0);
-  const sens = M.addPipe(m, hdr.id, sN.id, { kind: 'sensor' });
+  const sens = sensorOn(m, hdr.id, sN.id, {});
   const refN = M.addNode(m, lv, 27, 0);
   const ref = M.addPipe(m, c2.id, refN.id, { size: 'DN65', schedule: 'sch40' });
   sens.sensor = { mode: 'dP', ref: ref.id, dpSet: 100e3 };
@@ -3914,7 +3933,7 @@ section('A MIN setpoint is a floor: the bypass opens only when it has to');
     const ch = M.addPipe(m, n1.id, n2.id, { size: 'DN80', kind: 'equip', tag: 'CH-1' });
     ch.equip = { qRated: 0.006, pdRated: 45000, qOut: 0.02, equipType: 'source',
                  tSet: 6, dTMax: 6 };
-    const fs = M.addPipe(m, n2.id, n3.id, { size: 'DN80', kind: 'sensor', tag: 'FS-1' });
+    const fs = sensorOn(m, n2.id, n3.id, { size: 'DN80', tag: 'FS-1' });
     fs.sensor = { mode: 'flow', qSet: MIN_FLOW };
     M.setSetpointCmp(fs, 'set', cmp);
     M.addPipe(m, n3.id, n4.id, { size: 'DN80' });
@@ -4156,7 +4175,7 @@ section('A synced pump holds its leader\u2019s speed');
   coil.equip = { qRated: 0.009, pdRated: 120e3, equipType: 'exchanger', duty: 60000 };
   M.addPipe(m, c2.id, inlet.id, { size: 'DN65', schedule: 'sch40' });
   const sN = M.addNode(m, lv, 13, 0);
-  const sens = M.addPipe(m, hdr.id, sN.id, { kind: 'sensor' });
+  const sens = sensorOn(m, hdr.id, sN.id, {});
   const refN = M.addNode(m, lv, 27, 0);
   const ref = M.addPipe(m, c2.id, refN.id, { size: 'DN65', schedule: 'sch40' });
   sens.sensor = { mode: 'dP', ref: ref.id, dpSet: 100e3 };

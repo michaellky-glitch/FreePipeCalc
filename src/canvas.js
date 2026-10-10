@@ -19,14 +19,13 @@
    * and another click. Generous on purpose. */
   var DEVICE_SNAP_PX = 28;
 
-  /* Every in-line device is exactly this long, in metres.
-   *
-   * A device has to occupy SOME length — it is a link with its own two nodes,
-   * which is what lets the runs either side keep their own sizes and lengths.
-   * Making it a constant (rather than the old min(0.35, len/4), which varied
-   * with the host pipe) means the amount to subtract from a drawn run is always
-   * the same number, and 0.5 m sits on the default grid. */
-  var DEVICE_LEN = 0.5;
+  /* AN IN-LINE DEVICE IS A POINT (v0.19.0). Until then every device was a
+   * link drawn exactly 0.5 m long, and that half-metre was not pipe. A pump,
+   * valve or piece of equipment is still a link, with its two nodes on one
+   * point; a sensor sits on one node. A device keeps at least DEVICE_GAP of
+   * pipe on each side, so it never lands on a junction or on another device.
+   * docs/FEASIBILITY-point-devices.md. */
+  var DEVICE_GAP = 0.1;
   /* Q4, Michael: an in-line device slides ALONG its run — and it lands on the
    * GRID, not on a multiple of travel.
    *
@@ -219,8 +218,11 @@
   View.prototype.nodeAt = function (wx, wy, radiusPx) {
     var m = this.getModel(), best = null, bestD = Infinity;
     var rad = this.pxToM(radiusPx === undefined ? ENDPOINT_PX : radiusPx);
+    /* The two nodes of a point device are inside it: they are reached through
+     * the device, never alone. */
+    var hidden = this.pointDeviceNodes();
     m.nodes.forEach(function (n) {
-      if (n.level !== m.activeLevel) return;
+      if (n.level !== m.activeLevel || hidden[n.id]) return;
       var w = M.worldXY(m, n);
       var d = Math.hypot(w.x - wx, w.y - wy);
       if (d < rad && d < bestD) { bestD = d; best = n; }
@@ -244,6 +246,45 @@
       if (d < rad && d < bestD) { bestD = d; best = p; }
     });
     return best;
+  };
+
+  /* POINT DEVICES (v0.19.0). A sensor (a = b) or a pump, valve or piece of
+   * equipment with its two nodes on one point. */
+  View.prototype.isPoint = function (p) {
+    return !!p && (p.a === p.b || M.isPointDevice(this.getModel(), p));
+  };
+
+  /* Node id -> true for every node of a point device (not a sensor's node,
+   * which is a real junction of two pipes). */
+  View.prototype.pointDeviceNodes = function () {
+    var m = this.getModel(), byId = {}, out = {};
+    m.nodes.forEach(function (n) { byId[n.id] = n; });
+    m.pipes.forEach(function (p) {
+      if (M.isPointDevice(m, p, byId)) { out[p.a] = true; out[p.b] = true; }
+    });
+    return out;
+  };
+
+  /* The point device under a world point, within the glyph radius, or null. */
+  View.prototype.pointDeviceAt = function (wx, wy) {
+    var d = this.deviceAt(wx, wy, 11);
+    return d && d.kind !== 'sensor' && this.isPoint(d) ? d : null;
+  };
+
+  /* The direction of the run a point sits on (`M.pointAxis`). */
+  View.prototype.pointAxis = function (p) { return M.pointAxis(this.getModel(), p); };
+
+  /* Screen end points for drawing a device. A point device gets a one-pixel
+   * stub along its run, so every glyph can take its angle from a → b as it
+   * always has. */
+  View.prototype.deviceEnds = function (p) {
+    var m = this.getModel();
+    var a = M.node(m, p.a), b = M.node(m, p.b);
+    var wa = M.worldXY(m, a), wb = M.worldXY(m, b);
+    if (!this.isPoint(p)) return { sa: this.toScreen(wa.x, wa.y), sb: this.toScreen(wb.x, wb.y) };
+    var u = this.pointAxis(p) || { x: 1, y: 0 }, e = this.pxToM(1);
+    return { sa: this.toScreen(wa.x - u.x * e, wa.y - u.y * e),
+             sb: this.toScreen(wa.x + u.x * e, wa.y + u.y * e) };
   };
 
   /* THE NEAREST DEVICE A CONTROLLER COULD BE, within a generous radius.
@@ -284,6 +325,7 @@
     var rad = this.pxToM(radiusPx === undefined ? SNAP_PX : radiusPx);
     m.pipes.forEach(function (p) {
       if (p.kind === 'riser') return;
+      if (self.isPoint(p)) return;             // a point is not a run to split
       var a = M.node(m, p.a), b = M.node(m, p.b);
       if (!a || !b || a.level !== m.activeLevel || b.level !== m.activeLevel) return;
       var wa = M.worldXY(m, a), wb = M.worldXY(m, b);
@@ -321,8 +363,7 @@
     if (!M.isDirectional(p)) return null;
     var a = M.node(m, p.a), b = M.node(m, p.b);
     if (!a || !b || a.level !== m.activeLevel || b.level !== m.activeLevel) return null;
-    var wa = M.worldXY(m, a), wb = M.worldXY(m, b);
-    var sa = this.toScreen(wa.x, wa.y), sb = this.toScreen(wb.x, wb.y);
+    var ends = this.deviceEnds(p), sa = ends.sa, sb = ends.sb;
     var mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
     var dx = sb.x - sa.x, dy = sb.y - sa.y;
     var len = Math.hypot(dx, dy) || 1;
@@ -545,6 +586,15 @@
    * pipe into a tee if the point landed mid-pipe (spec §5). */
   View.prototype.nodeForSnap = function (s) {
     var m = this.getModel();
+    /* NOT ON A POINT DEVICE (v0.19.0). Its two nodes are its suction and its
+     * discharge; a pipe joined "to the pump" would not say which. Join the pipe
+     * beside it instead. Null means refused; the caller does nothing. */
+    var dev = this.pointDeviceAt(s.x, s.y);
+    if (dev) {
+      this.onMessage && this.onMessage('A pipe cannot join ' + (dev.tag || dev.id) +
+        ' itself. Join the pipe beside it.', 'error');
+      return null;
+    }
     if (s.kind === 'node') return s.node;
     if (s.kind === 'pipe') return this.splitPipe(s.pipe, s.x, s.y);
 
@@ -582,11 +632,17 @@
     if (this.locked() && this.selection.some(function (s) {
       return s.kind !== 'detail' && s.kind !== 'note';
     })) { this.refuseLocked('Deleting'); return; }
-    var touched = {};
+    var touched = {}, heal = [], self = this;
     this.selection.forEach(function (s) {
       if (s.kind === 'pipe') {
         var p = M.pipe(m, s.id);
-        if (p) { touched[p.a] = true; touched[p.b] = true; }
+        if (p) {
+          touched[p.a] = true; touched[p.b] = true;
+          /* A POINT leaves the pipe whole again (v0.19.0): the two nodes of a
+           * point device are joined, and a sensor's node is dissolved, so the
+           * run is continuous where it is straight and of one size. */
+          if (self.isPoint(p)) heal.push([p.a, p.b]);
+        }
         M.removePipe(m, s.id);
       } else if (s.kind === 'riser') M.removeRiser(m, s.id);
       /* ANNOTATION IS DELETABLE TOO — Michael, 2026-08-09. Both kinds fell
@@ -611,7 +667,12 @@
     Object.keys(touched).forEach(function (id) {
       var n = M.node(m, id);
       if (!n || n.device || riserNodes[id]) return;
-      if (M.pipesAt(m, id).length === 0) M.removeNode(m, id);
+      if (M.pipesAt(m, id).length === 0 && !M.sensorsAt(m, id).length) M.removeNode(m, id);
+    });
+    heal.forEach(function (ab) {
+      if (!M.node(m, ab[0])) return;
+      if (ab[1] !== ab[0] && M.node(m, ab[1])) M.mergeNodes(m, ab[0], ab[1]);
+      M.dissolveNode(m, ab[0]);
     });
 
     this.selection = [];
@@ -1983,11 +2044,21 @@
     if (!n) return;
     var here = M.worldXY(m, n);
 
+    /* Not onto a point device: see `nodeForSnap`. The node stays where it
+     * was dropped, and the disconnection check names it. */
+    var onDev = this.pointDeviceAt(here.x, here.y);
+    if (onDev && !this.pointDeviceNodes()[id]) {
+      this.onMessage && this.onMessage('A pipe cannot join ' + (onDev.tag || onDev.id) +
+        ' itself. Join the pipe beside it.', 'error');
+      return;
+    }
+
     // Nearest OTHER node on this level within the endpoint snap radius.
     var rad = this.pxToM(ENDPOINT_PX);
     var target = null, bestD = Infinity;
+    var hidden = this.pointDeviceNodes();
     m.nodes.forEach(function (o) {
-      if (o.id === id || o.level !== m.activeLevel) return;
+      if (o.id === id || o.level !== m.activeLevel || hidden[o.id]) return;
       var w = M.worldXY(m, o);
       var d = Math.hypot(w.x - here.x, w.y - here.y);
       if (d < rad && d < bestD) { bestD = d; target = o; }
@@ -2094,6 +2165,7 @@
     var m = this.getModel();
     var s = this.drawTarget(w);
     var node = this.nodeForSnap(s);
+    if (!node) return;
     var wn = M.worldXY(m, node);
 
     if (!this.draft) {
@@ -2228,6 +2300,7 @@
      * which would look connected and not be. */
     var node = this.nodeAt(target.x, target.y, ENDPOINT_PX) ||
                this.nodeForSnap({ kind: 'free', x: target.x, y: target.y });
+    if (!node) return;
 
     if (node.id !== this.draft.fromNode) {
       M.addPipe(m, this.draft.fromNode, node.id, {
@@ -2299,6 +2372,7 @@
     var m = this.getModel();
     var s = this.snap(w.x, w.y);
     var node = this.nodeForSnap(s);
+    if (!node) return;
     if (this.tool === 'source') {
       M.setSource(m, node.id);
       if (!node.tag) node.tag = this.nextTag('source');
@@ -2365,23 +2439,47 @@
     var wa = M.worldXY(m, a), wb = M.worldXY(m, b);
     var lv = M.level(m, m.activeLevel);
     var len = Math.hypot(wb.x - wa.x, wb.y - wa.y);
-    if (len < DEVICE_LEN * 2) {
+    if (len < DEVICE_GAP * 2) {
       this.onMessage && this.onMessage(
         'Pipe is too short to hold a ' + label + ' — it needs at least ' +
-        (DEVICE_LEN * 2).toFixed(1) + ' m.', 'error');
+        (DEVICE_GAP * 2).toFixed(1) + ' m.', 'error');
       return null;
     }
 
+    /* THE POINT, snapped along the run to half the minor grid — the lattice a
+     * device slides on — and kept DEVICE_GAP clear of both ends. */
     var ux = (wb.x - wa.x) / len, uy = (wb.y - wa.y) / len;
-    var half = DEVICE_LEN / 2;
-    var t = Math.max(half, Math.min(len - half, hit.t * len));
+    var t = hit.t * len;
+    var gmin = (m.settings.grid && m.settings.grid.minor) || 0.5;
+    var step = gmin * DEVICE_SLIDE_FRACTION;
+    if (step > 0 && !this.freeform()) {
+      /* Level-local, as the slide snaps (`dragDevice`), so a placed device and
+       * a slid one land on the same lattice. */
+      var t0 = (wa.x - lv.dx) * ux + (wa.y - lv.dy) * uy;
+      t = Math.round((t0 + t) / step) * step - t0;
+    }
+    t = Math.max(DEVICE_GAP, Math.min(len - DEVICE_GAP, t));
+    var x = wa.x + ux * t - lv.dx, y = wa.y + uy * t - lv.dy;
 
     var opts = { schedule: p.schedule, size: p.size, C: p.C };
-    var n1 = M.addNode(m, m.activeLevel,
-      wa.x + ux * (t - half) - lv.dx, wa.y + uy * (t - half) - lv.dy);
-    var n2 = M.addNode(m, m.activeLevel,
-      wa.x + ux * (t + half) - lv.dx, wa.y + uy * (t + half) - lv.dy);
     var aId = p.a, bId = p.b;
+
+    /* A SENSOR is an instrument on a node: the pipe is split at one node and
+     * the sensor sits on it. */
+    if (kind === 'sensor') {
+      var n = M.addNode(m, m.activeLevel, x, y);
+      M.removePipe(m, p.id);
+      M.addPipe(m, aId, n.id, opts);
+      M.addPipe(m, n.id, bId, opts);
+      var sensor = M.addSensor(m, n.id, Object.assign({ schedule: p.schedule, size: p.size }, extra));
+      this.selection = [{ kind: 'pipe', id: sensor.id }];
+      this.changed();
+      return sensor;
+    }
+
+    /* A PUMP, VALVE OR EQUIPMENT is a link with its two nodes on one point. */
+    var n1 = M.addNode(m, m.activeLevel, x, y);
+    var n2 = M.addNode(m, m.activeLevel, x, y);
 
     /* Read the flow BEFORE the pipe is removed — it is keyed on the pipe id
      * that is about to stop existing. */
@@ -2577,6 +2675,7 @@
     // Where the riser lands on the ACTIVE level — real geometry wins over grid.
     var s = this.riserSnap(w.x, w.y);
     var node = this.nodeForSnap(s);
+    if (!node) return;
     var wn = M.worldXY(m, node);
 
     /* Which column is this click joining?
@@ -2826,7 +2925,12 @@
     ctx.globalAlpha = 0.5;
     ctx.lineWidth = this.pipeWidth(p) + 6;
     ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
+    if (this.isPoint(p)) {
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(sa.x, sa.y, 14, 0, Math.PI * 2); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
+    }
 
     if (h.point) {
       var sp = this.toScreen(h.point.x, h.point.y);
@@ -3451,6 +3555,9 @@
     var conflictIds = {};
     (this.conflict || []).forEach(function (id) { conflictIds[id] = true; });
     var vizScale = this.vizScale();
+    /* Device glyphs are drawn AFTER every pipe. A point device sits on the
+     * pipe line itself (v0.19.0), and a pipe drawn later would cross it. */
+    var glyphs = [];
 
     m.pipes.forEach(function (p) {
       var a = M.node(m, p.a), b = M.node(m, p.b);
@@ -3503,21 +3610,28 @@
        * The symbol is sized in SCREEN pixels, so it stays a point at every
        * zoom rather than growing with the link. */
       if (IN_LINE[p.kind]) {
-        if (selIds[p.id]) {
-          var msx = (sa.x + sb.x) / 2, msy = (sa.y + sb.y) / 2;
-          ctx.strokeStyle = self.theme.select;
-          ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.arc(msx, msy, 15, 0, Math.PI * 2); ctx.stroke();
-        }
-        ctx.strokeStyle = strokeStyle;
-        ctx.lineWidth = Math.min(2, self.pipeWidth(p));
-        ctx.lineCap = 'round';
-        ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
-
-        if (p.kind === 'pump') self.drawPumpGlyph(p, sa, sb, selIds[p.id], q || 1);
-        else if (p.kind === 'valve') self.drawValveGlyph(p, sa, sb, selIds[p.id]);
-        else if (p.kind === 'sensor') self.drawSensorGlyph(p, sa, sb, selIds[p.id]);
-        else self.drawEquipGlyph(p, sa, sb, selIds[p.id]);
+        var point = self.isPoint(p);
+        if (point) { var ends = self.deviceEnds(p); sa = ends.sa; sb = ends.sb; }
+        glyphs.push(function () {
+          if (selIds[p.id]) {
+            var msx = (sa.x + sb.x) / 2, msy = (sa.y + sb.y) / 2;
+            ctx.strokeStyle = self.theme.select;
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(msx, msy, 15, 0, Math.PI * 2); ctx.stroke();
+          }
+          /* A device drawn with a length (an old file kept as drawn) keeps
+           * its thin connector; a point has none. */
+          if (!point) {
+            ctx.strokeStyle = strokeStyle;
+            ctx.lineWidth = Math.min(2, self.pipeWidth(p));
+            ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
+          }
+          if (p.kind === 'pump') self.drawPumpGlyph(p, sa, sb, selIds[p.id], q || 1);
+          else if (p.kind === 'valve') self.drawValveGlyph(p, sa, sb, selIds[p.id]);
+          else if (p.kind === 'sensor') self.drawSensorGlyph(p, sa, sb, selIds[p.id]);
+          else self.drawEquipGlyph(p, sa, sb, selIds[p.id]);
+        });
         return;
       }
 
@@ -3543,6 +3657,7 @@
         if (self.scale > 12) self.drawPipeLabel(p, sa, sb);
       }
     });
+    glyphs.forEach(function (g) { g(); });
   };
 
   View.prototype.drawRiserGlyph = function (s, colour, selected) {
@@ -4261,6 +4376,10 @@
     var selIds = {};
     this.selection.forEach(function (s) { if (s.kind === 'node') selIds[s.id] = true; });
     var supply = this.supplyProblem();
+    /* A point device's two nodes are on one spot (v0.19.0): label the inlet
+     * only, so the numbers do not print on top of each other. */
+    var quiet = {};
+    m.pipes.forEach(function (p) { if (p.kind !== 'sensor' && self.isPoint(p)) quiet[p.b] = true; });
 
     m.nodes.forEach(function (n) {
       if (n.level !== m.activeLevel) return;
@@ -4316,7 +4435,7 @@
         ctx.beginPath(); ctx.arc(s.x, s.y, degree > 2 ? 4.5 : 3, 0, Math.PI * 2); ctx.fill();
       }
 
-      self.drawNodeLabel(n, s);
+      if (!quiet[n.id]) self.drawNodeLabel(n, s);
     });
   };
 
@@ -5837,6 +5956,7 @@
     var m = this.getModel();
     var a = M.node(m, dev.a), b = M.node(m, dev.b);
     if (!a || !b) return null;
+    if (this.isPoint(dev)) return this.pointSlideAxis(dev);
     var wa = M.worldXY(m, a), wb = M.worldXY(m, b);
     var L = Math.hypot(wb.x - wa.x, wb.y - wa.y);
     if (!(L > 1e-9)) return null;
@@ -5858,12 +5978,37 @@
     }
     var back = beyond(dev.a);      // negative side, normally
     var fwd = beyond(dev.b);       // positive side, normally
-    var margin = DEVICE_LEN;
+    var margin = DEVICE_GAP;
     /* `t` in the drag is an OFFSET from where the device already is, so the
      * limits are relative too. Unbounded on a side with no neighbour. */
     var min = (back === null) ? -Infinity : Math.min(0, back + margin);
     var max = (fwd === null) ? Infinity : Math.max(0, fwd - L - margin);
     return { ux: ux, uy: uy, min: min, max: max, length: L };
+  };
+
+  /* A POINT SLIDES ALONG THE RUN IT SITS ON (v0.19.0): one pipe at each side,
+   * in line. Its limits keep DEVICE_GAP of pipe at each side. A point on a
+   * corner, a tee or a dead end has no run to slide along and moves freely. */
+  View.prototype.pointSlideAxis = function (dev) {
+    var m = this.getModel();
+    var here = M.worldXY(m, M.node(m, dev.a));
+    var legs = [];
+    [dev.a, dev.b].forEach(function (id) {
+      M.pipesAt(m, id).forEach(function (q) {
+        if (q.id !== dev.id && legs.every(function (l) { return l.q.id !== q.id; })) {
+          legs.push({ q: q, far: M.worldXY(m, M.node(m, M.other(q, id))) });
+        }
+      });
+    });
+    if (legs.length !== 2) return null;
+    var back = legs[0].far, fwd = legs[1].far;
+    var lb = Math.hypot(here.x - back.x, here.y - back.y);
+    var lf = Math.hypot(fwd.x - here.x, fwd.y - here.y);
+    if (!(lb > 1e-9) || !(lf > 1e-9)) return null;
+    var ux = (here.x - back.x) / lb, uy = (here.y - back.y) / lb;
+    var vx = (fwd.x - here.x) / lf, vy = (fwd.y - here.y) / lf;
+    if (ux * vx + uy * vy < Math.cos(8 * Math.PI / 180)) return null;   // not in line
+    return { ux: ux, uy: uy, min: -(lb - DEVICE_GAP), max: lf - DEVICE_GAP, length: 0 };
   };
 
   /* Half-width of an annotation handle, in SCREEN pixels. */

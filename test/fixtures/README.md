@@ -14,6 +14,16 @@ A regression baseline has to be immutable or it is not a baseline. Change these
 only when you mean to change what is being asserted, and regenerate the expected
 values in the same commit.
 
+## Format 1, converted on load (v0.19.0)
+
+These files are kept in file format 1, in which every pump, valve, piece of
+equipment and sensor is a link drawn 0.5 m long (or as drawn). They are NOT
+re-saved: `M.fromJSON` converts each one to point devices as it loads
+(`M.migratePointDevices`), so every suite that opens a fixture also exercises
+that conversion. The expected values were re-derived for the converted
+geometry in the v0.19.0 commit — see the notes beside each one. The shipped
+models in `examples/` were re-saved in format 2.
+
 ## Frozen 2026-08-24 (v0.18.13)
 
 * **`datahall-yard.pnet.json`** — a copy of `examples/Data Hall & Yard.json`.

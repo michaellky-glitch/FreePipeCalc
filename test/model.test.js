@@ -452,6 +452,179 @@ section('Network — the tee rule settles on the model, not on the drawing (audi
   }
 }
 
+section('Network — a point device sits inside its junction (v0.19.0)');
+{
+  /* A POINT DEVICE has its two nodes on one point. The fitting is the
+   * pipework around it: the pipes on both of its nodes meet at that point and
+   * are read as one junction. All DN50, Carrier Table 11: E90 5 ft = 1.52 m,
+   * tee run 3.3 ft = 1.01 m, tee branch 10 ft = 3.05 m. */
+  function rig(outX, outY, extra) {
+    const m = M.create(), lv = m.levels[0].id;
+    const W = M.addNode(m, lv, -10, 0);
+    const A = M.addNode(m, lv, 0, 0), B = M.addNode(m, lv, 0, 0);
+    const E = M.addNode(m, lv, outX, outY);
+    const pIn = M.addPipe(m, W.id, A.id, { size: 'DN50' });
+    const dev = M.addPipe(m, A.id, B.id, Object.assign({ size: 'DN50' }, extra ||
+                  { kind: 'pump', pump: { mode: 'fixed', head: 10, flow: 0 } }));
+    const pOut = M.addPipe(m, B.id, E.id, { size: 'DN50' });
+    return { m, W, A, B, E, pIn, dev, pOut };
+  }
+  const q = 0.002;
+
+  const s = rig(10, 0);
+  ok('Two nodes on one point make a point device', M.isPointDevice(s.m, s.dev));
+  ok('A pipe is never a point device', !M.isPointDevice(s.m, s.pIn));
+  const fs = NET.fittingsByPipe(s.m, { [s.pIn.id]: q, [s.dev.id]: q, [s.pOut.id]: q }, []);
+  ok('A point pump between collinear pipes charges no fitting',
+     [s.pIn, s.dev, s.pOut].every(p => fs[p.id].types.length === 0),
+     JSON.stringify([s.pIn, s.dev, s.pOut].map(p => fs[p.id].types)));
+
+  /* On a corner: in from the west, out to the north. The junction has two
+   * legs at 90 degrees, so one E90, on the pipe the water leaves by. Read node
+   * by node, each node holds the device (no direction) and one pipe, and the
+   * corner read as straight. */
+  const c = rig(0, 10);
+  const fc = NET.fittingsByPipe(c.m, { [c.pIn.id]: q, [c.dev.id]: q, [c.pOut.id]: q }, []);
+  ok('A point pump on a corner charges one E90, to the outlet pipe',
+     fc[c.pOut.id].types.join() === 'E90' && fc[c.pIn.id].types.length === 0 &&
+     fc[c.dev.id].types.length === 0,
+     JSON.stringify([c.pIn, c.dev, c.pOut].map(p => fc[p.id].types)));
+  near('...1.52 m at DN50', fc[c.pOut.id].el, 1.52, 1e-12);
+  ok('...and the junction is read once: its second node returns nothing',
+     NET.fittingsAtNode(c.m, c.B.id, { [c.pIn.id]: q, [c.dev.id]: q, [c.pOut.id]: q }, []).length === 0);
+  ok('The corner node is annotated as a pump', NET.nodeTypeCode(c.m, c.A.id) === 'P');
+
+  /* A point valve at a tee: in from the west through the valve, out east
+   * (straight on) and north (turns). Dividing, so both outlets are charged. */
+  {
+    const t = rig(10, 0, { kind: 'valve', valve: { type: 'gate', kv: 60, opening: 100 } });
+    const N = M.addNode(t.m, t.m.levels[0].id, 0, 10);
+    const pN = M.addPipe(t.m, t.B.id, N.id, { size: 'DN50' });
+    const ft = NET.fittingsByPipe(t.m, { [t.pIn.id]: 0.003, [t.dev.id]: 0.003,
+                                         [t.pOut.id]: 0.002, [pN.id]: 0.001 }, []);
+    ok('A point valve at a tee: the straight outlet is the run',
+       ft[t.pOut.id].types.join() === 'TRUN_DIV', JSON.stringify(ft[t.pOut.id].types));
+    ok('...the turning outlet is the branch',
+       ft[pN.id].types.join() === 'TBRANCH_DIV', JSON.stringify(ft[pN.id].types));
+    ok('...and the valve and its inlet pipe are charged nothing',
+       ft[t.dev.id].types.length === 0 && ft[t.pIn.id].types.length === 0);
+  }
+
+  /* Two point devices on one point (a pump and its check valve) are one
+   * junction too: still one elbow on the corner. */
+  {
+    const m = M.create(), lv = m.levels[0].id;
+    const W = M.addNode(m, lv, -10, 0), A = M.addNode(m, lv, 0, 0),
+          B = M.addNode(m, lv, 0, 0), C = M.addNode(m, lv, 0, 0), E = M.addNode(m, lv, 0, 10);
+    const pIn = M.addPipe(m, W.id, A.id, { size: 'DN50' });
+    const pump = M.addPipe(m, A.id, B.id, { size: 'DN50', kind: 'pump', pump: { mode: 'fixed', head: 10, flow: 0 } });
+    const chk = M.addPipe(m, B.id, C.id, { size: 'DN50', kind: 'valve', valve: { type: 'check', kv: 60, opening: 100 } });
+    const pOut = M.addPipe(m, C.id, E.id, { size: 'DN50' });
+    const f2 = NET.fittingsByPipe(m, { [pIn.id]: q, [pump.id]: q, [chk.id]: q, [pOut.id]: q }, []);
+    ok('A pump and a valve on one point are one junction: one E90',
+       f2[pOut.id].types.join() === 'E90' &&
+       [pIn, pump, chk].every(p => f2[p.id].types.length === 0),
+       JSON.stringify([pIn, pump, chk, pOut].map(p => f2[p.id].types)));
+  }
+}
+
+section('Model — a format-1 file is converted to point devices on load (v0.19.0)');
+{
+  /* A format-1 model, written by hand: in from the west, a 0.5 m pump, a
+   * pipe, a 0.5 m sensor, a pipe, and a 0.5 m valve whose outlet is a tee. */
+  function v1() {
+    const m = M.create(), lv = m.levels[0].id;
+    const N = (x, y) => M.addNode(m, lv, x, y);
+    const n0 = N(0, 0), p1 = N(10, 0), p2 = N(10.5, 0), s1 = N(20, 0), s2 = N(20.5, 0),
+          v1n = N(30, 0), v2 = N(30.5, 0), e = N(40.5, 0), nn = N(30.5, 10);
+    M.setSource(m, n0.id, 200e3);
+    M.setDemand(m, e.id, 0.002, 0); M.setDemand(m, nn.id, 0.001, 0);
+    const a = M.addPipe(m, n0.id, p1.id, { size: 'DN50' });
+    const pump = M.addPipe(m, p1.id, p2.id, { size: 'DN50', kind: 'pump', tag: 'PMP-1',
+                                             pump: { mode: 'fixed', head: 10, flow: 0 } });
+    const b = M.addPipe(m, p2.id, s1.id, { size: 'DN50' });
+    const sens = M.addPipe(m, s1.id, s2.id, { size: 'DN50', kind: 'sensor', tag: 'TS-1',
+                                             sensor: { mode: 'temperature', tSet: 30 } });
+    const c = M.addPipe(m, s2.id, v1n.id, { size: 'DN50' });
+    const valve = M.addPipe(m, v1n.id, v2.id, { size: 'DN50', kind: 'valve',
+                                               valve: { type: 'globe', kv: 40, opening: 100 } });
+    const d = M.addPipe(m, v2.id, e.id, { size: 'DN50' });
+    const f2 = M.addPipe(m, v2.id, nn.id, { size: 'DN50' });
+    M.setControl(m, pump, sens.id);
+    const json = M.toJSON(m);
+    json.formatVersion = 1;
+    return { json, ids: { a: a.id, pump: pump.id, b: b.id, sens: sens.id, c: c.id,
+                          valve: valve.id, d: d.id, f2: f2.id } };
+  }
+  const { json, ids } = v1();
+  const m = M.fromJSON(JSON.parse(JSON.stringify(json)));
+  const P = id => M.pipe(m, id), Lof = id => M.pipeLength(m, P(id));
+  /* Drawn: a 10 m, pump 0.5, b 9.5 m, sensor 0.5, c 9.5 m, valve 0.5, then
+   * the tee. Each pipe gets half of each point device beside it, or all of
+   * a device that moves onto a tee. */
+  ok('The pump is a point', M.isPointDevice(m, P(ids.pump)));
+  near('...at its midpoint: the pipe before it gets 0.25 m', Lof(ids.a), 10 + 0.25, 1e-9);
+  near('The pipe between pump and sensor gets 0.25 m from each', Lof(ids.b), 9.5 + 0.25 + 0.25, 1e-9);
+  ok('The sensor sits on one node', P(ids.sens).a === P(ids.sens).b);
+  near('The pipe between sensor and valve gets 0.25 m, and all 0.5 m of the valve',
+       Lof(ids.c), 9.5 + 0.25 + 0.5, 1e-9);
+  ok('...it is not a pipe at its node', M.pipesAt(m, P(ids.sens).a).every(p => p.kind !== 'sensor'));
+  ok('...and the pump still follows it, by the same id',
+     M.controlOf(P(ids.pump)) && M.controlOf(P(ids.pump)).equip === ids.sens);
+  ok('The valve, whose outlet is a tee, moves onto the tee',
+     M.isPointDevice(m, P(ids.valve)) && Math.abs(M.node(m, P(ids.valve).a).x - 30.5) < 1e-9);
+  near('...and the tee legs do not change', Lof(ids.d) + Lof(ids.f2), 20, 1e-9);
+  near('No length is lost: the run is 40.5 m end to end',
+       Lof(ids.a) + Lof(ids.b) + Lof(ids.c) + Lof(ids.d), 40.5, 1e-9);
+  const note = (m.migrations || []).find(x => x.code === 'POINT_DEVICES');
+  ok('The load says what it did', !!note && /2 pump\(s\), valve\(s\) and equipment, and 1 sensor/.test(note.message),
+     note && note.message);
+  ok('A saved file is format 2', M.toJSON(m).formatVersion === 2);
+  const again = M.fromJSON(JSON.parse(JSON.stringify(M.toJSON(m))));
+  ok('...and is not converted again', !(again.migrations || []).some(x => x.code === 'POINT_DEVICES'));
+  const res = NET.solveModel(m);
+  ok('The converted model solves', res.ok, JSON.stringify(res.errors));
+  near('...with the flow of both demands through the pump', Math.abs(res.flow[ids.pump]), 0.003, 1e-9);
+
+  /* KEPT AS DRAWN: a device across two levels, and devices back to back. */
+  {
+    const k = M.create();
+    const l0 = k.levels[0].id, l1 = M.addLevel(k, 'L1').id;
+    const x0 = M.addNode(k, l0, 0, 0), x1 = M.addNode(k, l1, 0, 0);
+    const across = M.addPipe(k, x0.id, x1.id, { kind: 'valve', valve: { type: 'gate', kv: 40, opening: 100 } });
+    const y0 = M.addNode(k, l0, 5, 0), y1 = M.addNode(k, l0, 5.5, 0), y2 = M.addNode(k, l0, 6, 0);
+    const pa = M.addPipe(k, y0.id, y1.id, { kind: 'pump', pump: { mode: 'fixed', head: 5, flow: 0 } });
+    const pb = M.addPipe(k, y1.id, y2.id, { kind: 'valve', valve: { type: 'check', kv: 40, opening: 100 } });
+    const j = M.toJSON(k); j.formatVersion = 1;
+    const kk = M.fromJSON(JSON.parse(JSON.stringify(j)));
+    const kept = (kk.migrations || []).filter(x => x.code === 'POINT_DEVICE_KEPT').map(x => x.pipe).sort();
+    ok('A device across two levels, and two back to back, are kept with a note',
+       JSON.stringify(kept) === JSON.stringify([across.id, pa.id, pb.id].sort()), JSON.stringify(kept));
+  }
+}
+
+section('Model — a sensor is an instrument on a node (v0.19.0)');
+{
+  const m = M.create(), lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 10, 0), c = M.addNode(m, lv, 20, 0);
+  const p1 = M.addPipe(m, a.id, b.id, { size: 'DN50' }), p2 = M.addPipe(m, b.id, c.id, { size: 'DN50' });
+  const s = M.addSensor(m, b.id, { sensor: { mode: 'flow', qSet: 0.002 }, tag: 'FS-1' });
+  ok('addSensor puts it on the node', s.kind === 'sensor' && s.a === b.id && s.b === b.id);
+  ok('pipesAt does not list it', M.pipesAt(m, b.id).length === 2);
+  ok('sensorsAt does', M.sensorsAt(m, b.id).length === 1 && M.sensorsAt(m, b.id)[0] === s);
+  ok('A node with a sensor is not dissolved', M.dissolveNode(m, b.id) === null);
+  M.setSource(m, a.id, 200e3); M.setDemand(m, c.id, 0.002, 0);
+  const res = NET.solveModel(m);
+  ok('It builds no link', !res.network.links.some(l => l.id === s.id));
+  near('The flow through its node is the pipe flow', NET.nodeThroughFlow(m, res, b.id), 0.002, 1e-12);
+  near('...and that is what it reads', NET.sensorReading(m, s, res).value, 0.002, 1e-12);
+  /* Merging another node onto it keeps the sensor (it is not a loop). */
+  const d = M.addNode(m, lv, 10, 0);
+  M.mergeNodes(m, d.id, b.id);
+  ok('A merge carries the sensor to the kept node', M.pipe(m, s.id) && M.pipe(m, s.id).a === d.id &&
+     M.pipe(m, s.id).b === d.id);
+}
+
 section('Network — tee rule edge cases: cross, zero length, narrow Y (audit v0.18.66)');
 {
   /* A cross with set flows. Legs leave the centre node C: W, E, N, S. */

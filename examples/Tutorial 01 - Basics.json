@@ -1,6 +1,6 @@
 {
-  "formatVersion": 1,
-  "appVersion": "0.18.2",
+  "formatVersion": 2,
+  "appVersion": "0.19.0",
   "discipline": "hydronic",
   "settings": {
     "units": "metric",
@@ -50,7 +50,8 @@
       "insulation_mm": 50,
       "insulation": {},
       "tempMin": -50,
-      "tempMax": 50
+      "tempMax": 50,
+      "overloadPct": 10
     },
     "control": {
       "minSpeed": 0.25,
@@ -94,7 +95,9 @@
       "maxComponentPD": 2000000,
       "maxStatic": 552000,
       "valveOversized": 10,
-      "heatBalance": 2
+      "heatBalance": 2,
+      "cvFlowLimit": 1,
+      "cvMinDp": 0
     },
     "floorToFloor": 3.5,
     "grid": {
@@ -195,7 +198,7 @@
     {
       "id": "N5",
       "level": "L0",
-      "x": 19.75,
+      "x": 20,
       "y": 15,
       "dz": 0,
       "device": null
@@ -203,7 +206,7 @@
     {
       "id": "N6",
       "level": "L0",
-      "x": 20.25,
+      "x": 20,
       "y": 15,
       "dz": 0,
       "device": null
@@ -211,7 +214,7 @@
     {
       "id": "N9",
       "level": "L0",
-      "x": 34.75,
+      "x": 35,
       "y": 15,
       "dz": 0,
       "device": null
@@ -219,7 +222,7 @@
     {
       "id": "N10",
       "level": "L0",
-      "x": 35.25,
+      "x": 35,
       "y": 15,
       "dz": 0,
       "device": null
@@ -227,31 +230,23 @@
     {
       "id": "N11",
       "level": "L0",
-      "x": 32.74999999999982,
-      "y": 25,
+      "x": 32.49999999999982,
+      "y": 24.999999999999996,
       "dz": 0,
       "device": null
     },
     {
       "id": "N12",
       "level": "L0",
-      "x": 32.24999999999982,
-      "y": 24.999999999999993,
+      "x": 32.49999999999982,
+      "y": 24.999999999999996,
       "dz": 0,
       "device": null
     },
     {
       "id": "N14",
       "level": "L0",
-      "x": 35.243693969461695,
-      "y": 25,
-      "dz": 0,
-      "device": null
-    },
-    {
-      "id": "N15",
-      "level": "L0",
-      "x": 34.743693969461695,
+      "x": 34.993693969461695,
       "y": 25,
       "dz": 0,
       "device": null
@@ -442,7 +437,7 @@
     {
       "id": "P19",
       "a": "N14",
-      "b": "N15",
+      "b": "N14",
       "kind": "sensor",
       "schedule": "sch40",
       "size": "DN50",
@@ -459,7 +454,7 @@
     },
     {
       "id": "P20",
-      "a": "N15",
+      "a": "N14",
       "b": "N11",
       "kind": "pipe",
       "schedule": "sch40",
@@ -480,5 +475,5 @@
     "note": 0
   },
   "activeLevel": "L0",
-  "savedAt": "2026-08-22T13:35:12.775Z"
+  "savedAt": "2026-10-10T12:01:56.000Z"
 }

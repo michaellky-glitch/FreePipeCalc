@@ -41,6 +41,40 @@
   }
 
   // -------------------------------------------------------------- fittings
+  /* The junctions that point devices make: node id -> { rep, nodes, internal }.
+   * Nodes joined by a point device (two nodes on one point, see
+   * `M.isPointDevice`) form one group, also across a chain of point devices.
+   * `rep` is the group's first node in model order; `internal` lists the
+   * point devices. A node that is not on a point device is not in the map. */
+  function pointGroups(m) {
+    var byId = {}, order = {};
+    m.nodes.forEach(function (n, i) { byId[n.id] = n; order[n.id] = i; });
+    var parent = {}, internal = {};
+    function find(x) {
+      if (parent[x] === undefined) parent[x] = x;
+      while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+      return x;
+    }
+    m.pipes.forEach(function (p) {
+      if (!M.isPointDevice(m, p, byId)) return;
+      internal[p.id] = true;
+      var ra = find(p.a), rb = find(p.b);
+      if (ra !== rb) parent[ra] = rb;
+    });
+    var groups = {}, byNode = {};
+    Object.keys(parent).forEach(function (id) {
+      var r = find(id);
+      (groups[r] = groups[r] || { nodes: [], internal: internal }).nodes.push(id);
+    });
+    Object.keys(groups).forEach(function (r) {
+      var gr = groups[r];
+      gr.nodes.sort(function (x, y) { return order[x] - order[y]; });
+      gr.rep = gr.nodes[0];
+      gr.nodes.forEach(function (id) { byNode[id] = gr; });
+    });
+    return byNode;
+  }
+
   /* Work out which fittings sit at `nodeId` and which pipe each is charged to.
    *
    * `flows` (optional) is the flow map from a previous solve. Without it only
@@ -50,10 +84,43 @@
    * `dry` (optional) is the map of pipes `dryPipes` called dry for this pass.
    * Without it a pipe is dry below Q_MIN.
    *
+   * `groups` (optional) is `pointGroups(m)`, passed in by `fittingsByPipe` so
+   * it is built once per pass rather than once per node.
+   *
+   * A POINT DEVICE IS INSIDE ITS JUNCTION (v0.19.0). A pump, valve or piece of
+   * equipment whose two nodes sit on one point has no length and no
+   * direction. The fitting is the pipework AROUND it: the pipes on both of its
+   * nodes meet at that point, and they are read here as one junction. A pump
+   * between two collinear pipes is then straight, a pump on a corner gets one
+   * elbow (charged to the pipe the water leaves by), and a valve at a tee is
+   * part of that tee. Read node by node, the device would have no direction
+   * and the corner would read as straight: the feasibility spike lost both
+   * pump elbows on datacentre-ring that way (docs/FEASIBILITY-point-devices.md).
+   * The junction is read once, at its first node in model order; its other
+   * nodes return nothing.
+   *
    * Returns [{ pipe, type }].
    */
-  function fittingsAtNode(m, nodeId, flows, warnings, dry) {
-    var pipes = M.pipesAt(m, nodeId);
+  function fittingsAtNode(m, nodeId, flows, warnings, dry, groups) {
+    groups = groups || pointGroups(m);
+    var g = groups[nodeId];
+    var pipes, at = {};
+    if (g) {
+      if (g.rep !== nodeId) return [];
+      pipes = [];
+      g.nodes.forEach(function (id) {
+        M.pipesAt(m, id).forEach(function (p) {
+          if (g.internal[p.id] || at[p.id]) return;
+          at[p.id] = id;
+          pipes.push(p);
+        });
+      });
+    } else {
+      pipes = M.pipesAt(m, nodeId);
+      pipes.forEach(function (p) { at[p.id] = nodeId; });
+    }
+    /* Direction of a leg, from the node it is attached to. */
+    function dir(p) { return dirFrom(m, p, at[p.id]); }
     var out = [];
     if (pipes.length < 2) return out;          // dead end / terminal: no fitting
 
@@ -65,14 +132,14 @@
     /* Is this pipe carrying flow AWAY from the node? That makes it the
      * downstream pipe, which is what the fitting is charged to (spec §3.3). */
     function isDownstream(p) {
-      if (!flows) return p.a === nodeId;       // geometric guess before solving
+      if (!flows) return p.a === at[p.id];     // geometric guess before solving
       var q = flows[p.id] || 0;
       // link flow is positive a→b, so it leaves this node when...
-      return (p.a === nodeId) ? q > 0 : q < 0;
+      return (p.a === at[p.id]) ? q > 0 : q < 0;
     }
 
     if (pipes.length === 2) {
-      var dev = deviation(dirFrom(m, pipes[0], nodeId), dirFrom(m, pipes[1], nodeId));
+      var dev = deviation(dir(pipes[0]), dir(pipes[1]));
       var type = FD.fittings.elbowForAngle(dev);
       if (!type) return out;                   // collinear — pipes just merge
       if (!flows) {
@@ -152,7 +219,7 @@
      * The common leg is the single one on the other side. */
     var common = (dividing ? ins : outs);
     var bull = isSymmetricSplit(m, nodeId, charged,
-                                common.length === 1 ? common[0] : null);
+                                common.length === 1 ? common[0] : null, dir);
 
     /* ====================== A STREAM THAT GOES STRAIGHT IS THE RUN; ONE THAT
      * ====================== TURNS IS THE BRANCH
@@ -207,11 +274,11 @@
      * change between passes in a loop; FITTING_OSCILLATION reports a pass
      * loop that does not settle. */
     function inLineWith(p) {
-      var dp = dirFrom(m, p, nodeId);
+      var dp = dir(p);
       if (!dp) return [];
       return common.filter(function (c) {
         if (c.id === p.id) return false;
-        var dc = dirFrom(m, c, nodeId);
+        var dc = dir(c);
         return !!dc && !FD.fittings.elbowForAngle(deviation(dp, dc));
       });
     }
@@ -254,9 +321,9 @@
       var claims = {};
       charged.forEach(function (p) {
         if (!goesStraight(p)) return;
-        var dp = dirFrom(m, p, nodeId), best = null;
+        var dp = dir(p), best = null;
         inLineWith(p).forEach(function (c) {
-          var dev = deviation(dp, dirFrom(m, c, nodeId));
+          var dev = deviation(dp, dir(c));
           if (!best || dev < best.dev) best = { c: c.id, dev: dev };
         });
         (claims[best.c] = claims[best.c] || []).push({ p: p.id, dev: best.dev });
@@ -335,10 +402,11 @@
    * symmetry demands 45.0. The general statement is to compare each charged
    * leg's deviation from the COMMON leg: if they are equal, nothing
    * distinguishes them. The bullhead is the special case where both are 90°. */
-  function isSymmetricSplit(m, nodeId, charged, common) {
+  function isSymmetricSplit(m, nodeId, charged, common, dirOf) {
     if (!charged || charged.length !== 2 || !common) return false;
-    var dc = dirFrom(m, common, nodeId);
-    var d0 = dirFrom(m, charged[0], nodeId), d1 = dirFrom(m, charged[1], nodeId);
+    var dOf = dirOf || function (p) { return dirFrom(m, p, nodeId); };
+    var dc = dOf(common);
+    var d0 = dOf(charged[0]), d1 = dOf(charged[1]);
     if (!dc || !d0 || !d1) return false;
     return Math.abs(deviation(dc, d0) - deviation(dc, d1)) < SYMMETRY_DEG;
   }
@@ -450,8 +518,9 @@
     m.pipes.forEach(function (p) { byPipe[p.id] = { el: 0, sumK: 0, types: [] }; });
     var kSet = (m.settings.dw && m.settings.dw.kSet) || 'threaded';
 
+    var groups = pointGroups(m);
     m.nodes.forEach(function (n) {
-      fittingsAtNode(m, n.id, flows, warnings, dry).forEach(function (f) {
+      fittingsAtNode(m, n.id, flows, warnings, dry, groups).forEach(function (f) {
         var p = M.pipe(m, f.pipe);
         if (!p || !byPipe[p.id]) return;
         var bore_mm = M.pipeBore(m, p) * 1000;
@@ -851,7 +920,10 @@
       return { id: n.id, z: z, demand: demand, fixedHead: fixedHead };
     });
 
-    var links = m.pipes.map(function (p) {
+    /* A sensor is an instrument on a node, not a link (v0.19.0): it adds no
+     * resistance, and as a link of zero length it would make the matrix
+     * singular. */
+    var links = m.pipes.filter(function (p) { return p.kind !== 'sensor'; }).map(function (p) {
       var L = M.pipeLength(m, p);
       var el = fits[p.id] ? fits[p.id].el : 0;
       var d = M.pipeBore(m, p);
@@ -2612,14 +2684,32 @@
    *
    * Returns { mode, value } in SI, or null when the reading cannot be taken —
    * no result yet, no reference pipe, or nothing setting a temperature. */
+  /* THE FLOW THROUGH A NODE: the larger of what the pipes bring in and what
+   * they take out (the two differ by a demand or a source on the node). On a
+   * node with two pipes and nothing else, it is the pipe flow. This is what a
+   * flow sensor on that node reads (v0.19.0). Null if no pipe at the node has
+   * a solved flow. */
+  function nodeThroughFlow(m, res, nodeId) {
+    if (!res || !res.flow) return null;
+    var qIn = 0, qOut = 0, any = false;
+    M.pipesAt(m, nodeId).forEach(function (p) {
+      var q = res.flow[p.id];
+      if (q === undefined || !isFinite(q)) return;
+      any = true;
+      var leaving = (p.a === nodeId) ? q > 0 : q < 0;
+      if (leaving) qOut += Math.abs(q); else qIn += Math.abs(q);
+    });
+    return any ? Math.max(qIn, qOut) : null;
+  }
+
   function sensorReading(m, p, res) {
     if (!p || p.kind !== 'sensor' || !p.sensor || !res) return null;
     var sn = p.sensor;
     var num = function (x) { return (x === undefined || !isFinite(x)) ? null : x; };
 
     if (sn.mode === 'flow') {
-      var q = res.flow ? num(res.flow[p.id]) : null;
-      return q === null ? null : { mode: 'flow', value: Math.abs(q) };
+      var q = nodeThroughFlow(m, res, p.a);
+      return q === null ? null : { mode: 'flow', value: q };
     }
     if (sn.mode === 'pressure') {
       var pa = res.pressure ? num(res.pressure[p.a]) : null;
@@ -2947,6 +3037,8 @@
      * temperatures in it. */
     function measure(c, pair) {
       if (pair.mode === 'flow') {
+        /* A sensor reads the flow through its node; equipment its own. */
+        if (pair.equip.kind === 'sensor') return nodeThroughFlow(m, c.res, pair.equip.a);
         var q = c.res && c.res.flow ? c.res.flow[pair.equip.id] : undefined;
         return (q === undefined || !isFinite(q)) ? null : Math.abs(q);
       }
@@ -2971,6 +3063,11 @@
         var t1 = th[pair.equip.a], t2 = th[ref.a];
         return (t1 === undefined || t2 === undefined ||
                 !isFinite(t1) || !isFinite(t2)) ? null : Math.abs(t1 - t2);
+      }
+      /* A temperature sensor reads its node. */
+      if (pair.equip.kind === 'sensor') {
+        var tn = c.thermal && c.thermal.temperature && c.thermal.temperature[pair.equip.a];
+        return (tn === undefined || !isFinite(tn)) ? null : tn;
       }
       var l = c.thermal && c.thermal.links && c.thermal.links[pair.equip.id];
       if (!l) return null;
@@ -5417,6 +5514,24 @@
 
     var pipes = M.pipesAt(m, nodeId);
     if (pipes.some(function (p) { return p.kind === 'pump'; })) return 'P';
+    /* At a point device the junction is the pipework around it. */
+    var g = pointGroups(m)[nodeId];
+    if (g) {
+      var legs = [], seen = {};
+      g.nodes.forEach(function (id) {
+        M.pipesAt(m, id).forEach(function (p) {
+          if (g.internal[p.id] || seen[p.id]) return;
+          seen[p.id] = true;
+          legs.push({ p: p, at: id });
+        });
+      });
+      if (legs.length >= 3) return 'T';
+      if (legs.length === 2) {
+        return FD.fittings.elbowForAngle(deviation(dirFrom(m, legs[0].p, legs[0].at),
+                                                   dirFrom(m, legs[1].p, legs[1].at))) ? 'EL' : '';
+      }
+      return '';
+    }
     if (pipes.length >= 3) return 'T';
     if (pipes.length === 2) {
       var dev = deviation(dirFrom(m, pipes[0], nodeId), dirFrom(m, pipes[1], nodeId));
@@ -5999,12 +6114,14 @@
      * drains it. See the note on `solveModelGen`. */
     solveModelGen: solveModelGen,
     sensorReading: sensorReading,
+    nodeThroughFlow: nodeThroughFlow,
     differentialPa: differentialPa,
     fittingsAtNode: fittingsAtNode,
     isSymmetricSplit: isSymmetricSplit,
     fittingsByPipe: fittingsByPipe,
     deviation: deviation,
     dirFrom: dirFrom,
-    pickRunPair: pickRunPair
+    pickRunPair: pickRunPair,
+    pointGroups: pointGroups
   };
 })(window.FD = window.FD || {});

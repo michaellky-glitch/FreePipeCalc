@@ -590,6 +590,7 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   <li><strong>One common leg has one run.</strong> In a very narrow Y, two charged legs can both be less than 8° from the common leg. The straighter leg is then the run. If their deviations are within 2° of each other, neither leg is the run.</li>
   <li><strong>A cross</strong> (four legs) can have two legs on the common side. A charged leg is the run only if the leg in line with it can supply all of its flow (within 2%). If water from the other side must turn into it, it is the branch.</li>
   <li><strong>A leg with zero length has no direction.</strong> No leg is in line with it, so a stream from it always turns.</li>
+  <li><strong>A pump, valve or piece of equipment is a point</strong> (v0.19.0). It is a link with its two nodes at one position. The program reads the pipes on both of its nodes as one junction, and the device is inside that junction. A pump between two pipes in line gets no fitting. A pump on a corner gets one elbow, on the pipe the water leaves by. A valve at a tee is part of that tee.</li>
 </ul>
 <div class="note rule">
   <span class="tag">NOTE:</span>
@@ -1075,6 +1076,7 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 
 <h3 id="pump-control">7.5 Control</h3>
+<p>A sensor is an instrument at a node (v0.19.0). It is not part of the hydraulic network and adds no resistance. It reads at its node: the temperature, the pressure, or the flow through the node. On a pipe, that is the pipe flow. Before v0.19.0 a sensor was a 0.5 m pipe with the friction of that length.</p>
 <p>A pump can follow a sensor. Link the pump to a pressure, flow or temperature sensor and give the sensor a setpoint. In SIMULATE the program adjusts the pump <strong>speed</strong> until the sensor reads its setpoint. If the pump reaches a limit before it reaches the setpoint, the program says so.</p>
 
 <h4 id="dp-sensor">What a differential pressure sensor reads</h4>

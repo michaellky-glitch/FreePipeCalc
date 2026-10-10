@@ -1,6 +1,6 @@
 {
-  "formatVersion": 1,
-  "appVersion": "0.18.61",
+  "formatVersion": 2,
+  "appVersion": "0.19.0",
   "discipline": "hydronic",
   "settings": {
     "units": "metric",
@@ -1492,6 +1492,5 @@
     "note": 39
   },
   "activeLevel": "L0",
-  "migrations": [],
-  "savedAt": "2026-09-14T14:34:21.335Z"
+  "savedAt": "2026-10-10T12:01:56.000Z"
 }

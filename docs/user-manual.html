@@ -378,6 +378,11 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
   <p>The design flow and design pressure set a K factor for the outlet, from Q = K·√P. Simulate uses that K factor to find the flow the outlet actually draws at the pressure it is given. Other equipment that states a flow and a pressure drop is treated the same way.</p>
 </div>
 
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>A pump, a valve, a piece of equipment and a sensor are points on the pipe. Click a pipe to place one there. The program splits the pipe at that point, and keeps at least 0.1 m of pipe on each side. Drag the device to slide it along its run. Delete it and the pipe joins again. You cannot connect a pipe to a device: connect it to the pipe beside the device.</p>
+  <p>Before v0.19.0, each device was 0.5 m long. A file from an earlier version is converted when it opens: the program tells you, and the length of each device becomes pipe.</p>
+</div>
+
 <p><strong>Pump.</strong> Places a pump. The Sizing control has three modes.</p>
 <div class="scroll">
 <table class="ctrl">
@@ -474,13 +479,13 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
 <p>In Control you place sensors and link them to pumps and valves.</p>
 
 <h4>Sensors</h4>
-<p>A sensor reads a quantity on the pipe it sits on, and holds a setpoint. The tools place five kinds.</p>
+<p>A sensor reads a quantity at the point where you place it on a pipe, and holds a setpoint. It is an instrument: it adds no resistance. The tools place five kinds.</p>
 <div class="scroll">
 <table class="ctrl">
   <thead><tr><th>Sensor</th><th>Measures</th></tr></thead>
   <tbody>
     <tr><td>Temperature</td><td>Water temperature at the sensor.</td></tr>
-    <tr><td>Flow</td><td>Flow through the pipe.</td></tr>
+    <tr><td>Flow</td><td>Flow through the pipe at the sensor.</td></tr>
     <tr><td>Pressure</td><td>Gauge pressure at the sensor.</td></tr>
     <tr><td>Diff. Pressure</td><td>Differential pressure between this pipe and a second pipe you pick. If the two pipes are at different levels, the static column between them does not count.</td></tr>
     <tr><td>Diff. Temperature</td><td>Temperature difference between this pipe and a second pipe you pick.</td></tr>
