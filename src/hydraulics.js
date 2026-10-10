@@ -74,7 +74,7 @@
     colebrook: {
       key: 'colebrook',
       name: 'Colebrook-White',
-      note: 'Implicit. Solved by iteration. The reference for the explicit forms.',
+      note: 'The standard against which the others are fitted. Solved iteratively.',
       f: function (Re, relRough) {
         // 1/√f = −2 log₁₀( ε/3.7d + 2.51/(Re√f) )   — fixed-point iteration
         var invSqrtF = -2 * Math.log10(relRough / 3.7 + 5.74 / Math.pow(Re, 0.9)); // Swamee-Jain seed
@@ -89,8 +89,8 @@
     swameejain: {
       key: 'swameejain',
       name: 'Swamee-Jain',
-      note: 'Explicit fit to Colebrook-White. Within 0.9% for Re 1e4–1e7 and ' +
-            'ε/d ≤ 1e-3; up to 2.8% at Re 5000 with ε/d 1e-2.',
+      note: 'Measured against an iterated Colebrook: within 0.9% over ' +
+            'Re 1e4–1e7 and ε/d ≤ 1e-3, rising to 2.8% at Re 5000 with ε/d 1e-2.',
       f: function (Re, relRough) {
         var t = Math.log10(relRough / 3.7 + 5.74 / Math.pow(Re, 0.9));
         return 0.25 / (t * t);
@@ -99,7 +99,7 @@
     haaland: {
       key: 'haaland',
       name: 'Haaland',
-      note: 'Explicit fit to Colebrook-White. Within about 2%.',
+      note: 'Within ~2% of Colebrook; simplest of the explicit forms.',
       f: function (Re, relRough) {
         var t = -1.8 * Math.log10(Math.pow(relRough / 3.7, 1.11) + 6.9 / Re);
         return 1 / (t * t);
@@ -108,7 +108,7 @@
     churchill: {
       key: 'churchill',
       name: 'Churchill',
-      note: 'Explicit. One expression for laminar, transitional and turbulent flow.',
+      note: 'Single expression spanning laminar, transitional and turbulent flow.',
       f: function (Re, relRough) {
         var A = Math.pow(2.457 * Math.log(1 / (Math.pow(7 / Re, 0.9) + 0.27 * relRough)), 16);
         var B = Math.pow(37530 / Re, 16);

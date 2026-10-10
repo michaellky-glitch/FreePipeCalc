@@ -137,11 +137,13 @@
       <span class="tool-set" data-uiset="simulate" hidden>
         <!-- LOCKED / LIVE, not STATIC / DYNAMIC (v0.18.66). To an engineer a
              "dynamic simulation" is a transient one, and this program is steady
-             state only; the buttons only lock or unlock editing. The data
-             attribute keeps its old values so nothing saved or wired changes. -->
-        <span class="tool-sub"><i>Edit</i>
-          <button class="btn" data-simmode="static" title="No edits, no re-solve. Use RUN SIMULATION after a change">LOCKED</button>
-          <button class="btn" data-simmode="dynamic" title="Every edit re-solves">LIVE</button>
+             state only. What the pair sets is the CALCULATION WORKFLOW — when
+             the model re-solves — and the edit lock follows from that, so the
+             group is named for the solve. The data attribute keeps its old
+             values so nothing saved or wired changes. -->
+        <span class="tool-sub"><i>Solve</i>
+          <button class="btn" data-simmode="static" title="Hold the last solve. Nothing re-solves and the drawing is locked; use RUN SIMULATION after a change">LOCKED</button>
+          <button class="btn" data-simmode="dynamic" title="Re-solve after every change">LIVE</button>
         </span>
         <span class="tool-sub"><i>Run</i>
           <button class="btn" id="btn-run-sim" title="Re-solve the model now">RUN SIMULATION</button>

@@ -244,21 +244,27 @@ Real valves are often modified equal-percentage.
 
 ## 4. User interface changes
 
-The rule that the interface does not explain basic engineering stays. These
-changes remove text that explained a label, correct text that was wrong, and
-make labels consistent.
+Two rules apply:
+
+- The interface does not explain basic engineering.
+- Calculation workflow comes before UI. Text that tells the engineer what the
+  solve does, which number to use, or what to do next stays, even when it
+  makes a panel longer.
+
+These changes correct text that was wrong, make labels consistent, and remove
+only text that was about the screen itself.
 
 **Text that was wrong**
 
 - HYDRAULIC, Fluid Properties: the list said that nothing calculates the
-  properties from the temperature. This was false from v0.18.62. The list is
-  removed. One line remains: "Properties at the source temperature."
+  properties from the temperature. This was false for water from v0.18.62.
+  The Temperature line now says that, for water, the source temperature sets
+  the three properties. For glycol and custom fluids it keeps its old text.
 - HYDRAULIC: the kinematic viscosity showed as `0.0000014718896065571563`.
   It now shows as `1.472e-6`.
 - HYDRAULIC, Darcy-Weisbach: the Swamee-Jain note said "The correlation this
-  app uses". Colebrook-White is the default. All four notes are corrected.
-  The laminar note is not shown for Churchill, which covers laminar flow
-  itself.
+  app uses". Colebrook-White is the default, so that clause is removed. The
+  laminar note is not shown for Churchill, which covers laminar flow itself.
 - THERMAL, Fluid: showed the 20 °C values. Now shows the values in use
   (correction 2.2).
 - Calculation sheet, Pump Curve: the key named a red system curve in DESIGN,
@@ -266,9 +272,10 @@ make labels consistent.
 
 **Names and labels**
 
-- SIMULATE ribbon: STATIC and DYNAMIC are now LOCKED and LIVE. To an
-  engineer, a dynamic simulation is a transient one. The program is steady
-  state only. The buttons only lock or unlock editing.
+- SIMULATE ribbon: STATIC and DYNAMIC are now LOCKED and LIVE, in a group
+  named Solve. To an engineer, a dynamic simulation is a transient one. The
+  program is steady state only. The buttons set when the model re-solves; the
+  edit lock follows from that.
 - Pump panel: the curve buttons Input, Show and Clear are now Paste curve,
   Show curve and Clear curve.
 - Panel headings show the tag where one exists: Sensor, Pipe, Node and Riser
@@ -287,16 +294,17 @@ make labels consistent.
 - Levels panel: a long level name stays on one line. The altitude and the
   buttons move below it when the panel is narrow.
 
-**Explanations removed or shortened**
+**Explanations removed or shortened** — only text about the screen:
 
 - SETTINGS, Display: the sentence about drawing sizes and the app chrome.
-- Heat source/sink panel: "Set by the solve on Auto sizing. Switch Sizing to
-  Manual to state it." showed twice, and a third note was in Actual. It is now
-  "Set by Auto sizing." on each locked field.
-- Nine other hints are shorter: the calculating notice, the manual critical
-  path, the align tool, the annotation label formats, the sync note, the
-  sensor with no link, the coil sync note, the part-open isolation valve, and
-  the pump with no curve.
+- ANNOTATION, Display tags: the label formats are given as two examples.
+- Isolation valve: the part-open note no longer describes the slider.
+
+All the hints that describe the calculation workflow stay as they were: the
+Auto sizing notes on the heat source/sink panel, the capacity to select, the
+calculating notice, the manual critical path, the align tool, the sync notes,
+the sensor with no link, the pump with no curve, and the friction-factor
+notes.
 
 ---
 

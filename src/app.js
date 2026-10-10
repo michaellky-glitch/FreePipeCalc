@@ -1832,7 +1832,8 @@
     if (!res) {
       scheduleSolve();
       host.appendChild(el('p', 'hint',
-        'Calculating. The sheet appears when the solve finishes.'));
+        'Calculating. The sheet appears when the solve finishes. A large model ' +
+        'with controls can take a minute; the progress bar is above the drawing.'));
       return;
     }
     /* Declared up here because the hydraulic-error block below needs it, and a
@@ -2078,7 +2079,9 @@
       }
       if (manualPath) {
         secCrit.appendChild(el('p', 'hint',
-          'Ends chosen by hand. Press [Auto] to return to the automatic path.'));
+          'These two ends were chosen by hand. The automatic path finds the ' +
+          'circuit that uses the most head to reach its equipment. Press ' +
+          '[Auto] to go back to it.'));
       }
 
       /* The critical-path sections are repeated here in full, deliberately.
@@ -3444,7 +3447,8 @@
         'snaps to the grid. Use it to put a known node back on the grid after ' +
         'the drawing has drifted. Hold Shift for free placement.'));
       host.appendChild(el('p', 'hint',
-        'Moves level offsets only. Pipe lengths do not change.'));
+        'Only level offsets change, so no geometry and no pipe length is ' +
+        'touched — the calculation is unaffected.'));
       return;
     }
 
@@ -4338,7 +4342,8 @@
                                                              : 'Opening ') +
              Math.round((pos === null ? 1 : pos) * 100) + '%');
       sec.box.appendChild(el('p', 'hint',
-        'Clear the sync to give this device its own control link.'));
+        'Synced devices do not chase a setpoint of their own \u2014 clear the ' +
+        'sync to give this one its own control link.'));
       return;
     }
 
@@ -5396,7 +5401,8 @@
      * about it. */
     if (!followers.length) {
       host.appendChild(el('p', 'hint',
-        'No device linked. Link a pump or control valve to set a setpoint.'));
+        'Sensor is reporting current readings only. Link sensor to control ' +
+        'device to set setpoints and control it.'));
     }
 
     var box = readoutBox(host, 'Actual');
@@ -5588,7 +5594,7 @@
       qIn.disabled = true;
       qIn.parentNode.classList.add('is-disabled');
       qIn.parentNode.appendChild(el('span', 'hint',
-        'Set by Auto sizing.'));
+        'Set by the solve on Auto sizing. Switch Sizing to Manual to state it.'));
     } else if (!isAdiabatic) {
       infoMark(fieldLabel(qIn),
                'Flow, load and ΔT are one equation. Changing this moves ' +
@@ -5667,6 +5673,10 @@
               (marg >= 0 ? '+' : '') + marg.toFixed(1) + '%  (' +
               fmtLoad(cap) + ' selected)');
             if (marg < 0) mrow.classList.add('deficit');
+          } else {
+            act.box.appendChild(el('p', 'hint',
+              'Sizing is Auto, so this is the capacity to select. Switch ' +
+              'Sizing to Manual to lock it in as the nameplate.'));
           }
         }
 
@@ -5770,7 +5780,8 @@
         dead.appendChild(el('option', '', 'None'));
         field(sec.box, 'Sync part load % with', dead);
         sec.box.appendChild(el('p', 'hint',
-          'No other heat exchanger to sync to.'));
+          'Place a second heat exchanger to sync this one to it — sync is ' +
+          'coil to coil.'));
       }
     }
 
@@ -6152,7 +6163,7 @@
         box.disabled = true;
         row.classList.add('is-disabled');
         wrap.appendChild(el('span', 'hint',
-          'Set by Auto sizing.'));
+          'Set by the solve on Auto sizing. Switch Sizing to Manual to state it.'));
       }
       wrap.appendChild(row);
       host.appendChild(wrap);
@@ -6891,8 +6902,8 @@
      * wants to build a curve from scratch. */
     if (!c) {
       host.appendChild(el('p', 'hint',
-        'No curve. Set Sizing to Auto or Manual to generate one, or paste a ' +
-        'manufacturer curve.'));
+        'No curve. Set Sizing to Auto or Manual above to generate one from the ' +
+        'design duty, or paste a manufacturer curve below.'));
     }
 
     var paste = el('button', 'btn', 'Paste curve');
@@ -8386,7 +8397,7 @@
     fb.ro('Fluid', fluid.name);
     fb.ro('Specific heat', fluid.specificHeat.toFixed(0) + ' J/(kg·K)');
     fb.ro('Density', fluid.density.toFixed(1) + ' kg/m³');
-    fb.ro('Temperature', fluid.refTemp.toFixed(1) + ' °C');
+    fb.ro('Properties quoted at', fluid.refTemp.toFixed(1) + ' °C');
     if (!fluid.verified) {
       var fw = el('div', 'notice warn-notice');
       var fp = el('p', '', fluid.name + ': properties unverified. Check before issue.');
@@ -8917,16 +8928,9 @@
     fluidField('Density ρ', 'density', '(kg/m³)', 1);
     fluidField('Kinematic viscosity ν', 'kinematicViscosity', '(m²/s)', null);
     fluidField('Specific heat capacity Cp', 'specificHeat', '(J/kg·K)', 0);
-    fluidField('Temperature', 'temperature', '(°C)', 1);
+    fluidField('Properties quoted at', 'temperature', '(°C)', 1);
 
-    /* ONE LINE, and it has to be true. The list that stood here said nothing
-     * recalculates the properties from the temperature, which stopped being
-     * so in v0.18.62 (EQ.5) — water now follows the source. */
-    if (fPreset === 'water') {
-      hint('Properties at the source temperature. Read-only. Select Custom to enter your own.');
-    } else if (!fEditable) {
-      hint('Read-only. Select Custom to enter your own.');
-    }
+    if (!fEditable) hint('Read-only. Choose Custom to enter your own.');
     if (fDef.verified === false) {
       var fnote = el('div', 'notice warn-notice');
       var fnp = el('p', '', fDef.name + ': properties unverified. Check before issue. ');
@@ -8942,6 +8946,37 @@
      * disappeared while the calculation was using K. That choice is worth 3.5x
      * on a DN25 elbow (threaded 1.5 against flanged 0.43). */
     var usesK = FD.hydraulics.method(m.settings.frictionMethod).fittingMode === 'K';
+    var usage = el('ul', 'usage-list');
+    usage.appendChild(el('li', '', 'Density — used: converts head to pressure everywhere.'));
+    usage.appendChild(el('li', '', 'Kinematic viscosity — ' + (isDW
+      ? 'used: sets Reynolds number and the friction factor.'
+      : 'used for the laminar-flow check; fully live under Darcy-Weisbach.')));
+    /* No THERMAL tab in a plumbing file, so no line pointing at one. */
+    if (!plumbingTab) {
+      usage.appendChild(el('li', '',
+        'Specific heat capacity — used: it is what Q = ṁ·Cp·ΔT runs on. See the ' +
+        'THERMAL tab.'));
+    } else {
+      usage.appendChild(el('li', 'unused',
+        'Specific heat capacity — not used in a plumbing file: there is no ' +
+        'thermal calculation here.'));
+    }
+    /* THE TEMPERATURE LINE TELLS THE TRUTH FOR EACH FLUID (v0.18.66). It said
+     * nothing recalculates the properties from the temperature, which stopped
+     * being so for water in v0.18.62 (EQ.5). Kept because it is calculation
+     * workflow — which number drives what — not decoration. */
+    if (fPreset === 'water') {
+      usage.appendChild(el('li', '',
+        'Temperature — used: taken from the source, and sets the three ' +
+        'properties above for the whole model (3–79 °C). See Calculation ' +
+        'Method section 5.1.'));
+    } else {
+      usage.appendChild(el('li', 'unused',
+        'Temperature — the temperature the three properties above are QUOTED at, ' +
+        'not a result and not a driver. Nothing recalculates them from it, so a ' +
+        'glycol circuit run at 6 °C is given these properties.'));
+    }
+    host.appendChild(usage);
 
     // =================================================== 2. SYSTEM (detected)
     /* Open/closed loop is a HYDRONIC reading. A plumbing file is neither, which
@@ -9066,6 +9101,25 @@
       fbox.appendChild(leg2);
       host.appendChild(fbox);
 
+      /* Name the correlation ACTUALLY in use, not the one that is now the
+       * default. A model saved before 2026-08-02 carries its own choice and
+       * keeps it — a stored calculation is not re-specified behind the
+       * engineer's back — so a notice hard-coded to Swamee-Jain would have been
+       * describing a different calculation from the one on the screen. */
+      var ffNow = (m.settings.dw && m.settings.dw.frictionFactor) || 'colebrook';
+      var ffDef = FD.hydraulics.frictionFactors[ffNow];
+      /* NOT A WARNING ANY MORE. Darcy left BETA on 2026-08-30 and Colebrook-White
+       * is the default correlation — the reference the explicit forms are fitted
+       * to, solved iteratively here. The only thing worth saying is the fit
+       * error, and only when an explicit form is the one in use. */
+      host.appendChild(el('p', 'hint',
+        'Friction factor: ' + (ffDef ? ffDef.name : ffNow) + '. ' +
+        (ffNow === 'colebrook'
+          ? 'Solved iteratively — the reference the explicit correlations are ' +
+            'fitted against.'
+          : 'An explicit fit to Colebrook-White. Colebrook-White is the default ' +
+            'for new models; this one keeps the choice it was saved with.')));
+
       var dg = grid();
       selField(dg, 'Friction factor correlation',
         Object.keys(FD.hydraulics.frictionFactors).map(function (kk) {
@@ -9075,15 +9129,12 @@
         });
       numField(dg, 'Absolute roughness ε', m.settings.dw.roughness_mm,
         function (v) { pushUndo(); m.settings.dw.roughness_mm = v; redrawAll(); }, '(mm)');
-      /* ONE LINE: what the selected correlation is, and what happens below
-       * the turbulent range. The select already names it. Churchill spans
-       * every regime in one expression, so the laminar clause is not true of
-       * it and is not shown. */
-      var ffSel = (m.settings.dw && m.settings.dw.frictionFactor) || 'colebrook';
-      var ffInfo = FD.hydraulics.frictionFactors[ffSel] ||
-                   FD.hydraulics.frictionFactors.colebrook;
-      hint(ffInfo.note + (ffSel === 'churchill' ? ''
-           : '  Re < 2300: f = 64/Re. Re 2300–4000: blended.'));
+      /* Churchill spans every regime in one expression, so the laminar and
+       * transitional clause is not true of it and is not shown (v0.18.66). */
+      var ffInfo = ffDef || FD.hydraulics.frictionFactors.colebrook;
+      hint(ffInfo.note + (ffNow === 'churchill' ? ''
+           : '  Laminar (Re < 2300) uses f = 64/Re; the transitional band is ' +
+             'blended so the solver sees a continuous curve.'));
     }
 
     // -------------------------------------------------- pipe schedules

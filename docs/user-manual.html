@@ -525,13 +525,13 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
   <p>In Simulate mode the drawing annotations show the stabilized flow and the stabilized thermal properties.</p>
 </div>
 <div class="note rule"><span class="tag">NOTE:</span>
-  <p>Locked and Live control editing only. The program does not do a transient (time-based) simulation. Each result is a steady state. Before v0.18.66 these two buttons had the names Static and Dynamic.</p>
+  <p>Locked and Live set when the model re-solves. They do not change the calculation. The program does not do a transient (time-based) simulation. Each result is a steady state. Before v0.18.66 these two buttons had the names Static and Dynamic.</p>
 </div>
 <div class="scroll">
 <table class="ctrl">
   <thead><tr><th>Control</th><th>What it does</th></tr></thead>
   <tbody>
-    <tr><td>Locked</td><td>Locks the drawing. You cannot edit, and nothing re-solves. A large model stays responsive.</td></tr>
+    <tr><td>Locked</td><td>Holds the last solution. Nothing re-solves, and you cannot edit the drawing. A large model stays responsive.</td></tr>
     <tr><td>Live</td><td>Re-solves the model after each change.</td></tr>
     <tr><td>Run Simulation</td><td>Re-solves the model now. Use this in Locked after a change.</td></tr>
     <tr><td>Select</td><td>Select any element to read its simulated properties.</td></tr>
