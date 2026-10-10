@@ -37,8 +37,25 @@ const NO_OVERLOAD = m => {
   if (m && m.settings && m.settings.thermal) m.settings.thermal.overloadPct = 0;
   return m;
 };
+/* ==================================================================
+ * AND EVERY MODEL BUILT HERE IS PINNED TO THE REFERENCE WATER (v0.18.66).
+ *
+ * The hand calculations in this file are written at RHO = 998 and CP = 4187.
+ * Until v0.18.66 the thermal solve used those figures for water at any
+ * temperature, because `FD.fluids.resolve` ignored the properties EQ.5 had
+ * resolved from the source temperature — so a 6 °C circuit ran its hydraulics
+ * on 999.9 kg/m³ and its heat balance on 998. That is fixed, and with it these
+ * calculations would quietly become tests of the water correlation instead of
+ * the law each one was written for. `pinFluid` is the harness's answer to
+ * exactly that (EQ.5 used it for the hydraulic suites). The temperature
+ * dependence itself is tested in its own section near the end of this file.
+ * Models loaded from fixtures are NOT pinned: they carry their own fluid.
+ * ================================================================== */
 const _create = M.create.bind(M);
-M.create = function () { return NO_OVERLOAD(_create.apply(null, arguments)); };
+M.create = function () {
+  return pinFluid(NO_OVERLOAD(_create.apply(null, arguments)),
+                  { density: RHO, specificHeat: CP });
+};
 const _fromJSON = M.fromJSON.bind(M);
 M.fromJSON = function () { return NO_OVERLOAD(_fromJSON.apply(null, arguments)); };
 
@@ -2195,6 +2212,33 @@ section('Pressure and differential sensors');
      * first is an accident of drawing order. */
     const back = NET.sensorReading(t.m, t.s1, res);
     near('...and it is stable', back.value, rd.value, 1e-12);
+  }
+  /* TAPPINGS AT TWO LEVELS (v0.18.66, audit). A transmitter's impulse lines
+   * are full of water, so it reads rho.g.(H1 - H2), not p1 - p2. A result is
+   * built by hand so the expected value is arithmetic, not a solve:
+   *
+   *   tapping 1: H = 40 m at z = 20 m  ->  p = rho.g.20
+   *   tapping 2: H = 35 m at z =  0 m  ->  p = rho.g.35
+   *
+   *   piezometric: rho.g.(40 - 35) = 998 x 9.81 x 5  = 48 951.9 Pa
+   *   static:      |p1 - p2|       = 998 x 9.81 x 15 = 146 855.7 Pa (wrong) */
+  {
+    const t = rig('dP', { dpSet: 150e3 });
+    t.s1.sensor.ref = t.s2.id;
+    t.m.settings.fluid = Object.assign({}, t.m.settings.fluid,
+                                       { preset: 'custom', density: 998 });
+    const rg = 998 * 9.81;
+    const fake = { head: {}, pressure: {} };
+    fake.head[t.s1.a] = 40; fake.pressure[t.s1.a] = rg * 20;
+    fake.head[t.s2.a] = 35; fake.pressure[t.s2.a] = rg * 35;
+    const rd = NET.sensorReading(t.m, t.s1, fake);
+    near('Tappings at two levels read the piezometric difference',
+         rd.value, 48951.9, 0.05);
+    ok('...not the static gauge difference',
+       Math.abs(rd.value - Math.abs(fake.pressure[t.s1.a] - fake.pressure[t.s2.a])) > 9e4,
+       rd.value.toFixed(1));
+    near('...and the control loop reads the same definition',
+         NET.differentialPa(t.m, fake, t.s1.a, t.s2.a), rd.value, 1e-9);
   }
   {
     const t = rig('dT', { dtSet: 8 });
@@ -4789,6 +4833,52 @@ section('The integrated valve target');
   ok('a valve targeting flow holds a flow',
      onFlow && onFlow.of === 'flow', JSON.stringify(onFlow));
   near('...at the design flow', onFlow.target, 0.005, 1e-9);
+}
+
+/* --------------------------------------------------------------------------
+ * THE HEAT BALANCE RUNS ON THE SAME WATER AS THE HYDRAULICS  (v0.18.66, audit)
+ *
+ * EQ.5 (v0.18.62) made water's density, viscosity and Cp follow the source
+ * temperature. The hydraulics read them; the thermal solve did not, because
+ * `FD.fluids.resolve` returned the 20 °C preset for water whatever was stored.
+ * So a 6 °C circuit ran its pressures on 999.92 kg/m³ and its heat balance on
+ * 998 kg/m³ and 4187 J/(kg·K) — 0.56% apart on ṁ·Cp.
+ *
+ * Built with the UNWRAPPED constructor, so nothing is pinned. The expected ΔT
+ * reads the correlations in data/water.js directly, not `resolve`:
+ *
+ *     ΔT = Q / (ρ(6) · q · Cp(6))
+ * ----------------------------------------------------------------------- */
+section('The heat balance uses the water at the source temperature');
+{
+  const m = NO_OVERLOAD(_create());
+  m.settings.thermal.surfaceCoeff = 0;          // adiabatic: only the coil
+  const lv = m.levels[0].id;
+  const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
+  const c = M.addNode(m, lv, 2, 0), d = M.addNode(m, lv, 3, 0);
+  a.device = { kind: 'source', pressure: 100e3, temperature: 6 };
+  const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
+  pump.pump = { mode: 'fixed', head: 30 };
+  const eq = M.addPipe(m, b.id, c.id, { kind: 'equip' });
+  eq.equip = { qRated: 0.010, pdRated: 50e3, equipType: 'exchanger', duty: 200e3 };
+  M.addPipe(m, c.id, d.id, { size: 'DN80', schedule: 'sch40' });
+  M.addPipe(m, d.id, a.id, { size: 'DN80', schedule: 'sch40' });
+  const res = NET.solveModel(m);
+  const q = Math.abs(res.flow[eq.id]);
+  const rho6 = FD.water.density(6), cp6 = FD.water.specificHeat(6);
+  ok('6 °C water is denser and holds more heat than the 20 °C preset',
+     rho6 > 999.8 && cp6 > 4200, rho6.toFixed(2) + ' / ' + cp6.toFixed(1));
+  near('The coil ΔT is Q/(ρ(6)·q·Cp(6))', res.thermal.links[eq.id].dT,
+       200e3 / (rho6 * q * cp6), 1e-9);
+  ok('...and not Q/(998·q·4187), the old answer',
+     Math.abs(res.thermal.links[eq.id].dT - 200e3 / (998 * q * 4187)) > 0.01,
+     res.thermal.links[eq.id].dT.toFixed(4));
+  near('The design ΔT on the panel uses the same water',
+       M.equipDTFromDuty(m, eq, 200e3), 200e3 / (rho6 * 0.010 * cp6), 1e-9);
+  const r = FD.fluids.resolve(m.settings);
+  near('THERMAL reports the temperature the properties are at', r.refTemp, 6, 1e-12);
+  near('...and the same density the hydraulics used', r.density,
+       m.settings.fluid.density, 1e-12);
 }
 
 

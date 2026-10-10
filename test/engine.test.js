@@ -1419,4 +1419,67 @@ section('Water properties against temperature');
 }
 
 
+/* --------------------------------------------------------------------------
+ * A FITTING CHARGED TO A DEVICE LINK IS STILL CHARGED  (v0.18.66, audit)
+ *
+ * Draw a pipe from a coil's end node and the coil becomes one leg of a tee.
+ * The detector charges the branch to the leg the flow says pays for it — here
+ * the coil — and until v0.18.66 that fitting was listed and never added to
+ * any resistance. The coil below is an adiabatic item rated 30 kPa at 2 L/s,
+ * DN50 Sch 40 (bore 52.48 mm), as the branch of a dividing tee.
+ *
+ *   Hazen-Williams, Carrier tee branch DN50 = 3.05 m, C 120:
+ *     h = 10.6663 x 3.05 x 0.002^1.852 / (120^1.852 x 0.05248^4.8710)
+ *       = 0.0791 m  ->  998 x 9.81 x 0.0791 = 0.775 kPa
+ *   Darcy-Weisbach, branch K at Qb/Qc = 0.5, Fb/Fc = 1 (Idel'chik 7-25,
+ *   converted to the leg's own velocity):
+ *     the solve's own sumK on the link, times V^2/2g at V = Q/A
+ * ----------------------------------------------------------------------- */
+section('A fitting charged to a device link is part of the loss');
+{
+  const M = FD2.model, NET = FD2.network;
+  function rig(meth) {
+    const m = M.create();
+    m.settings.frictionMethod = meth;
+    m.settings.fluid = { preset: 'custom', name: 'Water (pinned)', density: 998,
+                         kinematicViscosity: 1.004e-6, specificHeat: 4187,
+                         temperature: 20 };
+    const lv = m.levels[0].id;
+    const s = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 5, 0);
+    const c = M.addNode(m, lv, 10, 0);
+    const d = M.addNode(m, lv, 5, 5), e = M.addNode(m, lv, 5, 10);
+    s.device = { kind: 'source', pressure: 300e3 };
+    M.addPipe(m, s.id, b.id, { size: 'DN50', schedule: 'sch40' });
+    M.addPipe(m, b.id, c.id, { size: 'DN50', schedule: 'sch40' });
+    c.device = { kind: 'demand', flow: 0.002, reqPressure: 50e3, include: true };
+    const eq = M.addPipe(m, b.id, d.id,
+      { kind: 'equip', tag: 'FCU', size: 'DN50', schedule: 'sch40' });
+    eq.equip = { qRated: 0.002, pdRated: 30e3, equipType: 'adiabatic' };
+    M.addPipe(m, d.id, e.id, { size: 'DN50', schedule: 'sch40' });
+    e.device = { kind: 'demand', flow: 0.002, reqPressure: 50e3, include: true };
+    const res = NET.solveModel(m);
+    const link = res.network.links.filter(l => l.id === eq.id)[0];
+    return { res, link, dp: res.pressure[b.id] - res.pressure[d.id] };
+  }
+  {
+    const r = rig('HW');
+    ok('HW: the tee branch is charged to the coil link',
+       r.link._types.indexOf('TBRANCH_DIV') >= 0, r.link._types.join(','));
+    const hEl = 10.6663 * 3.05 * Math.pow(0.002, 1.852) /
+                (Math.pow(120, 1.852) * Math.pow(0.05248, 4.8710));
+    near('HW: the coil drops its rating plus the tee', r.dp,
+         30e3 + 998 * 9.81 * hEl, 2);
+    ok('HW: ...which is about 0.775 kPa more than its rating',
+       Math.abs(r.dp - 30e3 - 775) < 5, (r.dp - 30e3).toFixed(1) + ' Pa');
+  }
+  {
+    const r = rig('DW');
+    const A = Math.PI * 0.05248 * 0.05248 / 4, V = 0.002 / A;
+    ok('DW: the coil link carries a K for the tee', r.link._sumK > 1,
+       String(r.link._sumK));
+    near('DW: the coil drops its rating plus K.V^2/2g', r.dp,
+         30e3 + 998 * 9.81 * r.link._sumK * V * V / (2 * 9.81), 2);
+  }
+}
+
 report();

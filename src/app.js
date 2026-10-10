@@ -1183,8 +1183,12 @@
       var v = FD.hydraulics.velocity(q, l._d);
       var pdm = (l.kind === 'pipe' && l._L > 1e-9)
         ? headToPa(Math.abs(FD.hydraulics.headloss(l._rActual, q, l.n)) / l._L) : 0;
+      /* A pump row is its head LESS any fitting charged to the pump link
+       * (v0.18.66), so each row's pressures still follow from the last. */
+      var pumpFit = (l.kind === 'pump' && l.rF)
+        ? Math.abs(FD.hydraulics.headloss(l.rF, q, l.nF || 2)) : 0;
       var pd = headToPa(Math.abs(
-        l.kind === 'pump' ? -l.head : FD.hydraulics.linkLoss(l, q)));
+        l.kind === 'pump' ? -l.head + pumpFit : FD.hydraulics.linkLoss(l, q)));
       var dz = M.elevation(m, nTo) - M.elevation(m, nFrom);
 
       /* A shut valve has a deliberately enormous resistance, so ΔP = R·Q² comes
@@ -1361,8 +1365,12 @@
       return headToPa(Math.abs(FD.hydraulics.headloss(l._rActual, q, l.n)) / l._L);
     }
     function sectionPa(id, q) {
-      if (isPumpPipe(id)) return 0;                       // a pump adds head, not a loss
       var l = linkById[id]; if (!l) return 0;
+      /* A pump adds head, not a loss — but a fitting charged to its link is
+       * a loss (v0.18.66). */
+      if (isPumpPipe(id)) {
+        return l.rF ? headToPa(Math.abs(FD.hydraulics.headloss(l.rF, q, l.nF || 2))) : 0;
+      }
       return headToPa(Math.abs(FD.hydraulics.linkLoss(l, q)));
     }
 
@@ -1824,8 +1832,7 @@
     if (!res) {
       scheduleSolve();
       host.appendChild(el('p', 'hint',
-        'Calculating. The sheet appears when the solve finishes. A large model ' +
-        'with controls can take a minute; the progress bar is above the drawing.'));
+        'Calculating. The sheet appears when the solve finishes.'));
       return;
     }
     /* Declared up here because the hydraulic-error block below needs it, and a
@@ -2071,9 +2078,7 @@
       }
       if (manualPath) {
         secCrit.appendChild(el('p', 'hint',
-          'These two ends were chosen by hand. The automatic path finds the ' +
-          'circuit that uses the most head to reach its equipment. Press ' +
-          '[Auto] to go back to it.'));
+          'Ends chosen by hand. Press [Auto] to return to the automatic path.'));
       }
 
       /* The critical-path sections are repeated here in full, deliberately.
@@ -2185,7 +2190,7 @@
           var q = res && res.flow ? Math.abs(res.flow[p.id] || 0) : null;
           var link = res && res.network
             ? res.network.links.filter(function (l) { return l.id === p.id; })[0] : null;
-          var aP = link ? headToPa(Math.abs(FD.hydraulics.linkLoss(link, q || 0))) : null;
+          var aP = link ? headToPa(Math.abs(FD.hydraulics.deviceLoss(link, q || 0))) : null;
           var r3 = row(p.tag || p.id, q, p.equip.qRated || null, aP, p.equip.pdRated || null);
           r3.cv = cvOpeningOf(p);
           return r3;
@@ -2294,8 +2299,11 @@
       /* THE KEY STAYS, THE EXPLANATION GOES — Michael, 2026-09-07. What the
        * lines are is needed to read the chart; why the system curve is solved
        * rather than assumed is documentation. */
+      /* The system curve is solved in SIMULATION only, so the key only names
+       * it there — DESIGN draws no red line. */
       secCurve.appendChild(el('p', 'hint',
-        'Solid: rated curve. Dotted: 90–50% speed. Red: system curve. ' +
+        'Solid: rated curve. Dotted: 90–50% speed. ' +
+        (m.settings.calcMode === 'simulation' ? 'Red: system curve. ' : '') +
         'Plotted to 200% of duty flow.'));
     })();
 
@@ -3103,15 +3111,19 @@
         row.appendChild(lock);
       }
 
+      /* The two buttons wrap as ONE item, so a narrow panel never strands one
+       * of them on a line of its own. */
+      var acts = el('span', 'level-actions');
       var copy = el('button', 'btn tiny level-edit', 'C');
       copy.title = 'Copy this level\u2019s layout to another level';
       copy.addEventListener('click', function (e) { e.stopPropagation(); copyLevelTo(lv); });
-      row.appendChild(copy);
+      acts.appendChild(copy);
 
       var edit = el('button', 'btn tiny level-edit', 'E');
       edit.title = 'Edit level properties';
       edit.addEventListener('click', function (e) { e.stopPropagation(); editLevel(lv); });
-      row.appendChild(edit);
+      acts.appendChild(edit);
+      row.appendChild(acts);
 
       row.addEventListener('click', function () {
         m.activeLevel = lv.id;
@@ -3432,8 +3444,7 @@
         'snaps to the grid. Use it to put a known node back on the grid after ' +
         'the drawing has drifted. Hold Shift for free placement.'));
       host.appendChild(el('p', 'hint',
-        'Only level offsets change, so no geometry and no pipe length is ' +
-        'touched — the calculation is unaffected.'));
+        'Moves level offsets only. Pipe lengths do not change.'));
       return;
     }
 
@@ -3682,8 +3693,7 @@
     var a = m.settings.annotate;
     host.appendChild(el('h3', '', 'Drawing annotations'));
     host.appendChild(el('p', 'hint',
-      'What is labelled on the drawing and on printed level plans. Pipe labels ' +
-      'read like "50⌀/12.50m/2.40L/s"; node labels read like "N3 T".'));
+      'Drawing and printed plans. Pipe label: "50⌀/12.50m/2.40L/s". Node label: "N3 T".'));
 
     function toggle(label, key) {
       switchRow(host, label, !!a[key], function (on) {
@@ -3962,7 +3972,7 @@
       // ---- Display switches applied to every selected outflow ----
       host.appendChild(el('h3', 'sub', 'Display on all'));
       var tvOn = demandNodes.every(function (n) { return M.tagVisible(n); });
-      switchRow(host, 'Tag visible: ' + (tvOn ? 'ON' : 'OFF'), tvOn, function (on) {
+      switchRow(host, 'Tag visible', tvOn, function (on) {
         pushUndo();
         demandNodes.forEach(function (n) { M.setTagVisible(n, on); });
         scheduleSave(); app.view.render(); renderProperties();
@@ -4004,7 +4014,7 @@
   function renderRiserProps(host, r) {
     if (!r) return;
     var m = app.model;
-    host.appendChild(el('h3', '', 'Riser ' + r.id));
+    host.appendChild(el('h3', '', 'Riser ' + (r.tag || r.id)));
 
     var segs = m.pipes.filter(function (p) { return p.kind === 'riser' && p.riser === r.id; });
     var sample = segs[0];
@@ -4328,8 +4338,7 @@
                                                              : 'Opening ') +
              Math.round((pos === null ? 1 : pos) * 100) + '%');
       sec.box.appendChild(el('p', 'hint',
-        'Synced devices do not chase a setpoint of their own \u2014 clear the ' +
-        'sync to give this one its own control link.'));
+        'Clear the sync to give this device its own control link.'));
       return;
     }
 
@@ -4754,7 +4763,7 @@
   function sensorSetpointLabel(sn, d) {
     if (sn.mode === 'flow') return 'Flow setpoint (' + d.flow + ')';
     if (sn.mode === 'pressure') return 'Pressure setpoint (' + d.pressure + ')';
-    if (sn.mode === 'dP') return '\u0394p setpoint (' + d.pressure + ')';
+    if (sn.mode === 'dP') return '\u0394P setpoint (' + d.pressure + ')';
     if (sn.mode === 'dT') return '\u0394T setpoint (K)';
     return 'Temperature setpoint (\u00b0C)';
   }
@@ -4834,7 +4843,7 @@
         asw.type = 'button';
         asw.setAttribute('role', 'switch');
         asw.setAttribute('aria-checked', autoOn ? 'true' : 'false');
-        asw.setAttribute('aria-label', 'Automatic \u0394p setpoint');
+        asw.setAttribute('aria-label', 'Automatic \u0394P setpoint');
         asw.appendChild(el('span', 'switch-track', ''));
         asw.addEventListener('click', function () {
           pushUndo();
@@ -4924,7 +4933,7 @@
     if (p.kind === 'valve') { renderValveProps(host, p); return; }
     if (p.kind === 'equip') { renderEquipProps(host, p); return; }
     if (p.kind === 'sensor') { renderSensorProps(host, p); return; }
-    host.appendChild(el('h3', '', 'Pipe ' + p.id));
+    host.appendChild(el('h3', '', 'Pipe ' + (p.tag || p.id)));
     /* EVERYTHING THE PIPE *IS*, IN ONE PLACE (Michael, 2026-08-19: "Group Tag,
      * Schedule, Size, C Factor, Length, Insulation under Design"). They were
      * loose at the top of the panel while every derived figure below them sat in
@@ -5068,11 +5077,9 @@
       var link = res.network.links.find(function (l) { return l.id === p.id; });
       var q = res.flow[p.id];
       if (link && q !== undefined) {
-        var info = el('div', 'readout');
-        function ro(k, v) {
-          var r = el('div', 'kv'); r.appendChild(el('span', 'k', k));
-          r.appendChild(el('span', 'v', v)); info.appendChild(r);
-        }
+        /* A titled section like every other panel's results, so it folds and
+         * reads the same as a pump's or a coil's ACTUAL box. */
+        var ro = readoutBox(host, 'Actual').ro;
         ro('L drawn', FD.units.fmtLength(link._L, m.settings.display.length, true));
         ro('EL fittings', FD.units.fmtLength(link._el, m.settings.display.length, true) +
                           (link._types.length ? '  (' + FD.fittings.summarise(link._types) + ')' : ''));
@@ -5091,14 +5098,13 @@
         var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
         var pdPa = FD.units.headToPaWith(
           Math.abs(FD.hydraulics.linkLoss(link, q)), rho);
-        ro('Actual PD', FD.units.fmtPressure(pdPa, m.settings.display.pressure, true) +
-                            '  (incl. fittings)');
+        ro('PD', FD.units.fmtPressure(pdPa, m.settings.display.pressure, true) +
+                 '  (incl. fittings)');
         if (link._L > 1e-9) {
           var pdmVal = FD.hydraulics.pdPerMetre(link._rActual, q, link.n, link._L, rho);
           ro('PD/m', FD.units.fmtPdm(pdmVal, m.settings.display.pdm, true) +
                      '  (pipe only)');
         }
-        host.appendChild(info);
       }
     }
 
@@ -5202,7 +5208,7 @@
   function tagVisibleRow(host, o) {
     if (!tagVisibleApplies(o)) return false;
     var on = M.tagVisible(o);
-    switchRow(host, 'Tag visible: ' + (on ? 'ON' : 'OFF'), on, function (next) {
+    switchRow(host, 'Tag visible', on, function (next) {
       pushUndo();
       M.setTagVisible(o, next);
       renderProperties();
@@ -5294,7 +5300,7 @@
     var m = app.model, d = m.settings.display;
     if (!p.sensor) p.sensor = { mode: 'temperature', tSet: 45 };
     var sn = p.sensor;
-    host.appendChild(el('h3', '', 'Sensor ' + p.id));
+    host.appendChild(el('h3', '', 'Sensor ' + (p.tag || p.id)));
 
     /* ================================================== DETAILS
      *
@@ -5390,8 +5396,7 @@
      * about it. */
     if (!followers.length) {
       host.appendChild(el('p', 'hint',
-        'Sensor is reporting current readings only. Link sensor to control ' +
-        'device to set setpoints and control it.'));
+        'No device linked. Link a pump or control valve to set a setpoint.'));
     }
 
     var box = readoutBox(host, 'Actual');
@@ -5409,17 +5414,17 @@
       var rp = sn.ref ? M.pipe(m, sn.ref) : null;
       var v1, v2, txt = '—';
       if (rp && res) {
-        if (sn.mode === 'dP' && res.pressure) {
-          v1 = res.pressure[p.a]; v2 = res.pressure[rp.a];
-          if (isFinite(v1) && isFinite(v2)) {
-            txt = FD.units.fmtPressure(Math.abs(v1 - v2), d.pressure, true);
-          }
+        if (sn.mode === 'dP') {
+          /* The engine's one definition — the elevation-corrected differential
+           * the control loop holds, not a second sum of static pressures. */
+          var dpv = FD.network.differentialPa(m, res, p.a, rp.a);
+          if (dpv !== null) txt = FD.units.fmtPressure(dpv, d.pressure, true);
         } else if (res.thermal) {
           v1 = res.thermal.temperature[p.a]; v2 = res.thermal.temperature[rp.a];
           if (isFinite(v1) && isFinite(v2)) txt = Math.abs(v1 - v2).toFixed(2) + ' K';
         }
       }
-      box.ro(sn.mode === 'dP' ? 'Δp' : 'ΔT', txt);
+      box.ro(sn.mode === 'dP' ? 'ΔP' : 'ΔT', txt);
       /* WHAT AUTO CHOSE, once the box above stopped being able to show it.
        * Under MIN/MAX the setpoint box holds the engineer's limit (Michael,
        * 2026-09-15), so the searched figure has nowhere else to go — and it is
@@ -5500,7 +5505,7 @@
     checks.push({ key: 'setpoint', label: 'Setpoint' });
     displayChecks(host, p, checks);
 
-    var del = el('button', 'btn danger', 'Remove sensor');
+    var del = el('button', 'btn danger', 'Delete sensor');
     del.addEventListener('click', function () {
       pushUndo(); p.kind = 'pipe'; delete p.sensor;
       changed(); renderProperties();
@@ -5583,7 +5588,7 @@
       qIn.disabled = true;
       qIn.parentNode.classList.add('is-disabled');
       qIn.parentNode.appendChild(el('span', 'hint',
-        'Set by the solve on Auto sizing. Switch Sizing to Manual to state it.'));
+        'Set by Auto sizing.'));
     } else if (!isAdiabatic) {
       infoMark(fieldLabel(qIn),
                'Flow, load and ΔT are one equation. Changing this moves ' +
@@ -5624,7 +5629,7 @@
         act.ro('Flow', FD.units.fmtFlow(Math.abs(res.flow[p.id]), d.flow, true));
         if (link) {
           act.ro('Pressure drop', FD.units.fmtPressure(
-            headToPa(Math.abs(FD.hydraulics.linkLoss(link, res.flow[p.id]))),
+            headToPa(Math.abs(FD.hydraulics.deviceLoss(link, res.flow[p.id]))),
             d.pressure, true));
         }
       }
@@ -5662,10 +5667,6 @@
               (marg >= 0 ? '+' : '') + marg.toFixed(1) + '%  (' +
               fmtLoad(cap) + ' selected)');
             if (marg < 0) mrow.classList.add('deficit');
-          } else {
-            act.box.appendChild(el('p', 'hint',
-              'Sizing is Auto, so this is the capacity to select. Switch ' +
-              'Sizing to Manual to lock it in as the nameplate.'));
           }
         }
 
@@ -5705,7 +5706,7 @@
       { key: 'setpoint', label: 'Setpoint' }
     ]);
 
-    var del = el('button', 'btn danger', 'Remove equipment');
+    var del = el('button', 'btn danger', 'Delete equipment');
     del.addEventListener('click', function () {
       pushUndo(); p.kind = 'pipe'; delete p.equip;
       changed(); renderProperties();
@@ -5769,8 +5770,7 @@
         dead.appendChild(el('option', '', 'None'));
         field(sec.box, 'Sync part load % with', dead);
         sec.box.appendChild(el('p', 'hint',
-          'Place a second heat exchanger to sync this one to it — sync is ' +
-          'coil to coil.'));
+          'No other heat exchanger to sync to.'));
       }
     }
 
@@ -6152,7 +6152,7 @@
         box.disabled = true;
         row.classList.add('is-disabled');
         wrap.appendChild(el('span', 'hint',
-          'Set by the solve on Auto sizing. Switch Sizing to Manual to state it.'));
+          'Set by Auto sizing.'));
       }
       wrap.appendChild(row);
       host.appendChild(wrap);
@@ -6552,8 +6552,7 @@
       openWrap.appendChild(el('label', '', 'Valve position (%)'));
       if (partOpen) {
         openWrap.appendChild(el('span', 'hint',
-          'This isolation valve is throttled. Set it to 0 or 100 and the ' +
-          'slider goes away — a gate valve is not a regulating device.'));
+          'Isolation valve part-open. Set 0 or 100 for open or shut.'));
       }
       var openRow = el('div', 'slider-row');
       var slider = el('input');
@@ -6642,7 +6641,7 @@
         if (link.r >= FD.valves.CLOSED_R) {
           act.ro('Pressure drop', 'Shut — no flow path');
         } else {
-          var pd = headToPa(Math.abs(FD.hydraulics.linkLoss(link, q)));
+          var pd = headToPa(Math.abs(FD.hydraulics.deviceLoss(link, q)));
           act.ro('Pressure drop', FD.units.fmtPressure(pd, d.pressure, true));
         }
         if (link._checkShut) act.ro('State', 'Seated (holding back-flow)');
@@ -6660,7 +6659,7 @@
       { key: 'pd', label: 'ΔP' }
     ]);
 
-    var del = el('button', 'btn danger', 'Remove valve');
+    var del = el('button', 'btn danger', 'Delete valve');
     del.addEventListener('click', function () {
       pushUndo(); p.kind = 'pipe'; delete p.valve;
       changed(); renderProperties();
@@ -6892,11 +6891,11 @@
      * wants to build a curve from scratch. */
     if (!c) {
       host.appendChild(el('p', 'hint',
-        'No curve. Set Sizing to Auto or Manual above to generate one from the ' +
-        'design duty, or paste a manufacturer curve below.'));
+        'No curve. Set Sizing to Auto or Manual to generate one, or paste a ' +
+        'manufacturer curve.'));
     }
 
-    var paste = el('button', 'btn', 'Input');
+    var paste = el('button', 'btn', 'Paste curve');
     paste.title = 'Paste a manufacturer curve: two columns, flow then head';
     paste.addEventListener('click', function () {
       FD.dialog.form({
@@ -6941,7 +6940,7 @@
     row.appendChild(paste);
 
     if (c) {
-      var tbl = el('button', 'btn', 'Show');
+      var tbl = el('button', 'btn', 'Show curve');
       tbl.title = 'Plot the curve with the operating point on it';
       tbl.addEventListener('click', function () {
         var rows = FD.pumps.table(c);
@@ -6966,7 +6965,7 @@
       });
       row.appendChild(tbl);
 
-      var clr = el('button', 'btn', 'Clear');
+      var clr = el('button', 'btn', 'Clear curve');
       clr.addEventListener('click', function () {
         pushUndo(); delete p.pump.curve; renderProperties(); changed();
       });
@@ -7228,7 +7227,7 @@
       { key: 'head', label: 'Pressure' }, { key: 'vfd', label: 'VFD %' }
     ]);
 
-    var del = el('button', 'btn danger', 'Remove pump');
+    var del = el('button', 'btn danger', 'Delete pump');
     del.addEventListener('click', function () {
       pushUndo();
       p.kind = 'pipe'; delete p.pump;
@@ -7541,7 +7540,7 @@
   function renderNodeProps(host, n) {
     if (!n) return;
     var m = app.model;
-    host.appendChild(el('h3', '', 'Node ' + n.id));
+    host.appendChild(el('h3', '', 'Node ' + (n.tag || n.id)));
     var dev = n.device;
     var res = app.results;
     var simulating = (m.settings.calcMode === 'simulation');
@@ -8006,7 +8005,7 @@
       g.appendChild(f);
     }
 
-    var g1 = group('Display units');
+    var g1 = group('Display Units');
     sel(g1, 'Flow', FD.units.flowUnits.map(function (u) { return [u, u]; }),
         m.settings.display.flow, function (v) { m.settings.display.flow = v; redrawAll(); });
     sel(g1, 'Pressure', FD.units.pressureUnits.map(function (u) { return [u, u]; }),
@@ -8033,7 +8032,7 @@
      * because how peaked a curve is changes where a VSD lands and how a
      * parallel set shares — and the defaults are a representative shape rather
      * than anyone's product. */
-    host.appendChild(el('h2', '', 'Generated pump curve'));
+    host.appendChild(el('h2', '', 'Generated Pump Curve'));
     var gpc = group2();
     var pc = m.settings.pumpCurve || (m.settings.pumpCurve =
       { shutoffPct: 140, runoutFlowPct: 150, runoutHeadPct: 65 });
@@ -8056,9 +8055,6 @@
 
     // ---- presentation ----
     host.appendChild(el('h2', '', 'Display'));
-    host.appendChild(el('p', 'hint',
-      'Drawing sizes are separate from the interface font so a drawing can be tuned for ' +
-      'print without changing the app chrome.'));
     var gp = group2();
     num(gp, 'UI font size (px)', m.settings.presentation.uiFontSize, function (v) {
       m.settings.presentation.uiFontSize = Math.max(10, Math.min(22, v));
@@ -8094,7 +8090,7 @@
      * dash that disappears when the second half says nothing. Hydronic only:
      * a plumbing fixture is tagged from its IPC prefix, a different rule. */
     if (m.discipline !== 'plumbing') {
-      host.appendChild(el('h2', '', 'Equipment naming'));
+      host.appendChild(el('h2', '', 'Equipment Naming'));
       m.settings.naming = m.settings.naming || {};
       var NUMBER_OPTS = [['floor', 'Floor'], ['seq', 'Sequence']];
 
@@ -8214,7 +8210,7 @@
         'copied. Existing tags are left alone.'));
     }
 
-    var gc = group('Setpoint control');
+    var gc = group('Setpoint Control');
     var ctl = m.settings.control || (m.settings.control =
       { minSpeed: 0.50, minOpening: 0, tol: 0.05 });
     num(gc, 'Minimum pump speed (%)', Math.round((ctl.minSpeed || 0.50) * 100),
@@ -8272,7 +8268,7 @@
     sel(g5, 'Theme', [['dark', 'Dark'], ['light', 'Light']], m.settings.theme,
         function (v) { m.settings.theme = v; applyTheme(); redrawAll(); });
 
-    var g6 = group('CSV export');
+    var g6 = group('CSV Export');
     sel(g6, 'Delimiter / decimal',
         [[',', 'Comma  ·  1234.5'], [';', 'Semicolon  ·  1234,5']],
         m.settings.csv.delimiter, function (v) {
@@ -8390,7 +8386,7 @@
     fb.ro('Fluid', fluid.name);
     fb.ro('Specific heat', fluid.specificHeat.toFixed(0) + ' J/(kg·K)');
     fb.ro('Density', fluid.density.toFixed(1) + ' kg/m³');
-    fb.ro('Properties quoted at', fluid.refTemp.toFixed(1) + ' °C');
+    fb.ro('Temperature', fluid.refTemp.toFixed(1) + ' °C');
     if (!fluid.verified) {
       var fw = el('div', 'notice warn-notice');
       var fp = el('p', '', fluid.name + ': properties unverified. Check before issue.');
@@ -8546,7 +8542,7 @@
     // ------------------------------------------------- 4. what it found
     var res = app.results;
     if (res && res.thermal) {
-      h2('Last solve');
+      h2('Last Solve');
       var t2 = res.thermal;
       var rb = readoutBox(host, null);
       var d = m.settings.display;
@@ -8614,7 +8610,7 @@
     }
 
     // ---- demand system ----
-    h2('Plumbing supply system');
+    h2('Plumbing Supply System');
     var psg = grid();
     selField(psg, 'Demand curve',
       FD.plumbing.systems.map(function (s) { return [s.id, s.name]; }),
@@ -8899,8 +8895,12 @@
       f.appendChild(el('label', '', label + (suffix ? '  ' + suffix : '')));
       var v = m.settings.fluid[key];
       if (!fEditable) {
+        /* `dp` null means "significant figures": a viscosity of 1.47e-6 has
+         * no useful fixed-point form, and printing it raw showed
+         * 0.0000014718896065571563 once it followed the source temperature. */
         var ro = el('div', 'locked-value',
-          dp !== undefined ? Number(v).toFixed(dp) : String(v));
+          dp === null ? Number(v).toExponential(3)
+          : dp !== undefined ? Number(v).toFixed(dp) : String(v));
         f.appendChild(ro);
       } else {
         var i = el('input'); i.type = 'text'; i.value = v;
@@ -8915,11 +8915,18 @@
       fg.appendChild(f);
     }
     fluidField('Density ρ', 'density', '(kg/m³)', 1);
-    fluidField('Kinematic viscosity ν', 'kinematicViscosity', '(m²/s)');
+    fluidField('Kinematic viscosity ν', 'kinematicViscosity', '(m²/s)', null);
     fluidField('Specific heat capacity Cp', 'specificHeat', '(J/kg·K)', 0);
-    fluidField('Properties quoted at', 'temperature', '(°C)', 1);
+    fluidField('Temperature', 'temperature', '(°C)', 1);
 
-    if (!fEditable) hint('Read-only. Choose Custom to enter your own.');
+    /* ONE LINE, and it has to be true. The list that stood here said nothing
+     * recalculates the properties from the temperature, which stopped being
+     * so in v0.18.62 (EQ.5) — water now follows the source. */
+    if (fPreset === 'water') {
+      hint('Properties at the source temperature. Read-only. Select Custom to enter your own.');
+    } else if (!fEditable) {
+      hint('Read-only. Select Custom to enter your own.');
+    }
     if (fDef.verified === false) {
       var fnote = el('div', 'notice warn-notice');
       var fnp = el('p', '', fDef.name + ': properties unverified. Check before issue. ');
@@ -8935,26 +8942,6 @@
      * disappeared while the calculation was using K. That choice is worth 3.5x
      * on a DN25 elbow (threaded 1.5 against flanged 0.43). */
     var usesK = FD.hydraulics.method(m.settings.frictionMethod).fittingMode === 'K';
-    var usage = el('ul', 'usage-list');
-    usage.appendChild(el('li', '', 'Density — used: converts head to pressure everywhere.'));
-    usage.appendChild(el('li', '', 'Kinematic viscosity — ' + (isDW
-      ? 'used: sets Reynolds number and the friction factor.'
-      : 'used for the laminar-flow check; fully live under Darcy-Weisbach.')));
-    /* No THERMAL tab in a plumbing file, so no line pointing at one. */
-    if (!plumbingTab) {
-      usage.appendChild(el('li', '',
-        'Specific heat capacity — used: it is what Q = ṁ·Cp·ΔT runs on. See the ' +
-        'THERMAL tab.'));
-    } else {
-      usage.appendChild(el('li', 'unused',
-        'Specific heat capacity — not used in a plumbing file: there is no ' +
-        'thermal calculation here.'));
-    }
-    usage.appendChild(el('li', 'unused',
-      'Temperature — the temperature the three properties above are QUOTED at, ' +
-      'not a result and not a driver. Nothing recalculates density or viscosity ' +
-      'from it, so a glycol circuit run at 6 °C is being given 20 °C properties.'));
-    host.appendChild(usage);
 
     // =================================================== 2. SYSTEM (detected)
     /* Open/closed loop is a HYDRONIC reading. A plumbing file is neither, which
@@ -8979,13 +8966,16 @@
      * actually set to ASHRAE, and picking either option was a one-way door with
      * no route back. Both faults come from restating in the UI something the
      * engine already knows. */
-    selField(mg, 'Calculation method',
+    var methSel = selField(mg, 'Calculation method',
       Object.keys(FD.hydraulics.methods)
         .filter(function (k2) { return FD.hydraulics.methods[k2].available !== false; })
         .map(function (k2) { return [k2, FD.hydraulics.methods[k2].name]; }),
       m.settings.frictionMethod, function (v) {
         pushUndo(); m.settings.frictionMethod = v; renderHydraulic(); redrawAll();
       });
+    /* Two columns wide: "Hazen-Williams (ASHRAE with Equivalent Lengths)" was
+     * cut off at "Equivale" in one. */
+    if (methSel && methSel.parentNode) methSel.parentNode.classList.add('field-wide');
 
 
     /* The IPC demand-curve selector lives at the TOP of the plumbing block
@@ -9076,25 +9066,6 @@
       fbox.appendChild(leg2);
       host.appendChild(fbox);
 
-      /* Name the correlation ACTUALLY in use, not the one that is now the
-       * default. A model saved before 2026-08-02 carries its own choice and
-       * keeps it — a stored calculation is not re-specified behind the
-       * engineer's back — so a notice hard-coded to Swamee-Jain would have been
-       * describing a different calculation from the one on the screen. */
-      var ffNow = (m.settings.dw && m.settings.dw.frictionFactor) || 'colebrook';
-      var ffDef = FD.hydraulics.frictionFactors[ffNow];
-      /* NOT A WARNING ANY MORE. Darcy left BETA on 2026-08-30 and Colebrook-White
-       * is the default correlation — the reference the explicit forms are fitted
-       * to, solved iteratively here. The only thing worth saying is the fit
-       * error, and only when an explicit form is the one in use. */
-      host.appendChild(el('p', 'hint',
-        'Friction factor: ' + (ffDef ? ffDef.name : ffNow) + '. ' +
-        (ffNow === 'colebrook'
-          ? 'Solved iteratively — the reference the explicit correlations are ' +
-            'fitted against.'
-          : 'An explicit fit to Colebrook-White. Colebrook-White is the default ' +
-            'for new models; this one keeps the choice it was saved with.')));
-
       var dg = grid();
       selField(dg, 'Friction factor correlation',
         Object.keys(FD.hydraulics.frictionFactors).map(function (kk) {
@@ -9104,9 +9075,15 @@
         });
       numField(dg, 'Absolute roughness ε', m.settings.dw.roughness_mm,
         function (v) { pushUndo(); m.settings.dw.roughness_mm = v; redrawAll(); }, '(mm)');
-      hint(FD.hydraulics.frictionFactors[m.settings.dw.frictionFactor].note +
-           '  Laminar (Re < 2300) uses f = 64/Re; the transitional band is blended so the ' +
-           'solver sees a continuous curve.');
+      /* ONE LINE: what the selected correlation is, and what happens below
+       * the turbulent range. The select already names it. Churchill spans
+       * every regime in one expression, so the laminar clause is not true of
+       * it and is not shown. */
+      var ffSel = (m.settings.dw && m.settings.dw.frictionFactor) || 'colebrook';
+      var ffInfo = FD.hydraulics.frictionFactors[ffSel] ||
+                   FD.hydraulics.frictionFactors.colebrook;
+      hint(ffInfo.note + (ffSel === 'churchill' ? ''
+           : '  Re < 2300: f = 64/Re. Re 2300–4000: blended.'));
     }
 
     // -------------------------------------------------- pipe schedules
@@ -9118,7 +9095,7 @@
      * (v0.10.1) because it is a physical property of the pipe alongside those
      * two, and having it in a table of its own meant looking in two places for
      * one pipe. */
-    h2('Pipe schedule');
+    h2('Pipe Schedule');
     var all = FD.schedules.all(m.customSchedules);
     var curKey = all[m.settings.schedule] ? m.settings.schedule
                                           : Object.keys(all)[0];
@@ -9196,7 +9173,7 @@
     /* Only the table the active method actually uses is shown. Displaying both
      * invites entering numbers into the one that is being ignored. */
     if (!usesK) {
-      h2('Fitting equivalent lengths');
+      h2('Fitting Equivalent Lengths');
       hint('Read against NOMINAL size, in ' + lenUnitName + '.');
 
       var elKey = FD.fittings.elSetKey(m.settings);
@@ -9359,7 +9336,7 @@
     }
 
     // ------------------------------------------------------- warnings
-    h2('Warning thresholds');
+    h2('Warning Thresholds');
     var wg = grid();
     numField(wg, 'Max velocity', m.settings.warn.velocity,
       function (v) { pushUndo(); m.settings.warn.velocity = v; redrawAll(); }, '(m/s)');
@@ -10064,7 +10041,7 @@
          * would just be a way to wait. */
         run.disabled = !inSim || !app.view.simStatic;
         run.title = run.disabled
-          ? 'Not needed here \u2014 in DYNAMIC every edit re-solves as you make it'
+          ? 'Not needed in LIVE \u2014 every edit re-solves'
           : 'Re-solve the model now';
       }
     }
@@ -10078,8 +10055,8 @@
         app.view.render();
         if (wasStatic === app.view.simStatic) return;
         toast(app.view.simStatic
-          ? 'STATIC \u2014 the model is locked; use RUN SIMULATION to re-solve.'
-          : 'DYNAMIC \u2014 edits re-solve as you make them.');
+          ? 'LOCKED \u2014 use RUN SIMULATION to re-solve.'
+          : 'LIVE \u2014 every edit re-solves.');
         /* Leaving STATIC takes a fresh answer, because whatever was changed
          * while locked has not been solved for. */
         if (!app.view.simStatic) scheduleSolve();

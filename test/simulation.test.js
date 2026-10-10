@@ -216,17 +216,31 @@ section('Part load rides down the system curve, not up the pump curve');
   /* A CLOSED circuit: pump + equipment, no source, no demand. The system curve
    * is then a pure R·Q² through the origin, which is the case where the
    * affinity laws hold exactly for the operating point. */
+  /* THE PUMP SITS ON A STRAIGHT RUN (v0.18.66). This loop used to close with
+   * a return pipe drawn straight back along the pump, which makes the pump
+   * node a 180° hairpin. The detector charges that "elbow" to the pump link,
+   * and until v0.18.66 a fitting on a device link was silently dropped — so
+   * the rig was a pure pump-plus-equipment circuit only by accident. With the
+   * drop fixed, the elbow is charged at the pump's default DN50 bore and the
+   * circuit is no longer the one this section is about. The loop is now drawn
+   * the way the drawing tools place a device: on a straight run, so every
+   * corner is charged to a DN150 pipe. */
   function circuit(curve, speed) {
     const m = M.create();
     m.settings.calcMode = 'simulation';
     const lv = m.levels[0].id;
     const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
     const c = M.addNode(m, lv, 2, 0);
+    const d = M.addNode(m, lv, 2, 2), e = M.addNode(m, lv, -1, 2);
+    const f = M.addNode(m, lv, -1, 0);
     const pump = M.addPipe(m, a.id, b.id, { kind: 'pump' });
     pump.pump = { mode: 'fixed', head: 30, curve: curve, speed: speed };
     const eq = M.addPipe(m, b.id, c.id, { kind: 'equip' });
     eq.equip = { qRated: 0.020, pdRated: 200e3, equipType: 'exchanger', duty: 0 };
-    M.addPipe(m, c.id, a.id, { size: 'DN150', schedule: 'sch40' });
+    M.addPipe(m, c.id, d.id, { size: 'DN150', schedule: 'sch40' });
+    M.addPipe(m, d.id, e.id, { size: 'DN150', schedule: 'sch40' });
+    M.addPipe(m, e.id, f.id, { size: 'DN150', schedule: 'sch40' });
+    M.addPipe(m, f.id, a.id, { size: 'DN150', schedule: 'sch40' });
     const res = NET.solveModel(m);
     return { m, pump, res, q: Math.abs(res.flow[pump.id]),
              h: res.simulation.pumps[0].head };
@@ -469,19 +483,32 @@ section('The system curve is traced by solving, not assumed');
     /* Two identical pumps in parallel between the same pair of nodes, the
      * second following the first, and a leader left part way down its range so
      * that "restored" and "full speed" are different numbers. */
+    /* EACH PUMP ON ITS OWN STRAIGHT RUN between two tees (v0.18.66). The two
+     * pumps used to share one pair of nodes, which the drawing tools cannot
+     * make: each pump was then a tee leg and, once fittings on device links
+     * stopped being dropped, carried a tee at its DN50 default bore. */
     const m = M.create();
     m.settings.calcMode = 'simulation';
     const lv = m.levels[0].id;
-    const a = M.addNode(m, lv, 0, 0), b = M.addNode(m, lv, 1, 0);
-    const c = M.addNode(m, lv, 2, 0);
+    const a = M.addNode(m, lv, 0, 0), t1 = M.addNode(m, lv, 1, 0);
+    const t2 = M.addNode(m, lv, 4, 0), c = M.addNode(m, lv, 5, 0);
+    const pipe = (x, y) => M.addPipe(m, x.id, y.id, { size: 'DN100', schedule: 'sch40' });
+    function branch(yy, opts) {
+      const u = M.addNode(m, lv, 1, yy), v = M.addNode(m, lv, 1.5, yy);
+      const w = M.addNode(m, lv, 3, yy), x = M.addNode(m, lv, 3.5, yy);
+      const y = M.addNode(m, lv, 4, yy);
+      pipe(t1, u); pipe(u, v); pipe(w, x); pipe(x, y); pipe(y, t2);
+      return M.addPipe(m, v.id, w.id, opts);
+    }
     a.device = { kind: 'source', head: 0 };
     c.device = { kind: 'demand', flow: 0.020, reqPressure: 100e3, include: true };
-    const lead = M.addPipe(m, a.id, b.id, { kind: 'pump', tag: 'PMP-01' });
-    const follow = M.addPipe(m, a.id, b.id, { kind: 'pump', tag: 'PMP-02' });
+    pipe(a, t1);
+    const lead = branch(1, { kind: 'pump', tag: 'PMP-01' });
+    const follow = branch(-1, { kind: 'pump', tag: 'PMP-02' });
     lead.pump = { mode: 'fixed', head: 40, speed: 0.8, curve: P.singlePoint(40, 0.020) };
     follow.pump = { mode: 'fixed', head: 40, curve: P.singlePoint(40, 0.020) };
     M.setSync(m, follow, lead.id);
-    M.addPipe(m, b.id, c.id, { size: 'DN100', schedule: 'sch40' });
+    pipe(t2, c);
     NET.solveModel(m);
 
     ok('The follower takes the leader\'s speed to begin with',
@@ -1998,6 +2025,108 @@ section('Control valve flow limit and minimum dP');
     ok('an integrated valve with nothing across it is reported', w.length === 1,
        JSON.stringify((NET.solveModel(m).warnings || []).map(x => x.code)));
     ok('...named for its machine', /COIL/.test(w[0].message), w[0].message);
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * A RUNNING PUMP HAS A CHECK VALVE ON ITS DISCHARGE  (v0.18.66, audit)
+ *
+ * The curve H0 − a|Q|^b is symmetric in Q, so without a check valve a pump
+ * forced backwards still "made" head. In a parallel set where the slow pump's
+ * shutoff head is below the header differential the equations then had no
+ * solution: the rig below at 60% speed pushed 2300 L/s backwards through P2,
+ * reported NO_CONVERGE and a 1300 MPa pump. A real parallel set has a check
+ * valve on every discharge, and EPANET assumes one on every pump.
+ * ----------------------------------------------------------------------- */
+section('A running pump does not pass reverse flow');
+{
+  /* The solver alone, between two fixed heads. Curve H = 40 − 25000·Q².
+   *
+   *   Lift 30 m: forward, Q = √((40 − 30)/25000) = 0.0200 m³/s exactly.
+   *   Lift 50 m: above the 40 m shutoff, so the check valve holds: Q = 0. */
+  const curve = P.singlePoint(30, 0.020);                 // H0 40, a 25000
+  function across(lift) {
+    return FD.solver.solve({
+      nodes: [{ id: 'A', z: 0, demand: 0, fixedHead: 0 },
+              { id: 'B', z: 0, demand: 0, fixedHead: lift },
+              { id: 'J', z: 0, demand: 0, fixedHead: null }],
+      links: [{ id: 'PMP', from: 'A', to: 'J', kind: 'pump', curve: curve },
+              { id: 'PIPE', from: 'J', to: 'B', kind: 'pipe', r: 1e-3, n: 2 }]
+    });
+  }
+  const fwd = across(30), held = across(50);
+  ok('below shutoff the solve converges', fwd.converged);
+  near('...and the pump runs forward at √((40 − 30)/25000)', fwd.flow.PMP, 0.020, 1e-5);
+  ok('above shutoff the solve converges', held.converged,
+     JSON.stringify(held.errors));
+  ok('...and the pump passes nothing, in either direction', held.flow.PMP === 0,
+     String(held.flow.PMP));
+  near('...while the head across it is the full 50 m', held.head.J, 50, 1e-3);
+
+  /* Two identical pumps in parallel round a closed loop, P2 slowed down. Each
+   * pump sits on a straight run with a pipe stub either side, as the drawing
+   * tools place one, so no fitting is charged to a pump link. */
+  function rig(s2, p2Off) {
+    const m = M.create();
+    m.settings.calcMode = 'simulation';
+    const lv = m.levels[0].id;
+    const pipe = (x, y) => M.addPipe(m, x.id, y.id, { size: 'DN150', schedule: 'sch40' });
+    const A = M.addNode(m, lv, 0, 0), B = M.addNode(m, lv, 3, 0);
+    const A2 = M.addNode(m, lv, 0, 2), B2 = M.addNode(m, lv, 3, 2);
+    const a = M.addNode(m, lv, 1, 0), b = M.addNode(m, lv, 2, 0);
+    const a2 = M.addNode(m, lv, 1, 2), b2 = M.addNode(m, lv, 2, 2);
+    const c = M.addNode(m, lv, 6, 0), d = M.addNode(m, lv, 6, -2);
+    const e = M.addNode(m, lv, -1, -2), f = M.addNode(m, lv, -1, 0);
+    pipe(A, a); pipe(b, B); pipe(A2, a2); pipe(b2, B2);
+    const p1 = M.addPipe(m, a.id, b.id, { kind: 'pump', tag: 'P1', size: 'DN150' });
+    p1.pump = { mode: 'fixed', sizing: 'curve', head: 30,
+                curve: P.singlePoint(30, 0.020), speed: 1 };
+    const p2 = M.addPipe(m, a2.id, b2.id, { kind: 'pump', tag: 'P2', size: 'DN150' });
+    p2.pump = { mode: p2Off ? 'off' : 'fixed', sizing: 'curve', head: 30,
+                curve: P.singlePoint(30, 0.020), speed: s2 };
+    pipe(A, A2); pipe(B, B2);
+    const eq = M.addPipe(m, B.id, c.id, { kind: 'equip', tag: 'AHU', size: 'DN150' });
+    eq.equip = { qRated: 0.040, pdRated: 250e3, equipType: 'exchanger', duty: 0 };
+    pipe(c, d); pipe(d, e); pipe(e, f); pipe(f, A);
+    const res = NET.solveModel(m);
+    return { m, res, p1, p2, codes: (res.warnings || []).map(w => w.code),
+             errs: (res.errors || []).map(e => e.code) };
+  }
+
+  /* At 80% both pumps still make the header head, so both run forward. */
+  {
+    const r = rig(0.8);
+    ok('80%: converged', r.res.converged, r.errs.join(','));
+    ok('80%: both pumps run forward',
+       r.res.flow[r.p1.id] > 0.001 && r.res.flow[r.p2.id] > 0.001,
+       `${r.res.flow[r.p1.id]} / ${r.res.flow[r.p2.id]}`);
+    ok('80%: no pump is reported at shutoff', r.codes.indexOf('PUMP_SHUTOFF') < 0);
+  }
+
+  /* At 60% P2's shutoff head is 0.6² × 40 = 14.4 m, below the header. */
+  {
+    const r = rig(0.6), off = rig(0.6, true);
+    ok('60%: converged, where it used to diverge', r.res.converged,
+       r.errs.join(','));
+    ok('60%: no implausible pressure', r.errs.indexOf('PRESSURE_IMPLAUSIBLE') < 0);
+    ok('60%: P2 passes nothing', r.res.flow[r.p2.id] === 0,
+       String(r.res.flow[r.p2.id]));
+    /* THE INDEPENDENT CHECK: a pump held shut by its check valve is, to the
+     * rest of the circuit, the same as a pump that is switched off. */
+    near('60%: P1 carries what it carries with P2 switched off',
+         r.res.flow[r.p1.id], off.res.flow[off.p1.id], 1e-6);
+    const lift = r.res.head[r.p2.b] - r.res.head[r.p2.a];
+    ok('60%: the head across P2 is above its 14.4 m shutoff', lift > 14.4,
+       lift.toFixed(3) + ' m');
+    const w = (r.res.warnings || []).filter(x => x.code === 'PUMP_SHUTOFF');
+    ok('60%: P2 is reported at shutoff, once', w.length === 1, r.codes.join(','));
+    ok('...named, with its speed', w.length && /P2/.test(w[0].message) &&
+       /60% speed/.test(w[0].message), w.length ? w[0].message : '');
+    near('...against the shutoff head at that speed', w.length ? w[0].shutoff : 0,
+         14.4, 1e-9);
+    ok('...and not as a pump with no flow', r.codes.indexOf('PUMP_NO_FLOW') < 0);
+    ok('...and as a warning, not a defect',
+       w.length && w[0].level === 'warning', w.length ? w[0].level : '');
   }
 }
 

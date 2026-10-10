@@ -800,7 +800,7 @@
             link._checkShut = true;
             warnings.push({
               code: 'CHECK_CLOSED',
-              message: 'Check valve ' + p.id + ' is holding against reverse flow.',
+              message: 'Check valve ' + (p.tag || p.id) + ' is holding against reverse flow.',
               pipe: p.id
             });
           }
@@ -809,7 +809,7 @@
         if (FD.valves.isClosed(p.valve.type, vOpening)) {
           warnings.push({
             code: 'VALVE_SHUT',
-            message: 'Valve ' + p.id + ' is shut.',
+            message: 'Valve ' + (p.tag || p.id) + ' is shut.',
             pipe: p.id
           });
         }
@@ -902,6 +902,31 @@
         link.rK = FD.hydraulics.fittingR(fits[p.id] ? fits[p.id].sumK : 0, d);
       } else {
         link.r = method.r(L + el, d, p.C, ctx);
+      }
+
+      /* ============ A FITTING CHARGED TO A DEVICE IS STILL A FITTING
+       *
+       * The detector charges a fitting to whichever leg the flow says pays for
+       * it, and that leg can be a pump, a valve or a piece of equipment — draw
+       * a pipe from a coil's outlet node and the coil becomes one leg of a tee.
+       * Until v0.18.66 (audit) the fitting was computed, listed on the sheet
+       * and then never added to any resistance: a DN50 tee branch charged to a
+       * coil was 3.05 m of equivalent length (K = 5.6) that simply vanished.
+       *
+       * It rides as a third term, `rF`, at the METHOD's exponent: equivalent
+       * length under Hazen-Williams (1.852), K velocity heads under Darcy (2).
+       * Not folded into the device's own `r`, because that is the rated
+       * characteristic and other code reads it as such (a shut valve's
+       * CLOSED_R, the integrated valve's split). The device's bore is the bore
+       * of the pipe it was placed in. */
+      if (!link._omit && link.kind !== 'pipe' && fits[p.id] && d > 0) {
+        if (method.fittingMode === 'K') {
+          var rFk = FD.hydraulics.fittingR(fits[p.id].sumK, d);
+          if (rFk > 0) { link.rF = rFk; link.nF = 2; }
+        } else if (fits[p.id].el > 0) {
+          var rFe = method.r(fits[p.id].el, d, p.C || s.C, ctx);
+          if (rFe > 0) { link.rF = rFe; link.nF = nExp; }
+        }
       }
 
       // Cached for the calculation sheet — not read by the solver.
@@ -1309,9 +1334,9 @@
   function seedAutoStart(m, core, autos) {
     autos.forEach(function (p) {
       var ref = M.pipe(m, p.sensor.ref);
-      var pr = core && core.res && core.res.pressure;
-      if (!ref || !pr) return;
-      var d = Math.abs((pr[p.a] || 0) - (pr[ref.a] || 0));
+      if (!ref || !core || !core.res) return;
+      var d = differentialPa(m, core.res, p.a, ref.a);
+      if (d === null) return;
       /* Nothing measurable means nothing to hold. Leaving `dpAuto` unset lets
        * CONTROL_NO_SETPOINT fire as it should, rather than inventing a target
        * out of a solve that has not moved any water. */
@@ -2348,6 +2373,36 @@
     return null;
   }
 
+  /* ============ WHAT A DIFFERENTIAL PRESSURE TRANSMITTER READS
+   *
+   * Its two impulse lines are full of the same water, so each line adds the
+   * column between its tapping and the instrument. The reading is therefore
+   *
+   *     dP = (p1 + rho.g.z1) - (p2 + rho.g.z2) = rho.g.(H1 - H2)
+   *
+   * the PIEZOMETRIC difference, and that is also the differential that drives
+   * flow through the circuit between the two tappings. The static gauge
+   * difference p1 - p2 was read here until v0.18.66 (audit). The two are
+   * identical when both tappings are at one level, which is true of every
+   * sensor in every shipped model; they differ by rho.g.dz when they are not.
+   * A supply tapping on the top floor and a return tapping in the plant room
+   * then read the riser's whole static column as "differential", and a pump
+   * holding that reading held nothing useful.
+   *
+   * ONE definition, used by the control loop, the drawing and the Auto
+   * setpoint seed, so the three cannot disagree. A magnitude, in Pa: which
+   * pipe was picked first is an accident of drawing order. */
+  function differentialPa(m, res, idA, idB) {
+    var H = res && res.head;
+    if (!H) return null;
+    var h1 = H[idA], h2 = H[idB];
+    if (h1 === undefined || h2 === undefined || !isFinite(h1) || !isFinite(h2)) {
+      return null;
+    }
+    var rho = (m.settings && m.settings.fluid && m.settings.fluid.density) || 998;
+    return rho * 9.81 * Math.abs(h1 - h2);
+  }
+
   /* WHAT A SENSOR IS READING, from a solved result. One definition, because
    * there are now two consumers: the control loop settles against it, and the
    * drawing prints it beside the instrument.
@@ -2381,10 +2436,8 @@
       var ref = M.pipe(m, sn.ref);
       if (!ref) return null;
       if (sn.mode === 'dP') {
-        var p1 = res.pressure ? num(res.pressure[p.a]) : null;
-        var p2 = res.pressure ? num(res.pressure[ref.a]) : null;
-        return (p1 === null || p2 === null)
-          ? null : { mode: 'dP', value: Math.abs(p1 - p2) };
+        var dpr = differentialPa(m, res, p.a, ref.a);
+        return dpr === null ? null : { mode: 'dP', value: dpr };
       }
       var th = res.thermal && res.thermal.temperature;
       if (!th) return null;
@@ -2718,10 +2771,7 @@
         var ref = M.pipe(m, pair.refPipe);
         if (!ref) return null;
         if (pair.mode === 'dPdiff') {
-          var p1 = c.res && c.res.pressure ? c.res.pressure[pair.equip.a] : undefined;
-          var p2 = c.res && c.res.pressure ? c.res.pressure[ref.a] : undefined;
-          return (p1 === undefined || p2 === undefined ||
-                  !isFinite(p1) || !isFinite(p2)) ? null : Math.abs(p1 - p2);
+          return differentialPa(m, c.res, pair.equip.a, ref.a);
         }
         var th = c.thermal && c.thermal.temperature;
         if (!th) return null;
@@ -3957,7 +4007,7 @@
       if (p.kind === 'valve' && p.valve && p.valve.type === 'globe') {
         /* The whole link is the valve, so its loss IS the differential. */
         check(p.tag || p.id, p.id, p.valve.cvDN, q,
-              rho * 9.81 * Math.abs(FD.hydraulics.linkLoss(l, q)),
+              rho * 9.81 * Math.abs(FD.hydraulics.deviceLoss(l, q)),
               isPicv(p.valve));
         return;
       }
@@ -4021,6 +4071,7 @@
    * demands the source simply cannot reach. */
   function supplyWarnings(m, net, res) {
     var out = [];
+    var rhoP = net.rho || 998;
 
     // --- pumps that do nothing ---
     m.pipes.filter(function (p) {
@@ -4037,6 +4088,34 @@
         var n = M.node(m, id);
         return n && !n.device && M.pipesAt(m, id).length < 2;
       });
+
+      /* AT SHUTOFF: the head across the pump is more than it can make, so its
+       * discharge check valve is shut (solver.js, PUMP_REVERSE_K). This is the
+       * slow pump of a parallel set, or a pump in series against a stronger
+       * one. It is a real operating state and a selection problem — a pump
+       * held at shutoff heats its own water — so it is named as such rather
+       * than as a pump with nothing to do. */
+      if (!deadEnd.length && res.head) {
+        var lift = (res.head[p.b] || 0) - (res.head[p.a] || 0);
+        /* The head the SOLVE ran the pump on: its curve in SIMULATION, its
+         * fixed duty in DESIGN (where a stored curve is not in the sum). */
+        var runCurve = (m.settings.calcMode === 'simulation') ? M.pumpCurve(m, p) : null;
+        var shut = runCurve
+          ? FD.pumps.shutoffHead(runCurve)
+          : (p.pump.head || 0) * M.pumpSpeed(m, p) * M.pumpSpeed(m, p);
+        if (shut > 0 && lift >= shut - 1e-3) {
+          var spd = M.pumpSpeed(m, p);
+          out.push({
+            code: 'PUMP_SHUTOFF', pipe: p.id, head: lift, shutoff: shut,
+            message: 'Pump ' + (p.tag || p.id) + ' is at shutoff. The system ' +
+                     'head (' + (lift * rhoP * 9.81 / 1000).toFixed(1) +
+                     ' kPa) is more than the pump can make' +
+                     (spd < 1 ? ' at ' + Math.round(spd * 100) + '% speed' : '') +
+                     ' (' + (shut * rhoP * 9.81 / 1000).toFixed(1) + ' kPa).'
+          });
+          return;
+        }
+      }
 
       out.push({
         code: deadEnd.length ? 'PUMP_DEAD_END' : 'PUMP_NO_FLOW',
@@ -4538,8 +4617,17 @@
     sections.forEach(function (sec) {
       var l = net.links.find(function (x) { return x.id === sec.link; });
       if (!l) return;
-      if (l.kind === 'pump') pumpGain += (l.head || 0);
-      else friction += Math.abs(FD.hydraulics.linkLoss(l, res.flow[l.id]));
+      if (l.kind === 'pump') {
+        pumpGain += (l.head || 0);
+        /* A fitting charged to the pump link (v0.18.66, `rF`) is pipework
+         * friction. Leave it out and friction + static no longer equals the
+         * pump head — the identity this tally is checked against. */
+        if (l.rF) {
+          friction += Math.abs(FD.hydraulics.headloss(l.rF, res.flow[l.id] || 0, l.nF || 2));
+        }
+      } else {
+        friction += Math.abs(FD.hydraulics.linkLoss(l, res.flow[l.id]));
+      }
       var a = M.node(m, sec.from), b = M.node(m, sec.to);
       if (a && b) statik += M.elevation(m, b) - M.elevation(m, a);
     });
@@ -4933,7 +5021,7 @@
       /* Actual dP across the equipment, from the solved flow, not the rating.
        * Equipment is r*Q^2, so it follows the square law away from duty. */
       var link = net.links.filter(function (l) { return l.id === p.id; })[0];
-      var actPa = link ? FD.hydraulics.linkLoss(link, q) * rho * 9.81 : null;
+      var actPa = link ? FD.hydraulics.deviceLoss(link, q) * rho * 9.81 : null;
       var row = {
         node: p.id, tag: p.tag || null, equipment: true,
         designFlow: qd, actualFlow: q,
@@ -5701,6 +5789,7 @@
      * drains it. See the note on `solveModelGen`. */
     solveModelGen: solveModelGen,
     sensorReading: sensorReading,
+    differentialPa: differentialPa,
     fittingsAtNode: fittingsAtNode,
     isSymmetricSplit: isSymmetricSplit,
     fittingsByPipe: fittingsByPipe,

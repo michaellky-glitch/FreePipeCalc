@@ -46,8 +46,11 @@
   // ------------------------------------------------------- friction factors
   /* Explicit and implicit correlations for the Darcy friction factor.
    *
-   * SWAMEE-JAIN is the selected correlation (Michael, 2026-08-02), and the
-   * default. It is an explicit fit to Colebrook-White.
+   * COLEBROOK-WHITE IS THE DEFAULT (model.js `dw.frictionFactor`, and the
+   * fallback everywhere below). Swamee-Jain was the default from 2026-08-02
+   * and is still selectable; the notes that called it "the correlation this
+   * app uses" outlived the change and were corrected in v0.18.66. It is an
+   * explicit fit to Colebrook-White.
    *
    * Its accuracy is MEASURED in engine.test.js against an independent
    * iteration of Colebrook, not quoted: within **0.9%** over Re 1e4 to 1e7 with
@@ -71,7 +74,7 @@
     colebrook: {
       key: 'colebrook',
       name: 'Colebrook-White',
-      note: 'The standard against which the others are fitted. Solved iteratively.',
+      note: 'Implicit. Solved by iteration. The reference for the explicit forms.',
       f: function (Re, relRough) {
         // 1/√f = −2 log₁₀( ε/3.7d + 2.51/(Re√f) )   — fixed-point iteration
         var invSqrtF = -2 * Math.log10(relRough / 3.7 + 5.74 / Math.pow(Re, 0.9)); // Swamee-Jain seed
@@ -86,9 +89,8 @@
     swameejain: {
       key: 'swameejain',
       name: 'Swamee-Jain',
-      note: 'The correlation this app uses. Measured against an iterated ' +
-            'Colebrook: within 0.9% over Re 1e4–1e7 and ε/d ≤ 1e-3, rising to ' +
-            '2.8% at Re 5000 with ε/d 1e-2.',
+      note: 'Explicit fit to Colebrook-White. Within 0.9% for Re 1e4–1e7 and ' +
+            'ε/d ≤ 1e-3; up to 2.8% at Re 5000 with ε/d 1e-2.',
       f: function (Re, relRough) {
         var t = Math.log10(relRough / 3.7 + 5.74 / Math.pow(Re, 0.9));
         return 0.25 / (t * t);
@@ -97,7 +99,7 @@
     haaland: {
       key: 'haaland',
       name: 'Haaland',
-      note: 'Within ~2% of Colebrook; simplest of the explicit forms.',
+      note: 'Explicit fit to Colebrook-White. Within about 2%.',
       f: function (Re, relRough) {
         var t = -1.8 * Math.log10(Math.pow(relRough / 3.7, 1.11) + 6.9 / Re);
         return 1 / (t * t);
@@ -106,7 +108,7 @@
     churchill: {
       key: 'churchill',
       name: 'Churchill',
-      note: 'Single expression spanning laminar, transitional and turbulent flow.',
+      note: 'Explicit. One expression for laminar, transitional and turbulent flow.',
       f: function (Re, relRough) {
         var A = Math.pow(2.457 * Math.log(1 / (Math.pow(7 / Re, 0.9) + 0.27 * relRough)), 16);
         var B = Math.pow(37530 / Re, 16);
@@ -246,7 +248,7 @@
         var fluid = ctx.fluid || { kinematicViscosity: 1.004e-6 };
         var nu = fluid.kinematicViscosity || 1.004e-6;
         var eps = (ctx.roughness_mm !== undefined ? ctx.roughness_mm : 0.045) / 1000;
-        /* Swamee-Jain unless the model says otherwise — see FRICTION_FACTORS. */
+        /* Colebrook-White unless the model says otherwise — see FRICTION_FACTORS. */
 
         var q = (ctx.q === undefined || ctx.q === null) ? null : Math.abs(ctx.q);
         var area = Math.PI * d * d / 4;
@@ -307,6 +309,19 @@
       if (!link) return 0;
       var h = FD.hydraulics.headloss(link.r, q, link.n);
       if (link.rK) h += FD.hydraulics.headloss(link.rK, q, 2);
+      /* Fittings charged to a DEVICE link (see network.js build), at the
+       * method's own exponent. */
+      if (link.rF) h += FD.hydraulics.headloss(link.rF, q, link.nF || 2);
+      return h;
+    },
+
+    /* The DEVICE's own loss: `linkLoss` less any fitting charged to the link
+     * (`rF`). A pump, valve or machine is compared with its own rating, and a
+     * connection fitting is pipework, not part of that rating. Signed. */
+    deviceLoss: function (link, q) {
+      if (!link) return 0;
+      var h = FD.hydraulics.linkLoss(link, q);
+      if (link.rF) h -= FD.hydraulics.headloss(link.rF, q, link.nF || 2);
       return h;
     },
 

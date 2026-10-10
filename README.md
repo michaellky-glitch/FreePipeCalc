@@ -154,6 +154,7 @@ Hazen-Williams without touching the solver.
       app.js            shell: toolbar, panels, sheet, settings, persistence
     docs/
       engine.html       maths, derivation, worked checks
+      AUDIT-v0.18.66.md method audit: corrections, re-baseline, open decisions
     examples/
       3-floor-riser-test.pnet.json      3-floor riser + ring main test model
       irrational-source-on-L3.pnet.json source above its demands, dead-ended pump

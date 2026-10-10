@@ -29,6 +29,23 @@
   var TOL_FLOW = 1e-5;      // 0.01 L/s nodal imbalance (spec §3.4)
   var PUMP_DHDQ_MIN = 1.0;  // regularises the otherwise-singular fixed-head pump
 
+  /* A RUNNING PUMP HAS A CHECK VALVE ON ITS DISCHARGE.
+   *
+   * Every pump in a parallel set has one, and EPANET assumes one on every pump.
+   * Without it the curve H0 - a|Q|^b is symmetric in Q, so a pump forced
+   * backwards still "made" head and the loss curve fell as reverse flow grew.
+   * When a slow pump in a parallel set met a header head above its own shutoff
+   * head, the equations had no solution: one test rig pushed 2300 L/s
+   * backwards through the slow pump and did not converge.
+   *
+   * So below zero flow the pump is a shut check valve: the gain stops at the
+   * shutoff head and a stiff LINEAR resistance takes the excess. Linear, not
+   * quadratic, because Newton then lands it in one step. The value lets less
+   * than 1e-7 m3/s back through for 100 m of excess head, which is below
+   * Q_MIN and reports as zero. Continuous at Q = 0, and monotonic, so the
+   * GGA keeps one solution. */
+  var PUMP_REVERSE_K = 1e9;  // m per m3/s
+
   /* A THIRD criterion, beyond the two the spec names, is required for correctness.
    * A flow circulating around a closed loop satisfies continuity exactly at every
    * node (zero imbalance) and perturbs no head (zero head change) — so head and
@@ -207,20 +224,27 @@
        * system, for the whole network at once. No separate system-curve
        * intersection is needed or wanted — with several pumps and rings there
        * is no single scalar system curve to intersect. */
-      if (link.curve) return -FD.pumps.head(link.curve, q);
-      return -(link.head || 0);
+      var gain = link.curve ? FD.pumps.head(link.curve, Math.max(q, 0))
+                            : (link.head || 0);
+      /* Pipework fittings charged to the pump link are a loss like any other. */
+      var fit = link.rF ? FD.hydraulics.headloss(link.rF, q, link.nF || 2) : 0;
+      /* Reverse flow meets the discharge check valve — see PUMP_REVERSE_K. */
+      if (q < 0) return -gain + fit + PUMP_REVERSE_K * q;
+      return -gain + fit;
     }
     return FD.hydraulics.linkLoss(link, q);
   }
 
   function linkDhdq(link, q) {
+    var dF = link.rF ? FD.hydraulics.dhdq(link.rF, q, link.nF || 2) : 0;
     if (link.kind === 'pump') {
+      if (q < 0) return PUMP_REVERSE_K + dF;
       /* dH/dQ vanishes at shutoff for any b > 1, the same singularity a
        * fixed-head pump has. FD.pumps.slope applies the floor. */
-      if (link.curve) return FD.pumps.slope(link.curve, q, PUMP_DHDQ_MIN);
-      return PUMP_DHDQ_MIN;
+      if (link.curve) return FD.pumps.slope(link.curve, q, PUMP_DHDQ_MIN) + dF;
+      return PUMP_DHDQ_MIN + dF;
     }
-    var d = FD.hydraulics.dhdq(link.r, q, link.n);
+    var d = FD.hydraulics.dhdq(link.r, q, link.n) + dF;
     if (link.rK) d += FD.hydraulics.dhdq(link.rK, q, 2);
     return Math.max(d, 1e-9);
   }
@@ -440,6 +464,7 @@
     solve: solve,
     solveLinear: solveLinear, solveSPD: solveSPD,          // exported for the test harness
     MAX_ITER: MAX_ITER,
+    PUMP_REVERSE_K: PUMP_REVERSE_K,
     TOL_HEAD: TOL_HEAD,
     TOL_FLOW: TOL_FLOW
   };

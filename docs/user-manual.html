@@ -389,7 +389,7 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
   </tbody>
 </table>
 </div>
-<p>The pump panel also has Design flow and Design pressure boxes, a Re-size button in Auto, and buttons to enter or generate a curve.</p>
+<p>The pump panel also has Design flow and Design pressure boxes, a Re-size button in Auto, and the Paste curve, Show curve and Clear curve buttons.</p>
 <div class="note limit"><span class="tag">IMPORTANT:</span>
   <p>A pump must be in Manual or Curve sizing mode to run in Simulate. An Auto pump has no fixed curve for the simulation to read.</p>
 </div>
@@ -482,7 +482,7 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
     <tr><td>Temperature</td><td>Water temperature at the sensor.</td></tr>
     <tr><td>Flow</td><td>Flow through the pipe.</td></tr>
     <tr><td>Pressure</td><td>Gauge pressure at the sensor.</td></tr>
-    <tr><td>Diff. Pressure</td><td>Pressure difference between this pipe and a second pipe you pick.</td></tr>
+    <tr><td>Diff. Pressure</td><td>Differential pressure between this pipe and a second pipe you pick. If the two pipes are at different levels, the static column between them does not count.</td></tr>
     <tr><td>Diff. Temperature</td><td>Temperature difference between this pipe and a second pipe you pick.</td></tr>
   </tbody>
 </table>
@@ -524,13 +524,16 @@ kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;
 <div class="note limit"><span class="tag">IMPORTANT:</span>
   <p>In Simulate mode the drawing annotations show the stabilized flow and the stabilized thermal properties.</p>
 </div>
+<div class="note rule"><span class="tag">NOTE:</span>
+  <p>Locked and Live control editing only. The program does not do a transient (time-based) simulation. Each result is a steady state. Before v0.18.66 these two buttons had the names Static and Dynamic.</p>
+</div>
 <div class="scroll">
 <table class="ctrl">
   <thead><tr><th>Control</th><th>What it does</th></tr></thead>
   <tbody>
-    <tr><td>Static</td><td>Freezes the simulation. Nothing re-solves while you look at it, which keeps a large model responsive.</td></tr>
-    <tr><td>Dynamic</td><td>Re-runs the simulation every time you make a change.</td></tr>
-    <tr><td>Run Simulation</td><td>Re-solve the model now. Use this in Static after you change something.</td></tr>
+    <tr><td>Locked</td><td>Locks the drawing. You cannot edit, and nothing re-solves. A large model stays responsive.</td></tr>
+    <tr><td>Live</td><td>Re-solves the model after each change.</td></tr>
+    <tr><td>Run Simulation</td><td>Re-solves the model now. Use this in Locked after a change.</td></tr>
     <tr><td>Select</td><td>Select any element to read its simulated properties.</td></tr>
     <tr><td>Probe</td><td>Read pressure, flow and velocity at any point along a pipe. Click to pin the reading; press <kbd>Esc</kbd> to clear it.</td></tr>
   </tbody>

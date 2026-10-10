@@ -568,6 +568,10 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   <li><strong>Combining tee</strong> (two pipes in, one out): the program charges both <strong>inlets</strong>. In a combining tee the branch inflow has most of the loss. A charge on the outlet only would be too small.</li>
   <li><strong>Elbow</strong>: the program charges the downstream pipe.</li>
 </ul>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>The charged leg can be a pump, a valve or equipment. This occurs when a pipe connects directly to the end node of a device. The program adds the fitting loss to the device link as a separate term. The term uses the method's own form: equivalent length at Q<sup>1.852</sup> with Hazen-Williams, and K at Q² with Darcy-Weisbach. Before v0.18.66 the program listed this fitting but did not add its loss.</p>
+</div>
 <p>Two special cases keep the assignment stable and correct:</p>
 <ul>
   <li><strong>Ties break on geometry.</strong> When two legs carry almost the same flow, the straightest in-and-out pair becomes the run. Geometry does not depend on the solution, so the assignment cannot move. At a riser tee, this makes the vertical run the "run" and the floor take-off the "branch".</li>
@@ -672,11 +676,11 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
     <tr><td>Density <code>ρ</code></td><td><strong>Live.</strong> Every conversion from head to pressure uses it.</td></tr>
     <tr><td>Kinematic viscosity <code>ν</code></td><td><strong>Live.</strong> Sets the Reynolds number and the friction factor under Darcy-Weisbach. Also sets the flow regime check under both methods.</td></tr>
     <tr><td>Specific heat <code>c<sub>p</sub></code></td><td><strong>Live</strong> in the thermal module: <code>Q = ṁ · c<sub>p</sub> · ΔT</code>.</td></tr>
-    <tr><td>Temperature</td><td><strong>Recorded only.</strong> States the temperature at which the other properties apply. Does not calculate them.</td></tr>
+    <tr><td>Temperature</td><td><strong>Water:</strong> sets the other three properties (section 5.1). <strong>Glycol and custom fluids:</strong> recorded only. It states the temperature at which the given properties apply.</td></tr>
   </tbody>
 </table>
 </div>
-<p>The default fluid is water at 20 °C (ρ = 998 kg/m³, ν = 1.004×10⁻⁶ m²/s, c<sub>p</sub> = 4187 J/(kg·K)). Fluids whose published properties are not yet verified are marked in the interface — currently the propylene-glycol presets. Check them before you issue a calculation.</p>
+<p>The default fluid is water. Its properties follow the source temperature (section 5.1). Fluids whose published properties are not yet verified are marked in the interface — currently the propylene-glycol presets. Check them before you issue a calculation.</p>
 
 <h3 id="fluid-water">5.1 Water properties against temperature</h3>
 <p><strong>Water properties follow the temperature stated at the source.</strong> The program reads that one figure, resolves density, viscosity and specific heat from the correlations below, and uses them everywhere in the model. The temperature used is printed on the calculation sheet under <em>Appendix — Hydraulic Parameters</em>, so any result can be checked against a hand calculation at the same condition.</p>
@@ -686,7 +690,12 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   <li><strong>A model normally has one source.</strong> If several state different temperatures, their <strong>average</strong> is used — an unweighted mean of the stated figures, so it stays something you can work out yourself. The sheet says when it has averaged.</li>
   <li><strong>If no source states a temperature</strong>, the figure on the THERMAL tab is used instead. That is the same datum the temperature solve pins to, so the two are never quoted at different conditions.</li>
   <li><strong>Water only.</strong> A glycol or custom fluid keeps exactly the properties it was given; the correlations below are for water and there are no verified equivalents for the glycol mixtures.</li>
+  <li><strong>One fluid for the whole solve.</strong> The hydraulic solve, the thermal solve and the equipment panels use the same three values.</li>
 </ul>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>Before v0.18.66 only the hydraulic solve used these values. The thermal solve and the duty, flow and ΔT relation of each machine used 998 kg/m³ and 4187 J/(kg·K) at all temperatures. At 6 °C the product ρ·c<sub>p</sub> changes by 0.56%, so a coil ΔT changes by the same amount.</p>
+</div>
 <p>The correlations give liquid water at atmospheric pressure, with <em>T</em> in °C.</p>
 <div class="scroll">
 <table>
@@ -1019,6 +1028,21 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 <p>The pump adds head. The term is negative because flow goes from low head to high head across the pump. For a fixed-head pump, H<sub>pump</sub> is constant. For a curve, the solver finds the operating point where the curve meets the system. It does this for the whole network at once. No separate system-curve intersection is needed or wanted. With several pumps and rings there is no single scalar system curve to intersect.</p>
 <p>The derivative dH/dQ vanishes at shutoff for b &gt; 1. This is the same singularity a fixed-head pump has. The slope is floored at a minimum (1.0 m/(m³/s)) to keep the Newton step finite.</p>
 
+<h4 id="pump-check">A running pump does not pass reverse flow</h4>
+<p>The program puts a check valve on the discharge of each running pump. This is the usual arrangement for pumps in parallel. EPANET applies the same rule.</p>
+<p>If the head across a pump is more than its shutoff head, the check valve stays closed. The flow through the pump is then zero, and the pump runs at shutoff. The program shows the warning <code>PUMP_SHUTOFF</code>.</p>
+<p>The usual cause is a slow pump in a parallel set. The shutoff head falls with the square of the speed. At 60% speed it is 36% of the full-speed value.</p>
+<div class="eq">
+  <span class="lbl">Loss along the pump link</span>
+  Q ≥ 0: &nbsp; −H<sub>pump</sub>(Q)<br>
+  Q &lt; 0: &nbsp; −H<sub>0</sub> + K<sub>r</sub> · Q, &nbsp; K<sub>r</sub> = 10⁹ m per m³/s
+</div>
+<p>The two parts meet at Q = 0, and the loss increases with Q on both sides. The network therefore has one solution. With 100 m of excess head, the reverse flow is less than 10⁻⁷ m³/s. The program reports this as zero.</p>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>Before v0.18.66 the curve was symmetric in Q, so a pump forced backwards still added head. With a slow pump in a parallel set, the solve did not converge. A test model showed 2300 L/s of reverse flow through the slow pump.</p>
+</div>
+
 <h4>Automatic sizing (DESIGN)</h4>
 <p>In DESIGN, automatic sizing adjusts the pump head until the worst-served terminal has exactly its required pressure. The head can come down as well as up. A linear droop is imposed on the resulting head — H = H<sub>d</sub> + k(Q<sub>ref</sub> − Q) — so the sizer can always reach its target. The slope k defaults to H<sub>d</sub>/Q<sub>ref</sub>.</p>
 
@@ -1032,6 +1056,18 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 
 <h3 id="pump-control">7.5 Control</h3>
 <p>A pump can follow a sensor. Link the pump to a pressure, flow or temperature sensor and give the sensor a setpoint. In SIMULATE the program adjusts the pump <strong>speed</strong> until the sensor reads its setpoint. If the pump reaches a limit before it reaches the setpoint, the program says so.</p>
+
+<h4 id="dp-sensor">What a differential pressure sensor reads</h4>
+<p>A differential pressure sensor reads the difference in piezometric head between its two tappings, as a pressure:</p>
+<div class="eq">
+  ΔP = ρ · g · (H<sub>1</sub> − H<sub>2</sub>) &nbsp;=&nbsp; (p<sub>1</sub> − p<sub>2</sub>) + ρ · g · (z<sub>1</sub> − z<sub>2</sub>)
+</div>
+<p>The impulse lines of a real transmitter are full of water. Each line adds the column between its tapping and the instrument, so the transmitter reads this value. It is also the differential that moves water through the circuit between the two tappings.</p>
+<p>If the two tappings are at the same level, ΔP is equal to the difference in gauge pressure. If they are at different levels, the static column between them does not count. The control loop, the drawing and the panel use this one definition.</p>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>Before v0.18.66 the program read the gauge pressure difference p<sub>1</sub> − p<sub>2</sub>. The result changes only for tappings at different levels. In all the shipped models, the two tappings are at the same level.</p>
+</div>
 <div class="note rule">
   <span class="tag">NOTE:</span>
   <p>In DESIGN the demands set the flow, and automatic sizing sets the duty. A controller cannot also set them: two controllers on one actuator have no single answer. In SIMULATE the flow is free to respond, so the controller has something to act on.</p>
@@ -1046,15 +1082,21 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   <span class="lbl">Accepted setpoint</span>
   the lowest value at which every controlled device still holds its setpoint
 </div>
-<p>Feasibility moves one way with the setpoint: high enough and every device holds; below some value the valves run out of travel and a coil misses its temperature. So the search halves the interval, keeps the lowest value that still works, and stops once the most open valve reaches about 95%.</p>
-<p>The typed figure is never overwritten. It is the design differential and the ceiling the search starts from, and it returns the moment Auto is switched off.</p>
+<p>Feasibility moves one way with the setpoint: high enough and every device holds; below some value the valves run out of travel and a coil misses its temperature.</p>
+<p>The search starts from the differential that the sensor reads now. If the most open valve is still nearly wide open, or a device cannot hold its setpoint, the search doubles the setpoint. It stops when the pump has no more speed. Then it halves the interval and keeps the lowest value that works. It stops when the most open valve reaches about 95%.</p>
+<p>The program does not overwrite the typed figure. On Auto, the comparator beside it sets its function:</p>
+<ul>
+  <li><strong>SET</strong> — no limit. The typed figure has no effect on Auto.</li>
+  <li><strong>MIN</strong> — Auto does not go below the typed figure.</li>
+  <li><strong>MAX</strong> — Auto does not go above the typed figure.</li>
+</ul>
 <div class="note check">
   <span class="tag">SUGGESTION:</span>
   <p>On a five-storey example at 79% load, a fixed 110 kPa setpoint leaves the coil valves near 76% and the pump at 87%. On Auto the same plant settles at about 64 kPa with the valves at 93 to 100% and the pump at 78%, which is roughly a fifth less pumping power, and every coil still holds its design &Delta;T.</p>
 </div>
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>
-  <p>Each trial is a complete control loop, so the search multiplies the cost of a simulation several times over. It is a switch on the sensor rather than the default for that reason. If the design setpoint cannot itself be held, the search does nothing and leaves it alone — that is a plant problem, not a setpoint one.</p>
+  <p>Each trial is a complete control loop, so the search multiplies the cost of a simulation several times over. It is a switch on the sensor rather than the default for that reason. If no setpoint that the pump can make holds every device, the program reports <code>SETPOINT_LOST</code> at the highest setpoint it tried. That is a plant problem, not a setpoint problem.</p>
 </div>
 <h2 id="equipment">8. Equipment</h2>
 <p>Equipment is any in-line device that adds or removes heat, or drops pressure without a thermal effect. Three types share one hydraulic resistance model. They differ in their thermal behaviour.</p>
@@ -1583,7 +1625,8 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>
   <p>Straight-pipe friction is validated. Tee losses are not.</p>
-  <p>A tee is charged as a "run" or a "branch" from its geometry and flow direction. Real tee loss depends on whether the flow <em>divides</em> or <em>combines</em>, and above all on the ratio of branch flow to combined flow. K varies over that ratio by more than a factor of ten. One flat coefficient cannot represent it. The program therefore charges combining tees the same as dividing tees.</p>
+  <p>A tee is charged as a "run" or a "branch". Real tee loss depends on whether the flow <em>divides</em> or <em>combines</em>, and above all on the ratio of branch flow to combined flow. K varies over that ratio by more than a factor of ten. With Darcy-Weisbach the branch coefficient follows that ratio (section 4.4). With Hazen-Williams one equivalent length applies at all flows, and combining tees are charged the same as dividing tees.</p>
+  <p>The run is the pair of legs with the largest inflow and the largest outflow (section 4.3). If a side branch takes more flow than the straight leg, the program calls the side branch the run. The turning stream then gets the run coefficient, and the straight stream gets the branch coefficient.</p>
   <p>The effect is small on a network whose losses are mostly straight pipe. It is larger on short, heavily branched pipework.</p>
 </div>
 <div class="note limit">
@@ -1597,6 +1640,10 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>
   <p>Water properties follow the <strong>source</strong> temperature, and one figure serves the whole model — see section 5.1. They do not follow the temperature the solve computes at each pipe, so a circuit whose water warms along its length is calculated throughout at its source condition. For a glycol or custom fluid the properties are entered and are not varied with temperature at all.</p>
+</div>
+<div class="note limit">
+  <span class="tag">IMPORTANT:</span>
+  <p>A heat exchanger holds its stated load at all flows, until its ΔT reaches the Design ΔT limit (section 8.3). The program does not model coil heat transfer against flow, for example by effectiveness-NTU. A real coil at part flow can give a larger ΔT and lose less capacity than this model shows. Use the result for the hydraulic answer, not for coil selection.</p>
 </div>
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>

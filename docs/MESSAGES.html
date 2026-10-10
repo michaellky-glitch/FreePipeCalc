@@ -327,6 +327,7 @@ footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);
     <tr><td><code>SUPPLY_INSUFFICIENT</code></td><td>Insufficient pressure at [Node] (Short by [Pressure] [Units]. Consider increasing pipe size or pressure.</td><td>The source cannot meet an outflow's required pressure.</td></tr>
     <tr><td><code>PUMP_DEAD_END</code></td><td>Pump [Tag] has no flow (dead end). Check system arrangement.</td><td>A pump carries no flow because a side is dead-ended; no head fixes it.</td></tr>
     <tr><td><code>PUMP_NO_FLOW</code></td><td>Pump [Tag] has no flow. Check system arrangement.</td><td>A running pump carries no flow for some other reason.</td></tr>
+    <tr><td><code>PUMP_SHUTOFF</code></td><td>Pump [Tag] is at shutoff. The system head ([Pressure] [Units]) is more than the pump can make at [%]% speed ([Pressure] [Units]).</td><td>A running pump cannot make the head across it. Its discharge check valve is shut and its flow is zero. This is usually the slow pump of a parallel set. The speed clause shows only below 100%.</td></tr>
     <tr><td><code>PUMP_RUNOUT</code></td><td>Pump [Tag] is running at [Flow] [Units], ([%]% of design flow). Check available NPSH or design flow.</td><td>Over <code>warn.pumpRunout</code> (120%): matters after losing a pump in a parallel set — the survivors ride out along their curves.</td></tr>
     <tr><td><code>UNREACHABLE</code></td><td>[Tag] is isolated by closed valve or not connected to source. Dismiss this notification if intentional.</td><td>An outflow with no live path to a source.</td></tr>
     <tr><td><code>OUTFLOW_SHORT</code></td><td>Insufficient pressure at [Node] (Short by [Pressure] [Units]. Consider increasing pipe size or pressure.</td><td>An outflow below the pressure it asked for.</td></tr>
@@ -358,8 +359,8 @@ footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);
 <table class="msg">
   <thead><tr><th>Code</th><th>Message</th><th>Issue</th></tr></thead>
   <tbody>
-    <tr><td><code>CHECK_CLOSED</code></td><td>Check valve [Node] is holding against reverse flow.</td><td>Normal operation, reported so the zero flow is not a puzzle.</td></tr>
-    <tr><td><code>VALVE_SHUT</code></td><td>Valve [Node] is shut.</td><td>A fully-closed valve; its branch passes nothing.</td></tr>
+    <tr><td><code>CHECK_CLOSED</code></td><td>Check valve [Tag] is holding against reverse flow.</td><td>Normal operation, reported so the zero flow is not a puzzle.</td></tr>
+    <tr><td><code>VALVE_SHUT</code></td><td>Valve [Tag] is shut.</td><td>A fully-closed valve; its branch passes nothing.</td></tr>
     <tr><td><code>THERMAL_DATUM</code></td><td>Nothing sets a temperature level in this circuit. … °C has been pinned at the outlet of …, the equipment moving the most heat. Every other temperature is relative to that.</td><td>The temperature field needed a datum; one was pinned. Raised only when the solve actually needed it.</td></tr>
     <tr><td><code>SOURCE_PRESSURE_MOVED</code></td><td>[Node] static pressure [Pressure] [Units] is stored as [Height] [Units] elevation. A vertical pipe was created. Source …: its … kPa static pressure was stored as a … m elevation, which was stretching every pipe on it. The pressure is unchanged; the node is back at its drawn level.</td><td>Migration on load. A source's static pressure had been stored as the node's ELEVATION.</td></tr>
   </tbody>

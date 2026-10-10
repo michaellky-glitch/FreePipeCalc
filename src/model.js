@@ -59,13 +59,14 @@
        * prints actually changes the calculation. */
       ashrae: { K: 6.819, a: 1.852, e: 1.167 },
 
-      /* Darcy-Weisbach settings. Swamee-Jain is the chosen correlation
-       * (2026-08-02); the others stay selectable for comparison. */
+      /* Darcy-Weisbach settings. Colebrook-White is the default correlation;
+       * the explicit fits stay selectable. */
       dw: { frictionFactor: 'colebrook', roughness_mm: 0.045, kSet: 'threaded' },
 
-      /* Fluid. `preset` names one of data/fluids.js; the four numbers below
-       * are only read when the preset is 'custom', because a named fluid's
-       * properties belong to the fluid rather than to this file. All four are
+      /* Fluid. `preset` names one of data/fluids.js. For a glycol the numbers
+       * below are the preset's, copied by `applyFluidPreset`; for Custom they
+       * are the engineer's; for WATER they are re-written at the top of every
+       * solve from the source temperature (`applyFluidTemperature`, EQ.5). All four are
        * live now: density everywhere, viscosity under Darcy, and specific heat
        * throughout the thermal module. */
       fluid: {
@@ -157,8 +158,8 @@
         tol: 0.05,                     // K
 
         /* How many network solves the control loop may spend. 0 = automatic,
-         * which scales with the number of controlled devices (40 + 30 each,
-         * capped at 400). One solve is a few milliseconds on a model of a few
+         * which scales with the work: max(400, 20 x devices x iterations), see
+         * network.js runControlsGen. One solve is a few milliseconds on a model of a few
          * dozen pipes, so the automatic ceiling is of the order of a second in
          * the worst case — and only a model that is genuinely hunting gets
          * near it. Raise it to give an awkward model more room; lower it if a

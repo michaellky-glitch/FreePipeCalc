@@ -639,8 +639,8 @@
    * does not respond and does not explain is indistinguishable from a bug. */
   View.prototype.refuseLocked = function (what) {
     this.onMessage && this.onMessage(
-      (what || 'That') + ' is locked in STATIC simulation. Switch to DYNAMIC on ' +
-      'the ribbon to edit while simulating.', 'error');
+      (what || 'That') + ' is locked. Select LIVE on the ribbon to edit ' +
+      'while simulating.', 'error');
     return true;
   };
 

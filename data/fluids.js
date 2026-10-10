@@ -148,10 +148,32 @@
 
     /* Settings → the four numbers, honouring a Custom fluid's own values.
      * A named fluid ignores whatever is stored on the model: the properties
-     * belong to the fluid, not to the file. */
+     * belong to the fluid, not to the file.
+     *
+     * WATER IS THE EXCEPTION, since EQ.5 (v0.18.62). Its properties follow the
+     * source temperature, and `M.applyFluidTemperature` writes them onto
+     * `settings.fluid` at the top of every solve. The hydraulics read them
+     * there. This function returned the 20 °C preset regardless, so the
+     * thermal solve, the duty/flow/ΔT trio and the THERMAL tab ran on 998 kg/m³
+     * and 4187 J/(kg·K) while the hydraulics of the same solve ran on, at 6 °C,
+     * 999.9 and 4202 — two fluids in one answer (found in the v0.18.66 audit).
+     * So for water the stored numbers win when they are present. */
     resolve: function (settings) {
       var f = (settings && settings.fluid) || {};
       var base = FLUIDS[f.preset] || FLUIDS.water;
+      if (base.key === 'water') {
+        var pos = function (v, d) { return (Number(v) > 0) ? Number(v) : d; };
+        var t = Number(f.temperature);
+        return {
+          key: base.key, name: base.name,
+          density: pos(f.density, base.density),
+          kinematicViscosity: pos(f.kinematicViscosity, base.kinematicViscosity),
+          specificHeat: pos(f.specificHeat, base.specificHeat),
+          refTemp: isFinite(t) && f.temperature !== null && f.temperature !== ''
+            ? t : base.refTemp,
+          verified: true
+        };
+      }
       if (!base.editable) {
         return {
           key: base.key, name: base.name,

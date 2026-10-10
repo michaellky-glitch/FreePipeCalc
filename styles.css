@@ -357,17 +357,19 @@ table.sheet input.cell-input.est { color: var(--error); }
 /* levels */
 .level-row {
   display: flex;
+  flex-wrap: wrap;            /* a long name keeps its words; the rest moves down */
   align-items: baseline;
-  gap: 8px;
-  padding: 7px 12px;
+  column-gap: 4px;
+  row-gap: 2px;
+  padding: 7px 10px;
   border-bottom: 1px solid var(--line-soft);
   cursor: pointer;
   font-size: 13px;
 }
 .level-row:hover { background: var(--bg-raised); }
 .level-row.active { background: var(--accent-dim); color: var(--text); }
-.level-name { flex: 1; }
-.level-alt { color: var(--text-mute); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.level-name { flex: 1 1 auto; min-width: 0; }
+.level-alt { color: var(--text-mute); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .level-lock { color: var(--warn); font-size: 12px; }
 
 /* View direction on a level row. Both arrows always show, so the row states
@@ -579,7 +581,8 @@ table.sheet td span.bad { color: var(--error); font-weight: 600; }
 .level-grip { color: var(--text-mute); font-size: 11px; cursor: grab; letter-spacing: -1px; }
 .level-row.dragging { opacity: .4; }
 .level-row.drop-target { box-shadow: inset 0 2px 0 var(--accent); }
-.level-edit { padding: 0 6px; font-size: 11px; opacity: 0; }
+.level-actions { display: inline-flex; gap: 4px; white-space: nowrap; }
+.level-edit { padding: 0 5px; font-size: 11px; opacity: 0; }
 .level-row:hover .level-edit, .level-row.active .level-edit { opacity: 1; }
 
 /* second panel header when LEVELS and PROPERTIES stack in one column */
@@ -1592,3 +1595,6 @@ body.sim-static #prop-body .field textarea {
 .field-pair { display: flex; gap: 6px; align-items: center; }
 .field-pair input { flex: 1 1 auto; min-width: 0; }
 .field-pair select { flex: 0 0 auto; width: auto; }
+
+/* A field that needs two columns of a settings grid — a long option name. */
+.field.field-wide { grid-column: span 2; }

@@ -111,6 +111,7 @@ Message text may be edited, but message codes are fixed. The placeholder `[…]`
 | `SUPPLY_INSUFFICIENT` | Insufficient pressure at \[Node\] (Short by \[Pressure\] \[Units\]. Consider increasing pipe size or pressure. | The source cannot meet an outflow's required pressure. |
 | `PUMP_DEAD_END` | Pump \[Tag\] has no flow (dead end). Check system arrangement. | A pump carries no flow because a side is dead-ended; no head fixes it. |
 | `PUMP_NO_FLOW` | Pump \[Tag\] has no flow. Check system arrangement. | A running pump carries no flow for some other reason. |
+| `PUMP_SHUTOFF` | Pump \[Tag\] is at shutoff. The system head (\[Pressure\] \[Units\]) is more than the pump can make at \[%\]% speed (\[Pressure\] \[Units\]). | A running pump cannot make the head across it. Its discharge check valve is shut and its flow is zero. This is usually the slow pump of a parallel set. The speed clause shows only below 100%. Added v0.18.66; before that, the solver did not converge on this condition. |
 | `PUMP_RUNOUT` | Pump \[Tag\] is running at \[Flow\] \[Units\], (\[%\]% of design flow). Check available NPSH or design flow. | Over `warn.pumpRunout` (120%): matters after losing a pump in a parallel set — the survivors ride out along their curves. |
 | `UNREACHABLE` | \[Tag\] is isolated by closed valve or not connected to source. Dismiss this notification if intentional. | An outflow with no live path to a source. |
 | `OUTFLOW_SHORT` | Insufficient pressure at \[Node\] (Short by \[Pressure\] \[Units\]. Consider increasing pipe size or pressure. | An outflow below the pressure it asked for. |
@@ -135,8 +136,8 @@ Message text may be edited, but message codes are fixed. The placeholder `[…]`
 
 | Code | Message | Issue |
 | --- | --- | --- |
-| `CHECK_CLOSED` | Check valve \[Node\] is holding against reverse flow. | Normal operation, reported so the zero flow is not a puzzle. |
-| `VALVE_SHUT` | Valve \[Node\] is shut. | A fully-closed valve; its branch passes nothing. |
+| `CHECK_CLOSED` | Check valve \[Tag\] is holding against reverse flow. | Normal operation, reported so the zero flow is not a puzzle. |
+| `VALVE_SHUT` | Valve \[Tag\] is shut. | A fully-closed valve; its branch passes nothing. |
 | `THERMAL_DATUM` | Nothing sets a temperature level in this circuit. … °C has been pinned at the outlet of …, the equipment moving the most heat. Every other temperature is relative to that. | The temperature field needed a datum; one was pinned. Raised only when the solve actually needed it. |
 | `SOURCE_PRESSURE_MOVED` | \[Node\] static pressure \[Pressure\] \[Units\] is stored as \[Height\] \[Units\] elevation. A vertical pipe was created. Source …: its … kPa static pressure was stored as a … m elevation, which was stretching every pipe on it. The pressure is unchanged; the node is back at its drawn level. | Migration on load. A source's static pressure had been stored as the node's ELEVATION. |
 
