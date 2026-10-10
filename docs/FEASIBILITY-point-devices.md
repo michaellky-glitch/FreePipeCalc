@@ -38,11 +38,11 @@ link touches few of them. This note recommends the zero-length link.
 | Device length | `src/canvas.js:29` | `DEVICE_LEN = 0.5`. `insertInline` (`src/canvas.js:2351`) splits the pipe and puts two nodes 0.5 m apart. A pipe shorter than 1.0 m cannot hold a device. |
 | Sensor | `src/model.js:2186` | A pipe "in every hydraulic sense": it has the friction of its own 0.5 m. It reads at its inlet node `a` (temperature, pressure, ΔP), or its own link flow (`sensorReading`, `src/network.js:2615`). |
 | Control references | `src/model.js:1023` | `pump.control.equip` / `valve.control.equip` hold the ID of the sensor or equipment link. `sensor.ref` holds the ID of the second tapping link. |
-| Drawing | `src/canvas.js:3503` | A thin connector with a symbol at the midpoint. The symbol angle comes from a → b (`drawPumpGlyph`, `src/canvas.js:4115`). |
+| Drawing | `src/canvas.js:3505` | A thin connector with a symbol at the midpoint. The symbol angle comes from a → b (`drawPumpGlyph`, `src/canvas.js:4115`). |
 | Moving a device | `src/canvas.js:5836` | `deviceSlideAxis` slides the device along a → b. It needs a length above zero. |
 | Node merge | `src/model.js:718` | `mergeNodes` removes a link that runs from a node to itself. |
 
-Code that tests a device kind: pump 72, valve 25, equip 46, sensor 23
+Code that tests a device kind: pump 72, valve 24, equip 46, sensor 23
 places, in `model`, `network`, `thermal`, `canvas`, `app` and `dxf`.
 
 Shipped files: 172 device links in 15 files — 90 equipment, 40 pumps, 21
@@ -71,17 +71,17 @@ warning. The passes do not change.
 | GGA example | +0.26% | +0.21% | Same |
 | Economizer, parallel branches | ≤ +0.06% | ≤ +0.05% | Same |
 | **datacentre-ring** | **−1.54%** | **−1.54%** | **Two pump elbows lost** (P0, P40) |
-| stacked-riser | +0.03% | −0.24% | Elbows lost at four devices; one run became a branch |
+| stacked-riser | +0.03% | −0.24% | Elbows lost on seven pipes next to devices; one run became a branch |
 
 The losses are a defect of the spike, not of the idea. A link of length 0 has
 no direction (`dirFrom` returns null). At a pump on a corner the detector then
 sees straight pipe and charges no elbow. Section 5 gives the rule that
 corrects this.
 
-**Sensors at length 0.** The Data Hall and Tutorial 01 (Hazen-Williams) and
+**Sensors at length 0.** The Data Hall (both methods), Tutorial 01 (Hazen-Williams) and
 economizer-trim (Darcy-Weisbach) do not converge. A sensor has no resistance
 of its own, so at length 0 its link has r = 0 and the matrix is singular. The
-note at `src/model.js:2205` gives the same reason. This is why sensors must
+note at `src/model.js:2206` gives the same reason. This is why sensors must
 leave the network.
 
 ---
