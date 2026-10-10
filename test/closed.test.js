@@ -850,11 +850,46 @@ section('Critical path: a big model closes the circuit, not half of it');
    * which is the valves' 1%-of-travel resolution and nothing else. In DESIGN
    * the valves are now charged at full travel, so the ranking is pipework.
    *
-   * Ranked by how much head is burnt reaching each coil, AHU-13 is first and
-   * AHU-4 is LAST of the fourteen. The old answer was the least remote one. */
+   * Ranked by how much head is burnt reaching each coil, AHU-4 is LAST of the
+   * fourteen. The old answer was the least remote one.
+   *
+   * WHICH ONE IS FIRST MOVED WITH THE TEE RUN RULE (Michael, 2026-10-10: "flow
+   * going straight will be evaluated based on straight through, flow turning
+   * gets the turning coefficient"). This used to pin AHU-13. That name was read
+   * off an engine run, not derived, and it held only because the old rule —
+   * largest inflow paired with largest outflow — called AHU-12's drop and
+   * return riser RUNS. Past AHU-12 the main carries less than one coil (2.9 L/s
+   * against 4.6), so its drop was the "largest outflow" at N61 and its riser
+   * the "largest inflow" at N52, though both leave the DN200 main at 90°.
+   * Carrier Table 11 at the coil flow, 4.567 L/s, C = 120, by hand:
+   *   DN50 drop   TBRANCH 3.05 m - TRUN 1.01 m = 2.04 m x 0.1195 m/m = 0.244 m
+   *   DN40 riser  TBRANCH 2.44 m - TRUN 0.79 m = 1.65 m x 0.4005 m/m = 0.661 m
+   * so AHU-12 was handed 0.90 m its pipework does not give it (AHU-10, -3 and
+   * -5, each beside a null point, the same). AHU-13's two tees did not change.
+   *
+   * Now every coil turns at both of its tees and pays the same branch charge,
+   * so the drawing decides:
+   *   - The east row is the far row: about 0.1 m more is burnt crossing to it
+   *     (P86 out and P91 back, 25 m and 26 m of DN200 at ~16 L/s, + corners).
+   *   - Each row is fed from both ends and returns from the same ends — two
+   *     direct-return halves — so the head across a tee pair falls towards the
+   *     middle coil, AHU-11 on the east row, where the two feeds meet.
+   *   - AHU-11's own tees are bullheads: its legs are the COMMON leg and carry
+   *     no tee charge, so it is the best served of its row. That is the
+   *     charging convention, not the run rule.
+   *   - So the index is the coil beside the null point: AHU-12 in the north
+   *     half, AHU-10 in the south. They are mirror images and differ by under
+   *     1 mm (8 Pa), set by the plant-room pipework. No hand check can rank
+   *     them, so the name between the two is not pinned.
+   *   - AHU-12 against AHU-13, the pair Michael named, CAN be ranked: AHU-12's
+   *     tees sit one section further from the north feed on both mains, P78
+   *     and P68, each 3 m of DN200 + a 3.96 m run tee at ~6.6 L/s = 2.2 mm.
+   *     That is 4.5 mm less across its tee pair, ~4.2 mm less across the coil
+   *     (the coil takes 0.92 of a change at the tees). Asserted below. */
   {
     const idx = M.pipe(dm, c.targetLink);
-    ok('the index is AHU-13, the most remote coil', idx.tag === 'AHU-13', idx.tag);
+    ok('the index is AHU-12 or AHU-10, the east-row coils beside the null point',
+       idx.tag === 'AHU-12' || idx.tag === 'AHU-10', idx.tag);
     /* AND IT IS NOW THE SAME IN SIMULATION (v0.18.18). The index is chosen by
      * how much head is burnt reaching a coil, which is a property of the pipe,
      * so it no longer depends on where the control valves came to rest. The
@@ -875,8 +910,19 @@ section('Critical path: a big model closes the circuit, not half of it');
     ok('...which is the coil with the least differential across its branch',
        least.id === idx.id, least.tag + ' vs ' + idx.tag);
 
+    /* The step derived above between the two coils Michael named. Under the old
+     * run rule it was 0.84 m the other way, because AHU-12's turns were charged
+     * as straight runs. */
+    const byTag = t => coils.find(p => p.tag === t);
+    ok('...and AHU-12 has less across its branch than AHU-13',
+       drop(byTag('AHU-12')) < drop(byTag('AHU-13')),
+       drop(byTag('AHU-12')).toFixed(4) + ' m vs ' + drop(byTag('AHU-13')).toFixed(4) + ' m');
+
     /* The valve positions are what used to decide it. They must no longer be
-     * able to: forcing every one of them somewhere else cannot move the index. */
+     * able to: forcing every one of them somewhere else cannot move the index.
+     * Compared with the solve above, not with a name (2026-10-10, with the tee
+     * run rule): the property is "the position cannot move it", and a pinned
+     * name here only repeated the assertion above and broke with it. */
     const moved = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
     moved.settings.calcMode = 'design';
     moved.pipes.forEach(function (p) {
@@ -884,8 +930,8 @@ section('Critical path: a big model closes the circuit, not half of it');
     });
     const mres = NET.solveModel(moved);
     ok('slamming every control valve to 25% does not move the design index',
-       (M.pipe(moved, mres.critical.targetLink) || {}).tag === 'AHU-13',
-       (M.pipe(moved, mres.critical.targetLink) || {}).tag);
+       (M.pipe(moved, mres.critical.targetLink) || {}).tag === idx.tag,
+       (M.pipe(moved, mres.critical.targetLink) || {}).tag + ' vs ' + idx.tag);
   }
 }
 

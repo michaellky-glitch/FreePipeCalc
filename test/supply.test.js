@@ -67,10 +67,47 @@ section('Pump auto-sizes on every solve');
    * collapsed into one. The survivor derives its flow-form constants from the
    * printed velocity form (A = 6.819(4/pi)^1.852 = 10.6663) where the retired
    * one carried the rounded published 10.67. 0.035% on the constant, 0.08% on
-   * the duty — the rounding baked into 10.67, and nothing else. */
-  near('...to the index duty at design flow', pump.pump.head, 41.99, 0.05);
+   * the duty — the rounding baked into 10.67, and nothing else.
+   *
+   * 41.99 -> 46.06 on 2026-10-10, from Michael's decision on which leg of a
+   * tee is the run: "flow going straight will be evaluated based on straight
+   * through, flow turning gets the turning coefficient." One tee on the index
+   * path changes. At N0 the pump main P25 arrives from the west at 100 L/s.
+   * P0 to the Level 1 ring goes straight on (0 deg, 20 L/s) and the riser
+   * P27 turns up (90 deg, 80 L/s). The old rule paired the largest inflow
+   * with the largest outflow and charged the riser as the run. The riser is
+   * now the branch: 2.04 -> 6.40 m (Carrier 4 in, 6.7 ft and 21 ft). P0 goes
+   * the other way, 6.40 -> 2.04 m, but it is not on the index path and its
+   * 20 L/s is fixed, so no flow moves. N7 (riser straight on, floor take-off
+   * turns) and the three bullhead ring tees read the same under both rules.
+   *
+   * HAND CALCULATED from here on, not recorded. ASHRAE Eq (6) as printed,
+   * dh = 6.819 L (V/C)^1.852 (1/D)^1.167. DN100 sch40 bore 102.26 mm,
+   * C = 120. S is the friction gradient in m/m.
+   *
+   *   Level 3 ring (N16 is a bullhead, both legs T-br): north to N21 is
+   *   40+6.40+20+3.05+20+3.05 = 92.50 m, south to N22 is
+   *   10+6.40+20+3.05+20+3.05 = 62.50 m, and N22-N21 is 10 m.
+   *   92.50 Qn^1.852 = 62.50 Qs^1.852 + 10 (Qs-20)^1.852 gives
+   *   Qn = 17.902 L/s, so N21 is the index (5.390 m against 5.379 m to N22).
+   *
+   *   pipe  L + EL [m]          Q [L/s]  S [m/m]   h [m]
+   *   P23    2.00               100     1.40959   2.8192
+   *   P25   10.00               100     1.40959  14.0959
+   *   P27    5 + 6.40 = 11.40    80     0.93243  10.6297  (as run: 6.5643)
+   *   P26    5 + 2.04 =  7.04    40     0.25829   1.8184
+   *   P15    2 + 3.05 =  5.05    40     0.25829   1.3044
+   *   P16   40 + 6.40 = 46.40    17.902 0.05827   2.7038
+   *   P17   20 + 3.05 = 23.05    17.902 0.05827   1.3432
+   *   P20   20 + 3.05 = 23.05    17.902 0.05827   1.3432
+   *   friction 36.058 + static 10 (N21 at 10 m, source at 0) = 46.06 m
+   *
+   * With P27 back at 7.04 m the same table gives 41.992, the old figure. The
+   * whole step is 4.36 m x 0.93243 = 4.065 m on that one leg (+9.7%, as the
+   * audit measured in section 3.1). Selection: 46.058 x 1.10 = 50.66. */
+  near('...to the index duty at design flow', pump.pump.head, 46.06, 0.05);
   near('Selection duty applies the margin on top',
-       pump.pump.head * (1 + m.settings.pumpSafetyPct / 100), 46.19, 0.08);
+       pump.pump.head * (1 + m.settings.pumpSafetyPct / 100), 50.66, 0.08);
   ok('Every demand is met', !res.actual, res.actual ? JSON.stringify(res.actual.unmet) : 'met');
 
   // Re-solving must be stable, not creep upward each time
@@ -216,7 +253,12 @@ section('Restoring the source to L1 fixes everything');
             .every(n => res.pressure[n.id] >= -1));
 
   near('Pump carries the whole demand', Math.abs(res.flow[pump.id]), 0.1, 1e-9);
-  near('Pump sized to the index duty at design flow', pump.pump.head, 41.99, 0.05);
+  /* The same model and the same duty as the first section: 46.06 m, hand
+   * calculated there. It was 41.99 until 2026-10-10, when Michael decided the
+   * tee run rule: the stream that goes straight is the run, the stream that
+   * turns is the branch. The 80 L/s that turns up the riser at N0 is now
+   * charged as the branch. */
+  near('Pump sized to the index duty at design flow', pump.pump.head, 46.06, 0.05);
 
   m.nodes.filter(n => n.device && n.device.kind === 'demand').forEach(n => {
     ok(`${n.id} meets its requirement`,

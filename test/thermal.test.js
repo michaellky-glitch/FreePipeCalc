@@ -2623,8 +2623,8 @@ section('A fill on a dead leg absorbs nothing; one in the return line does');
    * equipment moving the most heat — the 60 kW coil, not the 40 kW chiller —
    * and the chiller then drops the water 40000/C below it, C = ρ·Q·cp. */
   {
-    const dead = circuit('deadleg', -40000).res;
-    const line2 = circuit('inline').res;
+    const deadT = circuit('deadleg', -40000), lineT = circuit('inline');
+    const dead = deadT.res, line2 = lineT.res;
     near('A dead-leg fill and an in-line one give the SAME shortfall',
          dead.thermal.sourceDuty, line2.thermal.sourceDuty, 1);
     near('...which is the 20 kW the chiller is short by',
@@ -2641,9 +2641,40 @@ section('A fill on a dead leg absorbs nothing; one in the return line does');
     const C = RHO * 0.004 * CP;
     near('The spread is the chiller cap over the capacity rate',
          dead.thermal.totals.max - dead.thermal.totals.min, 40000 / C, 0.02);
-    near('...and identical in the other drawing',
+    /* ...AND THE SAME IN THE OTHER DRAWING: the same LAW, which is not the
+     * same float (2026-10-10, owner decision on the tee run rule).
+     *
+     * This compared the two raw spreads to 1e-6 K. That assumed both drawings
+     * circulate the same flow to 4 parts in 10^7, and nothing makes them:
+     *  - the pump is 'auto', and the closed-circuit sizer stops as soon as the
+     *    coil is within 1e-4 of its rated 4 L/s, so each drawing settles at
+     *    its own point inside that band;
+     *  - the two drawings are not the same pipework at N4. The loop is drawn
+     *    folded onto one line, so the water arrives along P34 and leaves along
+     *    P40 in the opposite direction, a 180 degree turn. In-line, N4 is a
+     *    plain two-pipe bend: E90 on P40, Carrier 6.0 ft = 1.83 m of DN65.
+     *    Dead-leg, N4 is a TEE. Its fill leg is dry, so it is not part of the
+     *    fitting, and a stream that turns takes the turning coefficient:
+     *    TBRANCH_DIV on P40, Carrier 12 ft = 3.66 m. (The rule before charged
+     *    the U-turn as a straight run, TRUN_CONV on P34, 4.1 ft = 1.25 m. That
+     *    was not the in-line figure either; it landed 5.3e-7 K away by luck.)
+     *
+     * So each drawing is checked against the law at ITS OWN circulating flow
+     * q: spread = 40 000 / (RHO x q x CP). And the raw spreads are compared at
+     * the width of the sizer's band: each q is within 1e-4 of 0.004, so the
+     * two spreads are within 2e-4 x 40000/C = 2e-4 x 2.3931 = 4.79e-4 K of each
+     * other. A drawing that changed the physics (THERMAL_SINGULAR on one side,
+     * a surplus absorbed on the other) misses that by kelvins. */
+    const loopQ = t => Math.abs(t.res.flow[t.m.pipes.find(p => p.kind === 'pump').id]);
+    near('...the dead-leg drawing obeys it at its own flow',
+         dead.thermal.totals.max - dead.thermal.totals.min,
+         40000 / (RHO * loopQ(deadT) * CP), 1e-9);
+    near('...and so does the in-line drawing',
          line2.thermal.totals.max - line2.thermal.totals.min,
-         dead.thermal.totals.max - dead.thermal.totals.min, 1e-6);
+         40000 / (RHO * loopQ(lineT) * CP), 1e-9);
+    near('...and the two drawings agree within the pump sizer’s flow band',
+         line2.thermal.totals.max - line2.thermal.totals.min,
+         dead.thermal.totals.max - dead.thermal.totals.min, 2e-4 * 40000 / C);
     near('...with the balance still closing', dead.thermal.residual, 0, 1);
   }
 
@@ -4155,6 +4186,22 @@ section('A synced pump holds its leader\u2019s speed');
                  Math.max.apply(null, flows);
   ok('...so they share the flow', spread < 0.02,
      flows.map(q => (q * 1000).toFixed(3)).join(' / '));
+
+  /* AT ANY SETPOINT, NOT ONLY THE ONE ABOVE (v0.18.66). The search restores
+   * its best point without rebuilding, and only a build copies the leader onto
+   * its followers, so a follower could keep the speed of the last probe.
+   * Before the fix: 99 kPa gave 71.9 / 72.0 / 72.0% and 110 kPa gave
+   * 75.8 / 75.7 / 75.7%, and at 100 kPa the tee run rule's re-baseline exposed
+   * it as 73.6 / 73.5 / 73.5%. */
+  [99e3, 110e3].forEach(dp => {
+    sens.sensor.dpSet = dp;
+    NET.solveModel(m);
+    const sp = pumps.map(p => M.pumpSpeed(m, p));
+    ok(`At ${dp / 1000} kPa the followers hold the leader\u2019s speed`,
+       Math.max.apply(null, sp) - Math.min.apply(null, sp) < 1e-9,
+       sp.map(s => (s * 100).toFixed(1) + '%').join(' / '));
+  });
+  sens.sensor.dpSet = 100e3;
 
   /* A SYNC IS NOT A CONTROL — setting one clears the link, so the two can never
    * both be trying to write the same actuator. */

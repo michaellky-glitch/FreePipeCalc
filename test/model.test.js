@@ -267,34 +267,364 @@ section('Network — tee run/branch by flow direction (spec §3.3)');
 
 section('Network — the second pass actually changes the answer');
 {
-  /* Tee where the GEOMETRICALLY straight leg is NOT the one carrying the
-   * through-flow: the straight leg feeds a small demand, the "branch" feeds a
-   * large one. A single-pass solve would mislabel both legs. */
-  const m = M.create(), lv = m.levels[0].id;
-  const S = M.addNode(m, lv, -10, 0);
-  const T = M.addNode(m, lv, 0, 0);
-  const straight = M.addNode(m, lv, 10, 0);
-  const side = M.addNode(m, lv, 0, 10);
-  M.addPipe(m, S.id, T.id, { size: 'DN50' });
-  const pStraight = M.addPipe(m, T.id, straight.id, { size: 'DN50' });
-  const pSide = M.addPipe(m, T.id, side.id, { size: 'DN50' });
-  M.setSource(m, S.id);
-  M.setDemand(m, straight.id, 0.0005, 0);   // small
-  M.setDemand(m, side.id, 0.006, 0);        // large — this is the real run
+  /* THE RUN IS THE STREAM THAT GOES STRAIGHT; THE BRANCH IS THE ONE THAT TURNS.
+   * Michael, 2026-10-10, deciding audit v0.18.66 item 3.1: "flow going
+   * straight will be evaluated based on straight through, flow turning gets
+   * the turning coefficient."
+   *
+   * Until that decision this section pinned the OPPOSITE on this same rig. The
+   * run was then "largest inflow + largest outflow", so the north take-off,
+   * carrying 6.0 of the 6.5 L/s, was promoted to TRUN and the straight leg
+   * demoted to TBRANCH. That rule is superseded and these assertions pin its
+   * replacement; each pass-2 run/branch assertion below fails under the old
+   * rule.
+   *
+   * The rig: in from the west, a straight leg east to a SMALL demand and a
+   * 90-degree take-off north to a LARGE one. One source and a tree, so by
+   * continuity the tee sees 6.5 L/s in and 0.5 + 6.0 L/s out: one in, two
+   * out, so it is DIVIDING, both outlets are charged and the west leg is the
+   * common one.
+   *   east leg   0 degrees from the common leg (collinear) -> straight -> RUN
+   *   north leg 90 degrees from the common leg             -> turns    -> BRANCH
+   * How much water each carries does not enter into it: the north leg takes
+   * 6.0/6.5 = 92% and is still the branch. */
+  function rig(feedFromEast) {
+    const m = M.create(), lv = m.levels[0].id;
+    const west = M.addNode(m, lv, -10, 0);
+    const T = M.addNode(m, lv, 0, 0);
+    const straight = M.addNode(m, lv, 10, 0);
+    const side = M.addNode(m, lv, 0, 10);
+    const pWest = M.addPipe(m, west.id, T.id, { size: 'DN50' });
+    const pStraight = M.addPipe(m, T.id, straight.id, { size: 'DN50' });
+    const pSide = M.addPipe(m, T.id, side.id, { size: 'DN50' });
+    M.setSource(m, feedFromEast ? straight.id : west.id);
+    M.setDemand(m, feedFromEast ? west.id : straight.id, 0.0005, 0);  // small, straight on
+    M.setDemand(m, side.id, 0.006, 0);                                // large, turns
+    const pass1 = NET.fittingsByPipe(m, null, []);
+    const res = NET.solveModel(m);
+    const pass2 = NET.fittingsByPipe(m, res.flow, []);
+    return { pWest, pStraight, pSide, pass1, res, pass2 };
+  }
+  const { pStraight, pSide, pass1, res, pass2 } = rig(false);
 
-  const pass1 = NET.fittingsByPipe(m, null, []);
-  const res = NET.solveModel(m);
-  const pass2 = NET.fittingsByPipe(m, res.flow, []);
+  ok('Pass 1 charges no tee: it has no flows to read',
+     pass1[pStraight.id].types.length === 0 && pass1[pSide.id].types.length === 0,
+     JSON.stringify([pass1[pStraight.id].types, pass1[pSide.id].types]));
+  ok('Pass 2 (flow) keeps the straight leg the run, small as its flow is',
+     pass2[pStraight.id].types.includes('TRUN_DIV'), JSON.stringify(pass2[pStraight.id].types));
+  ok('...and the turning leg the branch, though it carries 92% of the water',
+     pass2[pSide.id].types.includes('TBRANCH_DIV'), JSON.stringify(pass2[pSide.id].types));
 
-  ok('Pass 1 (geometry) calls the straight leg the run',
-     pass1[pStraight.id].types.includes('TRUN'), JSON.stringify(pass1[pStraight.id].types));
-  ok('Pass 2 (flow) reassigns the run to the leg carrying through-flow',
-     pass2[pSide.id].types.includes('TRUN_DIV'), JSON.stringify(pass2[pSide.id].types));
-  ok('...and demotes the straight leg to branch',
-     pass2[pStraight.id].types.includes('TBRANCH_DIV'), JSON.stringify(pass2[pStraight.id].types));
-  ok('The two passes genuinely differ',
-     pass1[pSide.id].el !== pass2[pSide.id].el);
+  /* PASS 2 CHARGES THE TEE (pass 1 charges none since the audit of v0.18.66:
+   * without flows it cannot know which legs a tee charges). Under
+   * Hazen-Williams it charges the Carrier Table 11 figures (2 in: run 3.3 ft =
+   * 1.01 m, branch 10 ft = 3.05 m; the table does not split dividing from
+   * combining). The Darcy-Weisbach branch K also needs Qb/Qc. Idel'chik
+   * Diagram 7-25, row Fb/Fc = 1.00 (all three legs DN50):
+   *   Qb/Qc  = 6.0/6.5 = 12/13 = 0.9231, between columns 0.9 (2.06) and
+   *            1.0 (2.30), at t = (12/13 - 0.9)/0.1 = 3/13
+   *   zeta_c = 2.06 + 0.24 * 3/13 = 27.5/13 = 2.1154   (common-leg velocity)
+   *   K_leg  = zeta_c * (Qc/Qb)^2 * (Ab/Ac)^2 = 27.5/13 * (13/12)^2 * 1
+   *          = 357.5/144 = 2.4826                      (branch-leg velocity)
+   * The run stays flat: threaded tee-line, 0.90 at 2 in. */
+  near('Pass 1 charges the branch nothing', pass1[pSide.id].sumK, 0, 1e-12);
+  near('Pass 2 charges it the Idel’chik flow-ratio K, 357.5/144',
+       pass2[pSide.id].sumK, 357.5 / 144, 1e-9);
+  near('The run keeps the flat threaded tee-line K in pass 2',
+       pass2[pStraight.id].sumK, 0.90, 1e-12);
+  near('Under Hazen-Williams the branch is 3.05 m in pass 2',
+       pass2[pSide.id].el, 3.05, 1e-12);
   ok('Solve reports more than one pass', res.passes >= 2, 'passes=' + res.passes);
+
+  /* THE DIRECTION COMES FROM THE FLOWS ALONE. Same pipes, same demands, fed
+   * from the EAST end. Until v0.18.66 pass 1 read the drawing (a pipe drawn
+   * away from the node was taken as leaving it) and charged what it charged
+   * above; now it charges nothing either way. The water comes IN by the east
+   * leg (the common leg, charged nothing) and leaves west, 0 degrees from it
+   * (RUN), and north, 90 degrees (BRANCH). */
+  const e = rig(true);
+  ok('Fed from the east, pass 1 again charges no tee',
+     [e.pWest, e.pStraight, e.pSide].every(p => e.pass1[p.id].types.length === 0),
+     JSON.stringify([e.pWest, e.pStraight, e.pSide].map(p => e.pass1[p.id].types)));
+  ok('Pass 2 moves the run to the west leg, which the water leaves straight on',
+     e.pass2[e.pWest.id].types.includes('TRUN_DIV'), JSON.stringify(e.pass2[e.pWest.id].types));
+  ok('...charges the east leg nothing, the water entering by it',
+     e.pass2[e.pStraight.id].types.length === 0, JSON.stringify(e.pass2[e.pStraight.id].types));
+  ok('...and keeps the north take-off the branch',
+     e.pass2[e.pSide.id].types.includes('TBRANCH_DIV'), JSON.stringify(e.pass2[e.pSide.id].types));
+  near('So the 1.01 m run figure moves: west leg 0 m in pass 1...',
+       e.pass1[e.pWest.id].el, 0, 1e-12);
+  near('...1.01 m in pass 2', e.pass2[e.pWest.id].el, 1.01, 1e-12);
+  near('...and the 3.05 m branch figure appears on the north leg in pass 2 only',
+       e.pass2[e.pSide.id].el - e.pass1[e.pSide.id].el, 3.05, 1e-12);
+}
+
+section('Network — the tee rule settles on the model, not on the drawing (audit v0.18.66)');
+{
+  /* THE FIRST PASS CHARGES NO TEE. It has no flows, and it used to guess
+   * them from the drawing (a pipe drawn away from the node was an outlet). On
+   * a looped manifold there can be two self-consistent answers, and that
+   * guess chose between them.
+   *
+   * The rig is an exactly mirror-symmetric double header, modelled on the
+   * Data Hall yard: two DN200 headers 2.5 m apart, cross-connected at both
+   * ends, four DN100 inlets from 200 kPa sources and a 30 L/s demand off each
+   * header. By symmetry the cross-connectors carry nothing and each header
+   * carries 30 L/s, however the pipes were drawn. Before the fix, drawing
+   * every pipe the other way split the headers 19 / 41 L/s under
+   * Darcy-Weisbach (stability review, manifold.js). */
+  function header(meth, flip, reverse) {
+    const m = M.create(); m.settings.frictionMethod = meth;
+    const lv = m.levels[0].id, N = (x, y) => M.addNode(m, lv, x, y), h = 1.25;
+    const A1 = N(-15, -h), A2 = N(-5, -h), A3 = N(0, -h);
+    const B1 = N(-15, h), B2 = N(-5, h), B3 = N(0, h);
+    const DA = N(0, -10), DB = N(0, 10);
+    const S = [N(-15, -6), N(-5, -6), N(-15, 6), N(-5, 6)];
+    S.forEach(s => M.setSource(m, s.id, 200000));
+    M.setDemand(m, DA.id, 0.030, 0); M.setDemand(m, DB.id, 0.030, 0);
+    const list = [[A1, A2, 'DN200', 'hA1'], [A2, A3, 'DN200', 'hA2'],
+                  [B1, B2, 'DN200', 'hB1'], [B2, B3, 'DN200', 'hB2'],
+                  [A1, B1, 'DN200', 'Xw'], [A3, B3, 'DN200', 'Xe'],
+                  [A3, DA, 'DN200', 'oA'], [B3, DB, 'DN200', 'oB'],
+                  [S[0], A1, 'DN100', 'i1'], [S[1], A2, 'DN100', 'i2'],
+                  [S[2], B1, 'DN100', 'i3'], [S[3], B2, 'DN100', 'i4']];
+    if (reverse) list.reverse();
+    const by = {};
+    list.forEach(([a, b, size, tag]) => {
+      by[tag] = flip ? M.addPipe(m, b.id, a.id, { size }) : M.addPipe(m, a.id, b.id, { size });
+    });
+    const res = NET.solveModel(m);
+    return { res, q: tag => res.flow[by[tag].id] * (flip ? -1 : 1) };
+  }
+  ['HW', 'DW'].forEach(meth => {
+    const drawn = header(meth, false, false);
+    const variants = { 'every pipe drawn the other way': header(meth, true, false),
+                       'pipes drawn in reverse order': header(meth, false, true) };
+    near(meth + ': the west cross-connector carries nothing', drawn.q('Xw'), 0, 1e-9);
+    near(meth + ': ...nor the east one', drawn.q('Xe'), 0, 1e-9);
+    near(meth + ': each header carries its own 30 L/s', drawn.q('hA2'), drawn.q('hB2'), 1e-9);
+    ok(meth + ': no FITTING_OSCILLATION',
+       !(drawn.res.warnings || []).some(w => w.code === 'FITTING_OSCILLATION'));
+    Object.keys(variants).forEach(name => {
+      const v = variants[name];
+      const worst = Math.max(...['Xw', 'Xe', 'hA1', 'hA2', 'hB1', 'hB2', 'i1', 'i2', 'i3', 'i4']
+        .map(t => Math.abs(v.q(t) - drawn.q(t))));
+      near(meth + ': ' + name + ' gives the same flows', worst, 0, 1e-9);
+    });
+  });
+
+  /* A CORNER FED FROM BOTH SIDES HAS NO ELBOW. A diamond ring: a bullhead
+   * supply at the bottom, the two halves meeting at a 90-degree corner at the
+   * top, which carries the 20 L/s demand. Both pipes flow INTO the corner, so
+   * no stream turns from one pipe into the other. The elbow used to fall on
+   * whichever pipe was drawn later, and the two equal halves split
+   * 10.21 / 9.79 L/s by drawing order. By symmetry each half carries 10. */
+  function diamond(leftFirst) {
+    const m = M.create(), lv = m.levels[0].id, N = (x, y) => M.addNode(m, lv, x, y);
+    const S = N(0, -15), T = N(0, 0), Lf = N(-10, 10), R = N(10, 10), J = N(0, 20);
+    M.setSource(m, S.id, 300000); M.setDemand(m, J.id, 0.02, 0);
+    const P = (a, b) => M.addPipe(m, a.id, b.id, { size: 'DN100' });
+    P(S, T);
+    let left, right;
+    if (leftFirst) { left = [P(T, Lf), P(Lf, J)]; right = [P(T, R), P(R, J)]; }
+    else { right = [P(T, R), P(R, J)]; left = [P(T, Lf), P(Lf, J)]; }
+    const res = NET.solveModel(m);
+    const fitsJ = NET.fittingsAtNode(m, J.id, res.flow, []);
+    return { left: res.flow[left[0].id], right: res.flow[right[0].id], fitsJ };
+  }
+  [true, false].forEach(leftFirst => {
+    const d = diamond(leftFirst), label = leftFirst ? 'left half drawn first' : 'right half drawn first';
+    near('Diamond, ' + label + ': the halves carry 10 L/s each', d.left, 0.010, 1e-9);
+    near('...and the same as each other', d.left, d.right, 1e-12);
+    ok('...with no elbow charged at the corner both halves flow into',
+       d.fitsJ.length === 0, JSON.stringify(d.fitsJ));
+  });
+  {
+    /* The ordinary corner keeps its elbow, on the pipe the water leaves by. */
+    const m = M.create(), lv = m.levels[0].id;
+    const a = M.addNode(m, lv, 0, 0), c = M.addNode(m, lv, 10, 0), b = M.addNode(m, lv, 10, 10);
+    const pIn = M.addPipe(m, a.id, c.id, { size: 'DN50' });
+    const pOut = M.addPipe(m, b.id, c.id, { size: 'DN50' });   // drawn towards the corner
+    const flows = { [pIn.id]: 0.002, [pOut.id]: -0.002 };      // a -> c -> b
+    const f = NET.fittingsAtNode(m, c.id, flows, []);
+    ok('A corner the water passes through charges one E90 to the outlet',
+       f.length === 1 && f[0].type === 'E90' && f[0].pipe === pOut.id, JSON.stringify(f));
+  }
+}
+
+section('Network — tee rule edge cases: cross, zero length, narrow Y (audit v0.18.66)');
+{
+  /* A cross with set flows. Legs leave the centre node C: W, E, N, S. */
+  function cross(qW, qE, qN, qS) {
+    const m = M.create(), lv = m.levels[0].id;
+    const C = M.addNode(m, lv, 0, 0);
+    const leg = (x, y) => M.addPipe(m, C.id, M.addNode(m, lv, x, y).id, { size: 'DN50' });
+    const W = leg(-10, 0), E = leg(10, 0), Nn = leg(0, 10), S = leg(0, -10);
+    const flows = { [W.id]: qW, [E.id]: qE, [Nn.id]: qN, [S.id]: qS };  // + leaves C
+    const ty = {};
+    NET.fittingsAtNode(m, C.id, flows, []).forEach(f => { ty[f.pipe] = f.type; });
+    return { W: ty[W.id], E: ty[E.id], N: ty[Nn.id], S: ty[S.id] };
+  }
+  /* Two inlets, W 9 L/s and N 1 L/s; two outlets, E 1 L/s (in line with W)
+   * and S 9 L/s (in line with N). N can supply at most 1 of S's 9 L/s, so at
+   * least 8 L/s turns out of W into S: S is a BRANCH, though N is in line with
+   * it. W can supply all of E's 1 L/s straight on: E is the RUN. */
+  const c1 = cross(-0.009, 0.001, -0.001, 0.009);
+  ok('Cross: the outlet its in-line inlet can supply is the run', c1.E === 'TRUN_DIV', JSON.stringify(c1));
+  ok('...and the outlet most of whose water turns is the branch', c1.S === 'TBRANCH_DIV', JSON.stringify(c1));
+  ok('...inlets are not charged in a dividing fitting', !c1.W && !c1.N, JSON.stringify(c1));
+  /* Equal streams, W 5 -> E 5 and N 5 -> S 5: both can go straight on. */
+  const c2 = cross(-0.005, 0.005, -0.005, 0.005);
+  ok('Cross with equal crossing streams: both outlets are runs',
+     c2.E === 'TRUN_DIV' && c2.S === 'TRUN_DIV', JSON.stringify(c2));
+  /* Inlets facing each other, W and E in, N and S out: nothing goes straight. */
+  const c3 = cross(-0.005, -0.005, 0.005, 0.005);
+  ok('Cross with facing inlets: both outlets are branches',
+     c3.N === 'TBRANCH_DIV' && c3.S === 'TBRANCH_DIV', JSON.stringify(c3));
+
+  /* A ZERO-LENGTH LEG HAS NO DIRECTION, SO NOTHING IS STRAIGHT ON FROM IT.
+   * The inlet is a zero-length stub; the outlets W and N are at 90 degrees to
+   * each other. `deviation` reads a null vector as 0 degrees, which made both
+   * outlets "in line" with the stub and both TRUN_DIV. */
+  {
+    const m = M.create(), lv = m.levels[0].id;
+    const T = M.addNode(m, lv, 0, 0), Z = M.addNode(m, lv, 0, 0);
+    const pZ = M.addPipe(m, Z.id, T.id, { size: 'DN50' });
+    const pW = M.addPipe(m, T.id, M.addNode(m, lv, -10, 0).id, { size: 'DN50' });
+    const pN = M.addPipe(m, T.id, M.addNode(m, lv, 0, 10).id, { size: 'DN50' });
+    const ty = {};
+    NET.fittingsAtNode(m, T.id, { [pZ.id]: 0.003, [pW.id]: 0.002, [pN.id]: 0.001 }, [])
+      .forEach(f => { ty[f.pipe] = f.type; });
+    ok('Zero-length inlet: neither outlet is a run',
+       ty[pW.id] === 'TBRANCH_DIV' && ty[pN.id] === 'TBRANCH_DIV', JSON.stringify(ty));
+  }
+
+  /* A VERY NARROW Y HAS ONE RUN. In from the west; outlets 2 degrees and 7
+   * degrees off straight east, both inside the 8-degree cone. They differ by
+   * 5 degrees, more than SYMMETRY_DEG (2), so the 2-degree leg is the run and
+   * the 7-degree leg the branch. Before the fix both were runs. */
+  {
+    const m = M.create(), lv = m.levels[0].id;
+    const T = M.addNode(m, lv, 0, 0);
+    const rad = d => d * Math.PI / 180;
+    const pIn = M.addPipe(m, M.addNode(m, lv, -10, 0).id, T.id, { size: 'DN50' });
+    const p2 = M.addPipe(m, T.id, M.addNode(m, lv, 10 * Math.cos(rad(2)), 10 * Math.sin(rad(2))).id, { size: 'DN50' });
+    const p7 = M.addPipe(m, T.id, M.addNode(m, lv, 10 * Math.cos(rad(7)), -10 * Math.sin(rad(7))).id, { size: 'DN50' });
+    const ty = {};
+    NET.fittingsAtNode(m, T.id, { [pIn.id]: 0.003, [p2.id]: 0.0018, [p7.id]: 0.0012 }, [])
+      .forEach(f => { ty[f.pipe] = f.type; });
+    ok('Narrow Y: the straighter leg is the run', ty[p2.id] === 'TRUN_DIV', JSON.stringify(ty));
+    ok('...and the other the branch', ty[p7.id] === 'TBRANCH_DIV', JSON.stringify(ty));
+  }
+}
+
+section('Network — flow-ratio tee K outside Idel’chik’s table (audit v0.18.66)');
+{
+  /* Diagrams 7-25 / 7-16 cover 0.09 <= Fb/Fc <= 1.0. Outside that range the
+   * coefficient is held at the table's edge in the frame of the SMALLER,
+   * faster leg. Dividing tees, Darcy-Weisbach, set flows. */
+  function tee(main, side, qIn, qSide) {
+    const m = M.create(); m.settings.frictionMethod = 'DW';
+    const lv = m.levels[0].id, T = M.addNode(m, lv, 0, 0);
+    const pW = M.addPipe(m, M.addNode(m, lv, -10, 0).id, T.id, { size: main });
+    const pE = M.addPipe(m, T.id, M.addNode(m, lv, 10, 0).id, { size: main });
+    const pN = M.addPipe(m, T.id, M.addNode(m, lv, 0, 10).id, { size: side });
+    const fits = NET.fittingsByPipe(m, { [pW.id]: qIn, [pE.id]: qIn - qSide, [pN.id]: qSide }, []);
+    const ar = Math.pow(M.pipeBore(m, pN) / M.pipeBore(m, pW), 2);
+    return { fits, pN, ar };
+  }
+  /* BELOW THE TABLE the branch is the smaller leg. DN15 off DN100, 0.5 of
+   * 10 L/s: Fb/Fc = (15.8/102.3)^2 = 0.024 and Qb/Qc = 0.05, both below the
+   * table, so both are held at its edge (0.09 and 0.1):
+   *   zeta_c = 2.80 (Diagram 7-25, row 0.09, column 0.1)
+   *   K_leg  = 2.80 x (0.09 / 0.1)^2 = 2.268
+   * Converting with the true ratio gave 2.80 x (0.024 / 0.1)^2 = 0.16. */
+  const small = tee('DN100', 'DN15', 0.010, 0.0005);
+  ok('DN15 off DN100 is below the table', small.ar < 0.09, String(small.ar));
+  near('...so the branch K is held at the table edge in its own frame, 2.268',
+       small.fits[small.pN.id].sumK, 2.80 * 0.81, 1e-12);
+  /* ABOVE THE TABLE the common leg is the smaller one. DN100 off DN25, 1 of
+   * 2 L/s: Fb/Fc = (102.3/26.6)^2 = 14.8, held at row 1.0 in the COMMON
+   * frame, zeta_c = 1.40 at Qb/Qc = 0.5. The loss is 1.40 velocity heads of
+   * the fast DN25 leg, whatever the large branch's own velocity. */
+  const big = tee('DN25', 'DN100', 0.002, 0.001);
+  ok('DN100 off DN25 is above the table', big.ar > 1, String(big.ar));
+  near('...so zeta_c is held at row 1.0, 1.40 at Qb/Qc = 0.5',
+       FD.tees.branchK(0.5, big.ar, true), 1.40, 1e-12);
+  near('...and the branch K is 1.40 common-leg velocity heads in its own frame',
+       big.fits[big.pN.id].sumK, 1.40 * Math.pow(big.ar / 0.5, 2), 1e-9);
+  /* INSIDE THE TABLE nothing is held. DN50 off DN100 sch 40:
+   * Fb/Fc = (52.5/102.3)^2 = 0.2634, at Qb/Qc = 0.5. */
+  const mid = tee('DN100', 'DN50', 0.010, 0.005);
+  ok('DN50 off DN100 is inside the table', mid.ar >= 0.09 && mid.ar <= 1, String(mid.ar));
+  near('...and gets the Idel’chik K converted with the true ratio',
+       mid.fits[mid.pN.id].sumK, FD.tees.branchK(0.5, mid.ar, true) * Math.pow(mid.ar / 0.5, 2), 1e-9);
+}
+
+section('Network — the pass loop settles, and says so when it does not (audit v0.18.66)');
+{
+  /* A DRY LEG CHANGES STATE ONLY PAST A MARGIN. A DN15 take-off whose demand
+   * is exactly Q_MIN, on a looped network. The solver reports every flow below
+   * Q_MIN as 0, so with one cut-off at Q_MIN the leg was wet (charged a
+   * branch), then solved a hair under Q_MIN and reported 0, then dry
+   * (uncharged), then a hair over, wet again: a 2-cycle and
+   * FITTING_OSCILLATION. Now a wet pipe goes dry below Q_MIN / 2 and a dry
+   * one goes wet at 2 Q_MIN. */
+  const m = M.create();
+  const lv = m.levels[0].id, N = (x, y) => M.addNode(m, lv, x, y);
+  const S = N(0, -20), T = N(0, 0), A = N(-10, 0), B = N(-10, 20), C = N(10, 0),
+        D = N(10, 20), J = N(0, 20), K = N(0, 35), X = N(-10, 10), Xd = N(-18, 10);
+  M.setSource(m, S.id, 300000);
+  M.setDemand(m, K.id, 0.010, 0);
+  M.setDemand(m, Xd.id, FD.hydraulics.Q_MIN, 0);
+  const P = (a, b, s) => M.addPipe(m, a.id, b.id, { size: s });
+  P(S, T, 'DN150'); P(T, A, 'DN100'); P(A, X, 'DN100'); P(X, B, 'DN100'); P(B, J, 'DN100');
+  P(T, C, 'DN100'); P(C, D, 'DN80'); P(D, J, 'DN100'); P(J, K, 'DN150'); P(X, Xd, 'DN15');
+  const res = NET.solveModel(m);
+  ok('A take-off at exactly Q_MIN does not make the passes oscillate',
+     !(res.warnings || []).some(w => w.code === 'FITTING_OSCILLATION'),
+     JSON.stringify((res.warnings || []).map(w => w.code)));
+  ok('...and the loop settles in under 5 passes', res.passes < 5, 'passes=' + res.passes);
+}
+{
+  /* UNDER A K METHOD THE FLOWS MUST SETTLE, NOT ONLY THE FITTING TYPES. The
+   * Data Hall yard under Darcy-Weisbach: the types repeat from pass 3, but the
+   * flow-ratio K keeps moving the flows, and the loop used to stop there with
+   * cross-connector P280 30% short of its settled value. The check is
+   * self-consistency: one more pass from the reported flows must not move any
+   * flow by more than 0.1% of the largest (FLOW_SETTLED_REL), with a factor 2
+   * for the sizing and balancing solves that follow the loop. */
+  const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/datahall-yard.pnet.json'), 'utf8'));
+  const m = pinFluid(M.fromJSON(raw));
+  m.settings.calcMode = 'design';
+  m.settings.frictionMethod = 'DW';
+  const res = NET.solveModel(m);
+  ok('Data Hall, Darcy-Weisbach: the pass loop settles',
+     !(res.warnings || []).some(w => w.code === 'FITTING_OSCILLATION'), 'passes=' + res.passes);
+  const again = FD.solver.solve(NET.build(m, res));
+  let dq = 0, qmax = 0;
+  Object.keys(again.flow).forEach(k => {
+    qmax = Math.max(qmax, Math.abs(again.flow[k]));
+    dq = Math.max(dq, Math.abs(again.flow[k] - (res.flow[k] || 0)));
+  });
+  ok('...one more pass moves no flow by more than 0.2% of the largest',
+     dq <= 2e-3 * qmax, 'dq/qmax=' + (dq / qmax).toExponential(2));
+}
+{
+  /* FITTING_OSCILLATION REACHES THE CALLER ON A MODEL WITH AN AUTO PUMP.
+   * solveCore replaces its result after auto-sizing, and the warning used to
+   * go with the replaced one. Two passes cannot show a repeat, so the loop is
+   * not settled and the warning must appear. */
+  const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/datacentre-ring.pnet.json'), 'utf8'));
+  const m = pinFluid(M.fromJSON(raw));
+  m.settings.calcMode = 'design';
+  m.settings.frictionMethod = 'HW';
+  ok('datacentre-ring has an auto-sized pump',
+     m.pipes.some(p => p.kind === 'pump' && p.pump && p.pump.mode === 'auto'));
+  const res = NET.solveModel(m, 2);
+  ok('...and a 2-pass solve of it reports FITTING_OSCILLATION',
+     (res.warnings || []).some(w => w.code === 'FITTING_OSCILLATION'),
+     JSON.stringify((res.warnings || []).map(w => w.code)));
 }
 
 section('Network — cross (4 pipes) is handled without warning');
@@ -306,16 +636,21 @@ section('Network — cross (4 pipes) is handled without warning');
    * FITTED — silently charging nothing there would be a real error. */
   const m = M.create(), lv = m.levels[0].id;
   const c = M.addNode(m, lv, 0, 0);
+  const legs = [];
   [[10, 0], [-10, 0], [0, 10], [0, -10]].forEach(([x, y]) => {
     const n = M.addNode(m, lv, x, y);
-    M.addPipe(m, c.id, n.id, {});
+    legs.push(M.addPipe(m, c.id, n.id, {}));
   });
+  /* One inlet (west) and three outlets, set by hand: the tee rule reads flows
+   * (the first pass, which has none, charges no tee). */
+  const flows = { [legs[0].id]: 0.001, [legs[1].id]: -0.003,
+                  [legs[2].id]: 0.001, [legs[3].id]: 0.001 };
   const warnings = [];
-  const fits = NET.fittingsAtNode(m, c.id, null, warnings);
+  const fits = NET.fittingsAtNode(m, c.id, flows, warnings);
   ok('4 pipes at a node raises no CROSS warning',
      !warnings.some(w => w.code === 'CROSS'), JSON.stringify(warnings));
-  ok('...and still assigns tee fittings there',
-     fits.length > 0 && fits.every(f => /^T/.test(f.type)),
+  ok('...and still assigns tee fittings there, one to each outlet',
+     fits.length === 3 && fits.every(f => /^T/.test(f.type)),
      JSON.stringify(fits));
 }
 

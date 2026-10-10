@@ -43,16 +43,24 @@
   // -------------------------------------------------------------- fittings
   /* Work out which fittings sit at `nodeId` and which pipe each is charged to.
    *
-   * `flows` (optional) is the flow map from a previous solve. Without it the
-   * assignment is a geometric guess; with it, run/branch and downstream are
-   * resolved properly.
+   * `flows` (optional) is the flow map from a previous solve. Without it only
+   * the elbows are placed (a geometric guess at the downstream pipe) and no
+   * tee; with it, run/branch and downstream are resolved properly.
+   *
+   * `dry` (optional) is the map of pipes `dryPipes` called dry for this pass.
+   * Without it a pipe is dry below Q_MIN.
    *
    * Returns [{ pipe, type }].
    */
-  function fittingsAtNode(m, nodeId, flows, warnings) {
+  function fittingsAtNode(m, nodeId, flows, warnings, dry) {
     var pipes = M.pipesAt(m, nodeId);
     var out = [];
     if (pipes.length < 2) return out;          // dead end / terminal: no fitting
+
+    function isDry(p) {
+      if (dry) return !!dry[p.id];
+      return Math.abs((flows && flows[p.id]) || 0) < FD.hydraulics.Q_MIN;
+    }
 
     /* Is this pipe carrying flow AWAY from the node? That makes it the
      * downstream pipe, which is what the fitting is charged to (spec §3.3). */
@@ -67,8 +75,20 @@
       var dev = deviation(dirFrom(m, pipes[0], nodeId), dirFrom(m, pipes[1], nodeId));
       var type = FD.fittings.elbowForAngle(dev);
       if (!type) return out;                   // collinear — pipes just merge
-      var down = pipes.find(isDownstream) || pipes[1];
-      out.push({ pipe: down.id, type: type });
+      if (!flows) {
+        out.push({ pipe: (pipes.find(isDownstream) || pipes[1]).id, type: type });
+        return out;
+      }
+      /* AN ELBOW IS CHARGED ONLY WHERE ONE PIPE FEEDS THE OTHER. Where both
+       * pipes flow in (a demand at the corner, fed from both sides), both flow
+       * out (a source there), or one is dry, no stream turns from one pipe
+       * into the other, so there is no elbow loss to charge. Until v0.18.66
+       * the elbow then fell to `pipes[1]` — whichever pipe was drawn later —
+       * and a mirror-symmetric ring split 10.21 / 9.79 L/s by drawing order
+       * (audit v0.18.66, stability review). */
+      var wetOut = pipes.filter(function (p) { return !isDry(p) && isDownstream(p); });
+      var wetIn = pipes.filter(function (p) { return !isDry(p) && !isDownstream(p); });
+      if (wetOut.length === 1 && wetIn.length === 1) out.push({ pipe: wetOut[0].id, type: type });
       return out;
     }
 
@@ -81,8 +101,6 @@
      * something the engineer must act on. The warning fired on every such node
      * and buried the warnings that do need attention. The handling below is
      * unchanged; only the noise is gone. */
-    var runPair = pickRunPair(m, nodeId, pipes, flows);
-
     /* Dividing and combining tees are different fittings, and which one this is
      * depends on the flow, so it is only knowable on the second pass.
      *
@@ -97,22 +115,29 @@
      *   charged nothing at all. Combining tees were systematically
      *   under-resistanced.
      *
-     * Without a previous pass there are no flow directions, so it falls back to
-     * the old geometric guess and the undifferentiated coefficients. */
-    if (!flows) {
-      var down0 = pipes.filter(isDownstream);
-      var up0 = pipes.filter(function (p) { return !isDownstream(p); });
-      var bull0 = isSymmetricSplit(m, nodeId, down0,
-                                   up0.length === 1 ? up0[0] : null);
-      down0.forEach(function (p) {
-        var isRun0 = !bull0 && (p.id === runPair[0] || p.id === runPair[1]);
-        out.push({ pipe: p.id, type: isRun0 ? 'TRUN' : 'TBRANCH' });
-      });
-      return out;
-    }
+     * THE FIRST PASS CHARGES NO TEE (audit v0.18.66, stability review). It has
+     * no flows, so it cannot know which legs a tee charges or which stream
+     * goes straight. It used to guess from the drawing: a pipe drawn away from
+     * the node was an outlet. On a looped manifold there can be two
+     * self-consistent answers, and that guess chose between them. On the Data
+     * Hall yard, swapping the ends of every pipe moved cross-connector P280
+     * from +6.9 to -6.8 L/s and the index coil from AHU-12 to AHU-10, and an
+     * exactly mirror-symmetric double header split 19 / 41 L/s instead of
+     * 30 / 30. With no tees on the first pass the start point is the same
+     * however the pipes were drawn, and symmetric networks come out exactly
+     * symmetric. The second pass charges every tee from real flows. */
+    if (!flows) return out;
 
+    /* A DRY LEG IS NOT PART OF THE FITTING (Michael, 2026-10-10, with the run
+     * decision below). The fill connection on a closed circuit is the usual
+     * case: it carries nothing, and it used to count as an INLET, so the tee
+     * was read as combining and the dry pipe was charged a branch fitting —
+     * zero loss, but on the sheet as "T-br-c" against 0.00 L/s. Leaving it out
+     * makes the tee what the water sees: a straight run through the body, or a
+     * turn through the branch. Below Q_MIN the solver itself reports zero. */
     var ins = [], outs = [];
     pipes.forEach(function (p) {
+      if (isDry(p)) return;
       (isDownstream(p) ? outs : ins).push(p);
     });
 
@@ -128,6 +153,75 @@
     var common = (dividing ? ins : outs);
     var bull = isSymmetricSplit(m, nodeId, charged,
                                 common.length === 1 ? common[0] : null);
+
+    /* ====================== A STREAM THAT GOES STRAIGHT IS THE RUN; ONE THAT
+     * ====================== TURNS IS THE BRANCH
+     *
+     * Michael, 2026-10-10, deciding the v0.18.66 audit item 3.1: "this would
+     * be flow direction based. So flow going straight will be evaluated based
+     * on straight through, flow turning gets the turning coefficient."
+     *
+     * The FLOW decides which side is common and which legs are charged —
+     * dividing or combining, exactly as before. GEOMETRY then decides how each
+     * charged stream passes the fitting: straight on from a leg on the common
+     * side, or turned. That is how ASHRAE, Crane and Idel'chik define the run
+     * and the branch, and it is what the flow-ratio curve of section 4.4 is
+     * measured on: a side branch off a through run.
+     *
+     * IT REPLACES "largest inflow paired with largest outflow" (`pickRunPair`
+     * with flows). That rule gave the run coefficient to whichever leg carried
+     * the most water, so where a side branch took more than the straight leg,
+     * the turning stream was charged as straight and the straight stream as
+     * turned. On the data hall the two rules disagreed at 30 of 51 tees; on the
+     * 3-floor riser the corrected rule moves the auto-sized pump +9.7% under
+     * Hazen-Williams and +22% under Darcy-Weisbach (audit, section 3.1).
+     *
+     * "STRAIGHT" IS THE PROGRAM'S ONE DEFINITION OF IT: the deviation at which
+     * `elbowForAngle` would charge no elbow (under 8°). A run drawn with a
+     * kink the elbow rule would charge is a turn here too, and the turn is
+     * priced as a tee branch, not as an elbow.
+     *
+     * A LEG WITH NO DIRECTION (zero length) IS NEVER STRAIGHT. `deviation`
+     * reads a null vector as 0°, which would make a zero-length stub "in line"
+     * with every leg; branch is the conservative charge. ZERO_LENGTH warns.
+     *
+     * A CROSS CAN HAVE TWO LEGS ON THE COMMON SIDE. A charged leg is then the
+     * run only if the leg or legs in line with it can supply its flow (within
+     * CROSS_SUPPLY_REL). Two inlets W (4.36 L/s) and N (1.14) into outlets E
+     * (0.50, in line with W) and S (5.00, in line with N): at least 3.86 L/s
+     * of S turns out of W, so S is a branch, not a run because N is in line.
+     * At a plain tee there is one common leg, which carries all the water, so
+     * the test is geometry alone.
+     *
+     * ONE COMMON LEG HAS ONE STRAIGHT CONTINUATION. If two charged legs both
+     * fall inside the 8° cone of the same common leg (a very narrow Y), only
+     * the straighter is the run, and neither if they are within SYMMETRY_DEG
+     * of each other. No real three-way fitting has two runs. `bull` catches
+     * the symmetric case of this and every other symmetric split.
+     *
+     * WHAT THE RULE READS: flow directions, the dry-leg cut-off (`dryPipes`)
+     * and angles, plus the supply test at a cross. It does not rank flows, so
+     * two legs that carry nearly the same water cannot swap run and branch
+     * between passes as they could under the old rule (which is why
+     * `pickRunPair` broke near-ties on geometry). Flow DIRECTIONS can still
+     * change between passes in a loop; FITTING_OSCILLATION reports a pass
+     * loop that does not settle. */
+    function inLineWith(p) {
+      var dp = dirFrom(m, p, nodeId);
+      if (!dp) return [];
+      return common.filter(function (c) {
+        if (c.id === p.id) return false;
+        var dc = dirFrom(m, c, nodeId);
+        return !!dc && !FD.fittings.elbowForAngle(deviation(dp, dc));
+      });
+    }
+    function goesStraight(p) {
+      var line = inLineWith(p);
+      if (!line.length) return false;
+      if (common.length === 1) return true;
+      var qLine = line.reduce(function (a, c) { return a + qOf(c); }, 0);
+      return qLine >= qOf(p) * (1 - CROSS_SUPPLY_REL);
+    }
 
     /* WHAT THE FLOW-RATIO COEFFICIENT NEEDS (TEE.1).
      *
@@ -153,8 +247,29 @@
     var qCommon = commonPipe ? qOf(commonPipe) : 0;
     var aCommon = commonPipe ? areaOf(commonPipe) : 0;
 
+    /* Each common leg keeps at most one straight continuation: the charged
+     * leg with the smallest deviation from it, and none on a near-tie. */
+    var runs = {};
+    if (!bull) {
+      var claims = {};
+      charged.forEach(function (p) {
+        if (!goesStraight(p)) return;
+        var dp = dirFrom(m, p, nodeId), best = null;
+        inLineWith(p).forEach(function (c) {
+          var dev = deviation(dp, dirFrom(m, c, nodeId));
+          if (!best || dev < best.dev) best = { c: c.id, dev: dev };
+        });
+        (claims[best.c] = claims[best.c] || []).push({ p: p.id, dev: best.dev });
+      });
+      Object.keys(claims).forEach(function (cid) {
+        var list = claims[cid].sort(function (a, b) { return a.dev - b.dev; });
+        if (list.length > 1 && list[1].dev - list[0].dev < SYMMETRY_DEG) return;
+        runs[list[0].p] = true;
+      });
+    }
+
     charged.forEach(function (p) {
-      var isRun = !bull && (p.id === runPair[0] || p.id === runPair[1]);
+      var isRun = !!runs[p.id];
       var rec = {
         pipe: p.id,
         type: dividing ? (isRun ? 'TRUN_DIV' : 'TBRANCH_DIV')
@@ -180,6 +295,10 @@
 
   /* Two deviations count as equal within this many degrees. */
   var SYMMETRY_DEG = 2;
+
+  /* At a cross, the in-line legs must supply the charged leg's flow to within
+   * this fraction for the leg to be the run (see `goesStraight`). */
+  var CROSS_SUPPLY_REL = 0.02;
 
   /* A BULLHEAD tee: the two charged legs are collinear WITH EACH OTHER, so the
    * straight run of the fitting is between THEM and the common leg joins it at
@@ -224,12 +343,15 @@
     return Math.abs(deviation(dc, d0) - deviation(dc, d1)) < SYMMETRY_DEG;
   }
 
-  /* Which two legs form the straight run?
+  /* Which two legs form the straight run — the GEOMETRIC guess.
    *
-   * Before solving: the straightest pair geometrically.
-   * After solving: the pair actually carrying the through-flow — the largest
-   * inflow paired with the largest outflow (spec §3.3). This is why the solve
-   * has to run twice.
+   * `fittingsAtNode` calls this only for the first pass, with no flows: the
+   * straightest pair is the run. Once flows exist it reads the run stream by
+   * stream instead (`goesStraight`, owner decision 2026-10-10).
+   *
+   * The `flows` branch below is the superseded rule — the largest inflow paired
+   * with the largest outflow — kept because it is exported and tested. The
+   * engine no longer reaches it.
    */
   function pickRunPair(m, nodeId, pipes, flows) {
     if (flows) {
@@ -290,6 +412,7 @@
   }
 
   /* Entries whose magnitude is within TIE_REL of the largest. Sorted list in.
+   * Part of the superseded flow rule (see `pickRunPair`).
    * The tolerance is generous because the feedback that causes oscillation is
    * itself sizeable: swapping run (20 D) for branch (60 D) moves the effective
    * length by 40 diameters, which on DN100 is about 4 m of pipe — easily
@@ -302,15 +425,33 @@
     return sorted.filter(function (e) { return (top - e.mag) / top <= TIE_REL; });
   }
 
+  /* WHICH PIPES ARE DRY THIS PASS, with a dead band (audit v0.18.66,
+   * stability review). A dry pipe is not part of any fitting (see
+   * `fittingsAtNode`). The solver reports every flow below Q_MIN as exactly 0,
+   * so one cut-off at Q_MIN let a take-off whose demand sits at Q_MIN flip
+   * every pass: wet, charged a branch, solved a hair under Q_MIN, reported 0,
+   * dry, uncharged, solved a hair over, wet again. So a pipe changes state
+   * only past a margin: a wet pipe goes dry below Q_MIN / 2, a dry one goes
+   * wet at 2 Q_MIN. `was` is the previous pass's map; without one the cut-off
+   * is Q_MIN. */
+  function dryPipes(m, flows, was) {
+    var qMin = FD.hydraulics.Q_MIN, out = {};
+    m.pipes.forEach(function (p) {
+      var lim = !was ? qMin : was[p.id] ? 2 * qMin : qMin / 2;
+      if (Math.abs(flows[p.id] || 0) < lim) out[p.id] = true;
+    });
+    return out;
+  }
+
   /* Total fitting equivalent length charged to each pipe, plus the fitting
    * codes for the calculation sheet. */
-  function fittingsByPipe(m, flows, warnings) {
+  function fittingsByPipe(m, flows, warnings, dry) {
     var byPipe = {};
     m.pipes.forEach(function (p) { byPipe[p.id] = { el: 0, sumK: 0, types: [] }; });
     var kSet = (m.settings.dw && m.settings.dw.kSet) || 'threaded';
 
     m.nodes.forEach(function (n) {
-      fittingsAtNode(m, n.id, flows, warnings).forEach(function (f) {
+      fittingsAtNode(m, n.id, flows, warnings, dry).forEach(function (f) {
         var p = M.pipe(m, f.pipe);
         if (!p || !byPipe[p.id]) return;
         var bore_mm = M.pipeBore(m, p) * 1000;
@@ -380,7 +521,20 @@
              * conservative in the direction that matters, since its real loss
              * is smaller still. */
             var qEff = Math.max(f.qRatio, FD.tees.qRatios[0]);
-            var vRatio = (1 / qEff) * f.aRatio;             // w_c / w_leg
+            /* BELOW THE TABLE'S SMALLEST AREA RATIO THE BRANCH FRAME IS HELD
+             * TOO (audit v0.18.66). `branchK` holds zeta_c at the 0.09 row, but
+             * converting with the true ratio made the leg's K fall as
+             * (Fb/Fc)^2: a DN15 take-off from DN100 (Fb/Fc 0.024) came out at
+             * K 0.014 against a flat 2.4, a branch with almost no loss. That
+             * is an extrapolation after all. The rule at both ends of the
+             * table is now the same: outside it, the coefficient is held at
+             * the table's edge in the frame of the SMALLER, faster leg. Below
+             * 0.09 that is the branch, so the ratio is held at 0.09 here.
+             * Above 1.0 it is the common leg, which is what `branchK` already
+             * does: a DN40 riser into a DN200 header is charged at the riser
+             * velocity (see the note in engine.html section 4.4). */
+            var aEff = Math.max(f.aRatio, FD.tees.areaRatios[0]);
+            var vRatio = (1 / qEff) * aEff;                 // w_c / w_leg
             var kLocal = zc * vRatio * vRatio;
             /* A COMBINING BRANCH CAN BE NEGATIVE and that is real physics — the
              * faster stream gives kinetic energy to the slower (Idel'chik 7-2).
@@ -504,10 +658,11 @@
    * resolution and nothing else. Michael: "logic would say the most remote
    * should be AHU-12 or 13."
    *
-   * With the valves at their design position the same model ranks by pipework:
-   * AHU-13 first, AHU-9, AHU-14, AHU-8, and AHU-4 LAST. That ordering does not
-   * move whatever the valves were last doing, because it is a property of the
-   * pipe.
+   * With the valves at their design position the same model ranks by pipework,
+   * with AHU-4 LAST. That ordering does not move whatever the valves were last
+   * doing, because it is a property of the pipe. (AHU-13 was first until the
+   * tee run rule of 2026-10-10; it is now AHU-12, with its mirror AHU-10 under
+   * a millimetre behind — see closed.test.js.)
    *
    * THE DESIGN POSITION IS FULL TRAVEL. It is not "no valve" — the valve is a
    * real resistance at 100% and stays in the circuit, which is what a design
@@ -528,7 +683,9 @@
     var flows = prev && prev.flow ? prev.flow : null;
     var simulating = (m.settings.calcMode === 'simulation');
     M.riserPipes(m);                       // materialise vertical riser links
-    var fits = fittingsByPipe(m, flows, warnings);
+    var dryWas = (prev && prev.network && prev.network.dry) || null;
+    var dry = flows ? dryPipes(m, flows, dryWas) : null;
+    var fits = fittingsByPipe(m, flows, warnings, dry);
     var method = FD.hydraulics.method(m.settings.frictionMethod);
     var s = m.settings;
     var rho = (s.fluid && s.fluid.density) || 998;
@@ -1025,7 +1182,8 @@
       }
     });
 
-    return { nodes: nodes, links: links, omitted: omitted, warnings: warnings, rho: rho };
+    return { nodes: nodes, links: links, omitted: omitted, warnings: warnings, rho: rho,
+             dry: dry };
   }
 
   // --------------------------------------------------------------- solve
@@ -1045,24 +1203,36 @@
   function solveCore(m, maxPasses) {
     var net = build(m, null);
     var res = FD.solver.solve(net);
-    var passes = 1, stable = false, prev = signature(net, res);
+    res.network = net;
+    var passes = 1, stable = false, prev = signature(net, res), sigSame = false;
+
+    /* UNDER A K METHOD THE FLOWS MUST SETTLE TOO (audit v0.18.66, stability
+     * review). The signature holds fitting types and flow signs, which is all
+     * an equivalent length depends on. A flow-ratio branch K also depends on
+     * Qb/Qc from the previous pass, which the signature cannot see. So the
+     * loop stopped while the flows were still moving: on the Data Hall under
+     * Darcy-Weisbach it reported cross-connector P280 at 9.2 L/s against a
+     * settled 13.0, 30% short. Under a K method the loop now also waits for
+     * the largest flow change between passes to fall to FLOW_SETTLED_REL of
+     * the largest flow, with up to K_MAX_PASSES passes. The shipped models
+     * settle in 2 to 9. */
+    var kMode = FD.hydraulics.method(m.settings.frictionMethod).fittingMode === 'K';
+    if (kMode) maxPasses = Math.max(maxPasses, K_MAX_PASSES);
 
     while (passes < maxPasses) {
+      /* Each result carries its network, so every later build — here, in
+       * auto-sizing and in the pump balance — reads the dry pipes of the pass
+       * before it (`dryPipes`). */
       var next = build(m, res);
       var nextRes = FD.solver.solve(next);
+      nextRes.network = next;
       passes++;
       var sig = signature(next, nextRes);
+      sigSame = sig === prev;
+      var settled = sigSame && (!kMode || flowsSettled(res, nextRes));
       net = next; res = nextRes;
-      if (sig === prev) { stable = true; break; }
+      if (settled) { stable = true; break; }
       prev = sig;
-    }
-
-    if (!stable && passes >= maxPasses) {
-      res.warnings = (res.warnings || []).concat([{
-        code: 'FITTING_OSCILLATION',
-        message: 'Simulation did not stabilize in ' + maxPasses + ' passes. ' +
-                 'Flow directions may be marginal somewhere in the network.'
-      }]);
     }
 
     /* Pumps in 'auto' mode re-size on every solve, so the duty tracks the model
@@ -1117,6 +1287,20 @@
           res.pumpBalance = { share: share, pumps: parallel.length };
         }
       }
+    }
+
+    /* ADDED LAST, so it reaches the caller. Auto-sizing and the parallel-pump
+     * balance above each replace `res` with a later solve, and until v0.18.66
+     * the warning went with the replaced one: on any model with an auto pump an
+     * unsettled pass loop was reported as nothing (audit, stability review). */
+    if (!stable) {
+      res.warnings = (res.warnings || []).concat([{
+        code: 'FITTING_OSCILLATION',
+        message: 'Simulation did not stabilize in ' + passes + ' passes. ' +
+                 (kMode && sigSame
+                   ? 'The tee flow ratios are still moving; the flows are approximate.'
+                   : 'Flow directions may be marginal somewhere in the network.')
+      }]);
     }
 
     return { res: res, net: net, passes: passes, sizing: sizing, stable: stable };
@@ -1603,6 +1787,15 @@
      * answer. §17C. */
     var controls = yield* runControlsAutoGen(m, core, maxPasses, opts);
     if (controls.acted) core = controls.core;
+    /* FOLLOWERS TAKE THE LEADER'S FINAL POSITION (v0.18.66, found while
+     * re-baselining the tee run rule). The search restores a cached best point
+     * — `act.set(best.x); cur = best.c` — without rebuilding, and `applySyncs`
+     * only runs inside `build`. So a synced follower kept the speed or opening
+     * of the LAST PROBE, one step off its leader: three ganged pumps reported
+     * 73.6 / 73.5 / 73.5%. The flows were right — `best.c` was solved with the
+     * followers at `best.x` — so this re-copy makes the model match the answer
+     * it reports, and moves nothing in it. */
+    applySyncs(m);
 
     var net = core.net, res = core.res, passes = core.passes, sizing = core.sizing;
     res.controls = controls.report;
@@ -4329,7 +4522,9 @@
        * data hall the whole spread is 0.57% — the valves' one-percent travel
        * resolution — and it picked AHU-4, the LEAST remote of the fourteen
        * (Michael, 2026-08-25: "logic would say the most remote should be
-       * AHU-12 or 13"). The new criterion gives AHU-13 in BOTH modes.
+       * AHU-12 or 13"). The new criterion gives AHU-12 or 13 in both modes:
+       * AHU-12 in DESIGN since the tee run rule of 2026-10-10, AHU-13 in
+       * SIMULATION with the stored valve openings.
        *
        * DESIGN DOES NOT MOVE, and the pump sizer is not orphaned. With the
        * valves at full travel (DS.1) the two criteria rank identically, and
@@ -5128,6 +5323,21 @@
 
   /* Fingerprint of the fitting assignment plus flow directions — if this is
    * unchanged between passes, the two-pass loop has converged. */
+  /* Largest flow change between two passes, as a fraction of the largest
+   * flow. */
+  function flowChange(a, b) {
+    var dq = 0, qmax = 0;
+    Object.keys(b.flow).forEach(function (k) {
+      var q = b.flow[k] || 0;
+      qmax = Math.max(qmax, Math.abs(q));
+      dq = Math.max(dq, Math.abs(q - ((a.flow && a.flow[k]) || 0)));
+    });
+    return qmax > 0 ? dq / qmax : 0;
+  }
+  function flowsSettled(a, b) { return flowChange(a, b) <= FLOW_SETTLED_REL; }
+  var FLOW_SETTLED_REL = 1e-3;
+  var K_MAX_PASSES = 20;
+
   function signature(net, res) {
     return net.links.map(function (l) {
       var q = res.flow[l.id] || 0;

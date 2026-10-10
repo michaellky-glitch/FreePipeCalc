@@ -16,12 +16,17 @@ equations, the valve law, the affinity laws and the heat transport are
 correct. Section 5 lists what was checked.
 
 The audit found four calculation defects. This version corrects all four.
-Section 2 gives each defect, the correction, the test, and the measured
-change to the shipped models.
 
-The audit also found three items that need a decision from you. They change
-results on many models, or they reverse a recorded decision. This version
-does **not** change them. Section 3 gives the measured effect of each.
+Your decisions of 2026-10-10 settled two items: the run of a tee (now the
+stream that goes straight) and the heat exchanger model (intended, no
+change). A review of the new tee rule found five defects in the loop that
+assigns the fittings, all also in v0.18.65, and one in the flow-ratio
+coefficient. A re-baseline found one more, in ganged devices.
+This version corrects all of them.
+
+Section 2 gives each defect, the correction, the test, and the measured
+change to the shipped models. Section 3 lists the items that still need a
+decision.
 
 | # | Correction | Mode | Change to shipped results |
 |---|---|---|---|
@@ -29,6 +34,10 @@ does **not** change them. Section 3 gives the measured effect of each.
 | 2.2 | The thermal solve uses the water properties at the source temperature | Both | Coil ΔT +0.56% at 6 °C. Control positions do not change. |
 | 2.3 | A ΔP sensor reads the piezometric difference | SIMULATION | None. All shipped sensors have both tappings at one level. |
 | 2.4 | A fitting charged to a pump, valve or equipment link is added to the loss | Both | Two test fixtures only: pump head +0.82%, branch flow up to 0.6%. |
+| 2.5 | The run of a tee is the stream that goes straight (decided 2026-10-10) | Both | 3-floor riser pump head +9.7% (Hazen-Williams), +22% (Darcy-Weisbach). Other models −2.4% to +2.2%. |
+| 2.6 | The fitting passes settle on the model, not on the drawing | Both | Data Hall flows up to 2.6 L/s (Hazen-Williams). Darcy-Weisbach solves on looped models now run to a settled answer. |
+| 2.7 | The flow-ratio K holds the table edge below Fb/Fc = 0.09 | Both, Darcy-Weisbach only | Small take-offs from large mains get a realistic K. |
+| 2.8 | A ganged follower reports its leader's final position | SIMULATION | Reported speed or opening only. Flows do not change. |
 
 ---
 
@@ -166,56 +175,169 @@ straight run with a pipe either side. No expected value changed.
 `stacked-riser` branch flows up to +0.6%. No example model has this
 condition.
 
----
+### 2.5 The run of a tee is the stream that goes straight — decided
 
-## 3. Items for your decision — not changed
+**Decision (2026-10-10):** "flow going straight will be evaluated based on
+straight through, flow turning gets the turning coefficient."
 
-### 3.1 Which leg of a tee is the run
+**Defect.** The run was the pair of legs with the largest inflow and the
+largest outflow (`pickRunPair`). Standard fitting data (ASHRAE, Crane,
+Idel'chik) defines the run by geometry. When a side branch took more flow
+than the straight leg, the program gave the run coefficient to the stream
+that turned and the branch coefficient to the stream that went straight.
+With Darcy-Weisbach, the Idel'chik flow-ratio curve went on the wrong leg.
+On the data hall model the two rules disagreed at 30 of 51 tees.
 
-The program takes the run as the pair of legs with the largest inflow and the
-largest outflow (`pickRunPair`, engine.html section 4.3). Standard fitting
-data (ASHRAE, Crane, Idel'chik) defines the run by geometry: the two
-collinear legs. The branch coefficient is for the stream that turns.
+**Correction** (`fittingsAtNode`, `goesStraight`). The flow sets dividing or
+combining and the charged legs, as before. A charged leg is the run if it is
+less than 8° from a leg on the common side. This is the program's one
+definition of "straight": the deviation at which the elbow rule charges no
+elbow. (The first measurement in this report used 30°.) The quantity of flow
+has no effect. With it:
 
-When a side branch takes more flow than the straight leg, the two rules
-disagree. The program then gives the run coefficient to the turning stream
-and the branch coefficient to the straight stream. With Darcy-Weisbach, the
-Idel'chik flow-ratio curve is then applied to the wrong leg.
+- A leg with no flow is not part of the fitting. A fill connection is no
+  longer charged "T-br-c" against 0.00 L/s (Tutorial 01, N0 → N4).
+- A cross can have two legs on the common side. A charged leg is then the run
+  only if the leg in line with it can supply its flow, within 2%.
+- A leg with zero length has no direction, so no leg is in line with it.
+- One common leg has one run. In a very narrow Y, only the straighter leg is
+  the run, and neither leg if they are within 2° of each other.
 
-This is common. On the data hall model the two rules disagree at 30 of 51
-tees.
+**Test.**
+- `model.test.js`: the "second pass" section now pins the new rule. The
+  turning leg that carries 92% of the flow gets the Idel'chik K
+  357.5/144 = 2.4826 by hand. New sections cover the cross, the zero-length
+  leg and the narrow Y, each from continuity or geometry.
+- `supply.test.js`: the 3-floor riser by hand, 46.06 m.
+- `simulation.test.js`: the ring main pump heads, 270.96 / 260.17 / 255.72 /
+  251.98 kPa for 1 to 4 pumps. They come from a separate solver written from
+  the drawing and the published tables. With the old rule, that solver gives
+  the old engine's heads to 0.01 kPa. The engine agrees with it to 0.03 kPa.
 
-A geometric rule was measured on a copy of the engine. In it, a charged leg
-is the run when it is within 30° of straight from the common leg, and a leg
-with no flow is not charged:
+**Change to shipped results.** DESIGN, auto-sized pump head, v0.18.65 against
+this version. The figures include sections 2.6 and 2.7.
 
-| Model | Hazen-Williams pump head | Darcy-Weisbach pump head |
+| Model | Hazen-Williams | Darcy-Weisbach |
 |---|---|---|
-| 3-floor riser | +9.7% | +22.1% |
-| Data centre redundant ring main | +0.4% | +0.6% |
-| Data centre ring | +0.3% | +0.5% |
-| Tutorial 2 part load | +0.7% | +0.2% |
+| 3-floor riser | +9.68% | +22.05% |
+| Data centre ring | +1.51% | +2.18% |
+| Data centre redundant ring main | +0.36% | +0.57% |
+| Tutorial 2 part load | +0.71% | +0.24% |
+| Economizer trim | +0.07% | +0.07% |
 | Parallel branches | +0.04% | +0.04% |
-| Stacked riser | −0.6% | −2.3% |
+| Stacked riser | −0.69% | −2.42% |
 
 Models whose pumps are not auto-sized show no change in pump head. Their
-pressures and flows change instead.
+flows change instead. On the Data Hall the largest change is 2.6 L/s
+(Hazen-Williams) and 11.9 L/s (Darcy-Weisbach). The DESIGN index coil is
+AHU-12 (was AHU-13) with Hazen-Williams. On the ring mains under Darcy-Weisbach, the flow in the
+discharge ladder moves by up to 8 L/s, because the old rule gave the run to
+the turning leg there.
 
-This change reverses a recorded rule and changes results on most models. It
-needs your decision. The patch is small: about ten lines in `fittingsAtNode`.
+### 2.6 The fitting passes settle on the model, not on the drawing
 
-A related item: a tee with a leg that has no flow, for example a fill
-connection on a closed circuit, is charged as a combining tee. The leg with
-no flow gets a fitting. Its loss is zero, but the sheet shows the fitting
-(Tutorial 01, pipe N0 → N4, "T-br-c").
+The program assigns the fittings from the flows of the previous pass, and
+repeats until the assignment settles. A review of section 2.5 found these
+defects in that loop. All five are also in v0.18.65. The new rule makes
+defects 1 and 2 larger.
 
-### 3.2 The heat exchanger model
+1. **The first pass read the drawing.** Without flows, it took a pipe drawn
+   away from a node as an outlet. On a looped header, two different
+   solutions can each agree with their own fittings, and that guess selected
+   one of them. On the Data Hall, a reversal of all the pipes moved
+   cross-connector P280 from +6.9 to −6.8 L/s and the index coil from AHU-12
+   to AHU-10. A mirror-symmetric double header split 19 / 41 L/s.
+   **Now** the first pass charges no tee.
+2. **Darcy-Weisbach stopped early.** The loop stopped when the fitting types
+   and the flow signs repeated. The flow-ratio K also depends on the flows,
+   so the flows still moved. On the Data Hall, P280 was 9.2 L/s against a
+   settled 13.0 L/s. **Now** a K method also waits until no flow changes by
+   more than 0.1% of the largest flow, with a maximum of 20 passes.
+3. **The oscillation warning was lost.** Auto-sizing and the parallel-pump
+   balance replace the result, and the warning went with the old result.
+   **Now** the program adds the warning last.
+4. **A take-off at exactly Q_MIN changed state at each pass.** The solver
+   reports a flow below Q_MIN as 0, so the leg was wet, then dry, then wet.
+   **Now** a leg becomes dry below Q_MIN/2 and wet above 2·Q_MIN.
+5. **An elbow at a corner fed from both sides went to the pipe drawn last.**
+   A symmetric diamond split 10.21 / 9.79 L/s. **Now** the program charges
+   an elbow only where one pipe feeds the other.
+
+**Test** (`model.test.js`). The symmetric double header gives 30 / 30 L/s
+with zero cross flow in three drawings, under both methods. The diamond gives
+10 / 10 L/s in both drawing orders. A take-off at Q_MIN settles. On the Data
+Hall under Darcy-Weisbach, one more pass moves no flow by more than 0.2% of
+the largest. A 2-pass solve of a model with an auto pump reports
+FITTING_OSCILLATION. Each of these tests fails on the engine without the
+correction.
+
+**Cost.** Hazen-Williams models settle in 3 passes, as before. Under
+Darcy-Weisbach most shipped models settle in 3 passes, the two ring mains in
+9 and the Data Hall in 13 (5 before, not settled). A Darcy-Weisbach solve of
+the Data Hall thus does 2.6 times as many passes.
+
+### 2.7 The flow-ratio K holds the table edge below Fb/Fc = 0.09
+
+**Defect.** Idel'chik's tables cover 0.09 ≤ Fb/Fc ≤ 1.0. `branchK` holds
+ζ<sub>c</sub> at the 0.09 row, but the conversion into the frame of the
+branch used the true ratio. So below the table the leg's K fell as
+(Fb/Fc)². A DN15 take-off from a DN100 main (Fb/Fc = 0.024) got K = 0.16 at
+Qb/Qc = 0.05, and 0.014 at Qb/Qc = 1, against a flat 2.4. On the Data Hall,
+24 of 57 flow-ratio branches are below the table.
+
+**Correction.** Outside the table, the coefficient is held at the table edge
+in the frame of the smaller leg, because the loss follows the velocity in
+that leg. Below 0.09 the branch is the smaller leg, so the conversion is also
+held at 0.09. Above 1.0 nothing changes. The common leg is then the smaller
+leg, and the program already charges the loss at its velocity (the DN40
+riser into a DN200 header in engine.html section 4.4).
+
+**Test** (`model.test.js`). DN15 off DN100 at Qb/Qc = 0.05:
+2.80 × (0.09 / 0.1)² = 2.268 by hand. DN100 off DN25 holds row 1.0.
+DN50 off DN100 is inside the table and does not change.
+
+### 2.8 A ganged follower reports its leader's final position
+
+**Defect.** The control search ends on its best point without a rebuild. The
+followers of a sync group only copy the leader in `build`, so they kept the
+position of the last trial. Three ganged pumps reported 73.6 / 73.5 / 73.5%.
+The flows were correct.
+
+**Correction.** `solveModelGen` copies the leader's position to the
+followers after the control loop.
+
+**Change to shipped results.** Reported follower speed or opening only.
+
+---
+
+## 3. Items for your decision
+
+### 3.1 The price of a turn of 8° to 75° at a tee
+
+Under the decided rule, a turn of 8° or more at a tee is a branch, and it gets
+the full 90° tee branch coefficient. At an elbow, the same turn gets the 45°
+elbow value. A 45° lateral and a Y also get the 90° branch coefficient.
+
+Example: `datacentre-ring`, node N31, a five-way manifold with four dry legs.
+The live leg P36 is 18.4° from straight. It now gets a tee branch, 6.40 m
+(K 2.30) at DN100. An elbow there gets 1.58 m (K 0.28).
+
+Options:
+
+- (a) Keep. A turn is a turn. This version does (a).
+- (b) At a tee, charge a turn of 8° to 75° as a run plus a 45° elbow.
+- (c) When only two legs have flow, use the elbow rule.
+
+This is written in engine.html section 15 as a limit.
+
+### 3.2 The heat exchanger model — decided: intended
 
 A heat exchanger holds its stated load at all flows, until its ΔT reaches the
-Design ΔT limit. A real coil at part flow gives a larger ΔT and loses less
-capacity (effectiveness-NTU). The present model is conservative for valve
-and pump selection. It does not show low-ΔT behaviour. This is now in
-engine.html section 15. A coil model against flow is a large change.
+Design ΔT limit.
+
+**Decision (2026-10-10):** this is the intended method. No change. The
+limitation note is removed from engine.html section 15, and section 8.3 now
+says that the method is intended.
 
 ### 3.3 The control valve characteristic
 
@@ -342,9 +464,11 @@ notes.
 
 ## 6. Verification
 
-- All twelve suites pass: 3001 assertions, 0 failures. The base had 2969.
-- 32 assertions are new: 18 for the pump check valve, 6 for the fluid
-  properties, 3 for the ΔP sensor, and 5 for device-link fittings.
+- All twelve suites pass: 3056 assertions, 0 failures. The base had 2969.
+- 32 assertions are new for sections 2.1 to 2.4: 18 for the pump check
+  valve, 6 for the fluid properties, 3 for the ΔP sensor, and 5 for
+  device-link fittings. Sections 2.5 to 2.7 add and replace more (section
+  2.5 and 2.6, "Test").
 - Each new expected value is a hand calculation or an independent
   comparison, not a value read back from the code.
 - The re-baseline in section 2 was measured by solving each shipped model with

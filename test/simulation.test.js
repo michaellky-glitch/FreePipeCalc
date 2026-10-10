@@ -1120,9 +1120,55 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
    * the expected direction; anything else would have meant the fix did
    * something other than what it says. These are RECORDED figures, not hand
    * calculations — the hand-calculable statement about this fix is the symmetry
-   * assertion in model.test.js, which needs no coefficient at all. */
+   * assertion in model.test.js, which needs no coefficient at all.
+   *
+   * RE-DERIVED 2026-10-10, NOT RE-RECORDED, for the tee run rule (Michael,
+   * deciding audit v0.18.66 item 3.1: "flow going straight will be evaluated
+   * based on straight through, flow turning gets the turning coefficient").
+   * 270.1 / 259.3 / 255.0 / 251.2 were engine output frozen at v0.9.0; the
+   * engine just before the change read 270.08 / 259.21 / 254.87 / 251.16.
+   *
+   * WHY EVERY HEAD RISES. The old rule gave the run to the leg carrying MORE
+   * water, and in this ladder that was the TURNING leg:
+   *   1 pump   N18, pump 1 discharge: P34 goes straight on (8.74 L/s) and is
+   *            now the run; P35 turns (11.26 L/s) and is now the branch,
+   *            +0.55 kPa. N5 on the ring: P8, straight on from N7 (1.94 L/s),
+   *            is now the run; P16, turning in from N10 (8.73 L/s), the
+   *            branch, +0.31 kPa. N37/N51/N53: the dry risers drop out and the
+   *            run moves along pipes in series at 20 L/s, so 0.
+   *   2 pumps  the head is sized at the PRE-BALANCE split, 6.81 / 13.19 L/s
+   *            (5.36 / 14.64 under the old rule). N53: P89, straight on to
+   *            pump 1, is now the run, and the DN125 riser P88, turning down
+   *            to pump 2, the branch, +0.32 kPa. N5 as above, +0.31.
+   *   2-4      at the 2-in / 2-out crosses (N14; N12 at 3 pumps; N10 too at
+   *            4) an outlet is the run only if the inlet in line with it can
+   *            supply its flow; the rest of its water turns.
+   *
+   * THE FIGURES ARE AN INDEPENDENT RE-SOLVE of this fixture, not engine
+   * output: a separate Newton solver (numpy) written from the drawing
+   * geometry, sch 40 bores (OD - 2t), ASHRAE Eq (6) as printed (6.819, 1.852,
+   * 1.167), Carrier Table 11 (ft x 0.3048 to 2 dp: DN100 run 2.04 m, branch
+   * 6.40 m, E90 3.05 m), 200 kPa at 20 L/s on water at 998.207 kg/m3, and the
+   * rule as decided. Run with the OLD rule, the same solver gives
+   * 270.09 / 259.22 / 254.88 / 251.17, the old engine to 0.01 kPa. The engine
+   * now agrees with it to 0.03 kPa in all four cases; it reads slightly low
+   * because the sizer stops within 1e-4 of the 20 L/s target.
+   *
+   * The 1-pump case by hand, h = r'.L.Q^1.852 with
+   * r' = 10.6663 / (120^1.852 x 0.10226^4.871) = 100.25 per m:
+   *   equipment  200 000 / (998.207 x 9.81)                         20.4240 m
+   *   series     P80 P79 P85 P87 P89 P50 P66 P64 P78 P76 P40 P41,
+   *              44.607 m L_eff at 20 L/s x 0.071549 m/m             3.1916 m
+   *   L1 ring    north 103.90 m, south 73.90 m L_eff;
+   *              Qn/Qs = (73.90/103.90)^(1/1.852) = 0.83196,
+   *              Qn = 9.083 L/s: 100.25 x 103.90 x 0.009083^1.852    1.7232 m
+   *   ladder     N18 to N20 via P35 P26 P21 P16 P4 P3 P37 at the solved
+   *              flows (8.90 m at 11.263 L/s, 4.54 at 10.160, 4.54 at 9.839,
+   *              20.44 at 8.735, 10.00, 23.05 and 39.45 at 10.676);
+   *              the route via P34 closes the loops at the same figure 2.3372 m
+   *   total      27.6759 m x 998 x 9.81 / 1000 = 270.96 kPa */
   const file = __dirname + '/fixtures/data_centre_redundant_ring_main.pnet (fixed).json';
-  const expectHead = { 1: 270.1, 2: 259.3, 3: 255.0, 4: 251.2 };   // kPa
+  const expectHead = { 1: 270.96, 2: 260.17, 3: 255.72, 4: 251.98 };   // kPa
 
   [1, 2, 3, 4].forEach(n => {
     const m = M.fromJSON(JSON.parse(fs.readFileSync(file, 'utf8')));
@@ -1134,8 +1180,8 @@ section('Parallel pumps share in DESIGN (the degeneracy fix)');
     const tot = qs.reduce((a, b) => a + b, 0);
 
     near(n + ' pump(s): total flow is the circuit flow', tot, 0.020, 0.0015);
-    near(n + ' pump(s): head matches the pre-existing sizer answer',
-         ps[0].pump.head * RHO * G / 1000, expectHead[n], 0.5);
+    near(n + ' pump(s): head matches the independent re-solve',
+         ps[0].pump.head * RHO * G / 1000, expectHead[n], 0.1);
 
     if (n > 1) {
       const spread = (Math.max(...qs) - Math.min(...qs)) / Math.max(...qs);

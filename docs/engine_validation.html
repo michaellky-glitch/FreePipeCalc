@@ -372,8 +372,8 @@ footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);
 <h2 id="fittings">4. Fitting classification</h2>
 <p>The program finds fittings from the geometry at each node. It uses a two-pass classifier:</p>
 <ol class="steps">
-  <li><p><strong>Pass 1 (geometric guess):</strong> At each node, the code counts pipes and measures their angles. Pipes with deviation less than 8° are straight-through and receive no fitting. Pipes with deviation 8–75° get a 45° elbow. Pipes with deviation above 75° get a 90° elbow. Three-pipe nodes are classified as tees.</p></li>
-  <li><p><strong>Pass 2 (with converged flows):</strong> Actual flow directions decide which tee legs are the run and which is the branch, and whether the tee is dividing or combining.</p></li>
+  <li><p><strong>Pass 1 (no flows):</strong> At each node, the code counts pipes and measures their angles. Pipes with deviation less than 8° are straight-through and receive no fitting. Pipes with deviation 8–75° get a 45° elbow. Pipes with deviation above 75° get a 90° elbow. Three-pipe nodes are tees. Pass 1 charges no tee, because it does not know the flow directions.</p></li>
+  <li><p><strong>Pass 2 (with solved flows):</strong> The flow directions decide whether the tee is dividing or combining, and which legs it charges. A charged leg that is less than 8° from a leg on the common side is the run. A charged leg that turns is the branch (Calculation Method, section 4.3).</p></li>
 </ol>
 
 <h3>Tee at N1</h3>

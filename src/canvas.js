@@ -4666,7 +4666,7 @@
     var usesK = (method.fittingMode === 'K');
     var rho = (m.settings.fluid && m.settings.fluid.density) || 998;
     var kSet = (m.settings.dw && m.settings.dw.kSet) || 'threaded';
-    var fits = FD.network.fittingsAtNode(m, nodeId, res.flow, []);
+    var fits = FD.network.fittingsAtNode(m, nodeId, res.flow, [], res.network.dry);
     var total = 0;
     fits.forEach(function (f) {
       var link = res.network.links.find(function (l) { return l.id === f.pipe; });

@@ -555,28 +555,46 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 
 <h3 id="fit-tee">4.3 How a tee is charged</h3>
-<p>The direction of the flow sets which leg is the "run" and which is the "branch". The program knows the direction only after the solve. It therefore does three steps:</p>
+<p>The flow sets which legs of a tee the program charges. The geometry sets the coefficient for each charged leg:</p>
+<ul>
+  <li>A stream that goes <strong>straight</strong> through the fitting gets the <strong>run</strong> coefficient.</li>
+  <li>A stream that <strong>turns</strong> gets the <strong>branch</strong> coefficient.</li>
+</ul>
+<p>"Straight" has the same meaning as for an elbow: a deviation of less than 8° (see the table below). A leg that deviates by 8° or more turns. At a tee, the program charges that turn as a tee branch, not as an elbow.</p>
+<p>The program knows the flow direction only after the solve. It therefore does these steps:</p>
 <ol>
-  <li>It solves with a geometric estimate. The straightest pair of legs is the run.</li>
-  <li>It sets the run and the branch again from the solved flow directions.</li>
-  <li>It solves again.</li>
+  <li>It solves with no tee fittings. Without flows, it cannot know which legs of a tee to charge. It charges the elbows only.</li>
+  <li>From the solved flows, it finds the charged legs of each tee and classifies each leg as run or branch.</li>
+  <li>It solves again. It repeats steps 2 and 3 until the result settles.</li>
 </ol>
-<p>This settles in one or two passes. If the assignment does not settle, the program keeps the last solution and gives a warning.</p>
+<p>With Hazen-Williams, the result settles when the fittings and the flow directions do not change from one pass to the next. This usually occurs at the third pass. With Darcy-Weisbach, the branch coefficient also changes with the flow ratio (section 4.4). The program therefore also waits until no flow changes by more than 0.1% of the largest flow from one pass to the next. It does a maximum of 20 passes. If the result does not settle, the program keeps the last solution and gives the warning <code>FITTING_OSCILLATION</code>.</p>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>The first pass does not use the direction in which the pipes were drawn. Before v0.18.66, the first pass took a pipe drawn away from a node as an outlet. On a looped header, two different solutions can each agree with their own fittings, and that guess selected one of them. On the Data Hall example, a reversal of all the pipes moved the index terminal to a different coil. Now the drawing direction has no effect on the result. Before v0.18.66, the program also stopped a Darcy-Weisbach solve when the fittings stopped changing, while the flows still changed. On the same example, one flow was 30% short of its settled value.</p>
+</div>
 <p>The charge follows the flow. Each stream pays for its own passage through the fitting:</p>
 <ul>
-  <li><strong>Dividing tee</strong> (one pipe in, two out): the program charges both <strong>outlets</strong>.</li>
-  <li><strong>Combining tee</strong> (two pipes in, one out): the program charges both <strong>inlets</strong>. In a combining tee the branch inflow has most of the loss. A charge on the outlet only would be too small.</li>
-  <li><strong>Elbow</strong>: the program charges the downstream pipe.</li>
+  <li><strong>Dividing tee</strong> (one pipe in, two out): the program charges both <strong>outlets</strong>. The inlet is the common leg.</li>
+  <li><strong>Combining tee</strong> (two pipes in, one out): the program charges both <strong>inlets</strong>. The outlet is the common leg. In a combining tee the branch inflow has most of the loss. A charge on the outlet only would be too small.</li>
+  <li><strong>Elbow</strong>: the program charges the downstream pipe. If both pipes flow into the node (a demand at a corner), or both flow out of it, or one pipe has no flow, no stream turns from one pipe into the other. The program then charges no elbow.</li>
 </ul>
 <div class="note rule">
   <span class="tag">NOTE:</span>
   <p>The charged leg can be a pump, a valve or equipment. This occurs when a pipe connects directly to the end node of a device. The program adds the fitting loss to the device link as a separate term. The term uses the method's own form: equivalent length at Q<sup>1.852</sup> with Hazen-Williams, and K at Q² with Darcy-Weisbach. Before v0.18.66 the program listed this fitting but did not add its loss.</p>
 </div>
-<p>Two special cases keep the assignment stable and correct:</p>
+<p>A charged leg is the run if it is in line with a leg on the common side. The quantity of flow does not change this. A side branch that takes 90% of the water still turns, so it is the branch.</p>
+<p>Special cases:</p>
 <ul>
-  <li><strong>Ties break on geometry.</strong> When two legs carry almost the same flow, the straightest in-and-out pair becomes the run. Geometry does not depend on the solution, so the assignment cannot move. At a riser tee, this makes the vertical run the "run" and the floor take-off the "branch".</li>
-  <li><strong>A symmetric split has no run.</strong> The two charged legs leave the common leg at equal angles: a bullhead tee, or a symmetric Y. The program charges both legs as a branch. Both streams turn, and the branch coefficient is for a stream that turns.</li>
+  <li><strong>A leg with no flow is not part of the fitting.</strong> The usual example is the fill connection of a closed circuit. The flow in the other two legs then goes straight through the tee, or turns through its branch. A leg becomes dry below Q<sub>MIN</sub>/2 and wet again above 2·Q<sub>MIN</sub>. This margin prevents a leg near Q<sub>MIN</sub> from changing at each pass.</li>
+  <li><strong>A symmetric split has no run.</strong> In a bullhead tee or a symmetric Y, neither charged leg is in line with the common leg. Both streams turn, so both legs get the branch coefficient.</li>
+  <li><strong>One common leg has one run.</strong> In a very narrow Y, two charged legs can both be less than 8° from the common leg. The straighter leg is then the run. If their deviations are within 2° of each other, neither leg is the run.</li>
+  <li><strong>A cross</strong> (four legs) can have two legs on the common side. A charged leg is the run only if the leg in line with it can supply all of its flow (within 2%). If water from the other side must turn into it, it is the branch.</li>
+  <li><strong>A leg with zero length has no direction.</strong> No leg is in line with it, so a stream from it always turns.</li>
 </ul>
+<div class="note rule">
+  <span class="tag">NOTE:</span>
+  <p>Before v0.18.66, the run was the pair of legs with the largest inflow and the largest outflow. When a side branch took more flow than the straight leg, the program gave the run coefficient to the stream that turned. The rule changed in v0.18.66 (decision of 2026-10-10). On the 3-floor riser test model, the auto-sized pump head increased by 9.7% with Hazen-Williams and by 22% with Darcy-Weisbach.</p>
+</div>
 <p>The program classifies elbows by the angle between the two pipes. It measures the angle as the deviation from straight:</p>
 <div class="scroll">
 <table>
@@ -654,6 +672,8 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>
   <p>The conversion divides by the flow ratio. Thus the coefficient increases without limit as the branch flow decreases to zero. The head loss stays small, but the solver cannot use a resistance of that size. The program therefore holds the conversion at Q<sub>b</sub>/Q<sub>c</sub> = 0.1. This is the first column of the table, and it is where the published data stops. The program charges a branch that carries less than a tenth of the combined flow as if it carried a tenth. The true loss is smaller, thus the result is on the safe side.</p>
+  <p>Outside the table, the program holds the coefficient in the frame of the <strong>smaller</strong> leg, because the loss follows the velocity in that leg. Below F<sub>b</sub>/F<sub>c</sub> = 0.09 the branch is the smaller leg. The program then also holds the conversion at 0.09. Above F<sub>b</sub>/F<sub>c</sub> = 1.0 the common leg is the smaller leg. The program then holds ζ<sub>c</sub> at the 1.0 row and converts with the true ratio (see the next note).</p>
+  <p>Before v0.18.66, the program converted with the true ratio below 0.09 also. A DN15 take-off from a DN100 main (F<sub>b</sub>/F<sub>c</sub> = 0.024) got K = 0.16 at Q<sub>b</sub>/Q<sub>c</sub> = 0.05. It now gets 2.80 × (0.09 / 0.1)² = 2.27.</p>
 </div>
 
 <div class="note check">
@@ -662,7 +682,7 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 </div>
 
 <h4>When the coefficient is calculated</h4>
-<p>The coefficient depends on the flow, but the flow is the unknown that the solver must find. The program breaks this loop in the same way that it finds the run (section 4.3). It takes the flow ratio from the previous pass, and it holds that ratio for all of the next pass. It calculates the ratio again between passes, but not during a pass.</p>
+<p>The coefficient depends on the flow, but the flow is the unknown that the solver must find. The program breaks this loop in the same way that it finds the run (section 4.3). It takes the flow ratio from the previous pass, and it holds that ratio for all of the next pass. It calculates the ratio again between passes, but not during a pass. The passes continue until the flows settle (section 4.3).</p>
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>
   <p>This changes Darcy-Weisbach results for each model that has tees. It does not change Hazen-Williams results. On a fourteen-terminal example, the total flow changed by 0.5%, the flow in one branch changed by 1.4%, and the index circuit changed. Examine the index circuit again after you change to this version.</p>
@@ -1218,6 +1238,7 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   <li><strong>Design ΔT</strong> (ΔT<sub>max</sub>): if the actual ΔT would exceed the design value, the duty is capped.</li>
   <li><strong>Temperature limit</strong> (T<sub>limit</sub>): the machine cannot take the fluid past this physical limit. The limit is applied on whichever side the machine works from.</li>
 </ul>
+<p>The exchanger holds its full stated load at all flows until one of these limits applies. This is the intended method. The program does not reduce the load as the flow falls.</p>
 <h4>Overload capacity</h4>
 <p>Plant does not stop dead at its nameplate. A machine may run a stated percentage past it before the duty is held:</p>
 <div class="eq">
@@ -1626,7 +1647,8 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
   <span class="tag">IMPORTANT:</span>
   <p>Straight-pipe friction is validated. Tee losses are not.</p>
   <p>A tee is charged as a "run" or a "branch". Real tee loss depends on whether the flow <em>divides</em> or <em>combines</em>, and above all on the ratio of branch flow to combined flow. K varies over that ratio by more than a factor of ten. With Darcy-Weisbach the branch coefficient follows that ratio (section 4.4). With Hazen-Williams one equivalent length applies at all flows, and combining tees are charged the same as dividing tees.</p>
-  <p>The run is the pair of legs with the largest inflow and the largest outflow (section 4.3). If a side branch takes more flow than the straight leg, the program calls the side branch the run. The turning stream then gets the run coefficient, and the straight stream gets the branch coefficient.</p>
+  <p>Each branch coefficient is for a 90° tee. A 45° lateral and a Y get the same branch coefficient. A turn of 8° to 75° at a tee also gets the full branch coefficient, but the same turn at an elbow gets the 45° elbow value.</p>
+  <p>A tee with one dry leg is approximate if the bores are different. When the water comes in through the small side port and goes out through the run, the program uses the dividing curve, but the flow pattern is that of a combining tee. At equal bores and full flow, the two curves give the same value, 2.30.</p>
   <p>The effect is small on a network whose losses are mostly straight pipe. It is larger on short, heavily branched pipework.</p>
 </div>
 <div class="note limit">
@@ -1640,10 +1662,6 @@ V  = 0.005 / (π × 0.05248² / 4)               = 2.31 m/s
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>
   <p>Water properties follow the <strong>source</strong> temperature, and one figure serves the whole model — see section 5.1. They do not follow the temperature the solve computes at each pipe, so a circuit whose water warms along its length is calculated throughout at its source condition. For a glycol or custom fluid the properties are entered and are not varied with temperature at all.</p>
-</div>
-<div class="note limit">
-  <span class="tag">IMPORTANT:</span>
-  <p>A heat exchanger holds its stated load at all flows, until its ΔT reaches the Design ΔT limit (section 8.3). The program does not model coil heat transfer against flow, for example by effectiveness-NTU. A real coil at part flow can give a larger ΔT and lose less capacity than this model shows. Use the result for the hydraulic answer, not for coil selection.</p>
 </div>
 <div class="note limit">
   <span class="tag">IMPORTANT:</span>
